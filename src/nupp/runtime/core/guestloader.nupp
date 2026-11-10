@@ -1,0 +1,540 @@
+module nupp.runtime.core.guestloader
+
+-- Lua's binary chunks on the core. A chunk is a program of its own
+-- (`guestartifact.chunk` writes one), installed into the running program:
+-- its functions, signatures and call sites join the catalog after those
+-- already there, at ids offset by the counts before it. Frames, closures
+-- and the module cache name a function only by id, so nothing installed
+-- earlier moves: the catalog's arrays grow into room kept past their rows,
+-- and when that runs out the larger copies leave the earlier mappings to
+-- the frames that still point into them.
+--
+-- What a chunk installs stays for the program's life: an id is never
+-- reused, and its rows, code and constants outlive every frame, closure
+-- and cached module that names it. So that many chunks need few mappings
+-- of the service ledger's few hundred, their artifacts share regions of
+-- REGION_BYTES (or one of a larger chunk's own), and a chunk refused
+-- gives its room back.
+--
+-- The chunk's code names its own functions from zero; the relocations it
+-- carries say where. Offsets a row names in the chunk's bytes are rebased
+-- onto the program's data, wrapping, so every reader of `data + offset`
+-- reaches the chunk's; the tagged constant words, whose payload cannot
+-- hold such an offset, name theirs from the function's base
+-- (`guestcatalog.base`).
+const native = require("nupp.runtime.vm.intrinsics")
+const os = require("nupp.runtime.vm.os")
+const frames = require("nupp.runtime.core.frames")
+const catalog = require("nupp.runtime.core.guestcatalog")
+const instances = require("nupp.runtime.core.instances")
+const context = require("nupp.runtime.core.context")
+const strings = require("nupp.runtime.core.corestrings")
+const admission = require("nupp.runtime.core.chunkadmission")
+
+-- A binary chunk: this header, the chunk's artifact of `bytes`, then a word
+-- per relocation (chunkadmission), each its kind over the artifact offset
+-- of the operand it moves.
+export struct Header
+    magic: uint64
+    bytes: uint64
+    relocations: uint64
+end
+
+-- "\27Nupp", a zero, the format's version and a zero, little-endian.
+export const MAGIC: uint64 = 0x0001007070754E1BULL
+-- A dynamic call site's absent target, which renumbering leaves as it is.
+const ABSENT: uint64 = 0xffffffffULL
+-- The first catalog version a chunk loads into, and loads at.
+const PROFILE: uint64 = 8ULL
+-- The fewest rows a grown array has room for, and the most functions the
+-- program's target table holds (instances' bound).
+const FIRST_ROOM: uint64 = 64ULL
+const FUNCTION_LIMIT: uint64 = 1048576ULL
+const WORD: uint64 = 8ULL
+-- The least a region of chunk artifacts maps, and where each artifact in it
+-- starts a multiple of.
+const REGION_BYTES: uint64 = 1048576ULL
+const REGION_ALIGN: uint64 = 16ULL
+
+local function copy(target: uint64, source: uint64, bytes: uint64): nil
+    local at: uint64 = 0ULL
+    while at < bytes do
+        native.store64(
+            native.pointer(target),
+            native.index(at),
+            native.load64(native.pointer(source), native.index(at))
+        )
+        at = at + WORD
+    end
+end
+
+local function zero(target: uint64, bytes: uint64): nil
+    local at: uint64 = 0ULL
+    while at < bytes do
+        native.store64(native.pointer(target), native.index(at), 0ULL)
+        at = at + WORD
+    end
+end
+
+-- Fresh zeroed pages for `bytes`, or 0 when the system refuses them.
+local function map(bytes: uint64): uint64
+    if bytes == 0ULL then
+        return 0ULL
+    end
+    local mapped = os.mapPages(bytes)
+    if mapped == nil then
+        return 0ULL
+    end
+
+    return native.address(mapped as voidptr)
+end
+
+-- A copy of the `count` rows of `stride` bytes at `source`, with room for
+-- `room` rows; 0 when mapping fails.
+local function moved(source: uint64, count: uint64, stride: uint64, room: uint64): uint64
+    local target = map(room * stride)
+    if target ~= 0ULL and count ~= 0ULL then
+        copy(target, source, count * stride)
+    end
+
+    return target
+end
+
+local function roomFor(need: uint64, limit: uint64): uint64
+    local room = need * 2ULL
+    if room < FIRST_ROOM then
+        room = FIRST_ROOM
+    end
+    if room > limit then
+        room = limit
+    end
+
+    return room
+end
+
+-- Room in catalog `c` for `need` functions. Answers 1, or 0 when it cannot
+-- be made, leaving the catalog as it was.
+local function functionRoom(c: voidptr, need: uint64): uint64
+    if need <= native.load64(c, native.fieldOffset<catalog.Catalog>("capacity")) then
+        return 1ULL
+    end
+    if need > FUNCTION_LIMIT then
+        return 0ULL
+    end
+    local count = native.load64(c, native.fieldOffset<catalog.Catalog>("count"))
+    local room = roomFor(need, FUNCTION_LIMIT)
+    local records = moved(
+        native.load64(c, native.fieldOffset<catalog.Catalog>("records")),
+        count,
+        native.sizeOf<catalog.Function>(),
+        room
+    )
+    local infos = moved(
+        native.load64(c, native.fieldOffset<catalog.Catalog>("infos")),
+        count,
+        native.sizeOf<frames.FunctionInfo>(),
+        room
+    )
+    local plans = map(room * native.sizeOf<frames.WindowPlan>())
+    local targets = moved(native.load64(c, native.fieldOffset<catalog.Catalog>("targets")), count, WORD, room)
+    local bases = map(room * WORD)
+    if records == 0ULL or infos == 0ULL or plans == 0ULL or targets == 0ULL or bases == 0ULL then
+        return 0ULL
+    end
+    -- A plan names its info, so the copies are planned again over the
+    -- copied infos; frames keep the ones they were made from.
+    local i: uint64 = 0ULL
+    while i < count do
+        if frames.planFixed(
+            native.pointer(infos + i * native.sizeOf<frames.FunctionInfo>()),
+            native.pointer(plans + i * native.sizeOf<frames.WindowPlan>())
+        ) == 0ULL then
+            return 0ULL
+        end
+        i = i + 1ULL
+    end
+    local previous = native.load64(c, native.fieldOffset<catalog.Catalog>("bases"))
+    if previous ~= 0ULL then
+        copy(bases, previous, count * WORD)
+    else
+        local data = native.load64(c, native.fieldOffset<catalog.Catalog>("data"))
+        i = 0ULL
+        while i < count do
+            native.store64(native.pointer(bases), native.index(i * WORD), data)
+            i = i + 1ULL
+        end
+    end
+    native.store64(c, native.fieldOffset<catalog.Catalog>("records"), records)
+    native.store64(c, native.fieldOffset<catalog.Catalog>("infos"), infos)
+    native.store64(c, native.fieldOffset<catalog.Catalog>("plans"), plans)
+    native.store64(c, native.fieldOffset<catalog.Catalog>("targets"), targets)
+    native.store64(c, native.fieldOffset<catalog.Catalog>("bases"), bases)
+    native.store64(c, native.fieldOffset<catalog.Catalog>("capacity"), room)
+
+    return 1ULL
+end
+
+-- Room for `need` signatures.
+local function signatureRoom(c: voidptr, need: uint64): uint64
+    if need <= native.load64(c, native.fieldOffset<catalog.Catalog>("signatureCapacity")) then
+        return 1ULL
+    end
+    local room = roomFor(need, need * 2ULL)
+    local signatures = moved(
+        native.load64(c, native.fieldOffset<catalog.Catalog>("signatures")),
+        native.load64(c, native.fieldOffset<catalog.Catalog>("signatureCount")),
+        native.sizeOf<catalog.Signature>(),
+        room
+    )
+    if signatures == 0ULL then
+        return 0ULL
+    end
+    native.store64(c, native.fieldOffset<catalog.Catalog>("signatures"), signatures)
+    native.store64(c, native.fieldOffset<catalog.Catalog>("signatureCapacity"), room)
+
+    return 1ULL
+end
+
+-- Room for `need` call sites and, when the program carries them, their
+-- diagnostics.
+local function contractRoom(c: voidptr, need: uint64): uint64
+    if need <= native.load64(c, native.fieldOffset<catalog.Catalog>("contractCapacity")) then
+        return 1ULL
+    end
+    local count = native.load64(c, native.fieldOffset<catalog.Catalog>("contractCount"))
+    local room = roomFor(need, need * 2ULL)
+    local contracts = moved(
+        native.load64(c, native.fieldOffset<catalog.Catalog>("contracts")),
+        count,
+        native.sizeOf<catalog.Callsite>(),
+        room
+    )
+    if contracts == 0ULL then
+        return 0ULL
+    end
+    local current = catalog.diagnostics(c)
+    local rows: uint64 = 0ULL
+    if current ~= 0ULL then
+        rows = moved(current, count, native.sizeOf<catalog.CallDiagnostic>(), room)
+        if rows == 0ULL then
+            return 0ULL
+        end
+    end
+    native.store64(c, native.fieldOffset<catalog.Catalog>("contracts"), contracts)
+    native.store64(c, native.fieldOffset<catalog.Catalog>("rows"), rows)
+    native.store64(c, native.fieldOffset<catalog.Catalog>("contractCapacity"), room)
+
+    return 1ULL
+end
+
+-- The address of the chunk's call diagnostics, or 0 when it carries none.
+local function chunkDiagnostics(d: voidptr): uint64
+    if native.load64(d, native.fieldOffset<catalog.Descriptor>("records")) ~= native.sizeOf<catalog.DescriptorV3>() then
+        return 0ULL
+    end
+
+    return native.address(d) + native.load64(d, native.fieldOffset<catalog.DescriptorV3>("diagnostics"))
+end
+
+-- Renumbers the chunk's rows after the program's `functions`, `signatures`
+-- and `calls`, and rebases the offsets they name by `delta`.
+local function renumber(d: voidptr, functions: uint64, signatures: uint64, calls: uint64, delta: uint64): nil
+    local owners = native.load64(d, native.fieldOffset<catalog.Descriptor>("ownerCount"))
+    local i: uint64 = 0ULL
+    while i < owners do
+        local fn = catalog.functionRecord(d, i)
+        native.store64(fn, native.fieldOffset<catalog.Function>("id"), functions + i)
+        local parent = native.load64(fn, native.fieldOffset<catalog.Function>("parentPlusOne"))
+        if parent ~= 0ULL then
+            native.store64(fn, native.fieldOffset<catalog.Function>("parentPlusOne"), parent + functions)
+        end
+        native.store64(
+            fn,
+            native.fieldOffset<catalog.Function>("signature"),
+            native.load64(fn, native.fieldOffset<catalog.Function>("signature")) + signatures
+        )
+        native.store64(
+            fn,
+            native.fieldOffset<catalog.Function>("firstCall"),
+            native.load64(fn, native.fieldOffset<catalog.Function>("firstCall")) + calls
+        )
+        native.store64(
+            fn,
+            native.fieldOffset<catalog.Function>("code"),
+            native.load64(fn, native.fieldOffset<catalog.Function>("code")) + delta
+        )
+        native.store64(
+            fn,
+            native.fieldOffset<catalog.Function>("constants"),
+            native.load64(fn, native.fieldOffset<catalog.Function>("constants")) + delta
+        )
+        local lines = native.load64(fn, native.fieldOffset<catalog.Function>("lines"))
+        if lines ~= 0ULL then
+            native.store64(fn, native.fieldOffset<catalog.Function>("lines"), lines + delta)
+        end
+        i = i + 1ULL
+    end
+    local count = native.load64(d, native.fieldOffset<catalog.Descriptor>("signatureCount"))
+    local rows = native.load64(d, native.fieldOffset<catalog.Descriptor>("signatures"))
+    i = 0ULL
+    while i < count do
+        local signature = native.offset(d, native.index(rows + i * native.sizeOf<catalog.Signature>()))
+        native.store64(
+            signature,
+            native.fieldOffset<catalog.Signature>("parameters"),
+            native.load64(signature, native.fieldOffset<catalog.Signature>("parameters")) + delta
+        )
+        i = i + 1ULL
+    end
+    count = native.load64(d, native.fieldOffset<catalog.Descriptor>("contractCount"))
+    rows = native.load64(d, native.fieldOffset<catalog.Descriptor>("contracts"))
+    i = 0ULL
+    while i < count do
+        local site = native.offset(d, native.index(rows + i * native.sizeOf<catalog.Callsite>()))
+        native.store64(site, native.fieldOffset<catalog.Callsite>("id"), calls + i)
+        native.store64(
+            site,
+            native.fieldOffset<catalog.Callsite>("owner"),
+            native.load64(site, native.fieldOffset<catalog.Callsite>("owner")) + functions
+        )
+        local target = native.load64(site, native.fieldOffset<catalog.Callsite>("target"))
+        if target ~= ABSENT then
+            native.store64(site, native.fieldOffset<catalog.Callsite>("target"), target + functions)
+        end
+        native.store64(
+            site,
+            native.fieldOffset<catalog.Callsite>("signature"),
+            native.load64(site, native.fieldOffset<catalog.Callsite>("signature")) + signatures
+        )
+        i = i + 1ULL
+    end
+    local diagnostics = chunkDiagnostics(d)
+    if diagnostics ~= 0ULL then
+        i = 0ULL
+        while i < count do
+            local row = native.pointer(diagnostics + i * native.sizeOf<catalog.CallDiagnostic>())
+            local name = native.load64(row, native.fieldOffset<catalog.CallDiagnostic>("name"))
+            if name ~= 0ULL then
+                native.store64(row, native.fieldOffset<catalog.CallDiagnostic>("name"), name + delta)
+            end
+            i = i + 1ULL
+        end
+    end
+end
+
+-- Joins the relocated chunk `d`, of `bytes` mapped at its own address, to
+-- catalog `c` after its `functions` functions: rows past the counts first,
+-- then the counts, so a refusal on the way leaves the program as it was.
+-- Answers the chunk entry's id plus one, or 0.
+local function join(ctx: voidptr, c: voidptr, d: voidptr, functions: uint64): uint64
+    local signatures = native.load64(c, native.fieldOffset<catalog.Catalog>("signatureCount"))
+    local calls = native.load64(c, native.fieldOffset<catalog.Catalog>("contractCount"))
+    local owners = native.load64(d, native.fieldOffset<catalog.Descriptor>("ownerCount"))
+    local ns = native.load64(d, native.fieldOffset<catalog.Descriptor>("signatureCount"))
+    local nc = native.load64(d, native.fieldOffset<catalog.Descriptor>("contractCount"))
+    if functionRoom(c, functions + owners) == 0ULL
+        or signatureRoom(c, signatures + ns) == 0ULL
+        or contractRoom(c, calls + nc) == 0ULL
+    then
+        return 0ULL
+    end
+    local data = native.address(d)
+    local records = native.load64(d, native.fieldOffset<catalog.Descriptor>("records"))
+    copy(
+        native.load64(
+            c,
+            native.fieldOffset<catalog.Catalog>("records")
+        ) + functions * native.sizeOf<catalog.Function>(),
+        data + records,
+        owners * native.sizeOf<catalog.Function>()
+    )
+    copy(
+        native.load64(
+            c,
+            native.fieldOffset<catalog.Catalog>("signatures")
+        ) + signatures * native.sizeOf<catalog.Signature>(),
+        data + native.load64(d, native.fieldOffset<catalog.Descriptor>("signatures")),
+        ns * native.sizeOf<catalog.Signature>()
+    )
+    copy(
+        native.load64(c, native.fieldOffset<catalog.Catalog>("contracts")) + calls * native.sizeOf<catalog.Callsite>(),
+        data + native.load64(d, native.fieldOffset<catalog.Descriptor>("contracts")),
+        nc * native.sizeOf<catalog.Callsite>()
+    )
+    local rows = native.load64(c, native.fieldOffset<catalog.Catalog>("rows"))
+    if rows ~= 0ULL then
+        local at = rows + calls * native.sizeOf<catalog.CallDiagnostic>()
+        local chunk = chunkDiagnostics(d)
+        if chunk ~= 0ULL then
+            copy(at, chunk, nc * native.sizeOf<catalog.CallDiagnostic>())
+        else
+            zero(at, nc * native.sizeOf<catalog.CallDiagnostic>())
+        end
+    end
+    local program = native.load64(c, native.fieldOffset<catalog.Catalog>("data"))
+    local i: uint64 = 0ULL
+    while i < owners do
+        local id = functions + i
+        local fn = catalog.functionRecord(d, i)
+        native.store64(
+            native.pointer(native.load64(c, native.fieldOffset<catalog.Catalog>("targets"))),
+            native.index(id * WORD),
+            id
+        )
+        native.store64(
+            native.pointer(native.load64(c, native.fieldOffset<catalog.Catalog>("bases"))),
+            native.index(id * WORD),
+            data
+        )
+        local signature = native.pointer(
+            native.load64(
+                c,
+                native.fieldOffset<catalog.Catalog>("signatures")
+            ) + native.load64(
+                fn,
+                native.fieldOffset<catalog.Function>("signature")
+            ) * native.sizeOf<catalog.Signature>()
+        )
+        local info = native.pointer(
+            native.load64(c, native.fieldOffset<catalog.Catalog>("infos")) + id * native.sizeOf<frames.FunctionInfo>()
+        )
+        local plan = native.pointer(
+            native.load64(c, native.fieldOffset<catalog.Catalog>("plans")) + id * native.sizeOf<frames.WindowPlan>()
+        )
+        zero(native.address(info), native.sizeOf<frames.FunctionInfo>())
+        zero(native.address(plan), native.sizeOf<frames.WindowPlan>())
+        if catalog.describe(
+            info,
+            plan,
+            id,
+            native.address(fn),
+            program + native.load64(fn, native.fieldOffset<catalog.Function>("code")),
+            native.load64(signature, native.fieldOffset<catalog.Signature>("parameterCount"))
+        ) == 0ULL then
+            return 0ULL
+        end
+        i = i + 1ULL
+    end
+    local count = functions + owners
+    if instances.rebind(
+        native.loadPointer(ctx, context.REGISTRY),
+        native.pointer(native.load64(c, native.fieldOffset<catalog.Catalog>("targets"))),
+        native.load64(c, native.fieldOffset<catalog.Catalog>("capacity")) * WORD,
+        count
+    ) == 0ULL then
+        return 0ULL
+    end
+    native.store64(c, native.fieldOffset<catalog.Catalog>("count"), count)
+    native.store64(c, native.fieldOffset<catalog.Catalog>("signatureCount"), signatures + ns)
+    native.store64(c, native.fieldOffset<catalog.Catalog>("contractCount"), calls + nc)
+
+    return functions + native.load64(d, native.fieldOffset<catalog.Descriptor>("entry")) + 1ULL
+end
+
+-- Room for a chunk artifact of `bytes` at the current region's next free
+-- byte, or in a new region when it does not fit there; 0 when mapping
+-- fails. A refused chunk's room is given back by setting the region's next
+-- free byte to its address again.
+local function place(c: voidptr, bytes: uint64): uint64
+    local need = (bytes + REGION_ALIGN - 1ULL) & ~(REGION_ALIGN - 1ULL)
+    local at = native.load64(c, native.fieldOffset<catalog.Catalog>("region"))
+    if at == 0ULL or need > native.load64(c, native.fieldOffset<catalog.Catalog>("regionEnd")) - at then
+        local size = REGION_BYTES
+        if need > size then
+            size = need
+        end
+        at = map(size)
+        if at == 0ULL then
+            return 0ULL
+        end
+        native.store64(c, native.fieldOffset<catalog.Catalog>("regionEnd"), at + size)
+    end
+    native.store64(c, native.fieldOffset<catalog.Catalog>("region"), at + need)
+
+    return at
+end
+
+-- Installs the chunk artifact of `bytes` mapped at `data`, whose
+-- relocations are the `count` words at `relocations`.
+local function admit(ctx: voidptr, data: uint64, bytes: uint64, relocations: uint64, count: uint64): uint64
+    local d = native.pointer(data)
+    if catalog.validate(d, bytes) == 0ULL then
+        return 0ULL
+    end
+    local c = native.loadPointer(ctx, context.CATALOG)
+    local program = native.load64(c, native.fieldOffset<catalog.Catalog>("data"))
+    local version = native.load64(native.pointer(program), native.fieldOffset<catalog.DescriptorV1>("version"))
+    if version < PROFILE or native.load64(d, native.fieldOffset<catalog.DescriptorV1>("version")) ~= version then
+        return 0ULL
+    end
+    local functions = native.load64(c, native.fieldOffset<catalog.Catalog>("count"))
+    -- Admission's room for a word per function of the chunk.
+    local scratch = native.load64(d, native.fieldOffset<catalog.Descriptor>("ownerCount")) * WORD
+    local captures = map(scratch)
+    local admitted: uint64 = 0ULL
+    if captures ~= 0ULL then
+        admitted = admission.admit(d, relocations, count, functions, native.pointer(captures))
+        os.unmapPages(native.pointer(captures), scratch)
+    end
+    if admitted == 0ULL then
+        return 0ULL
+    end
+    renumber(
+        d,
+        functions,
+        native.load64(c, native.fieldOffset<catalog.Catalog>("signatureCount")),
+        native.load64(c, native.fieldOffset<catalog.Catalog>("contractCount")),
+        data - program
+    )
+
+    return join(ctx, c, d, functions)
+end
+
+-- Installs binary chunk `chunk`, a string, into the running program.
+-- Answers its entry's id plus one, which `begin` runs, or 0 when it is not
+-- a chunk this core loads.
+export function install(ctx: voidptr, chunk: uint64): uint64
+    local s = strings.header(chunk)
+    if s == 0ULL then
+        return 0ULL
+    end
+    local length = strings.length(s)
+    local source = strings.bytes(s)
+    local headerBytes = native.sizeOf<Header>()
+    if length < headerBytes then
+        return 0ULL
+    end
+    local header = native.pointer(source)
+    local bytes = native.load64(header, native.fieldOffset<Header>("bytes"))
+    local count = native.load64(header, native.fieldOffset<Header>("relocations"))
+    if native.load64(header, native.fieldOffset<Header>("magic")) ~= MAGIC
+        or bytes == 0ULL
+        or bytes % WORD ~= 0ULL
+        or bytes > length - headerBytes
+        or count > (length - headerBytes - bytes) // WORD
+        or headerBytes + bytes + count * WORD ~= length
+    then
+        return 0ULL
+    end
+    local c = native.loadPointer(ctx, context.CATALOG)
+    local data = place(c, bytes)
+    if data == 0ULL then
+        return 0ULL
+    end
+    copy(data, source + headerBytes, bytes)
+    local installed = admit(ctx, data, bytes, source + headerBytes + bytes, count)
+    if installed == 0ULL then
+        native.store64(c, native.fieldOffset<catalog.Catalog>("region"), data)
+    end
+
+    return installed
+end
+
+-- Whether function `id` is one a chunk installed: past the program's own.
+export function installed(ctx: voidptr, id: uint64): boolean
+    local c = native.loadPointer(ctx, context.CATALOG)
+    local program = native.pointer(native.load64(c, native.fieldOffset<catalog.Catalog>("data")))
+
+    return id < native.load64(c, native.fieldOffset<catalog.Catalog>("count"))
+        and id >= native.load64(program, native.fieldOffset<catalog.Descriptor>("ownerCount"))
+end

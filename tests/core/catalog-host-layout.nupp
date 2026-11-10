@@ -1,0 +1,26 @@
+module nupp.core.cataloghostlayout
+
+-- The compiler's host layout key on the native core, which publishes
+-- neither the VM's key nor LuaJIT's `jit`: it comes from the runtime's own
+-- description of the machine, so a build there stamps and signs a binary
+-- for the system it is on. Each check is a bit of the score.
+const targetlayout = require("nupp.compiler.targetlayout")
+const platform = require("nupp.tools.build.platform")
+const system = require("nupp.runtime.system")
+
+local score = 0
+local bit = 1
+
+local function check(ok: boolean): nil
+    if ok then
+        score = score | bit
+    end
+    bit = bit << 1
+end
+
+local key = targetlayout.hostKey()
+check(key ~= nil and targetlayout.has(key))
+check(key ~= nil and (key as string):sub(1, #system.architecture + 1) == system.architecture .. "-")
+check(system.platform ~= "macos" or platform.hostSystem() == "darwin")
+
+export const result = score

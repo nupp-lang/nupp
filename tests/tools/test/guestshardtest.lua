@@ -1,4 +1,4 @@
-local planner = dofile("native/core/tests/guests/shardplan.lua")
+local planner = dofile("tests/core/guests/shardplan.lua")
 
 local function names(count)
     local result = {}

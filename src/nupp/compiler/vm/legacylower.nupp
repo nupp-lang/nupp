@@ -6235,7 +6235,9 @@ function lower.emit(
         local exportedFns = declaredModule and exportedFunctionNames(rootNode.blocks[1]) or {}
         local rootBody = analyzeModule(rootNode.blocks[1], exportedFns)
         -- Names the module assigns to anywhere, by name: a `local function` not
-        -- among them keeps its closure for the module's life.
+        -- among them keeps its closure for the module's life. A compound
+        -- assignment assigns as a plain one does: `n += 0.5` makes an integer
+        -- initializer no proof of what `n` holds.
         assignedNames = {}
         walkSyntax(rootNode.blocks[1], {}, function(n)
             if n.kind == "assignStmt" then
@@ -6244,6 +6246,8 @@ function lower.emit(
                         assignedNames[tokText(t.token)] = true
                     end
                 end
+            elseif n.kind == "compoundAssign" and n.target and n.target.kind == "name" then
+                assignedNames[tokText(n.target.token)] = true
             end
         end)
         markCaptures(chunk, rootBody)

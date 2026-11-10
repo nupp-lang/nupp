@@ -1,0 +1,555 @@
+--[[
+The compiler's plain data codec, written in Nupp for a runtime that carries no
+native one.
+
+The VM publishes `__nupp_plain_codec`, which encodes a value graph in its own
+persistence format: a framed graph of strings, tables, integers and structural
+records whose edges are object numbers and whose immediates are the VM's value
+bits (`native/crates/vm/src/persist.rs`, `save_plain`/`load_plain`). The native
+core has no such codec, so the compiler's stores (`nupp.compiler.project.store`)
+could not write and every command there started cold. This module speaks the
+same format, so a store either runtime wrote is one the other reads.
+
+Tables retain their fields and sharing, with behavior omitted as in the VM's
+plain codec. Structural records decode as tables with the same fields.
+Functions, resources, and encoded behavior are refused.
+]]
+module nupp.compiler.project.plaincodec
+
+local imagebytes = require("nupp.compiler.vm.imagebytes")
+
+-- The frame: magic, kind, payload length, payload checksum, payload.
+const MAGIC = "NUPPSAV1"
+const PLAIN_GRAPH = 3
+const FRAME_HEADER = 21
+-- The payload opens with the code flag and the code digest, which plain data
+-- leaves empty.
+const CODE_DIGEST_BYTES = 32
+-- The VM's limits on a frame and on any one collection.
+const LIMIT = 256 * 1024 * 1024
+const ITEMS = 4000000
+
+-- Object kinds (`heap.rs`).
+const KIND_STR = 1
+const KIND_TABLE = 2
+const KIND_RECORD = 3
+const KIND_SLICE = 9
+const KIND_INTEGER = 12
+
+-- Reference tags.
+const REF_BITS = 0
+const REF_OBJ = 1
+
+-- The VM's value bits (`value.rs`): a quiet NaN, a tag in bits 48-50, and a
+-- 48-bit payload.
+const QNAN = 0x7FF8000000000000ULL
+const TAG_SHIFT = 48ULL
+const PAYLOAD = (1ULL << TAG_SHIFT) - 1ULL
+const NIL_BITS = QNAN | (1ULL << TAG_SHIFT)
+const FALSE_BITS = QNAN | (2ULL << TAG_SHIFT)
+const TRUE_BITS = QNAN | (3ULL << TAG_SHIFT)
+const INTEGER_BITS = QNAN | (7ULL << TAG_SHIFT)
+-- Integers whose two's complement fits the payload are immediate.
+const INLINE_LIMIT = 140737488355328
+const INLINE_SIGN = 0x800000000000ULL
+
+-- binary64 fields.
+const SIGN_SHIFT = 63ULL
+const EXPONENT_SHIFT = 52ULL
+const EXPONENT_MASK = 0x7FFULL
+const MANTISSA_MASK = (1ULL << EXPONENT_SHIFT) - 1ULL
+-- A normal value is (mantissa | hidden bit) * 2^(exponent - 1075), a subnormal
+-- mantissa * 2^-1074.
+const NORMAL_BIAS = 1075
+const SUBNORMAL_SCALE = -1074
+
+const BYTE_MASK = 0xFF
+const BYTE_BITS = 8
+const WORD_BYTES = 4
+const WIDE_BYTES = 8
+
+-- CRC-32 (IEEE), as `crc32fast` computes it.
+const CRC_POLYNOMIAL = 0xEDB88320
+const CRC_MASK = 0xFFFFFFFF
+const CRC_TABLE_SIZE = 256
+const WORD_RANGE = 4294967296
+
+local crcTable: {integer}? = nil
+
+local function crcEntries(): {integer}
+    if crcTable == nil then
+        local entries: {integer} = {}
+        for n = 0, CRC_TABLE_SIZE - 1 do
+            local c = n
+            for _ = 1, BYTE_BITS do
+                if c & 1 == 1 then
+                    c = CRC_POLYNOMIAL ~ (c >> 1)
+                else
+                    c = c >> 1
+                end
+            end
+            entries[n + 1] = c
+        end
+        crcTable = entries
+    end
+
+    return crcTable as {integer}
+end
+
+local function crc32(text: string): integer
+    local entries = crcEntries()
+    local c = CRC_MASK
+    for i = 1, #text do
+        c = entries[((c ~ string.byte(text, i)) & BYTE_MASK) + 1] ~ (c >> BYTE_BITS)
+    end
+
+    local answer = c ~ CRC_MASK
+
+    return answer < 0 and answer + WORD_RANGE or answer
+end
+
+local function u32bytes(n: integer): string
+    return string.char(n & BYTE_MASK, (n >> 8) & BYTE_MASK, (n >> 16) & BYTE_MASK, (n >> 24) & BYTE_MASK)
+end
+
+local function u64bytes(n: uint64): string
+    return u32bytes((n & 0xFFFFFFFFULL) as integer) .. u32bytes(((n >> 32ULL) & 0xFFFFFFFFULL) as integer)
+end
+
+local function u32at(text: string, at: integer): integer
+    local a, b, c, d = string.byte(text, at, at + WORD_BYTES - 1)
+    if d == nil then
+        error("truncated persistence data", 0)
+    end
+
+    return (a as integer) + (b as integer) * 256 + (c as integer) * 65536 + (d as integer) * 16777216
+end
+
+local function u64at(text: string, at: integer): uint64
+    return (u32at(text, at) as uint64) | ((u32at(text, at + WORD_BYTES) as uint64) << 32ULL)
+end
+
+--- The VM's bits for an immediate value, or nil when `value` is an object.
+local function immediateBits(value: any): uint64?
+    if value == nil then
+        return NIL_BITS
+    elseif value == false then
+        return FALSE_BITS
+    elseif value == true then
+        return TRUE_BITS
+    elseif math.type(value) == "integer" then
+        local n = value as integer
+        if n >= -INLINE_LIMIT and n < INLINE_LIMIT then
+            return INTEGER_BITS | ((n as uint64) & PAYLOAD)
+        end
+
+        return nil
+    elseif math.type(value) == "float" then
+        -- The VM keeps one NaN, the quiet one `floatbytes` writes.
+        return u64at(imagebytes.floatbytes(value as number), 1)
+    end
+
+    return nil
+end
+
+local function floatFromBits(bits: uint64): number
+    local exponent = tonumber((bits >> EXPONENT_SHIFT) & EXPONENT_MASK) as integer
+    local mantissa = tonumber(bits & MANTISSA_MASK) as number
+    local magnitude: number
+    if exponent == 0x7FF then
+        magnitude = mantissa == 0 and math.huge or 0 / 0
+    elseif exponent == 0 then
+        magnitude = mantissa * 2.0 ^ SUBNORMAL_SCALE
+    else
+        magnitude = (mantissa + 4503599627370496) * 2.0 ^ (exponent - NORMAL_BIAS)
+    end
+    if (bits >> SIGN_SHIFT) == 1ULL then
+        return -magnitude
+    end
+
+    return magnitude
+end
+
+--- The value an immediate's bits stand for.
+--- @raises string when the bits are not an immediate plain data may hold.
+local function bitsValue(bits: uint64): any
+    if bits == NIL_BITS then
+        return nil
+    elseif bits == FALSE_BITS then
+        return false
+    elseif bits == TRUE_BITS then
+        return true
+    elseif bits & ~PAYLOAD == INTEGER_BITS then
+        -- Sign-extend the 48-bit payload.
+        return ((((bits & PAYLOAD) ~ INLINE_SIGN) - INLINE_SIGN) as integer)
+    elseif bits & QNAN ~= QNAN or bits == QNAN then
+        return floatFromBits(bits)
+    end
+    error("invalid immediate value", 0)
+end
+
+-- One object of the graph being written: its kind and, for a table, the
+-- array part and the key-value pairs read once so both passes agree.
+local type Pending = {
+    kind: integer,
+    value: any,
+    array: {any}?,
+    pairs: {any}?
+}
+
+--- Encodes plain `value` in the VM's plain graph format.
+--- @raises string when the value holds a function, a thread, a userdata, or
+--- more than the format allows.
+export function encode(value: any): string
+    local ids: {[any]: integer} = {}
+    local objects: {Pending} = {}
+    -- Strings used as table keys are interned on the VM, which looks keys up
+    -- by identity.
+    local keyed: {[string]: boolean} = {}
+
+    local function discover(item: any): nil
+        if immediateBits(item) ~= nil or ids[item] ~= nil then
+            return
+        end
+        local kind = type(item)
+        if kind ~= "string" and kind ~= "table" and kind ~= "number" then
+            error("plain data cannot contain a " .. kind, 0)
+        end
+        if #objects >= ITEMS then
+            error("too many graph objects", 0)
+        end
+        objects[
+            #objects + 1
+        ] = {kind = kind == "string" and KIND_STR or kind == "table" and KIND_TABLE or KIND_INTEGER, value = item,}
+        ids[item] = #objects - 1
+    end
+
+    discover(value)
+    local index: integer = 1
+    while index <= #objects do
+        local pending = objects[index]
+        if pending.kind == KIND_TABLE then
+            local tableValue = pending.value as {[any]: any}
+            -- The sequence goes in the array part, where the VM's length and
+            -- index reads look first; everything else is a pair.
+            local array: {any} = {}
+            local length: integer = 0
+            while rawget(tableValue, length + 1) ~= nil do
+                length = length + 1
+                array[length] = rawget(tableValue, length)
+                discover(array[length])
+            end
+            local list: {any} = {}
+            for key, item in next, tableValue do
+                if not (math.type(key) == "integer" and (key as integer) >= 1 and (key as integer) <= length) then
+                    list[#list + 1] = key
+                    list[#list + 1] = item
+                    if type(key) == "string" then
+                        keyed[key as string] = true
+                    end
+                    discover(key)
+                    discover(item)
+                end
+            end
+            pending.array = array
+            pending.pairs = list
+        end
+        index = index + 1
+    end
+
+    local parts: {string} = {}
+
+    local function put(text: string): nil
+        parts[#parts + 1] = text
+    end
+
+    local function ref(item: any): nil
+        local bits = immediateBits(item)
+        if bits ~= nil then
+            put(string.char(REF_BITS))
+            put(u64bytes(bits as uint64))
+        else
+            put(string.char(REF_OBJ))
+            put(u32bytes(ids[item] as integer))
+        end
+    end
+
+    local function refs(list: {any}, count: integer): nil
+        if count > ITEMS then
+            error("collection length exceeds limit", 0)
+        end
+        put(u32bytes(count))
+        for i = 1, count do
+            ref(list[i])
+        end
+    end
+
+    -- No code, no digest, no schemas: plain tables need none.
+    put(string.rep("\0", 1 + CODE_DIGEST_BYTES))
+    put(u32bytes(0))
+    refs({value}, 1)
+    put(u32bytes(#objects))
+    for _, pending in ipairs(objects) do
+        put(string.char(pending.kind))
+        if pending.kind == KIND_STR then
+            local text = pending.value as string
+            put(string.char(keyed[text] and 1 or 0))
+            put(u32bytes(#text))
+            put(text)
+        elseif pending.kind == KIND_TABLE then
+            local array = pending.array as {any}
+            local list = pending.pairs as {any}
+            refs(array, #array)
+            refs(list, #list)
+            ref(nil)
+        else
+            put(string.char(0))
+            put(u64bytes(pending.value as uint64))
+        end
+    end
+    local payload = table.concat(parts)
+    if #payload > LIMIT then
+        error("persistence data exceeds 256 MiB limit", 0)
+    end
+
+    return MAGIC .. string.char(PLAIN_GRAPH) .. u64bytes(#payload as uint64) .. u32bytes(crc32(payload)) .. payload
+end
+
+-- A node read from a graph, before its edges are resolved.
+local type Node = {
+    kind: integer,
+    text: string?,
+    integer: integer?,
+    shape: integer?,
+    slots: {any}?,
+    array: {any}?,
+    pairs: {any}?,
+    source: any,
+    offset: integer?,
+    length: integer?
+}
+
+-- An unresolved reference: the object it names, or the immediate it holds.
+local type Ref = {
+    object: integer?,
+    bits: uint64?
+}
+
+-- A structural record's declaration: its field names, in slot order.
+local type Schema = {
+    fields: {string},
+    structural: boolean
+}
+
+--- Decodes `bytes`, which `encode` or the VM's plain codec wrote, into plain
+--- tables and scalars.
+--- @raises string when the bytes are not an intact plain graph.
+export function decode(bytes: string): any
+    if #bytes < FRAME_HEADER or bytes:sub(1, #MAGIC) ~= MAGIC or string.byte(bytes, #MAGIC + 1) ~= PLAIN_GRAPH then
+        error("unsupported persistence version or kind", 0)
+    end
+    local length = u64at(bytes, #MAGIC + 2) as integer
+    if length < 0 or length > LIMIT or FRAME_HEADER + length ~= #bytes then
+        error("persistence length does not match its frame", 0)
+    end
+    local payload = bytes:sub(FRAME_HEADER + 1)
+    if crc32(payload) ~= u32at(bytes, #MAGIC + 2 + WIDE_BYTES) then
+        error("persistence checksum mismatch", 0)
+    end
+
+    local at: integer = 1
+
+    local function take(n: integer): string
+        if n < 0 or at + n - 1 > #payload then
+            error("truncated persistence data", 0)
+        end
+        local text = payload:sub(at, at + n - 1)
+        at = at + n
+
+        return text
+    end
+
+    local function byte(): integer
+        return string.byte(take(1)) as integer
+    end
+
+    local function u32(): integer
+        at = at + WORD_BYTES
+
+        return u32at(payload, at - WORD_BYTES)
+    end
+
+    local function count(): integer
+        local n = u32()
+        if n > ITEMS or n > #payload - at + 1 then
+            error("collection length exceeds limit or input", 0)
+        end
+
+        return n
+    end
+
+    local function text(): string
+        return take(u32())
+    end
+
+    local function ref(): Ref
+        local tag = byte()
+        if tag == REF_BITS then
+            local bits = u64at(payload, at)
+            at = at + WIDE_BYTES
+
+            return {bits = bits}
+        elseif tag == REF_OBJ then
+            return {object = u32()}
+        end
+        error("plain data cannot contain callable values", 0)
+    end
+
+    local function refs(): {Ref}
+        local list: {Ref} = {}
+        for i = 1, count() do
+            list[i] = ref()
+        end
+
+        return list
+    end
+
+    if byte() ~= 0 then
+        error("plain data must contain one non-executable root", 0)
+    end
+    take(CODE_DIGEST_BYTES)
+    local schemas: {Schema} = {}
+    for i = 1, count() do
+        u32()
+        text()
+        local structural = byte()
+        if structural > 1 then
+            error("invalid structural flag", 0)
+        end
+        local fields: {string} = {}
+        for f = 1, count() do
+            fields[f] = text()
+            text()
+        end
+        schemas[i] = {fields = fields, structural = structural == 1}
+    end
+    local roots = refs()
+    if #roots ~= 1 then
+        error("plain data must contain one non-executable root", 0)
+    end
+    local nodes: {Node} = {}
+    for i = 1, count() do
+        local kind = byte()
+        if kind == KIND_STR then
+            if byte() > 1 then
+                error("invalid string flag", 0)
+            end
+            nodes[i] = {kind = kind, text = text()}
+        elseif kind == KIND_TABLE then
+            local array = refs()
+            local list = refs()
+            local meta = ref()
+            if meta.bits ~= NIL_BITS then
+                error("plain data cannot contain resources, closures, or metatables", 0)
+            end
+            nodes[i] = {kind = kind, array = array, pairs = list}
+        elseif kind == KIND_RECORD then
+            local shape = u32()
+            local schema = schemas[shape + 1]
+            if schema == nil then
+                error("unknown shape in plain data", 0)
+            end
+            if not schema.structural then
+                error("plain data with a nominal record has no table form here", 0)
+            end
+            nodes[i] = {kind = kind, shape = shape, slots = refs(), array = refs(), pairs = refs()}
+        elseif kind == KIND_INTEGER then
+            if byte() ~= 0 then
+                error("invalid integer kind", 0)
+            end
+            local value = u64at(payload, at) as integer
+            at = at + WIDE_BYTES
+            nodes[i] = {kind = kind, integer = value}
+        elseif kind == KIND_SLICE then
+            nodes[i] = {kind = kind, source = ref(), offset = u32(), length = u32()}
+        else
+            error("plain data cannot contain resources, closures, or metatables", 0)
+        end
+    end
+    if at ~= #payload + 1 then
+        error("trailing persistence data", 0)
+    end
+
+    -- Scalars first, tables after: a table's edges may point anywhere.
+    local values: {[integer]: any} = {}
+
+    local function resolve(item: Ref): any
+        if item.object == nil then
+            return bitsValue(item.bits as uint64)
+        end
+        local index = (item.object as integer) + 1
+        if nodes[index] == nil then
+            error("reference to a missing object", 0)
+        end
+
+        return values[index]
+    end
+
+    for i, node in ipairs(nodes) do
+        if node.kind == KIND_STR then
+            values[i] = node.text
+        elseif node.kind == KIND_INTEGER then
+            values[i] = node.integer
+        elseif node.kind == KIND_TABLE or node.kind == KIND_RECORD then
+            values[i] = {}
+        end
+    end
+    for i, node in ipairs(nodes) do
+        if node.kind == KIND_SLICE then
+            local source = resolve(node.source)
+            if type(source) ~= "string" then
+                error("slice of something other than a string", 0)
+            end
+            local offset = node.offset as integer
+            if offset > #source or (node.length as integer) > #source - offset then
+                error("slice exceeds its source", 0)
+            end
+            values[i] = (source as string):sub(offset + 1, offset + (node.length as integer))
+        end
+    end
+
+    local function store(target: {[any]: any}, key: any, item: any): nil
+        if key == nil or key ~= key then
+            error("plain data has an invalid table key", 0)
+        end
+        target[key] = item
+    end
+
+    for i, node in ipairs(nodes) do
+        if node.kind == KIND_TABLE or node.kind == KIND_RECORD then
+            local target = values[i] as {[any]: any}
+            if node.kind == KIND_RECORD then
+                local fields = schemas[(node.shape as integer) + 1].fields
+                local slots = node.slots as {Ref}
+                if #slots ~= #fields then
+                    error("record slots do not match their shape", 0)
+                end
+                for f, name in ipairs(fields) do
+                    target[name] = resolve(slots[f])
+                end
+            end
+            for index, item in ipairs(node.array as {Ref}) do
+                target[index] = resolve(item)
+            end
+            local list = node.pairs as {Ref}
+            if #list % 2 ~= 0 then
+                error("unpaired table entry", 0)
+            end
+            for p = 1, #list, 2 do
+                store(target, resolve(list[p]), resolve(list[p + 1]))
+            end
+        end
+    end
+
+    return resolve(roots[1])
+end

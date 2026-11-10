@@ -637,7 +637,12 @@ local function buildOne(root: string?, opts: project.BuildOptions?): integer
             return 1
         end
         testHost = stubPath
-        testHostHash = contentDigest(stub)
+        -- Only a test build's record names the runtime it ran on. Digesting
+        -- several megabytes is minutes where the digest is the portable one,
+        -- as on the native core, and every other build discarded it.
+        if testInput ~= nil then
+            testHostHash = contentDigest(stub)
+        end
         local stamped, stampErr = package.stampFile(output, stub, text, package.payloadFlagVmProgram)
         if not stamped then
             say(opts, "NUPP0004", "nupp: " .. tostring(stampErr) .. "\n")

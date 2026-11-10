@@ -14,6 +14,12 @@
 -- run means one misbehaving suite turns the whole shard's report into "the shard
 -- wrote no report", which loses every other suite's result and reads like an
 -- infrastructure failure rather than the one test that broke.
+-- Where a function was written, as debug.getinfo says; nil where the host
+-- has no debug library to say it (the native core).
+local getinfo = (rawget(_G, "debug") or {}).getinfo or function()
+    return nil
+end
+
 local runnerPath = arg[0]
 local dir = rawget(_G, "__NUPP_TEST_DIR")
 if not dir then
@@ -408,7 +414,7 @@ if package.config:sub(1, 1) == "\\" then
         if command:sub(1, #nativeMarker) == nativeMarker then
             return rawExecute(command:sub(#nativeMarker + 1))
         end
-        local caller = debug.getinfo(2, "S")
+        local caller = getinfo(2, "S")
         local source = caller and caller.source:gsub("\\", "/") or ""
         if not usesTestShell(source) then
             return rawExecute(command)
@@ -427,7 +433,7 @@ if package.config:sub(1, 1) == "\\" then
         if command:sub(1, #nativeMarker) == nativeMarker then
             return rawPopen(command:sub(#nativeMarker + 1), mode)
         end
-        local caller = debug.getinfo(2, "S")
+        local caller = getinfo(2, "S")
         local source = caller and caller.source:gsub("\\", "/") or ""
         if not usesTestShell(source) then
             return rawPopen(command, mode)
@@ -1554,7 +1560,7 @@ local function definedAt(fn)
     if parameterized ~= nil then
         return parameterized.file, parameterized.line
     end
-    local info = debug.getinfo(fn, "S")
+    local info = getinfo(fn, "S")
     if not info then
         return nil, nil
     end

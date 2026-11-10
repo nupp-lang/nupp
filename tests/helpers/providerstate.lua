@@ -22,10 +22,11 @@ end
 -- The checkout this helper lives in, whose src/ holds the modules' sources.
 local checkout = (debug.getinfo(1, "S").source:gsub("^@", ""):gsub("\\", "/"):match("^(.*)/tests/helpers/[^/]*$"))
 
--- The Nupp source of module `name` under the checkout's src/.
+-- The source of module `name` under the checkout's src/: Nupp, or a plain
+-- Lua module's.
 local function sourcefile(name)
     local base = (checkout or ".") .. "/src/" .. name:gsub("%.", "/")
-    for _, path in ipairs({base .. ".nupp", base .. "/init.nupp"}) do
+    for _, path in ipairs({base .. ".nupp", base .. "/init.nupp", base .. ".lua", base .. "/init.lua"}) do
         local file = io.open(path, "rb")
         if file then
             file:close()
@@ -138,7 +139,14 @@ local function instance(owned, replacements, preloads, globals)
         if loadImage then
             value = vmModule(name)({value = environment})
         elseif coreInstance then
-            value = coreInstance(sourcefile(name), environment)
+            local path = sourcefile(name)
+            if path:sub(-4) == ".lua" then
+                -- A plain Lua module's chunk runs with the instance's
+                -- environment as its _ENV.
+                value = assert(loadfile(path, "t", environment))()
+            else
+                value = coreInstance(path, environment)
+            end
         else
             local chunk = assert(loadfile(filename(name)))
             setfenv(chunk, environment)

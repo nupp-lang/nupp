@@ -1,0 +1,411 @@
+module nupp.core.guestprogramproducer
+
+local contract = require("nupp.compiler.vm.nativeframecontract")
+local lower = require("nupp.compiler.vm.lower")
+local profile = require("nupp.compiler.vm.nativegraph")
+require("nupp.compiler.hostservices")
+require("nupp.compiler.syntax.parser")
+require("nupp.compiler.check")
+require("nupp.compiler.project.env")
+require("nupp.compiler.vm.programgraph")
+require("nupp.compiler.vm.taggedprofile")
+local executable = require("nupp.compiler.vm.coregraphexecutable")
+local graph = require("nupp.compiler.vm.graph")
+local sink = require("nupp.compiler.s0.nativegraph")
+local shim = require("nupp.core.guestshim")
+local guestbuild = require("nupp.core.guestbuild")
+local auditshim = require("nupp.core.guestauditshim")
+local writer = require("nupp.core.guestartifact")
+local linker = require("nupp.core.link")
+local json = require("serde.json")
+-- Selections per mode for this process's shared guest unit, and whether the
+-- proof-rejection checks already ran in it.
+local selections: any = {}
+local rejected = false
+
+local function shallow(value: any): any
+    local result = {}
+    for key, item in pairs(value) do
+        result[key] = item
+    end
+
+    return result
+end
+
+-- Bytes are written as hex this many at a time: one format of a byte run
+-- costs about a third of formatting each byte, over the tens of megabytes of
+-- code a program carrying the compiler publishes.
+const HEX_RUN = 64
+const HEX_FORMAT = string.rep("%02x", HEX_RUN)
+
+local function hex(value: string): string
+    local parts: {string} = {}
+    local at, size = 1, #value
+    while at <= size do
+        local last = math.min(at + HEX_RUN - 1, size)
+        local format = last - at + 1 == HEX_RUN and HEX_FORMAT or string.rep("%02x", last - at + 1)
+        parts[#parts + 1] = string.format(format, value:byte(at, last))
+        at = last + 1
+    end
+
+    return table.concat(parts)
+end
+
+-- Wraps a primary selection in the supplemental lifecycle audit entry.
+local function inspect(source: any, selected: any, output: any, scenario: string): nil
+    local audited = auditshim.build(source, selected, output, scenario)
+    output.audit = {
+        scenario = scenario,
+        expectedStatus = audited.expectedStatus,
+        expectedUsed = audited.expectedUsed,
+        expectedOwner = audited.expectedOwner,
+        expectedPC = audited.expectedPC,
+        snapshotOffset = audited.snapshotOffset,
+        snapshotBytes = audited.snapshotBytes,
+        workspaceOffset = audited.workspaceOffset,
+        workspaceBytes = audited.workspaceBytes,
+        primaryEntry = output.entry,
+        primaryWords = #output.words,
+        primaryScratchBytes = output.scratchBytes,
+        primarySpillOffset = output.spillOffset,
+        primaryCallBytes = output.callBytes
+    }
+    output.words, output.entry, output.scratchBytes = audited.words, audited.entry, audited.scratchBytes
+    output.spillOffset, output.callBytes = audited.spillOffset, audited.callBytes
+end
+
+local function publish(
+    source: any,
+    output: any,
+    packed: any,
+    mode: string,
+    caseName: string,
+    metrics: any,
+    refusals: any
+): any
+    local programs = {}
+    for _, body in ipairs(source.executable.functions) do
+        local constants = {}
+        for index, constant in ipairs(body.constants) do
+            constants[index] = {kind = constant.kind, valueHex = hex(constant.value)}
+        end
+        programs[
+            #programs + 1
+        ] = {
+            owner = body.owner,
+            instructions = body.instructions,
+            codeHex = hex(body.code),
+            instructionCount = body.instructionCount,
+            valueCount = body.valueCount,
+            calls = body.calls,
+            constants = constants
+        }
+    end
+    output.dataHex, output.dataBytes = hex(packed.bytes), #packed.bytes
+    output.mode, output.caseName, output.metrics = mode, caseName, metrics
+    output.programs, output.dataflowRefusals, output.provenanceRefusals = programs, source.refusals, refusals
+    output.instanceBound = source.executable.instanceCapacity
+    output.instanceCapacity = source.executable.instanceCapacity
+    output.instanceCreations = source.executable.instanceCreations
+    output.frameDepth = source.executable.frameDepth
+    output.catalogOffsets = {
+        code = packed.codeOffsets,
+        constants = packed.constantOffsets,
+        dispatch = packed.dispatchOffset
+    }
+    output.scope = "Checked acyclic scalar guests, with v3 source-bound number addition; no named exports, cycles, general loader, tagged objects or GC"
+
+    return output
+end
+
+-- Selection, authenticated linking and final byte publication stay in one
+-- process. JSON output is an immutable transport artifact, not a reissuable
+-- compiler capability or permission to select caller-supplied guest bytes.
+local function choose(caseName: string, mode: string, capacityText: string, scenario: string?): any
+    assert(mode == "normal" or mode == "spill")
+    local capacity = assert(tonumber(capacityText)) as integer
+    assert(capacity == 65536 or capacity == 131072)
+    assert(type(lower.functionGraph) == "function" and type(profile.initialize) == "function")
+    local source = scenario and contract.buildGuestAudit(caseName) or contract.buildGuest(caseName)
+    local refusals = {}
+
+    local function reject(name: string, operation: function(): any, expected: string): nil
+        -- The frozen proof checks are exercised once per process.
+        if rejected then
+            return
+        end
+        local ok, problem = pcall(operation)
+        assert(not ok and tostring(problem):find(expected, 1, true), name .. ": " .. tostring(problem))
+        refusals[#refusals + 1] = {name = name, diagnostic = tostring(problem)}
+    end
+
+    reject(
+        "copied build",
+        function(): any
+            return contract.validateGuest(shallow(source))
+        end,
+        "unissued guest build"
+    )
+    for _, name in ipairs({"nupp.runtime.core.guestcatalog", "nupp.runtime.vm.values"}) do
+        local original = source.scopes[name]
+        source.scopes[name] = shallow(original)
+        reject(
+            "copied scope " .. name,
+            function(): any
+                return contract.validateGuest(source)
+            end,
+            "guest scope identity changed"
+        )
+        source.scopes[name] = {name = original.name, path = original.path, checkedExports = original.checkedExports}
+        reject(
+            "forged scope " .. name,
+            function(): any
+                return contract.validateGuest(source)
+            end,
+            "guest scope identity changed"
+        )
+        source.scopes[name] = original
+    end
+    setmetatable(source.scopes, {__index = {forged = {}}})
+    reject(
+        "scope metatable",
+        function(): any
+            return contract.validateGuest(source)
+        end,
+        "guest maps must remain plain"
+    )
+    setmetatable(source.scopes, nil)
+    source.scopes.extra = source.context
+    reject(
+        "extra scope",
+        function(): any
+            return contract.validateGuest(source)
+        end,
+        "guest scope inventory changed"
+    )
+    source.scopes.extra = nil
+    setmetatable(source.resolved, {__index = {forged = {}}})
+    reject(
+        "resolved metatable",
+        function(): any
+            return contract.validateGuest(source)
+        end,
+        "guest maps must remain plain"
+    )
+    setmetatable(source.resolved, nil)
+    local fn = source.executable.functions[1]
+    local bytes = fn.code
+    fn.code = string.char((bytes:byte(1) + 1) % 256) .. bytes:sub(2)
+    reject(
+        "changed executable bytes",
+        function(): any
+            return executable.validate(source.executable)
+        end,
+        "changed"
+    )
+    fn.code = bytes
+    reject(
+        "copied executable",
+        function(): any
+            return executable.validate(shallow(source.executable))
+        end,
+        "unissued"
+    )
+    contract.validateGuest(source)
+    local guestGraph = source.resolved["nupp.runtime.core.guesthandlers.CallK"].graph
+    reject(
+        "unissued guest slots",
+        function(): any
+            return contract.requireGuestSlots({})
+        end,
+        "original guest handler graph required"
+    )
+    reject(
+        "copied guest slot graph",
+        function(): any
+            return contract.requireGuestSlots(shallow(guestGraph))
+        end,
+        "original guest handler graph required"
+    )
+    local slotMarker = guestGraph.nativeFinalFrame
+    guestGraph.nativeFinalFrame = nil
+    reject(
+        "changed guest slot graph",
+        function(): any
+            return contract.requireGuestSlots(guestGraph)
+        end,
+        "marker changed"
+    )
+    guestGraph.nativeFinalFrame = slotMarker
+    -- Selection depends only on the shared unit and the mode.
+    local cachedSelection = selections[mode]
+    if cachedSelection and cachedSelection.resolved ~= source.resolved then
+        cachedSelection = nil
+    end
+    local names, selected, results, metrics = {}, {}, {}, {}
+    if cachedSelection then
+        selected, results, metrics = cachedSelection.selected, cachedSelection.results, cachedSelection.metrics
+    else
+        for name in pairs(source.resolved) do
+            names[#names + 1] = name
+        end
+        table.sort(names)
+        for _, name in ipairs(names) do
+            local item = source.resolved[name]
+            local result = sink.compilerGraph(item.graph, item.owner.name, item.owner, source.resolved, source.context)
+            local allocation = sink.selectAuthenticated(result, mode)
+            results[name], selected[name] = result, allocation.code
+            metrics[
+                #metrics + 1
+            ] = {
+                name = name,
+                frameBytes = allocation.code.frameBytes,
+                spillSlots = allocation.spillSlots,
+                integerRegisters = allocation.integerRegisters,
+                floatRegisters = allocation.floatRegisters,
+                calls = #allocation.code.fixupName
+            }
+        end
+        selections[mode] = {resolved = source.resolved, selected = selected, results = results, metrics = metrics}
+    end
+    local entryName = "nupp.runtime.core.guesthandlers.CallK"
+    local item, result, code = source.resolved[entryName], results[entryName], selected[entryName]
+    reject(
+        "copied Result",
+        function(): any
+            return sink.selectAuthenticated(shallow(result), mode)
+        end,
+        "original authenticated Result required"
+    )
+    reject(
+        "caller allocator ABI",
+        function(): any
+            local forged: any = {}
+            return sink.selectAuthenticated(result, forged)
+        end,
+        "closed allocation mode required"
+    )
+    local other = source.resolved["nupp.runtime.core.guesthandlers.Ret"]
+    reject(
+        "different selected origin",
+        function(): any
+            return sink.verifyCodeOrigin(code, other.graph, other.owner)
+        end,
+        "origin"
+    )
+    reject(
+        "copied Code",
+        function(): any
+            return sink.verifyCode(shallow(code))
+        end,
+        "authenticated Code required"
+    )
+    reject(
+        "issued Code legacy link",
+        function(): any
+            return linker.assemble({}, {code}, {}, 65536)
+        end,
+        "issued Code requires authenticated linking"
+    )
+    local marker = item.graph.nativeFinalFrame
+    item.graph.nativeFinalFrame = nil
+    reject(
+        "removed graph marker",
+        function(): any
+            return graph.verify(item.graph)
+        end,
+        "marker changed"
+    )
+    item.graph.nativeFinalFrame = marker
+    local contextCopy = shallow(source.context)
+    reject(
+        "different checked context",
+        function(): any
+            return sink.compilerGraph(item.graph, item.owner.name, item.owner, source.resolved, contextCopy)
+        end,
+        "checked context substitution"
+    )
+    contract.validateGuest(source)
+    local output = shim.build(source, selected, capacity)
+    if scenario then
+        inspect(source, selected, output, scenario)
+    end
+    contract.validateGuest(source)
+    local packed = writer.encode(source.executable, source.scopes, output.dispatch, #output.words * 4)
+    contract.validateGuest(source)
+
+    return publish(source, output, packed, mode, caseName, metrics, refusals)
+end
+
+local function serialize(caseName: string, mode: string, capacityText: string, scenario: string?): string
+    return json.encodevalue(choose(caseName, mode, capacityText, scenario))
+end
+
+-- The selection itself, for in-process drivers; after the first call the
+-- frozen proof checks are skipped.
+export function select(caseName: string, mode: string, capacityText: string, scenario: string?): any
+    local output = choose(caseName, mode, capacityText, scenario)
+    rejected = true
+    return output
+end
+
+-- The same selection with the guest runtime built through the service
+-- catalog and the unit code cache instead of the frozen final-frame build.
+-- The runtime is selected once per mode in a process; each case then costs
+-- its program compile and the shim.
+export function selectUnits(
+    caseName: string,
+    mode: string,
+    capacityText: string,
+    cacheDirectory: string?,
+    scenario: string?
+): any
+    assert(mode == "normal" or mode == "spill")
+    local capacity = assert(tonumber(capacityText)) as integer
+    assert(capacity == 65536 or capacity == 131072 or capacity == 1048576)
+    local timings = guestbuild.timings
+    local source = guestbuild.guest(caseName, mode, cacheDirectory, scenario ~= nil)
+    local built = os.clock()
+    local output = shim.build(source, source.selected, capacity)
+    if scenario then
+        inspect(source, source.selected, output, scenario)
+    end
+    local linked = os.clock()
+    local packed = writer.encode(source.executable, source.scopes, output.dispatch, #output.words * 4, source.raises)
+    local encoded = os.clock()
+    local result = publish(source, output, packed, mode, caseName, source.metrics, {})
+    result.chunks = {}
+    for _, chunk in ipairs(source.chunks) do
+        result.chunks[#result.chunks + 1] = {name = chunk.name, hex = hex(chunk.bytes)}
+    end
+    timings.shim = (timings.shim or 0) + linked - built
+    timings.encode = (timings.encode or 0) + encoded - linked
+    timings.publish = (timings.publish or 0) + os.clock() - encoded
+
+    return result
+end
+
+export function compile(caseName: string, mode: string, capacityText: string): string
+    return serialize(caseName, mode, capacityText, nil)
+end
+
+-- Every `case:mode` in `list` in one process, sharing one guest unit and one
+-- selection per mode; each selection is written to `directory/case-mode.json`.
+export function batch(list: string, capacityText: string, directory: string): string
+    local written = {}
+    for item in list:gmatch("[^,]+") do
+        local caseName, mode = item:match("^(%w+):(%w+)$")
+        assert(caseName and mode, "batch item is case:mode")
+        local file = assert(io.open(directory .. "/" .. caseName .. "-" .. mode .. ".json", "wb"))
+        file:write(serialize(caseName, mode, capacityText, nil))
+        file:close()
+        rejected = true
+        written[#written + 1] = caseName .. "-" .. mode
+    end
+
+    return json.encodevalue({written = written})
+end
+
+export function audit(caseName: string, mode: string, capacityText: string, scenario: string): string
+    return serialize(caseName, mode, capacityText, scenario)
+end

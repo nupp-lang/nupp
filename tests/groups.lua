@@ -176,7 +176,7 @@ materializeobservetest prefercomptimetest typeprovidertest cabitest carraytest
 cdecltest layouttest targetvectorlayouttest bulkcolumntest concatbuffertest
 gentest loopclosuretest loweringinvarianttest neutralpolicytest optimizetest
 passpermutationtest runtimereflectiontest spanloweringtest switchplantest tableintrinsictest
-tier2test zoneintrinsictest analysisquerytest bundleddeclstest interfaceimagetest
+tier2test zoneintrinsictest analysisquerytest bundleddeclstest interfaceimagetest plaincodectest
 parallelcheckprotocoltest providerbundledtest annotationtest elseiftest lexertest
 parsertest switchtest typedtest binderidentitytest intersectiontest
 narrowingtest narrowtest normalizetest operatortest reflectiontest
@@ -279,9 +279,7 @@ end
 scopes.advancestage0test = "delivery"
 
 -- The owned native backend's own cases (nupp.compiler.s0).
-for name in (
-    "s0allocationtest s0arm64test s0framepairtest s0oracletest s0readertest s0selectiontest"
-):gmatch("%S+") do
+for name in ("s0allocationtest s0arm64test s0framepairtest s0oracletest s0readertest s0selectiontest"):gmatch("%S+") do
     scopes[name] = "component"
 end
 

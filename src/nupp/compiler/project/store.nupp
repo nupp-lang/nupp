@@ -31,12 +31,11 @@ local loaded = nativeBuffer ~= nil
 if not loaded then
     loaded, nativeBuffer = pcall(require, "nupp.serde.internal.binarycodec")
 end
-
-local function unavailable(): never
-    error("binary cache serialization is unavailable on this host")
+if not loaded then
+    nativeBuffer = require("nupp.compiler.project.plaincodec")
 end
 
-local buffer = loaded and nativeBuffer or {encode = unavailable, decode = unavailable}
+local buffer = nativeBuffer
 local fs = require("nupp.compiler.fs")
 
 -- Bumped when an entry's shape changes and old entries would decode into something the
@@ -98,15 +97,29 @@ local function slotsIn(path: string): {any}
     return slots
 end
 
---- Encodes `body`, seals it under `stamp`, and writes it to `path` ahead of the
---- bodies other stamps left there. Nothing is written when it cannot be encoded.
+local function writeFailure(path: string, reason: any): boolean
+    io.stderr:write(("nupp: cannot save compiler cache %s: %s\n"):format(path, tostring(reason)))
+
+    return false
+end
+
+local function encodeForStore(path: string, value: any): string?
+    local ok, text = pcall(buffer.encode, value)
+    if ok then
+        return text
+    end
+    writeFailure(path, text)
+
+    return nil
+end
+
+--- Encodes and seals a body, preserving the file's other compiler stamps.
 ---
---- The file is read again here rather than remembered from when the store was
---- opened, so a body another compiler wrote in between is kept rather than lost.
-local function writeSealed(path: string, stamp: string, body: any): nil
-    local ok, inner = pcall(buffer.encode, body)
-    if not ok then
-        return
+--- Failed writes are reported and leave the store dirty for a later retry.
+local function writeSealed(path: string, stamp: string, body: any): boolean
+    local inner = encodeForStore(path, body)
+    if inner == nil then
+        return false
     end
     local digest = sealDigest()
     local slots: {any} = {{stamp = stamp, seal = digest and digest(inner) or nil, body = inner}}
@@ -118,12 +131,16 @@ local function writeSealed(path: string, stamp: string, body: any): nil
             slots[#slots + 1] = slot
         end
     end
-    local encoded, text = pcall(buffer.encode, {format = FORMAT, slots = slots})
-    -- A store that cannot be encoded or written is a store that misses next time,
-    -- which is what happens when there is no store at all.
-    if encoded then
-        pcall(fs.writeFile, path, text)
+    local text = encodeForStore(path, {format = FORMAT, slots = slots})
+    if not text then
+        return false
     end
+    local wrote, saved, problem = pcall(fs.writeFile, path, text)
+    if not wrote or not saved then
+        return writeFailure(path, wrote and problem or saved)
+    end
+
+    return true
 end
 
 --- The body `path` holds under `stamp` when it is intact, else nil.
@@ -254,8 +271,9 @@ export function open(path: string?, stamp: string): Store
                 keptEntries[key] = entries[key]
             end
         end
-        writeSealed(path as string, stamp, {order = keptOrder, entries = keptEntries})
-        dirty = false
+        if writeSealed(path as string, stamp, {order = keptOrder, entries = keptEntries}) then
+            dirty = false
+        end
     end
 
     return Store(path = path, stamp = stamp, stats = stats, get = get, put = put, save = save)
@@ -298,8 +316,9 @@ export function openValue(path: string?, stamp: string): Value
         if not path or not dirty then
             return
         end
-        writeSealed(path as string, stamp, {value = assert(self).value})
-        dirty = false
+        if writeSealed(path as string, stamp, {value = assert(self).value}) then
+            dirty = false
+        end
     end
 
     self = Value(value = initial, set = set, save = save)

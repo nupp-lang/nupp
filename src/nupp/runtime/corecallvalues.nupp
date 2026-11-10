@@ -11,6 +11,7 @@ const debugcalls = require("nupp.runtime.debugcalls")
 const filecalls = require("nupp.runtime.filecalls")
 const filesystemcalls = require("nupp.runtime.filesystemcalls")
 const gccalls = require("nupp.runtime.gccalls")
+const hashcalls = require("nupp.runtime.hashcalls")
 const pollcalls = require("nupp.runtime.pollcalls")
 const poolcalls = require("nupp.runtime.poolcalls")
 const processcalls = require("nupp.runtime.processcalls")
@@ -134,6 +135,14 @@ export const modules: {[string]: {[string]: any}} = {
         end,
         handler = function(a1: any): any
             return gccalls.handler(a1)
+        end
+    },
+    ["nupp.runtime.hashcalls"] = {
+        digest = function(a1: any): any
+            return hashcalls.digest(a1)
+        end,
+        sha256 = function(a1: any): any
+            return hashcalls.sha256(a1)
         end
     },
     ["nupp.runtime.pollcalls"] = {

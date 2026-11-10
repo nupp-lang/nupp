@@ -153,7 +153,7 @@ return {
     -- check wrote rather than spelled here, with the codec the store writes it in.
     local function checkStamp()
         local file = assert(io.open(dir .. "/out/cache/checks.buf", "rb"))
-        local codec = rawget(_G, "__nupp_plain_codec") or require("nupp.serde.internal.binarycodec")
+        local codec = require("helpers.plaincodec")
         local envelope = codec.decode(file:read("*a"))
         file:close()
 

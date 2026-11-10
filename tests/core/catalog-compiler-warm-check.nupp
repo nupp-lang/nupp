@@ -1,0 +1,42 @@
+module nupp.core.catalogcompilerwarmcheck
+
+const project = require("nupp.tools.build.project")
+
+@allow("unused-binding")
+const _DYNAMIC_REQUIRES = [[
+@requires-dynamically nupp.compiler.vm.corechunk
+]]
+
+const scratch = assert(os.mktempdir("compilerwarmcheck-", nil, os.getenv("NUPP_GUEST_TEMP") or "/tmp"))
+const root = scratch:tostring()
+
+local function write(name: string, text: string): nil
+    local file = assert(io.open(root .. "/" .. name, "wb"))
+    file:write(text)
+    file:close()
+end
+
+write("nupp.lua", 'return {include = {"."}}\n')
+write("main.nupp", "local total: integer = 1 + 2\nprint(total)\n")
+local first: any = {}
+local second: any = {}
+local firstDiagnostics: {any} = {}
+local secondDiagnostics: {any} = {}
+local score = 0
+local cold = project.check(root, {produced = first, diagnostics = firstDiagnostics, progress = "never"})
+local warm = project.check(root, {produced = second, diagnostics = secondDiagnostics, progress = "never"})
+if cold == 0 and warm == cold and #firstDiagnostics == #secondDiagnostics then
+    score = score + 1
+end
+if first.timing.compiledModules == 1 then
+    score = score + 2
+end
+if second.timing.compiledModules == 0 and second.timing.reusedModules == 1 then
+    score = score + 4
+end
+local file = io.open(root .. "/build/cache/checks.buf", "rb")
+if file ~= nil then
+    score = score + 8
+    file:close()
+end
+export const result = score

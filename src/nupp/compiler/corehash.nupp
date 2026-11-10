@@ -2,14 +2,16 @@
 
 --[[
 The core's answer to `nupp.compiler.nativehash`, the compiler's host digest:
-the same 32 hex digits, computed by the XXH64 that `nupp.compiler.hash`
-writes in Nupp, since the core has no native digest of its own.
+the same 32 hex digits as `nupp.compiler.hash.portabledigest`, computed by the
+core over the string's bytes (hashcalls, guesthash). Guest code runs the
+portable XXH64, which emulates 64-bit arithmetic over 32-bit halves, at a few
+kilobytes a second.
 ]]
 module nupp.compiler.corehash
 
-const hash = require("nupp.compiler.hash")
+const hashcalls = require("nupp.runtime.hashcalls")
 
 --- The same 32 lowercase hex digits as `nupp.compiler.hash.digest`.
 export function digest(input: string): string
-    return hash.portabledigest(input)
+    return hashcalls.digest(input)
 end

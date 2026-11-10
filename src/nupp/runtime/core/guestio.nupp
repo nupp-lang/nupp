@@ -1,0 +1,439 @@
+module nupp.runtime.core.guestio
+
+-- The host's services a program reaches through the core's library calls:
+-- the file system calls under the program's file layer (filecalls) and its
+-- reactor (pollcalls, poolcalls) and process layer (processcalls), the
+-- collector's calls under finalizers (gccalls), clocks and calendar under
+-- `os` (timecalls, which guesttime answers), the monotonic clock and the
+-- program's arguments, and the digests guesthash computes.
+const native = require("nupp.runtime.vm.intrinsics")
+const heap = require("nupp.runtime.vm.heap")
+const values = require("nupp.runtime.vm.values")
+const os = require("nupp.runtime.vm.os")
+const context = require("nupp.runtime.core.context")
+const strings = require("nupp.runtime.core.corestrings")
+const tables = require("nupp.runtime.core.coretables")
+const ints = require("nupp.runtime.core.coreintegers")
+const guestscope = require("nupp.runtime.core.guestscope")
+const guestreactor = require("nupp.runtime.core.guestreactor")
+const librarylayouts = require("nupp.runtime.core.librarylayouts")
+const guestprocess = require("nupp.runtime.core.guestprocess")
+const hostprocess = require("nupp.runtime.core.hostprocess")
+const clock = require("nupp.runtime.core.hostclock")
+const guestgc = require("nupp.runtime.core.guestgc")
+const guesttime = require("nupp.runtime.core.guesttime")
+const guestfiles = require("nupp.runtime.core.guestfiles")
+const librarytexts = require("nupp.runtime.core.librarytexts")
+const hostfiles = require("nupp.runtime.core.hostfiles")
+const guesthash = require("nupp.runtime.core.guesthash")
+
+local function heapOf(ctx: voidptr): heap.Heap*
+    @unsafe do
+        local services = native.loadPointer(ctx, context.SERVICE_SCOPE)
+        return native.pointer(native.load64(services, native.fieldOffset<guestscope.Services>("heap"))) as heap.Heap*
+    end
+end
+
+-- The int64 bits of an integer argument. The program's file layer passes
+-- checked integers; anything else is the layer's mistake.
+local function integerOf(value: uint64): uint64
+    if not ints.isInteger(value) then
+        error("file calls: an integer argument was expected")
+    end
+
+    return ints.bitsOf(value)
+end
+
+-- The header of a string argument.
+local function stringOf(value: uint64): uint64
+    local s = strings.header(value)
+    if s == 0ULL then
+        error("file calls: a string argument was expected")
+    end
+
+    return s
+end
+
+-- At most `room` bytes read from descriptor `fd` as a new string, "" at
+-- the end, or the negated error number the read answered.
+local function readText(ctx: voidptr, fd: uint64, room: uint64): uint64
+    local state = strings.Builder(0ULL, 0ULL)
+    @unsafe do
+        local h = heapOf(ctx)
+        local builderLifetime = strings.open(h, state as strings.Builder*)
+        local builder = state as strings.Builder*
+        local wanted = room
+        if wanted == 0ULL then
+            wanted = 1ULL
+        end
+        if strings.reserve(h, builder, wanted) ~= 0ULL then
+            error("not enough memory")
+        end
+        local count = hostfiles.readInto(fd, native.pointer(strings.descriptor(builderLifetime).base), room)
+        if count < 0 then
+            strings.release(builder)
+            return ints.make(h, native.word(count))
+        end
+        if strings.commit(builder, native.word(count)) ~= 0ULL then
+            strings.release(builder)
+            error("not enough memory")
+        end
+        return values.TAG_OBJ | strings.finish(h, builder)
+    end
+end
+
+-- The system's text for error number `code`, sized by a first call.
+local function reasonText(ctx: voidptr, code: uint64): uint64
+    local state = strings.Builder(0ULL, 0ULL)
+    @unsafe do
+        local h = heapOf(ctx)
+        local builderLifetime = strings.open(h, state as strings.Builder*)
+        local builder = state as strings.Builder*
+        if strings.reserve(h, builder, 128ULL) ~= 0ULL then
+            error("not enough memory")
+        end
+        local length = hostfiles.reason(
+            code,
+            native.pointer(strings.descriptor(builderLifetime).base),
+            strings.descriptor(builderLifetime).cap
+        )
+        if length < 0 then
+            strings.release(builder)
+            error("file calls: the host has no text for an error")
+        end
+        if native.word(length) > strings.descriptor(builderLifetime).cap then
+            if strings.reserve(h, builder, native.word(length)) ~= 0ULL then
+                strings.release(builder)
+                error("not enough memory")
+            end
+            length = hostfiles.reason(
+                code,
+                native.pointer(strings.descriptor(builderLifetime).base),
+                strings.descriptor(builderLifetime).cap
+            )
+        end
+        if strings.commit(builder, native.word(length)) ~= 0ULL then
+            strings.release(builder)
+            error("not enough memory")
+        end
+        return values.TAG_OBJ | strings.finish(h, builder)
+    end
+end
+
+-- filecalls.temporary(): the name of a new empty file, or the negated
+-- error number making it answered.
+local function temporaryName(ctx: voidptr): uint64
+    local state = strings.Builder(0ULL, 0ULL)
+    @unsafe do
+        local h = heapOf(ctx)
+        local builderLifetime = strings.open(h, state as strings.Builder*)
+        local builder = state as strings.Builder*
+        local status = hostfiles.temporary(h, builderLifetime)
+        if status < 0 then
+            strings.release(builder)
+            return ints.make(h, native.word(status))
+        end
+        return values.TAG_OBJ | strings.finish(h, builder)
+    end
+end
+
+-- The room a directory's names are first read into.
+const NAMES_BYTES: uint64 = 4096ULL
+
+-- filecalls.names(fd): directory `fd`'s entry names, each followed by a
+-- NUL, or the negated error number; read again into room for them all when
+-- the first read did not fit.
+local function namesText(ctx: voidptr, fd: uint64): uint64
+    local state = strings.Builder(0ULL, 0ULL)
+    @unsafe do
+        local h = heapOf(ctx)
+        local builderLifetime = strings.open(h, state as strings.Builder*)
+        local builder = state as strings.Builder*
+        local wanted = NAMES_BYTES
+        while true do
+            if strings.reserve(h, builder, wanted) ~= 0ULL then
+                strings.release(builder)
+                error("not enough memory")
+            end
+            local length = hostfiles.names(
+                fd,
+                native.pointer(strings.descriptor(builderLifetime).base),
+                strings.descriptor(builderLifetime).cap
+            )
+            if length < 0 then
+                strings.release(builder)
+                return ints.make(h, native.word(length))
+            end
+            if native.word(length) <= strings.descriptor(builderLifetime).cap then
+                if strings.commit(builder, native.word(length)) ~= 0ULL then
+                    strings.release(builder)
+                    error("not enough memory")
+                end
+                return values.TAG_OBJ | strings.finish(h, builder)
+            end
+            wanted = native.word(length)
+        end
+    end
+
+    return values.NIL
+end
+
+-- filecalls' operation `op` with its arguments a, b and c (filecalls.d.nupp):
+-- a count, descriptor or position, the bytes read, or the negated error
+-- number, as the bridge's system call answered it.
+export function files(ctx: voidptr, op: uint64, a: uint64, b: uint64, c: uint64): uint64
+    local operation = integerOf(op)
+    if operation >= librarylayouts.FILESYSTEM_FIRST and operation <= librarylayouts.FILESYSTEM_LAST then
+        return guestfiles.call(ctx, operation, a, b)
+    end
+    if operation >= librarylayouts.REACTOR_FIRST and operation <= librarylayouts.REACTOR_LAST then
+        return guestreactor.call(ctx, operation, a, b, c)
+    end
+    if operation >= librarylayouts.PROCESS_FIRST and operation <= librarylayouts.PROCESS_LAST
+        or operation == librarylayouts.PROCESS_SIGNAL
+    then
+        return guestprocess.call(ctx, operation, a, b)
+    end
+    if operation >= librarylayouts.GC_FIRST and operation <= librarylayouts.GC_LAST then
+        return guestgc.calls(ctx, operation, a)
+    end
+    if operation >= librarylayouts.CLOCK_FIRST and operation <= librarylayouts.CLOCK_LAST then
+        return guesttime.call(ctx, operation, a, b, c)
+    end
+    if operation >= librarylayouts.TIME_FIRST and operation <= librarylayouts.TIME_LAST then
+        return guesttime.call(ctx, operation, a, b, c)
+    end
+    if operation >= librarylayouts.HASH_FIRST and operation <= librarylayouts.HASH_LAST then
+        return guesthash.call(ctx, operation, a)
+    end
+    @unsafe do
+        local h = heapOf(ctx)
+        if operation == librarylayouts.FILE_OPEN then
+            local s = stringOf(a)
+            local fd = hostfiles.openFile(h, s, integerOf(b))
+            return ints.make(h, native.word(fd))
+        elseif operation == librarylayouts.FILE_READ then
+            return readText(ctx, integerOf(a), integerOf(b))
+        elseif operation == librarylayouts.FILE_WRITE then
+            -- The text's bytes from `first`, 1-based as Lua's strings count.
+            local s = stringOf(b)
+            local first = integerOf(c)
+            local length = strings.length(s)
+            if first < 1ULL or first > length + 1ULL then
+                error("file calls: a write starts past its text")
+            end
+            local written = hostfiles.writeFrom(
+                integerOf(a),
+                native.pointer(strings.bytes(s) + first - 1ULL),
+                length - (first - 1ULL)
+            )
+            return ints.make(h, native.word(written))
+        elseif operation == librarylayouts.FILE_SEEK then
+            return ints.make(h, native.word(hostfiles.seek(integerOf(a), integerOf(b), integerOf(c))))
+        elseif operation == librarylayouts.FILE_CLOSE then
+            return ints.make(h, native.word(hostfiles.closeFile(integerOf(a))))
+        elseif operation == librarylayouts.FILE_REASON then
+            return reasonText(ctx, integerOf(a))
+        elseif operation == librarylayouts.FILE_REMOVE then
+            local s = stringOf(a)
+            return ints.make(h, native.word(hostfiles.removeFile(h, s)))
+        elseif operation == librarylayouts.FILE_RENAME then
+            local from, to = stringOf(a), stringOf(b)
+            local done = hostfiles.renameFile(h, from, to)
+            return ints.make(h, native.word(done))
+        elseif operation == librarylayouts.FILE_TEMPORARY then
+            return temporaryName(ctx)
+        elseif operation == librarylayouts.FILE_DIROPEN then
+            local s = stringOf(b)
+            return ints.make(h, native.word(hostfiles.openDirectory(h, integerOf(a), s)))
+        elseif operation == librarylayouts.FILE_NAMES then
+            return namesText(ctx, integerOf(a))
+        elseif operation == librarylayouts.FILE_UNLINK then
+            local s = stringOf(b)
+            local done = hostfiles.unlinkEntry(h, integerOf(a), s, integerOf(c))
+            return ints.make(h, native.word(done))
+        end
+    end
+    error("file calls: no such operation")
+
+    return values.NIL
+end
+
+-- A float's value word, from its bits: NaN as the canonical one.
+local function floatValue(bits: uint64): uint64
+    local x = native.fromBits(bits)
+    if x ~= x then
+        return values.QNAN
+    end
+
+    return bits
+end
+
+-- os.monotonic(): milliseconds on the host's monotonic clock, from an
+-- unspecified origin, as a float.
+export function monotonic(): uint64
+    local nanos = native.fromBits(ints.toFloatBits(clock.monotonicNanos()))
+
+    return floatValue(native.bits(nanos / native.fromBits(0x412e848000000000ULL)))
+end
+
+-- The program argument at `index` as a string, nil past the last: copied
+-- as os.getenv's value is, into a builder sized by a first call.
+local function argumentText(h: heap.Heap*, index: uint64): uint64
+    local state = strings.Builder(0ULL, 0ULL)
+    @unsafe do
+        local builderLifetime = strings.open(h, state as strings.Builder*)
+        local builder = state as strings.Builder*
+        if strings.reserve(h, builder, 256ULL) ~= 0ULL then
+            error("not enough memory")
+        end
+        local length = os.argument(
+            index,
+            native.pointer(strings.descriptor(builderLifetime).base),
+            strings.descriptor(builderLifetime).cap
+        )
+        if length < 0 then
+            strings.release(builder)
+            return values.NIL
+        end
+        if native.word(length) > strings.descriptor(builderLifetime).cap then
+            if strings.reserve(h, builder, native.word(length)) ~= 0ULL then
+                strings.release(builder)
+                error("not enough memory")
+            end
+            length = os.argument(
+                index,
+                native.pointer(strings.descriptor(builderLifetime).base),
+                strings.descriptor(builderLifetime).cap
+            )
+            if length < 0 or native.word(length) > strings.descriptor(builderLifetime).cap then
+                strings.release(builder)
+                error("arg: the program's arguments changed while they were read")
+            end
+        end
+        if strings.commit(builder, native.word(length)) ~= 0ULL then
+            strings.release(builder)
+            error("not enough memory")
+        end
+        return values.TAG_OBJ | strings.finish(h, builder)
+    end
+end
+
+-- hostcalls.arguments(): the program's arguments as Lua's `arg` holds them,
+-- the program at 0 and then its arguments from 1, in a new table.
+export function arguments(ctx: voidptr): uint64
+    @unsafe do
+        local h = heapOf(ctx)
+        local t = guestscope.newTable(ctx)
+        -- Held while its strings are made.
+        guestscope.hold(ctx, values.TAG_OBJ | t)
+        local index: uint64 = 0ULL
+        while true do
+            local text = argumentText(h, index)
+            if text == values.NIL then
+                break
+            end
+            if tables.set(h, t, values.TAG_INTEGER | index, text) == tables.NO_MEMORY then
+                error("not enough memory")
+            end
+            index = index + 1ULL
+        end
+        tables.drain(h)
+        guestscope.release(ctx)
+
+        return values.TAG_OBJ | t
+    end
+end
+
+-- Secure entropy has one rooted builder and publishes only a successful fill.
+-- The public provider normalizes whole counts; this boundary also refuses
+-- direct malformed core calls before acquiring an owner or exposing a pointer.
+const MAX_RANDOM_BYTES: uint64 = 1048576ULL
+
+export function securebytes(ctx: voidptr, requested: uint64): uint64
+    local state = strings.Builder(0ULL, 0ULL)
+    if not ints.isInteger(requested) or ints.bitsOf(requested) > MAX_RANDOM_BYTES then
+        error("random byte count must be an integer between 0 and 1048576")
+    end
+    local count = ints.bitsOf(requested)
+    @unsafe do
+        local h = heapOf(ctx)
+        if count == 0ULL then
+            return values.TAG_OBJ | strings.make(h, 0ULL, 0ULL)
+        end
+        local lifetime = strings.open(h, state as strings.Builder*)
+        if strings.reserve(h, lifetime, count) ~= 0ULL then
+            error("not enough memory")
+        end
+        local status = os.securefill(native.pointer(strings.descriptor(lifetime).base), count)
+        if status ~= 0 then
+            -- Partial host output is never committed or published. Reuse the
+            -- private owner for the actual status message, then release it.
+            strings.reset(lifetime)
+            if librarytexts.append(h, lifetime, librarytexts.TEXT_ENTROPY_FAILED)
+                | strings.appendInteger(h, lifetime, status) ~= 0ULL
+            then
+                error("not enough memory")
+            end
+            guestscope.raiseLibrary(ctx, values.TAG_OBJ | strings.finish(h, lifetime))
+            error("library error")
+        end
+        if strings.commit(lifetime, count) ~= 0ULL then
+            error("not enough memory")
+        end
+        return values.TAG_OBJ | strings.finish(h, lifetime)
+    end
+end
+
+const SYSTEM_TEXT_FIELDS: uint64 = 3ULL
+const SYSTEM_FIELDS: uint64 = 5ULL
+
+-- Text facts are sized before acquisition; only the private destination is
+-- exposed, with its independent owner retained through string publication.
+export function systemtext(ctx: voidptr, requested: uint64): uint64
+    local state = strings.Builder(0ULL, 0ULL)
+    if not ints.isInteger(requested) or ints.bitsOf(requested) >= SYSTEM_TEXT_FIELDS then
+        error("invalid text system field")
+    end
+    local field = ints.bitsOf(requested)
+    @unsafe do
+        local h = heapOf(ctx)
+        local length = hostprocess.systemquery(field, native.pointer(0ULL), 0ULL)
+        if length <= 0 then
+            error("system text query failed")
+        end
+        local lifetime = strings.open(h, state as strings.Builder*)
+        if strings.reserve(h, lifetime, native.word(length)) ~= 0ULL then
+            error("not enough memory")
+        end
+        local written = hostprocess.systemquery(
+            field,
+            native.pointer(strings.descriptor(lifetime).base),
+            native.word(length)
+        )
+        if written ~= length then
+            error("system text query failed")
+        end
+        if strings.commit(lifetime, native.word(written)) ~= 0ULL then
+            error("not enough memory")
+        end
+        return values.TAG_OBJ | strings.finish(h, lifetime)
+    end
+end
+
+export function systeminteger(ctx: voidptr, requested: uint64): uint64
+    if not ints.isInteger(requested) then
+        error("invalid integer system field")
+    end
+    local field = ints.bitsOf(requested)
+    if field < SYSTEM_TEXT_FIELDS or field >= SYSTEM_FIELDS then
+        error("invalid integer system field")
+    end
+    @unsafe do
+        local result = hostprocess.systemquery(field, native.pointer(0ULL), 0ULL)
+        if result <= 0 then
+            error("system integer query failed")
+        end
+        return ints.make(heapOf(ctx), native.word(result))
+    end
+end

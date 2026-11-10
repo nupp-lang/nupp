@@ -1,0 +1,450 @@
+module nupp.runtime.core.guesthash
+
+-- The digests a program reaches through the file calls' LibCall (HOST_FILES),
+-- from HASH_FIRST to HASH_LAST (librarylayouts): hashcalls.d.nupp's. The
+-- compiler's content digest (two XXH64s, nupp.compiler.hash) and SHA-256
+-- (nupp.digest.internal.sha256) run here over a string's bytes, answering
+-- the same lowercase hex digits the program's own Nupp spelling of each does,
+-- as guest code computes neither at any useful speed.
+const native = require("nupp.runtime.vm.intrinsics")
+const heap = require("nupp.runtime.vm.heap")
+const values = require("nupp.runtime.vm.values")
+const context = require("nupp.runtime.core.context")
+const strings = require("nupp.runtime.core.corestrings")
+const guestscope = require("nupp.runtime.core.guestscope")
+const librarylayouts = require("nupp.runtime.core.librarylayouts")
+
+-- XXH64's primes, and the second seed nupp.compiler.hash.digest uses.
+const PRIME1: uint64 = 0x9E3779B185EBCA87ULL
+const PRIME2: uint64 = 0xC2B2AE3D27D4EB4FULL
+const PRIME3: uint64 = 0x165667B19E3779F9ULL
+const PRIME4: uint64 = 0x85EBCA77C2B2AE63ULL
+const PRIME5: uint64 = 0x27D4EB2F165667C5ULL
+const SEED_B: uint64 = 0x9E3779B97F4A7C15ULL
+
+-- XXH64 consumes 32-byte stripes, then 8-, 4- and 1-byte pieces.
+const STRIPE: uint64 = 32ULL
+const WORD: uint64 = 8ULL
+const HALF: uint64 = 4ULL
+const BITS: uint64 = 64ULL
+const LOW32: uint64 = 0xffffffffULL
+const LOW8: uint64 = 0xffULL
+
+-- SHA-256: a block, its schedule's words, the room the schedule and the
+-- round constants take as 64-bit slots, and the digest's state words.
+const BLOCK: uint64 = 64ULL
+const ROUNDS: uint64 = 64ULL
+const SCHEDULE_WORDS: uint64 = 16ULL
+const SLOT: uint64 = 8ULL
+const CONSTANTS_AT: uint64 = 512ULL
+const TAIL_AT: uint64 = 1024ULL
+const TAIL_ROOM: uint64 = 128ULL
+const STATE_AT: uint64 = 1152ULL
+const HEX_AT: uint64 = 1216ULL
+const SHA_SCRATCH: uint64 = 1280ULL
+-- A word's width within a 64-bit slot.
+const HALF_BITS: uint64 = 32ULL
+-- As offsets: a slot's bytes and a message word's.
+const SLOT_BYTES: int64 = 8
+const WORD_BYTES: int64 = 4
+-- From the word sixteen before a new one in the schedule: the words
+-- fifteen, seven and two before it, and the new word's own slot.
+const BACK15: int64 = 8
+const BACK7: int64 = 72
+const BACK2: int64 = 112
+const BACK0: int64 = 128
+const LENGTH_BYTES: uint64 = 8ULL
+const STATE_WORDS: uint64 = 8ULL
+const PAD_BYTE: uint64 = 0x80ULL
+const WORD_DIGITS: uint64 = 8ULL
+const SHA_HEX: uint64 = 64ULL
+const XXH_HEX: uint64 = 32ULL
+const XXH_WORDS: uint64 = 16ULL
+const NIBBLES: uint64 = 16ULL
+const NIBBLE_BITS: uint64 = 4ULL
+const NIBBLE: uint64 = 15ULL
+const DIGIT_ZERO: uint64 = 48ULL
+const LETTER_GAP: uint64 = 39ULL
+const DECIMAL: uint64 = 10ULL
+
+local function heapOf(ctx: voidptr): heap.Heap*
+    @unsafe do
+        local services = native.loadPointer(ctx, context.SERVICE_SCOPE)
+        return native.pointer(native.load64(services, native.fieldOffset<guestscope.Services>("heap"))) as heap.Heap*
+    end
+end
+
+-- The header of a string argument.
+local function stringOf(value: uint64): uint64
+    local s = strings.header(value)
+    if s == 0ULL then
+        error("hash calls: a string argument was expected")
+    end
+
+    return s
+end
+
+-- Room for `bytes` in builder `b`: its address, valid until `b` grows.
+local function room(h: heap.Heap*, borrows b: strings.Builder*, bytes: uint64): uint64
+    @unsafe do
+        if strings.reserve(h, b, bytes) ~= 0ULL then
+            error("not enough memory")
+        end
+
+        return strings.descriptor(b).base
+    end
+end
+
+local function rotl(x: uint64, count: uint64): uint64
+    return (x << count) | (x >> (BITS - count))
+end
+
+local function round(acc: uint64, input: uint64): uint64
+    return rotl(acc + input * PRIME2, 31ULL) * PRIME1
+end
+
+local function merge(acc: uint64, value: uint64): uint64
+    return (acc ~ round(0ULL, value)) * PRIME1 + PRIME4
+end
+
+-- XXH64's state after its stripes, from its four accumulators.
+local function converge(v1: uint64, v2: uint64, v3: uint64, v4: uint64): uint64
+    local h = rotl(v1, 1ULL) + rotl(v2, 7ULL) + rotl(v3, 12ULL) + rotl(v4, 18ULL)
+    h = merge(h, v1)
+    h = merge(h, v2)
+    h = merge(h, v3)
+
+    return merge(h, v4)
+end
+
+-- XXH64 from state `h` over the bytes at `base` from `at` to `count`, which
+-- are fewer than a stripe, then avalanched.
+local function finish(h: uint64, base: voidptr, from: uint64, count: uint64): uint64
+    local at = from
+    h = h + count
+    while at + WORD <= count do
+        h = rotl(h ~ round(0ULL, native.load64(base, native.index(at))), 27ULL) * PRIME1 + PRIME4
+        at = at + WORD
+    end
+    if at + HALF <= count then
+        local word = native.word(native.load32(base, native.index(at))) & LOW32
+        h = rotl(h ~ word * PRIME1, 23ULL) * PRIME2 + PRIME3
+        at = at + HALF
+    end
+    while at < count do
+        local byte = native.word(native.load8(base, native.index(at))) & LOW8
+        h = rotl(h ~ byte * PRIME5, 11ULL) * PRIME1
+        at = at + 1ULL
+    end
+    h = (h ~ (h >> 33ULL)) * PRIME2
+    h = (h ~ (h >> 29ULL)) * PRIME3
+
+    return h ~ (h >> 32ULL)
+end
+
+-- The two XXH64s nupp.compiler.hash.digest takes of the `count` bytes at
+-- `base`, under seed 0 and SEED_B, in one pass: their stripes share each
+-- load, and each round is written out, as the selector calls a helper.
+local function digests(base: voidptr, count: uint64, out: voidptr): nil
+    local at: uint64 = 0ULL
+    local first: uint64 = PRIME5
+    local second: uint64 = SEED_B + PRIME5
+    if count >= STRIPE then
+        local a1 = PRIME1 + PRIME2
+        local a2 = PRIME2
+        local a3: uint64 = 0ULL
+        local a4 = 0ULL - PRIME1
+        local b1 = SEED_B + PRIME1 + PRIME2
+        local b2 = SEED_B + PRIME2
+        local b3 = SEED_B
+        local b4 = SEED_B - PRIME1
+        local last = count - STRIPE
+        while at <= last do
+            local i = native.index(at)
+            local x1 = native.load64(base, i) * PRIME2
+            local x2 = native.load64(base, i + 8) * PRIME2
+            local x3 = native.load64(base, i + 16) * PRIME2
+            local x4 = native.load64(base, i + 24) * PRIME2
+            a1 = a1 + x1
+            a2 = a2 + x2
+            a3 = a3 + x3
+            a4 = a4 + x4
+            b1 = b1 + x1
+            b2 = b2 + x2
+            b3 = b3 + x3
+            b4 = b4 + x4
+            a1 = ((a1 << 31ULL) | (a1 >> 33ULL)) * PRIME1
+            a2 = ((a2 << 31ULL) | (a2 >> 33ULL)) * PRIME1
+            a3 = ((a3 << 31ULL) | (a3 >> 33ULL)) * PRIME1
+            a4 = ((a4 << 31ULL) | (a4 >> 33ULL)) * PRIME1
+            b1 = ((b1 << 31ULL) | (b1 >> 33ULL)) * PRIME1
+            b2 = ((b2 << 31ULL) | (b2 >> 33ULL)) * PRIME1
+            b3 = ((b3 << 31ULL) | (b3 >> 33ULL)) * PRIME1
+            b4 = ((b4 << 31ULL) | (b4 >> 33ULL)) * PRIME1
+            at = at + STRIPE
+        end
+        first = converge(a1, a2, a3, a4)
+        second = converge(b1, b2, b3, b4)
+    end
+    native.store64(out, 0, finish(first, base, at, count))
+    native.store64(out, 8, finish(second, base, at, count))
+end
+
+-- Writes the low `digits` hex digits of `value`, most significant first,
+-- at `out`.
+local function hex(out: voidptr, value: uint64, digits: uint64): nil
+    local digit: uint64 = 0ULL
+    while digit < digits do
+        local nibble = (value >> ((digits - 1ULL - digit) * NIBBLE_BITS)) & NIBBLE
+        local code = nibble + DIGIT_ZERO
+        if nibble >= DECIMAL then
+            code = code + LETTER_GAP
+        end
+        native.store8(out, native.index(digit), code)
+        digit = digit + 1ULL
+    end
+end
+
+-- hashcalls.digest(text): nupp.compiler.hash.digest's 32 hex digits.
+local function digest(ctx: voidptr, text: uint64): uint64
+    local state = strings.Builder(0ULL, 0ULL)
+    @unsafe do
+        local h = heapOf(ctx)
+        local s = stringOf(text)
+        local base = native.pointer(strings.bytes(s))
+        local count = strings.length(s)
+        local lifetime = strings.open(h, state as strings.Builder*)
+        local out = native.pointer(room(h, lifetime, XXH_HEX + XXH_WORDS))
+        local words = native.offset(out, native.index(XXH_HEX))
+        digests(base, count, words)
+        hex(out, native.load64(words, 0), NIBBLES)
+        hex(native.offset(out, native.index(NIBBLES)), native.load64(words, 8), NIBBLES)
+
+        return values.TAG_OBJ | strings.make(h, native.address(out), XXH_HEX)
+    end
+end
+
+-- SHA-256's round constants, as 64-bit slots from `at`.
+local function constants(at: voidptr): nil
+    native.store64(at, 0, 0x428a2f98ULL)
+    native.store64(at, 8, 0x71374491ULL)
+    native.store64(at, 16, 0xb5c0fbcfULL)
+    native.store64(at, 24, 0xe9b5dba5ULL)
+    native.store64(at, 32, 0x3956c25bULL)
+    native.store64(at, 40, 0x59f111f1ULL)
+    native.store64(at, 48, 0x923f82a4ULL)
+    native.store64(at, 56, 0xab1c5ed5ULL)
+    native.store64(at, 64, 0xd807aa98ULL)
+    native.store64(at, 72, 0x12835b01ULL)
+    native.store64(at, 80, 0x243185beULL)
+    native.store64(at, 88, 0x550c7dc3ULL)
+    native.store64(at, 96, 0x72be5d74ULL)
+    native.store64(at, 104, 0x80deb1feULL)
+    native.store64(at, 112, 0x9bdc06a7ULL)
+    native.store64(at, 120, 0xc19bf174ULL)
+    native.store64(at, 128, 0xe49b69c1ULL)
+    native.store64(at, 136, 0xefbe4786ULL)
+    native.store64(at, 144, 0x0fc19dc6ULL)
+    native.store64(at, 152, 0x240ca1ccULL)
+    native.store64(at, 160, 0x2de92c6fULL)
+    native.store64(at, 168, 0x4a7484aaULL)
+    native.store64(at, 176, 0x5cb0a9dcULL)
+    native.store64(at, 184, 0x76f988daULL)
+    native.store64(at, 192, 0x983e5152ULL)
+    native.store64(at, 200, 0xa831c66dULL)
+    native.store64(at, 208, 0xb00327c8ULL)
+    native.store64(at, 216, 0xbf597fc7ULL)
+    native.store64(at, 224, 0xc6e00bf3ULL)
+    native.store64(at, 232, 0xd5a79147ULL)
+    native.store64(at, 240, 0x06ca6351ULL)
+    native.store64(at, 248, 0x14292967ULL)
+    native.store64(at, 256, 0x27b70a85ULL)
+    native.store64(at, 264, 0x2e1b2138ULL)
+    native.store64(at, 272, 0x4d2c6dfcULL)
+    native.store64(at, 280, 0x53380d13ULL)
+    native.store64(at, 288, 0x650a7354ULL)
+    native.store64(at, 296, 0x766a0abbULL)
+    native.store64(at, 304, 0x81c2c92eULL)
+    native.store64(at, 312, 0x92722c85ULL)
+    native.store64(at, 320, 0xa2bfe8a1ULL)
+    native.store64(at, 328, 0xa81a664bULL)
+    native.store64(at, 336, 0xc24b8b70ULL)
+    native.store64(at, 344, 0xc76c51a3ULL)
+    native.store64(at, 352, 0xd192e819ULL)
+    native.store64(at, 360, 0xd6990624ULL)
+    native.store64(at, 368, 0xf40e3585ULL)
+    native.store64(at, 376, 0x106aa070ULL)
+    native.store64(at, 384, 0x19a4c116ULL)
+    native.store64(at, 392, 0x1e376c08ULL)
+    native.store64(at, 400, 0x2748774cULL)
+    native.store64(at, 408, 0x34b0bcb5ULL)
+    native.store64(at, 416, 0x391c0cb3ULL)
+    native.store64(at, 424, 0x4ed8aa4aULL)
+    native.store64(at, 432, 0x5b9cca4fULL)
+    native.store64(at, 440, 0x682e6ff3ULL)
+    native.store64(at, 448, 0x748f82eeULL)
+    native.store64(at, 456, 0x78a5636fULL)
+    native.store64(at, 464, 0x84c87814ULL)
+    native.store64(at, 472, 0x8cc70208ULL)
+    native.store64(at, 480, 0x90befffaULL)
+    native.store64(at, 488, 0xa4506cebULL)
+    native.store64(at, 496, 0xbef9a3f7ULL)
+    native.store64(at, 504, 0xc67178f2ULL)
+end
+
+-- Runs SHA-256's compression over the block `at` bytes past `source`, on
+-- the state, schedule and constants in `scratch`. Words sit in 64-bit
+-- slots. The working variables a and e, which the round's sums rotate,
+-- hold their word in both halves, so each 32-bit rotation is one shift
+-- whose low half is the rotated word; the rest only take part in sums and
+-- bitwise operations whose low halves are what count, masked once a new
+-- word is taken. It calls nothing, so every value stays in a register;
+-- and the loops step pointers, so each load is one instruction.
+local function compress(scratch: voidptr, source: voidptr, at: int64): nil
+    local from = native.offset(source, at)
+    local to = native.offset(scratch, 0)
+    local loaded = native.address(scratch) + SCHEDULE_WORDS * SLOT
+    while native.address(to) < loaded do
+        local high = (native.word(native.load8(from, 0)) << 24ULL) + (native.word(native.load8(from, 1)) << 16ULL)
+        local low = (native.word(native.load8(from, 2)) << 8ULL) + native.word(native.load8(from, 3))
+        native.store64(to, 0, high + low)
+        from = native.offset(from, WORD_BYTES)
+        to = native.offset(to, SLOT_BYTES)
+    end
+    local window = native.offset(scratch, 0)
+    local scheduled = native.address(scratch) + (ROUNDS - SCHEDULE_WORDS) * SLOT
+    while native.address(window) < scheduled do
+        local w15 = native.load64(window, BACK15)
+        local w2 = native.load64(window, BACK2)
+        local d15 = w15 + (w15 << HALF_BITS)
+        local d2 = w2 + (w2 << HALF_BITS)
+        local s0 = (d15 >> 7ULL) ~ (d15 >> 18ULL) ~ (w15 >> 3ULL)
+        local s1 = (d2 >> 17ULL) ~ (d2 >> 19ULL) ~ (w2 >> 10ULL)
+        local w = native.load64(window, 0) + s0 + native.load64(window, BACK7) + s1
+        native.store64(window, BACK0, w & LOW32)
+        window = native.offset(window, SLOT_BYTES)
+    end
+    local state = native.offset(scratch, native.index(STATE_AT))
+    local a = native.load64(state, 0)
+    local b = native.load64(state, 8)
+    local c = native.load64(state, 16)
+    local d = native.load64(state, 24)
+    local e = native.load64(state, 32)
+    local f = native.load64(state, 40)
+    local g = native.load64(state, 48)
+    local h = native.load64(state, 56)
+    a = a + (a << HALF_BITS)
+    e = e + (e << HALF_BITS)
+    local bc = b ~ c
+    -- The schedule ends where the round constants start.
+    local keys = native.offset(scratch, native.index(CONSTANTS_AT))
+    local finished = native.address(keys)
+    local words = native.offset(scratch, 0)
+    while native.address(words) < finished do
+        local sum = (e >> 6ULL) ~ (e >> 11ULL) ~ (e >> 25ULL)
+        local first = h + sum + (g ~ (e & (f ~ g))) + native.load64(keys, 0) + native.load64(words, 0)
+        local ab = a ~ b
+        local second = ((a >> 2ULL) ~ (a >> 13ULL) ~ (a >> 22ULL)) + (b ~ (ab & bc))
+        bc = ab
+        local low = (d + first) & LOW32
+        local top = (first + second) & LOW32
+        h, g, f, e, d, c, b, a = g, f, e, low + (low << HALF_BITS), c, b, a, top + (top << HALF_BITS)
+        keys = native.offset(keys, SLOT_BYTES)
+        words = native.offset(words, SLOT_BYTES)
+    end
+    native.store64(state, 0, (native.load64(state, 0) + a) & LOW32)
+    native.store64(state, 8, (native.load64(state, 8) + b) & LOW32)
+    native.store64(state, 16, (native.load64(state, 16) + c) & LOW32)
+    native.store64(state, 24, (native.load64(state, 24) + d) & LOW32)
+    native.store64(state, 32, (native.load64(state, 32) + e) & LOW32)
+    native.store64(state, 40, (native.load64(state, 40) + f) & LOW32)
+    native.store64(state, 48, (native.load64(state, 48) + g) & LOW32)
+    native.store64(state, 56, (native.load64(state, 56) + h) & LOW32)
+end
+
+-- SHA-256's initial state, as 64-bit slots from `at`.
+local function initial(at: voidptr): nil
+    native.store64(at, 0, 0x6a09e667ULL)
+    native.store64(at, 8, 0xbb67ae85ULL)
+    native.store64(at, 16, 0x3c6ef372ULL)
+    native.store64(at, 24, 0xa54ff53aULL)
+    native.store64(at, 32, 0x510e527fULL)
+    native.store64(at, 40, 0x9b05688cULL)
+    native.store64(at, 48, 0x1f83d9abULL)
+    native.store64(at, 56, 0x5be0cd19ULL)
+end
+
+-- hashcalls.sha256(text): its SHA-256 as 64 hex digits.
+local function sha256(ctx: voidptr, text: uint64): uint64
+    local state = strings.Builder(0ULL, 0ULL)
+    @unsafe do
+        local h = heapOf(ctx)
+        local s = stringOf(text)
+        local source = native.pointer(strings.bytes(s))
+        local count = strings.length(s)
+        local lifetime = strings.open(h, state as strings.Builder*)
+        local scratch = native.pointer(room(h, lifetime, SHA_SCRATCH))
+        constants(native.offset(scratch, native.index(CONSTANTS_AT)))
+        initial(native.offset(scratch, native.index(STATE_AT)))
+        local remainder = count % BLOCK
+        local whole = count - remainder
+        local at: uint64 = 0ULL
+        while at < whole do
+            compress(scratch, source, native.index(at))
+            at = at + BLOCK
+        end
+        -- The last bytes, the padding byte, zeros, and the length in bits.
+        local tail = native.index(TAIL_AT)
+        local index: uint64 = 0ULL
+        while index < TAIL_ROOM do
+            native.store8(scratch, tail + native.index(index), 0ULL)
+            index = index + 1ULL
+        end
+        index = 0ULL
+        while index < remainder do
+            native.store8(
+                scratch,
+                tail + native.index(index),
+                native.word(native.load8(source, native.index(whole + index)))
+            )
+            index = index + 1ULL
+        end
+        native.store8(scratch, tail + native.index(remainder), PAD_BYTE)
+        local ending = BLOCK
+        if remainder + 1ULL + LENGTH_BYTES > BLOCK then
+            ending = TAIL_ROOM
+        end
+        local bits = count << 3ULL
+        local byte: uint64 = 0ULL
+        while byte < LENGTH_BYTES do
+            native.store8(scratch, tail + native.index(ending - 1ULL - byte), (bits >> (byte * 8ULL)) & LOW8)
+            byte = byte + 1ULL
+        end
+        at = 0ULL
+        while at < ending do
+            compress(scratch, scratch, tail + native.index(at))
+            at = at + BLOCK
+        end
+        local out = native.offset(scratch, native.index(HEX_AT))
+        local word: uint64 = 0ULL
+        while word < STATE_WORDS do
+            local value = native.load64(scratch, native.index(STATE_AT + word * SLOT))
+            hex(native.offset(out, native.index(word * WORD_DIGITS)), value, WORD_DIGITS)
+            word = word + 1ULL
+        end
+
+        return values.TAG_OBJ | strings.make(h, native.address(out), SHA_HEX)
+    end
+end
+
+-- hashcalls' operation `operation` on text `a`.
+export function call(ctx: voidptr, operation: uint64, a: uint64): uint64
+    if operation == librarylayouts.HASH_DIGEST then
+        return digest(ctx, a)
+    elseif operation == librarylayouts.HASH_SHA256 then
+        return sha256(ctx, a)
+    end
+    error("hash calls: no such operation")
+
+    return values.NIL
+end
