@@ -1542,51 +1542,6 @@ export function forVersion(version: integer): any
             ctx.block = nil
         end
         local libraryCallOrCall: function(any, any, string?): integer
-
-        -- Kinds an argument holds that lowering twice would make twice: a
-        -- callsite, or a function, each one identity in the program graph.
-        local ONCE_ONLY: {
-            [string]: boolean
-        } = {
-            call = true,
-            methodCall = true,
-            invoke = true,
-            func = true,
-            funcbody = true,
-            ["function"] = true,
-            shortfn = true
-        }
-
-        -- Whether `node`'s arguments make a call or a function.
-        local function makesIdentities(node: any): boolean
-            local function visit(at: any): boolean
-                if type(at) ~= "table" or cst.isToken(at) then
-                    return false
-                end
-                if ONCE_ONLY[at.kind or ""] then
-                    return true
-                end
-                for _, child in ipairs(at) do
-                    if visit(child) then
-                        return true
-                    end
-                end
-
-                return false
-            end
-
-            return visit(node.args)
-        end
-
-        -- Guarded call `node` made as a call of `callee`, what the
-        -- environment holds.
-        local function throughEnvironment(c: any, node: any, callee: integer): integer?
-            node.chunkDynamic = true
-            local value = invoke(c, node, true, true, nil, nil, callee)
-            node.chunkDynamic = nil
-            return value
-        end
-
         -- A chunk's library call through a global: the core's own operation
         -- while the chunk's environment holds the function the program
         -- started with there, else a call of what it holds, as Lua resolves
@@ -1596,13 +1551,6 @@ export function forVersion(version: integer): any
                 return libraryCallOrCall(ctx, node, expected)
             end
             local actual = ctx.hold(taggedvalues.guardedCallee(ctx, node))
-            -- Arguments that make a call or a function are lowered once, so
-            -- such a call is always a call of what the environment holds.
-            if makesIdentities(node) then
-                local value = throughEnvironment(ctx, node, ctx.readHeld(actual))
-                ctx.release(actual)
-                return value as integer
-            end
             local original = taggedvalues.guardedOriginal(ctx, node)
             local same = ctx.hold(ctx.emit(node, "Eq", {ctx.readHeld(actual), original}, "tagged"))
             local result = ctx.hold(ctx.emit(node, "Nil", {}, "tagged"))
@@ -1629,7 +1577,10 @@ export function forVersion(version: integer): any
                 node,
                 different,
                 arm(function(c: any): integer?
-                    return throughEnvironment(c, node, c.readHeld(actual))
+                    node.chunkDynamic = true
+                    local value = invoke(c, node, true, true, nil, nil, c.readHeld(actual))
+                    node.chunkDynamic = nil
+                    return value
                 end)
             )
             local value = ctx.readHeld(result)
