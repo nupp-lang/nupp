@@ -43,6 +43,7 @@ local record scalarcalls
     u32leadingzeros: @nosuspend function(a: uint32): uint32
     u64andbits: @nosuspend function(a: uint64, b: uint64): uint64
     u64sub: @nosuspend function(a: uint64, b: uint64): uint64
+    u64trailingzeros: @nosuspend function(a: uint64): uint32
 end
 
 local calls: scalarcalls

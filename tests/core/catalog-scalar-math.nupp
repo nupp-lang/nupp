@@ -62,6 +62,18 @@ local high = math.u64.andbits(0xffffffffffffffffULL, 0x8000000000000000ULL)
 local max = math.u64.sub(0ULL, 1ULL)
 collectgarbage("collect")
 assert(high == 0x8000000000000000ULL and max == 0xffffffffffffffffULL)
+assert(math.u64.trailingzeros(0ULL) == 64 and math.u64.trailingzeros(max) == 0)
+local trailingzeros = math.u64.trailingzeros
+local bit: uint64 = 1ULL
+for position = 0, 63 do
+    assert(trailingzeros(bit) == position)
+    bit = bit << 1ULL
+end
+assert(trailingzeros(0x8000000080000100ULL) == 8)
+local count: any = trailingzeros
+local countOK, counted = pcall(count, 0x8000000000000000ULL)
+assert(countOK and counted == 63)
+assert(not pcall(count, false) and not pcall(count, nil))
 local dynamic: any = widths.div
 local ok, quotient = pcall(dynamic, 17, 0)
 assert(ok and quotient == 0)

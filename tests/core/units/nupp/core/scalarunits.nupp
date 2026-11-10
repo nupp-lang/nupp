@@ -341,6 +341,35 @@ export function boundaries(which: uint64): uint64
             1ULL,
             0ULL
         )
+    elseif which == 46ULL then
+        return native.chooseWord(
+            numbers.scalarbits(scalarkinds.selector(calls.MATH_U64_TRAILINGZEROS), 0ULL, 0ULL) == 64ULL,
+            1ULL,
+            0ULL
+        )
+    elseif which == 47ULL then
+        local bit: uint64 = 1ULL
+        local position: uint64 = 0ULL
+        while position < 64ULL do
+            if numbers.scalarbits(scalarkinds.selector(calls.MATH_U64_TRAILINGZEROS), bit, 0ULL) ~= position then
+                return 0ULL
+            end
+            bit = bit << 1ULL
+            position = position + 1ULL
+        end
+
+        return 1ULL
+    elseif which == 48ULL then
+        return native.chooseWord(
+            numbers.scalarbits(scalarkinds.selector(calls.MATH_U64_TRAILINGZEROS), 0xffffffffffffffffULL, 0ULL) == 0ULL
+            and numbers.scalarbits(
+                scalarkinds.selector(calls.MATH_U64_TRAILINGZEROS),
+                0x8000000080000100ULL,
+                0ULL
+            ) == 8ULL,
+            1ULL,
+            0ULL
+        )
     end
 
     return 0ULL

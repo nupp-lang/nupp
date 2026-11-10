@@ -735,6 +735,20 @@ export function scalarbits(selector: uint64, left: uint64, right: uint64): uint6
             return left & right
         elseif operation == scalarkinds.SUB then
             return left - right
+        elseif operation == scalarkinds.TRAILINGZEROS then
+            -- The public portable u64 operation counts exact unsigned bits,
+            -- including the high bit, and answers 64 for zero.
+            local remaining = left
+            if remaining == 0ULL then
+                return 64ULL
+            end
+            local count: uint64 = 0ULL
+            while (remaining & 1ULL) == 0ULL do
+                remaining = remaining >> 1ULL
+                count = count + 1ULL
+            end
+
+            return count
         end
         error("invalid64-bit scalar operation")
     end

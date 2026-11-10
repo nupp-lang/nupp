@@ -1139,7 +1139,7 @@ UNITS[#UNITS + 1] = {
     entries = {{"scalarunits", "boundaries", 1}},
     cases = function()
         local cases = {}
-        for which = 1, 45 do
+        for which = 1, 48 do
             cases[#cases + 1] = {"boundaries", {which}, 1}
         end
 

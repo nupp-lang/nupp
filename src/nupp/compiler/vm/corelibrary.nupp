@@ -454,7 +454,15 @@ local subjectrows: {Subject} = {
                 min = 2,
                 max = 2
             },
-            {name = "MATH_U64_SUB", id = 184, call = "scalarcalls.u64sub", scalar = "u64.sub", min = 2, max = 2}
+            {name = "MATH_U64_SUB", id = 184, call = "scalarcalls.u64sub", scalar = "u64.sub", min = 2, max = 2},
+            {
+                name = "MATH_U64_TRAILINGZEROS",
+                id = 185,
+                call = "scalarcalls.u64trailingzeros",
+                scalar = "u64.trailingZeros",
+                min = 1,
+                max = 1
+            }
         }
     },
     {

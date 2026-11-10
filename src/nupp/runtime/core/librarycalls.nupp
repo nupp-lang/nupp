@@ -151,8 +151,9 @@ export const MATH_U32_TRAILINGZEROS: uint64 = 181ULL
 export const MATH_U32_LEADINGZEROS: uint64 = 182ULL
 export const MATH_U64_ANDBITS: uint64 = 183ULL
 export const MATH_U64_SUB: uint64 = 184ULL
+export const MATH_U64_TRAILINGZEROS: uint64 = 185ULL
 export const SCALAR_FIRST: uint64 = 148ULL
-export const SCALAR_LAST: uint64 = 184ULL
+export const SCALAR_LAST: uint64 = 185ULL
 
 -- packs
 export const PACK_COPY: uint64 = 21ULL

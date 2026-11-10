@@ -117,6 +117,8 @@ export function selector(id: uint64): uint64
         return 17179869186ULL
     elseif id == calls.MATH_U64_SUB then
         return 17179869204ULL
+    elseif id == calls.MATH_U64_TRAILINGZEROS then
+        return 17179869207ULL
     end
 
     return 0ULL

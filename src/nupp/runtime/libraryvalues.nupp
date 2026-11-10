@@ -506,6 +506,9 @@ end
 mathmembers.u64.sub = function(a: uint64, b: uint64): uint64
     return scalarcalls.u64sub(a, b)
 end
+mathmembers.u64.trailingzeros = function(a: uint64): uint32
+    return scalarcalls.u64trailingzeros(a)
+end
 mathmembers.f32 = {
     narrow = function(value: number): float32
         return scalarcalls.f32narrow(value)
