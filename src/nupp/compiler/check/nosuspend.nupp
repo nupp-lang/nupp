@@ -308,7 +308,7 @@ export function install(c: state.Checker): Ops
         if cleanup and cleanup.functionType and cleanup.functionType.foreign then
             mayYield = false
         elseif info and info.summary then
-            mayYield = info.summary.top == true or info.summary.external == true or info.summary.yields == true
+            mayYield = info.summary.topYields == true or info.summary.external == true or info.summary.yields == true
             if mayYield and info.body then
                 local calls: {cst.Node} = {}
                 callsWithin(info.body, calls)
@@ -464,8 +464,9 @@ export function install(c: state.Checker): Ops
                 mayYield = false
             elseif info and info.summary and not info.external then
                 -- Seen here: the summary is the answer, and a widened one is a callee
-                -- that reached something this file could not follow.
-                if info.summary.top then
+                -- that reached something this file could not follow. Widening through
+                -- a `@nosuspend` callee leaves suspension itself known.
+                if info.summary.topYields then
                     mayYield, why = true, "reaches code with unknown effects"
                 else
                     mayYield = info.summary.yields == true
