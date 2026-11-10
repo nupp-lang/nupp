@@ -24,6 +24,12 @@ const hostcalls = require("nupp.runtime.hostcalls")
 -- The bytes a read asks the file for at a time, as stdio's buffer holds.
 const BUFFER = 4096
 
+-- What reading the rest of a file asks for past its buffer: this at first,
+-- doubling to the most, so a large file is read in a few dozen calls rather
+-- than one for every buffer of it.
+const ALL_FIRST = 65536
+const ALL_MOST = 16777216
+
 -- The longest numeral the "n" format reads, as Lua's L_MAXLENNUM.
 const NUMERAL = 200
 
@@ -154,9 +160,10 @@ end
 -- Reading
 ----------------------------------------------------------------------------
 
--- Reads ahead when what was read is spent: false at the end of the file or
--- when the read fails, whose error number the stream keeps.
-local function fill(s: Stream): boolean
+-- Reads ahead when what was read is spent, `wanted` bytes or the buffer's
+-- size: false at the end of the file or when the read fails, whose error
+-- number the stream keeps.
+local function fill(s: Stream, wanted: integer?): boolean
     if s.at <= #s.input then
         return true
     end
@@ -165,7 +172,7 @@ local function fill(s: Stream): boolean
         return false
     end
     -- An unbuffered file reads a byte at a time, as C's does.
-    local size = s.mode == "no" and 1 or s.size
+    local size = s.mode == "no" and 1 or wanted or s.size
     local done = files.read(s.descriptor, size)
     s.input, s.at = "", 1
     if done.code ~= 0 then
@@ -230,9 +237,11 @@ end
 -- The rest of the file, "" at its end.
 local function readall(s: Stream): string
     local parts: {string} = {}
-    while fill(s) do
-        parts[#parts + 1] = string.sub(s.input, s.at)
+    local wanted = math.max(s.size, ALL_FIRST) as integer
+    while fill(s, wanted) do
+        parts[#parts + 1] = s.at == 1 and s.input or string.sub(s.input, s.at)
         s.at = #s.input + 1
+        wanted = math.min(wanted * 2, math.max(ALL_MOST, s.size)) as integer
     end
 
     return table.concat(parts)
