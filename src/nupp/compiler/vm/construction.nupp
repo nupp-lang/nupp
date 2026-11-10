@@ -12,6 +12,46 @@ module nupp.compiler.vm.construction
 
 local wrappers: any = setmetatable({}, {__mode = "k"})
 
+-- A nested declaration gets a runtime table only when it owns a body.
+export function nestedRecordValue(node: any): boolean
+    for _, entry in ipairs(node.entries or {}) do
+        if entry.kind == "inlineMethod" or entry.kind == "constructorDecl" then
+            return true
+        end
+    end
+
+    return false
+end
+
+-- Function bodies lower independently. Within a record, an erased parent's
+-- descendants stay erased even when a deeper declaration owns a body.
+export function recordValues(root: any): {[any]: boolean}
+    local found: {[any]: boolean} = {}
+    local nodes: {any} = type(root) == "table" and {root} or {}
+    local parents: {any} = {}
+    while #nodes > 0 do
+        local at = #nodes
+        local node, parent = nodes[at], parents[at]
+        nodes[at], parents[at] = nil, nil
+        if node.kind == "funcbody" or node.kind == "shortfn" then
+            parent = nil
+        elseif node.kind == "recordDecl" then
+            if parent == nil or found[parent] and node.declKind == "record" and nestedRecordValue(node) then
+                found[node] = true
+            end
+            parent = node
+        end
+        for _, child in ipairs(node) do
+            if type(child) == "table" then
+                local next = #nodes + 1
+                nodes[next], parents[next] = child, parent
+            end
+        end
+    end
+
+    return found
+end
+
 --- Whether a node is a checked construction call.
 export function bare(node: any): boolean
     return type(node) == "table" and node.kind == "call" and node.construction == true

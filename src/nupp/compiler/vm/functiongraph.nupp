@@ -1399,20 +1399,10 @@ local function compileOwner(fn: any, options: any, profile: any, site: any): any
         return nil
     end
 
-    local function ownsFunctions(stat: any): boolean
-        for _, entry in ipairs(stat.entries or {}) do
-            if entry.kind == "inlineMethod" or entry.kind == "constructorDecl" then
-                return true
-            end
-        end
-
-        return false
-    end
-
     -- Whether a declaration nests a record that owns functions.
     local function nestsFunctions(stat: any): boolean
         for _, entry in ipairs(stat.entries or {}) do
-            if entry.kind == "recordDecl" and entry.declKind == "record" and ownsFunctions(entry) then
+            if entry.kind == "recordDecl" and entry.declKind == "record" and construction.nestedRecordValue(entry) then
                 return true
             end
         end
@@ -1425,7 +1415,11 @@ local function compileOwner(fn: any, options: any, profile: any, site: any): any
     -- call it through its name, and its table is stored on the declaration's.
     declareRecord = function(stat: any, qualified: boolean?): nil
         for _, entry in ipairs(stat.entries or {}) do
-            if block and entry.kind == "recordDecl" and entry.declKind == "record" and ownsFunctions(entry) then
+            if block
+                and entry.kind == "recordDecl"
+                and entry.declKind == "record"
+                and construction.nestedRecordValue(entry)
+            then
                 declareRecord(entry)
             end
         end

@@ -158,20 +158,24 @@ function suite.moduleCatalogCarriesCheckedFactoryAndLazyNominalCell()
     assert(cells == 1, "only the required overload nominal gets a class cell")
 end
 
-function suite.ordinaryCatalogVerifiesItsExactFactoryLoader()
-    local source = "module recordcallableordinary\nlocal record R value: integer end\nexport const Make = R\n"
-    local path = "=recordcallableordinary.nupp"
+local function ordinaryCatalog(source, name)
+    local path = "=" .. name .. ".nupp"
     local parsed = require("nupp.compiler.syntax.parser").parse(source, path)
     assert(#parsed.errors == 0)
     local env = require("nupp.compiler.project.env").new(".", {memoryOnly = true, cache = false})
-    local diagnostics = require("nupp.compiler.check").check(parsed, path, env, {moduleName = "recordcallableordinary"})
+    local diagnostics = require("nupp.compiler.check").check(parsed, path, env, {moduleName = name})
     for _, diagnostic in ipairs(diagnostics) do
         assert(diagnostic.severity ~= "error", diagnostic.msg)
     end
-    local p = require(
+
+    return require(
         "helpers.recordfactory"
-    ).describe(
-        {{name = "recordcallableordinary", path = path, parsed = parsed, diagnostics = diagnostics}},
+    ).describe({{name = name, path = path, parsed = parsed, diagnostics = diagnostics}}, name)
+end
+
+function suite.ordinaryCatalogVerifiesItsExactFactoryLoader()
+    local p = ordinaryCatalog(
+        "module recordcallableordinary\nlocal record R value: integer end\nexport const Make = R\n",
         "recordcallableordinary"
     )
     local program = require("nupp.compiler.vm.programgraph")
@@ -192,6 +196,57 @@ function suite.ordinaryCatalogVerifiesItsExactFactoryLoader()
     loader.recordFactory = nil
     assert(not pcall(program.verify, p), "factory loader must retain its exact plan")
     loader.recordFactory = plan
+    assert(program.verify(p))
+end
+
+function suite.piecesPlanFactoriesOnlyForMaterializedRecordDeclarations()
+    local name = "recordcallablenested"
+    local p = ordinaryCatalog(
+        [[
+module recordcallablenested
+export record Parent
+    value: integer
+    record Components
+        scheme: string
+    end
+    record Erased
+        record Deep
+            function get(self): integer return 3 end
+        end
+    end
+    record Method
+        function get(self): integer return 2 end
+    end
+    record Built
+        constructor(self) end
+    end
+    function localClass(self): any
+        local record Local
+            value: integer
+        end
+        return Local
+    end
+end
+]],
+        name
+    )
+    local declarations, planned = {}, {}
+    for declaration in pairs(p.recordDecls) do
+        declarations[declaration.name.text] = declaration
+    end
+    for declaration in pairs(p.recordFactories) do
+        planned[declaration.name.text] = true
+    end
+    assert(planned.Parent and planned.Method and planned.Built and planned.Local)
+    assert(not planned.Components and not planned.Erased and not planned.Deep)
+    local program = require("nupp.compiler.vm.programgraph")
+    local profile = require("nupp.compiler.vm.taggedprofile").forVersion(8)
+    assert(require("nupp.compiler.vm.coregraphexecutable").fromChecked(program.compile(p, profile), 8))
+    local pieces = require("nupp.compiler.vm.corepiece").compile(p, profile)
+    assert(require("nupp.compiler.vm.corelink").link(pieces, name))
+    p.recordFactories[declarations.Components] = p.recordFactories[declarations.Parent]
+    assert(not pcall(program.verify, p), "erased declarations cannot acquire forged factory sites")
+    p.recordFactories[declarations.Components] = nil
     assert(program.verify(p))
 end
 

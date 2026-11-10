@@ -65,6 +65,19 @@ local function bindingMode(definition: any): string
     return definition.constant and "value" or "cell"
 end
 
+local function recordValues(p: any): {[any]: boolean}
+    local found: {[any]: boolean} = {}
+    for _, module in ipairs(p.modules) do
+        for declaration in pairs(construction.recordValues(module.parsed.root)) do
+            if declaration.name and p.byDefinition[declaration.name.definition] then
+                found[declaration] = true
+            end
+        end
+    end
+
+    return found
+end
+
 -- The ownership intrinsics the core runs: transfers, which answer the value
 -- they move, and `partition`, which answers its two parts. Their ownership
 -- is the checker's; at run time each is its value.
@@ -1163,6 +1176,7 @@ export function describe(modules: {any}, entryModule: string, options: any?): an
         p.calls[#p.calls + 1], p.callByNode[indexed.call] = item, item
     end
 
+    local materializedRecords = recordValues(p)
     local collect: function(any, any): nil
     collect = function(node: any, owner: any): nil
         if cst.isToken(node) or typeSyntax[node.kind] or graph.erased(node) then
@@ -1566,7 +1580,10 @@ export function describe(modules: {any}, entryModule: string, options: any?): an
             plan.loader = qualifiedload(owner, module, load)
             plan.loader.managed = plan
         end
-        if recordcallables.record(node) and (moduleNames[recordcallables.MODULE] or p.localRecordFactory) then
+        if recordcallables.record(node)
+            and materializedRecords[node]
+            and (moduleNames[recordcallables.MODULE] or p.localRecordFactory)
+        then
             local plan = recordcallables.prepare(p, node, owner, reference)
             p.recordFactories[node] = plan
             local site = {
@@ -2534,11 +2551,19 @@ export function verify(p: any): boolean
     for _, plan in pairs(p.manages) do
         managedcalls.verify(p, plan)
     end
-    for _, plan in pairs(p.recordFactories) do
+    local materializedRecords = recordValues(p)
+    for declaration, plan in pairs(p.recordFactories) do
+        need(
+            plan.node == declaration and materializedRecords[declaration],
+            "erased or foreign record has a callable factory"
+        )
         recordcallables.verify(p, plan)
     end
     for declaration in pairs(p.recordDecls) do
-        if recordcallables.record(declaration) and (modules[recordcallables.MODULE] or p.localRecordFactory) then
+        if recordcallables.record(declaration)
+            and materializedRecords[declaration]
+            and (modules[recordcallables.MODULE] or p.localRecordFactory)
+        then
             need(p.recordFactories[declaration], "record declaration lacks its callable factory")
         end
     end
