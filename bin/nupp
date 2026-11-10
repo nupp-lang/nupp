@@ -154,6 +154,25 @@ fi
 export LUA_PATH LUA_CPATH
 export NUPP_COMPILER_ROOT="$LUA_ROOT"
 
+# On Windows this launcher runs under Git Bash, and `NUPP_BASH` names it for
+# what this process starts: `bin/nupp.cmd` runs a nested launcher with it, and
+# the test runner hands its suites' shell commands to it when `NUPP_TEST_BASH`
+# names no other. The shebang starts `sh.exe`, Bash in POSIX mode, which sets
+# `$BASH` to `/usr/bin/sh`, so the name is the `bash.exe` beside it.
+case "$(uname -s 2>/dev/null)" in
+    MINGW*|MSYS*|CYGWIN*)
+        if [ -z "${NUPP_BASH:-}" ] && [ -n "${BASH:-}" ]; then
+            NUPP_BASH="$(dirname "$BASH")/bash.exe"
+            if [ -x "$NUPP_BASH" ]; then
+                NUPP_BASH=$(cygpath -w "$NUPP_BASH")
+                export NUPP_BASH
+            else
+                unset NUPP_BASH
+            fi
+        fi
+        ;;
+esac
+
 # A compiler rebuild happens before the requested command can parse its options,
 # but colour is meant to cover the whole command, including that rebuild. Keep
 # the one colour spelling the caller chose so the temporary `build` invocation

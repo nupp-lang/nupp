@@ -83,20 +83,6 @@ local function quote(arg)
     return "'" .. arg:gsub("'", "'\\''") .. "'"
 end
 
-local function launchArgs(argv: {string}): {string}
-    local testBash = windows and (rawget(_G, "__NUPP_TEST_BASH") or os.getenv("NUPP_TEST_BASH")) or nil
-    if not testBash or not tostring(argv[1]):gsub("\\", "/"):match("/bin/nupp$") then
-        return argv
-    end
-
-    local launched = {testBash}
-    for _, arg in ipairs(argv) do
-        launched[#launched + 1] = arg
-    end
-
-    return launched
-end
-
 local function exists(path: string): boolean
     local file = io.open(path, "rb")
     if not file then
@@ -105,6 +91,36 @@ local function exists(path: string): boolean
     file:close()
 
     return true
+end
+
+-- A checkout's `bin/nupp` is a shell script, which `CreateProcess` cannot start
+-- and `cmd.exe` cannot find by its extensionless name. In a test runner process,
+-- which sets `__NUPP_TEST_BASH`, it goes to that Git Bash. Everywhere else it goes
+-- to `bin/nupp.cmd` beside it, which finds Git Bash itself. The runner's global
+-- is not inherited, so a compiler the runner starts uses `bin/nupp.cmd` too.
+local function launchArgs(argv: {string}): {string}
+    if not windows or not tostring(argv[1]):gsub("\\", "/"):match("/bin/nupp$") then
+        return argv
+    end
+    local testBash: string? = rawget(_G, "__NUPP_TEST_BASH")
+    local launched: {string} = {}
+    if testBash then
+        launched[1] = testBash
+        for _, arg in ipairs(argv) do
+            launched[#launched + 1] = arg
+        end
+        return launched
+    end
+    local batch = argv[1] .. ".cmd"
+    if not exists(batch) then
+        return argv
+    end
+    launched[1] = batch
+    for index = 2, #argv do
+        launched[index] = argv[index]
+    end
+
+    return launched
 end
 
 -- MSYS cannot replace itself with a native executable, so killing a Bash-wrapped

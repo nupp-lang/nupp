@@ -303,7 +303,10 @@ if package.config:sub(1, 1) == "\\" then
     -- step as the empty string, which is true in Lua, so a bare `assert` let it
     -- through and every shelled-out command became `""` instead.
     local bash = os.getenv("NUPP_TEST_BASH")
-    assert(bash and bash ~= "", "NUPP_TEST_BASH must name Git Bash on Windows")
+    if not bash or bash == "" then
+        bash = os.getenv("NUPP_BASH")
+    end
+    assert(bash and bash ~= "", "NUPP_TEST_BASH or NUPP_BASH must name Git Bash on Windows")
     local nativeMarker = "__NUPP_WINDOWS_COMMAND__"
     _G.__NUPP_TEST_CMD_MARKER = nativeMarker
     _G.__NUPP_TEST_BASH = bash
