@@ -256,6 +256,11 @@ end
 -- store `store` under `keys`, for the next build.
 export function remember(root: string, case: string, version: integer, p: any, store: any, keys: {string?}): nil
     local project = p.checkedProject
+    -- Manually checked fixtures have pieces but no persisted dependency queries
+    -- from which a reusable catalog can be verified.
+    if project == nil then
+        return
+    end
     local kept = p.kept
     local carried: {[string]: boolean} = {}
     for _, module in ipairs(p.modules) do
