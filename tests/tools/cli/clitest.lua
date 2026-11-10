@@ -319,7 +319,17 @@ end
 
 function M.tableBuilderRejectsIncompleteRowsBeforeWritingAndCanBeReused()
     terminal.setcolormode("never")
-    local file = assert(io.tmpfile())
+    -- A named file read back by its name: the VM's file handles have neither
+    -- io.tmpfile nor seek.
+    local path = os.tmpname()
+    local file = assert(io.open(path, "wb"))
+    local function written()
+        file:flush()
+        local reader = assert(io.open(path, "rb"))
+        local text = reader:read("*a")
+        reader:close()
+        return text
+    end
     local output = terminal.table(file)
 
     local function refused(body, message)
@@ -355,7 +365,7 @@ function M.tableBuilderRejectsIncompleteRowsBeforeWritingAndCanBeReused()
         end,
         "complete the current row"
     )
-    assert(file:seek() == 0, "incomplete rows write no bytes")
+    assert(written() == "", "incomplete rows write no bytes")
     assert(output:cell("binary") == output)
     refused(
         function()
@@ -374,9 +384,9 @@ function M.tableBuilderRejectsIncompleteRowsBeforeWritingAndCanBeReused()
     output:headings(false):indent("  "):gap(" | "):row():cell("x"):cell("y")
     assert(output:tostring() == "  x | y\n", "clear resets measured widths and retains columns")
     output:write()
-    file:seek("set", 0)
-    assert(file:read("*a") == "  x | y\n", "write uses the bound stream")
+    assert(written() == "  x | y\n", "write uses the bound stream")
     file:close()
+    os.remove(path)
     terminal.setcolormode("auto")
 end
 
@@ -964,14 +974,17 @@ end
 
 -- A probe run as a program in a child process, with every compiler module the
 -- launcher itself loaded forgotten first, so what the probe requires is all that
--- is loaded.
+-- is loaded. The runtime's own native providers stay: they are not the
+-- launcher's, and their bindings read them from `package.loaded` directly.
 local function probeOutput(probe)
     local script = os.tmpname() .. ".lua"
     local file = assert(io.open(script, "wb"))
     -- Only Lua children inherit the generated module path of the test harness.
     file:write(
         "for name in pairs(package.loaded) do\n"
-        .. "   if name:match('^nupp%.') then package.loaded[name] = nil end\n"
+        .. "   if name:match('^nupp%.') and not name:match('^nupp%.runtime%.provider%.native') then\n"
+        .. "      package.loaded[name] = nil\n"
+        .. "   end\n"
         .. "end\n"
         .. (
             "if not rawget(_G, \"__nupp_load_image\") then\n" .. "   package.path = %q\n" .. "end\n"
