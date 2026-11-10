@@ -23,14 +23,15 @@ export function compilerSelection(): integer
     return 1
 end
 
-local function run(arg: {string}): integer
+local function run(arg: {string}, private: any?): integer
     local ROOT = assert(arg[1], "compiler root required")
     local WINDOWS = package.config:sub(1, 1) == "\\"
     local SUFFIX = WINDOWS and ".exe" or ""
     local FORMAT = "nupp-vm-cli-1"
-    local TARGET = ROOT .. "/build/rust/target"
-    local OUT = ROOT .. "/build/vm-cli"
-    local PACKAGES = ROOT .. "/.nupp/vm-cli"
+    local OUT = private and private.outDir or ROOT .. "/build/vm-cli"
+    local TARGET = private and OUT .. "/target" or ROOT .. "/build/rust/target"
+    local COMPILERS = ROOT .. "/.nupp/vm-cli"
+    local PACKAGES = private and private.packages or COMPILERS
     local PYTHON = os.getenv("PYTHON") or "python3"
     local started = os.monotonic()
 
@@ -81,6 +82,9 @@ local function run(arg: {string}): integer
     end
 
     local function source()
+        if private then
+            return private.snapshot()
+        end
         return json.decodevalue(capture({PYTHON, ROOT .. "/scripts/vm-cli", "status"})).sourceNow
     end
 
@@ -144,11 +148,11 @@ local function run(arg: {string}): integer
     assert(jobs >= 1 and jobs <= 4 and jobs % 1 == 0, "jobs must be an integer from 1 to 4")
     assert(fs.mkdir(OUT))
     local before = source()
-    local selectedGeneration = read(PACKAGES .. "/current"):match("^([a-f0-9]+)%s*$")
+    local selectedGeneration = read(COMPILERS .. "/current"):match("^([a-f0-9]+)%s*$")
     assert(selectedGeneration and #selectedGeneration == GENERATION_LENGTH, "invalid installed compiler generation")
     local generation = compilerGeneration or selectedGeneration
     assert(#generation == GENERATION_LENGTH and generation:match("^[a-f0-9]+$"), "invalid build compiler generation")
-    local pair = PACKAGES .. "/" .. generation
+    local pair = COMPILERS .. "/" .. generation
     local oldreceipt = json.decodevalue(read(pair .. "/receipt.json"))
     assert(
         oldreceipt.format == FORMAT
@@ -165,26 +169,28 @@ local function run(arg: {string}): integer
     for chunk in block:gmatch('"([^"]*)"') do
         extras[#extras + 1] = chunk
     end
+    if private then
+        extras[#extras + 1] = "," .. private.extras
+    end
     local image = OUT .. "/compiler.image"
     local emitEnv = {NO_JIT = "1", NUPP_COMPILER_ROOT = ROOT, NUPP_VM_EMIT_CACHE = cache, NUPP_VM_RUNTIME_ID = identity}
-    run(
-        {
-            pair .. "/runtime",
-            "run",
-            pair .. "/compiler.image",
-            "nupp.tools.vm.project",
-            "emit",
-            ROOT,
-            "nupp.tools.vm.root",
-            table.concat(extras),
-            "--output",
-            image
-        },
-        emitEnv,
-        "VM-hosted root emit"
-    )
+    local emission = {
+        pair .. "/runtime",
+        "run",
+        pair .. "/compiler.image",
+        "nupp.tools.vm.project",
+        "emit",
+        private and private.emitRoot or ROOT,
+        "nupp.tools.vm.root",
+        table.concat(extras)
+    }
+    if private and private.includes then
+        emission[#emission + 1] = private.includes
+    end
+    emission[#emission + 1], emission[#emission + 2] = "--output", image
+    run(emission, emitEnv, "VM-hosted root emit")
 
-    local seed = toolchain("stage0-seed")
+    local seed = private and pair or toolchain("stage0-seed")
     local plain = cargo("aot")
     local objecttool = OUT .. "/object-tool" .. SUFFIX
     copy(plain, objecttool, true)
@@ -300,7 +306,7 @@ local function run(arg: {string}): integer
         "compiler sources changed during build; previous generation retained"
     )
     assert(
-        read(PACKAGES .. "/current"):match("^(%S+)") == selectedGeneration,
+        read(COMPILERS .. "/current"):match("^(%S+)") == selectedGeneration,
         "another build selected a generation; refusing to replace it"
     )
     local runtimehash, imagehash = digest(runtime), digest(image)
@@ -337,7 +343,7 @@ local function run(arg: {string}): integer
         "compiler sources changed during validation; previous generation retained"
     )
     assert(
-        read(PACKAGES .. "/current"):match("^(%S+)") == selectedGeneration,
+        read(COMPILERS .. "/current"):match("^(%S+)") == selectedGeneration,
         "another build selected a generation during validation"
     )
     local installed = {
@@ -359,6 +365,7 @@ local function run(arg: {string}): integer
             runtimeSha256 = oldreceipt.runtimeSha256,
             imageSha256 = oldreceipt.imageSha256,
         },
+        privateProducer = private and private.identity or nil,
     }
     write(stage .. "/format", FORMAT .. "\n")
     write(stage .. "/runtime-identity", runtimehash .. "\n")
@@ -379,7 +386,9 @@ local function run(arg: {string}): integer
     write(PACKAGES .. "/current", selected .. "\n")
     -- A content check establishes freshness. Keep no end-of-build timestamp that
     -- could hide an edit; the launcher's next current check refreshes its own stamp.
-    run({PYTHON, ROOT .. "/scripts/vm-cli", "current", "--refresh-stamp"}, nil, "compiler freshness")
+    if not private then
+        run({PYTHON, ROOT .. "/scripts/vm-cli", "current", "--refresh-stamp"}, nil, "compiler freshness")
+    end
     os.remove(PACKAGES .. "/failed")
     write(
         OUT .. "/build-speed.json",
@@ -393,8 +402,19 @@ local function run(arg: {string}): integer
         })
     )
     print(destination)
+    if private then
+        private.destination = destination
+    end
 
     return 0
+end
+
+-- Packages a development producer without changing the shipping selection.
+export function producer(root: string, settings: table): string
+    local options: any = settings
+    run({root, "build", "--compiler-generation", options.generation}, options)
+
+    return assert(options.destination)
 end
 
 export function main(arg: {string}): integer
