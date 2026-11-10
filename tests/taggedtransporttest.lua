@@ -129,7 +129,7 @@ function M.compactionKeepsActualOwnedCleanupAndFailureInstructions()
     validate(complete)
 end
 
-function M.instructionLiveGraphsStillRespectTheCanonicalValueBound()
+function M.instructionLiveGraphsMayExceedTheRawImageValueBound()
     local complete = compile("return true")
     local g = complete.graphs[1]
     local block = g.blocks[1]
@@ -145,7 +145,12 @@ function M.instructionLiveGraphsStillRespectTheCanonicalValueBound()
     block.term.value = graph.emit(g, block, "Not", {value}, block.term.pos)
     tagged.forVersion(8).finish({g = g})
     assert(#g.types == maximum + 1 and g.counts.v == maximum + 1)
-    local okay, why = pcall(executable.fromChecked, complete, 8)
+    -- Checked source values are allocated physical slots only afterward.
+    -- This chain needs few simultaneous slots even beyond the raw image bound.
+    validate(complete)
+    -- Exercise the larger semantic bound without a million-instruction fixture.
+    g.counts.v = 1048577
+    local okay, why = pcall(semantic.copyGraph, g, 8, true)
     assert(not okay and tostring(why):find("invalid bounded integer", 1, true), tostring(why))
 end
 

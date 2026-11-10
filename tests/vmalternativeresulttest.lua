@@ -67,7 +67,7 @@ function M.finiteArmsKeepTheirIdentityAndActualReturnCounts()
     end
     local zero, one, two = false, false, false
     for _, instruction in ipairs(catalog.functions[owner.id + 1].instructions) do
-        zero = zero or instruction[1] == "RetV" and instruction[3] == 0
+        zero = zero or instruction[1] == "RetN" and instruction[3] == 0
         one = one or instruction[1] == "Ret"
         two = two or instruction[1] == "RetN" and instruction[3] == 2
     end
@@ -235,7 +235,7 @@ return 0
         local found = false
         for _, instruction in ipairs(catalog.functions[owner.id + 1].instructions) do
             assert(instruction[1] ~= "Ret", name .. " fabricated one nil result")
-            if instruction[1] == "RetV" then
+            if instruction[1] == "RetN" then
                 assert(instruction[3] == 0, name .. " fabricated fixed results")
                 found = true
             end
