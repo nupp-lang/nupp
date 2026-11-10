@@ -119,7 +119,7 @@ return capture() + second
 end
 
 function M.compactionKeepsActualOwnedCleanupAndFailureInstructions()
-    local path = root .. "/native/core/tests/catalog-binding-conditions.nupp"
+    local path = root .. "/tests/core/catalog-binding-conditions.nupp"
     local file = assert(io.open(path, "rb"))
     local source = file:read("*a")
     file:close()

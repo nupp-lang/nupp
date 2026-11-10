@@ -1,9 +1,0 @@
-local First = {}
-function First.answer(): integer
-    local left: integer = 9007199254740993
-    local mask: integer = 255
-    local selected: integer = left & mask
-    return selected
-end
-
-return First

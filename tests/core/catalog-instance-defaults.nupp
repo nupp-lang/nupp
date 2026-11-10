@@ -1,0 +1,45 @@
+module nupp.core.cataloginstancedefaults
+
+-- Module instances (nupp.runtime.luaload.instance) whose record takes a
+-- default method from an interface in a module the instance's chunk does
+-- not carry (catalog-instance-inherits): the default is the one the
+-- instance's require answers for that module, the program's own module or
+-- a stand-in for it.
+const luaload = require("nupp.runtime.luaload")
+const shapes = require("nupp.core.cataloginstanceshapes")
+
+const path = (os.getenv("NUPP_GUEST_TEMP") or "/tmp") .. "/catalog-instance-inherits.chunk"
+
+-- An environment whose require answers `module` for the interface's module.
+local function environment(module: any): table
+    local env: {[string]: any} = {}
+    env.require = function(name: string): any
+        if name == "nupp.core.cataloginstanceshapes" then
+            return module
+        end
+        return nil
+    end
+
+    return setmetatable(env, {__index = _G})
+end
+
+local score: integer = 0
+local real: any = luaload.instance(path, environment(shapes))
+if real.describe(3) == "area 9" then
+    score = score + 1
+end
+local stand: any = luaload.instance(
+    path,
+    environment({
+        Shape = {
+            describe = function(self: any): string
+                return "stand-in " .. tostring(self:area())
+            end
+        }
+    })
+)
+if stand.describe(4) == "stand-in 16" and real.describe(2) == "area 4" then
+    score = score + 2
+end
+
+export const result = score

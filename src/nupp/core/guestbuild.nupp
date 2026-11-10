@@ -1,0 +1,1389 @@
+module nupp.core.guestbuild
+
+-- Builds a guest program and the core that runs it. The program goes through
+-- the checked front end, the program graph and the executable; the guest
+-- runtime (handlers, entry, frames and what they call) goes through the
+-- service catalog and the unit code cache. The core's own code is tested, not
+-- proven (runtime plan, "Direction"): nothing here issues final-frame proofs.
+local service = require("nupp.compiler.vm.nativeservice")
+local runner = require("nupp.core.unitrunner")
+local parser = require("nupp.compiler.syntax.parser")
+local lexer = require("nupp.compiler.syntax.lexer")
+local checker: any = require("nupp.compiler.check")
+local environment: any = require("nupp.compiler.project.env")
+local cst = require("nupp.compiler.syntax.cst")
+local programgraph = require("nupp.compiler.vm.programgraph")
+local scalartypeof = require("nupp.compiler.vm.scalartypeof")
+local ownedcallables = require("nupp.compiler.vm.ownedcallables")
+local forwardedexports = require("nupp.compiler.vm.forwardedexports")
+local derivedrecipes = require("nupp.compiler.vm.derivedrecipes")
+local managedcalls = require("nupp.compiler.vm.managedcalls")
+local tagged = require("nupp.compiler.vm.taggedprofile")
+local executable = require("nupp.compiler.vm.coregraphexecutable")
+local corepiece = require("nupp.compiler.vm.corepiece")
+local corelink = require("nupp.compiler.vm.corelink")
+local corelibrary = require("nupp.compiler.vm.corelibrary")
+local writer = require("nupp.core.guestartifact")
+require("nupp.compiler.hostservices")
+-- Processor seconds by phase across this process's builds, for the runner's
+-- summary: the runtime's selection, and each program's compile.
+export const timings = {} as {[string]: number}
+
+-- The generated modules main requires in case modulesmany: more than the
+-- 256 an entry once took, each a chain of calls whose depths sum past the
+-- 4096 frames a program once had.
+local function manymodules(): {string}
+    local list: {string} = {}
+    for index = 1, 260 do
+        list[index] = ("modulesmany%03d"):format(index)
+    end
+
+    return list
+end
+
+-- A file's text, or nil when there is none.
+local function contents(path: string): string?
+    local file = io.open(path, "rb")
+    if file == nil then
+        return nil
+    end
+    local text = file:read("a") as string
+    file:close()
+
+    return text
+end
+
+-- The namespace of the VM's host modules, which the core answers only where
+-- `graph.coremodule` maps one.
+const VM_HOST_PREFIX = "nupp.vm."
+
+-- Whether `name` is a VM host module the core does not answer.
+local function unansweredhost(name: string): boolean
+    local graph: any = require("nupp.compiler.vm.graph")
+
+    return name:sub(1, #VM_HOST_PREFIX) == VM_HOST_PREFIX
+        and graph.coremodule(name) == name
+        and not graph.corecallmodule(name)
+end
+
+-- The modules the compiler CLI's image carries beside what its entry requires,
+-- as `nupp.tools.vm.project` names them for the image bin/nupp runs: its
+-- ROOT_EXTRAS line, read as scripts/vm-cli reads it, so the two cannot drift.
+local function cliextras(): {string}
+    local root = os.getenv("NUPP_COMPILER_ROOT")
+    if root == nil then
+        return {}
+    end
+    local text = assert(contents(root .. "/src/nupp/tools/vm/project.nupp"), "VM project module missing")
+    local start = assert(text:find("project.ROOT_EXTRAS = ", 1, true), "ROOT_EXTRAS line missing")
+    local stop = assert(text:find("\n\n", start, true), "ROOT_EXTRAS line unterminated")
+    local list: {string} = {}
+    for name in text:sub(start, stop):gmatch("\"([^\"]*)\"") do
+        for module in name:gmatch("[%w%._]+") do
+            -- A VM host provider the core replaces is carried as the core's.
+            local graph: any = require("nupp.compiler.vm.graph")
+            local relative = "src/" .. (graph.coremodule(module) as string):gsub("%.", "/")
+            local source = contents(root .. "/" .. relative .. ".nupp")
+            if source == nil then
+                relative = relative .. "/init"
+                source = contents(root .. "/" .. relative .. ".nupp")
+            end
+            -- A provider over a VM host the core does not answer (compression,
+            -- the network, URIs, workers) is one check and build never select.
+            local usable = source ~= nil
+            for required in (source or ""):gmatch("require%(%s*[\"']([%w%._]+)[\"']%s*%)") do
+                usable = usable and not unansweredhost(required)
+            end
+            if usable then
+                list[#list + 1] = relative
+            end
+        end
+    end
+
+    return list
+end
+
+-- Each case's fixture and graph profile version.
+local CASES: {[string]: {
+    fixture: string,
+    version: integer,
+    modules: {string}?,
+    -- Carries the library modules under `src/` the program requires, as
+    -- far as they reach, beside the ones `modules` names.
+    follow: boolean?,
+    -- The fixture is written under build/core-guests/generated by the runner.
+    generated: boolean?,
+    -- The fixture is a source under the checkout root, checked where it
+    -- lives and named `module` (a benchmark program declares no module).
+    rooted: boolean?,
+    module: string?,
+    -- Fixtures compiled as binary chunks beside the program, which the
+    -- runner writes where NUPP_GUEST_TEMP names, as `<fixture>.chunk`.
+    chunks: {string}?,
+    -- Nupp module fixtures compiled as module instance chunks
+    -- (corechunk.compileModule), written as `chunks` are.
+    instances: {string}?
+}} = {
+    bindingconditions = {fixture = "catalog-binding-conditions", version = 8},
+    optionalmethodcleanups = {fixture = "catalog-optional-method-cleanups", version = 8},
+    numericsteps = {fixture = "catalog-numeric-steps", version = 8},
+    stringdynamic = {fixture = "catalog-string-dynamic", version = 8},
+    stringmetaonly = {fixture = "catalog-string-metatable-only", version = 8},
+    stringmetatable = {fixture = "catalog-string-metatable", version = 8},
+    stringmethods = {fixture = "catalog-string-methods", version = 8},
+    stringgmatchvalues = {fixture = "catalog-string-gmatch-values", version = 8},
+    scalarmath = {fixture = "catalog-scalar-math", version = 8, follow = true},
+    scalarrandom = {fixture = "catalog-scalar-random", version = 8, follow = true},
+    scalarmutation = {fixture = "catalog-scalar-mutation", version = 8, follow = true},
+    boolean = {fixture = "catalog-boolean", version = 2},
+    nilValue = {fixture = "catalog-nil", version = 2},
+    live = {fixture = "catalog-live", version = 2},
+    fresh = {fixture = "catalog-fresh", version = 2},
+    nested = {fixture = "catalog-nested", version = 2},
+    branchTrue = {fixture = "catalog-branch-true", version = 2},
+    branchFalse = {fixture = "catalog-branch-false", version = 2},
+    branchElseif = {fixture = "catalog-branch-elseif", version = 2},
+    branchLive = {fixture = "catalog-branch-live", version = 2},
+    modulePair = {fixture = "catalog-module-main", version = 2, modules = {"catalog-module-prefix"}},
+    moduleTriple = {
+        fixture = "catalog-module-triple",
+        version = 2,
+        modules = {"catalog-module-prefix", "catalog-module-middle"}
+    },
+    numberAdd = {fixture = "catalog-number-add", version = 3},
+    numberNegativeZero = {fixture = "catalog-number-negative-zero", version = 3},
+    numberNaN = {fixture = "catalog-number-nan", version = 3},
+    numberBranch = {fixture = "catalog-number-branch", version = 4},
+    numberLoop = {fixture = "catalog-number-loop", version = 5},
+    numberLoopZero = {fixture = "catalog-number-loop-zero", version = 5},
+    numericFor = {fixture = "catalog-numeric-for", version = 6},
+    numericFloat = {fixture = "catalog-numeric-float", version = 6},
+    numericModZero = {fixture = "catalog-numeric-modzero", version = 6},
+    numericOverflow = {fixture = "catalog-numeric-overflow", version = 6},
+    numericControl = {fixture = "catalog-numeric-control", version = 6},
+    workloadLoops = {fixture = "catalog-workload-loops", version = 8},
+    workloadFib = {fixture = "catalog-workload-fib", version = 8},
+    callsNumeric = {fixture = "catalog-calls-numeric", version = 7},
+    tablesBasic = {fixture = "catalog-tables-basic", version = 8},
+    workloadClosures = {fixture = "catalog-workload-closures", version = 8},
+    workloadTables = {fixture = "catalog-workload-tables", version = 8},
+    workloadRecords = {fixture = "catalog-workload-records", version = 8},
+    workloadStrings = {fixture = "catalog-workload-strings", version = 8},
+    stringsBasic = {fixture = "catalog-strings-basic", version = 8},
+    integersWide = {fixture = "catalog-integers-wide", version = 8},
+    numbersText = {fixture = "catalog-numbers-text", version = 8},
+    environmentRead = {fixture = "catalog-environment", version = 8},
+    numbersFloat = {fixture = "catalog-numbers-float", version = 8},
+    callsResults = {fixture = "catalog-calls-results", version = 8},
+    tablesFloatKeys = {fixture = "catalog-tables-floatkeys", version = 8},
+    stringsLibrary = {fixture = "catalog-strings-library", version = 8},
+    callsGeneric = {fixture = "catalog-calls-generic", version = 8},
+    callsVariadic = {fixture = "catalog-calls-variadic", version = 8},
+    callsSpread = {fixture = "catalog-calls-spread", version = 8},
+    recordsMethods = {fixture = "catalog-records-methods", version = 8},
+    callsProtected = {fixture = "catalog-calls-protected", version = 8},
+    protectedpacks = {fixture = "catalog-protected-packs", version = 8},
+    callstables = {fixture = "catalog-calls-tables", version = 8},
+    nonreturningbodies = {fixture = "catalog-nonreturning-bodies", version = 8},
+    recordsInline = {fixture = "catalog-records-inline", version = 8},
+    errorsPositions = {fixture = "catalog-errors-positions", version = 8},
+    tablesMeta = {fixture = "catalog-tables-meta", version = 8},
+    errorsTexts = {fixture = "catalog-errors-texts", version = 8},
+    callsXpcall = {fixture = "catalog-calls-xpcall", version = 8},
+    tablesMetaops = {fixture = "catalog-tables-metaops", version = 8},
+    tablesLibrary = {fixture = "catalog-tables-library", version = 8},
+    stringsFormat = {fixture = "catalog-strings-format", version = 8},
+    recordsConstructors = {fixture = "catalog-records-constructors", version = 8},
+    numbersMath = {fixture = "catalog-numbers-math", version = 8},
+    recordsAffine = {fixture = "catalog-records-affine", version = 8},
+    recordsAffineErrors = {fixture = "catalog-records-affine-errors", version = 8},
+    recordsaffineraise = {fixture = "catalog-records-affine-raise", version = 8},
+    recordsdynamic = {fixture = "catalog-records-dynamic", version = 8},
+    recordscallable = {fixture = "catalog-records-callable", version = 8, modules = {"catalog-modules-boxes"}},
+    tablesSort = {fixture = "catalog-tables-sort", version = 8},
+    stringsGsubFunction = {fixture = "catalog-strings-gsubfn", version = 8},
+    stringsQuoted = {fixture = "catalog-strings-quoted", version = 8},
+    outputPrint = {fixture = "catalog-output-print", version = 8},
+    numbersPower = {fixture = "catalog-numbers-power", version = 8},
+    libraryRanges = {fixture = "catalog-library-ranges", version = 8},
+    numbersRandom = {fixture = "catalog-numbers-random", version = 8},
+    errorsLibrary = {fixture = "catalog-errors-library", version = 8},
+    callsAny = {fixture = "catalog-calls-any", version = 8},
+    recordsMetamethods = {fixture = "catalog-records-metamethods", version = 8},
+    callsPacks = {fixture = "catalog-calls-packs", version = 8},
+    callsOpen = {fixture = "catalog-calls-open", version = 8},
+    callsExpand = {fixture = "catalog-calls-expand", version = 8},
+    errorsMethods = {fixture = "catalog-errors-methods", version = 8},
+    recordsAffineReturns = {fixture = "catalog-records-affine-returns", version = 8},
+    threadsbasic = {fixture = "catalog-threads-basic", version = 8},
+    coroutineinheritance = {fixture = "catalog-coroutine-inheritance", version = 8, follow = true},
+    qualifiedrecordcapture = {fixture = "catalog-qualified-record-capture", version = 8},
+    assertvalue = {fixture = "catalog-assert-value", version = 8, follow = true},
+    threadscalls = {fixture = "catalog-threads-calls", version = 8},
+    threadsclose = {fixture = "catalog-threads-close", version = 8},
+    threadsiterate = {fixture = "catalog-threads-iterate", version = 8},
+    threadsmeta = {fixture = "catalog-threads-meta", version = 8},
+    threadsmethods = {fixture = "catalog-threads-methods", version = 8},
+    tasksbasic = {fixture = "catalog-tasks-basic", version = 8},
+    taskscancel = {fixture = "catalog-tasks-cancel", version = 8},
+    tasksscopes = {fixture = "catalog-tasks-scopes", version = 8},
+    threadsstacks = {fixture = "catalog-threads-stacks", version = 8},
+    outputwrite = {fixture = "catalog-output-write", version = 8},
+    libraryspread = {fixture = "catalog-library-spread", version = 8},
+    tableslibrarymeta = {fixture = "catalog-tables-library-meta", version = 8},
+    tableslibrarycalls = {fixture = "catalog-tables-library-calls", version = 8},
+    tablesmetaarity = {fixture = "catalog-tables-meta-arity", version = 8},
+    moduleslazy = {
+        fixture = "catalog-modules-main",
+        version = 8,
+        modules = {"catalog-modules-shapes", "catalog-modules-counter"}
+    },
+    modulesnamed = {fixture = "catalog-modules-named", version = 8, modules = {"catalog-modules-geometry"}},
+    modulespattern = {fixture = "catalog-modules-pattern", version = 8, modules = {"catalog-modules-geometry"}},
+    modulesrecords = {fixture = "catalog-modules-records", version = 8, modules = {"catalog-modules-boxes"}},
+    modulesqualified = {fixture = "catalog-modules-qualified", version = 8, modules = {"catalog-atlas-geometry"},},
+    libraryvalues = {fixture = "catalog-library-values", version = 8},
+    librarybasics = {fixture = "catalog-library-basics", version = 8, follow = true},
+    cleanupfunctions = {fixture = "catalog-cleanup-functions", version = 8, follow = true},
+    ownedcallables = {fixture = "catalog-owned-callables", version = 8, follow = true},
+    scalartypeof = {fixture = "catalog-scalar-typeof", version = 8, follow = true},
+    serdejson = {fixture = "catalog-serde-json", version = 8, follow = true},
+    functionsmany = {fixture = "functionsmany", version = 8, generated = true},
+    coreoperators = {fixture = "catalog-core-operators", version = 8},
+    methodcleanups = {fixture = "catalog-method-cleanups", version = 8, follow = true},
+    ownerreinit = {fixture = "catalog-owner-reinit", version = 8, follow = true},
+    coreforms = {fixture = "catalog-core-forms", version = 8, follow = true},
+    storagebasics = {fixture = "catalog-storage-basics", version = 8},
+    storageprovider = {fixture = "catalog-storage-provider", version = 8, follow = true},
+    bytebuffer = {fixture = "catalog-byte-buffer", version = 8, follow = true},
+    clockprovider = {fixture = "catalog-clock-provider", version = 8, follow = true},
+    systemprovider = {fixture = "catalog-system-provider", version = 8, follow = true},
+    systeminfo = {fixture = "catalog-system-info", version = 8, follow = true},
+    entropy = {fixture = "catalog-entropy", version = 8, follow = true},
+    entropyfailure = {fixture = "catalog-entropy-failure", version = 8, follow = true},
+    bufferstate = {fixture = "nupp/core/catalogbufferstate", version = 8, follow = true},
+    sharedbytes = {fixture = "nupp/core/catalogsharedbytes", version = 8, follow = true},
+    spanreads = {fixture = "nupp/core/catalogspanreads", version = 8, follow = true},
+    spanwrites = {fixture = "nupp/core/catalogspanwrites", version = 8, follow = true},
+    modulesdynamic = {fixture = "catalog-modules-dynamic", version = 8, modules = {"catalog-modules-geometry"},},
+    shortfunctions = {fixture = "catalog-short-functions", version = 8},
+    gotocontinue = {fixture = "catalog-goto-continue", version = 8},
+    legacyglobals = {fixture = "catalog-legacy-globals", version = 8},
+    derivedmembers = {
+        fixture = "catalog-derive",
+        version = 8,
+        follow = true,
+        modules = {"catalog-derive-helpers", "catalog-derive-provider"},
+    },
+    namedarguments = {fixture = "catalog-named-arguments", version = 8},
+    loopparameteralias = {fixture = "catalog-loop-parameter-alias", version = 8},
+    ownmanage = {fixture = "catalog-own-manage", version = 8},
+    aliasdowncast = {fixture = "catalog-alias-downcast", version = 8},
+    methodspread = {fixture = "catalog-method-spread", version = 8},
+    pluckedarguments = {fixture = "catalog-plucked-arguments", version = 8},
+    modulescycle = {
+        fixture = "catalog-modules-cycle",
+        version = 8,
+        modules = {"catalog-modules-ping", "catalog-modules-pong"},
+    },
+    modulesforward = {
+        fixture = "catalog-modules-forward",
+        version = 8,
+        modules = {"catalog-modules-early", "catalog-modules-copier"},
+    },
+    modulesself = {fixture = "catalog-modules-self", version = 8, modules = {"catalog-modules-mirror"}},
+    callsoverflow = {fixture = "catalog-calls-overflow", version = 8},
+    callsdeep = {fixture = "catalog-calls-deep", version = 8},
+    callsmany = {fixture = "catalog-calls-many", version = 8},
+    stringsanchors = {fixture = "catalog-strings-anchors", version = 8},
+    callsrecursive = {fixture = "catalog-calls-recursive", version = 8},
+    modulesmany = {fixture = "modulesmany", version = 8, generated = true, modules = manymodules()},
+    modulesretry = {
+        fixture = "catalog-modules-retry",
+        version = 8,
+        modules = {"catalog-modules-tally", "catalog-modules-faulty"}
+    },
+    errorsruntime = {fixture = "catalog-errors-runtime", version = 8},
+    errorsuncaught = {fixture = "catalog-errors-uncaught", version = 8},
+    tablesfrozen = {fixture = "catalog-tables-frozen", version = 8},
+    tablespacked = {fixture = "catalog-tables-packed", version = 8},
+    tablespackedsemantics = {fixture = "catalog-tables-packed-semantics", version = 8},
+    hostlibrary = {fixture = "catalog-host-library", version = 8},
+    benchforms = {fixture = "catalog-bench-forms", version = 8},
+    callarguments = {fixture = "catalog-call-arguments", version = 8},
+    iofiles = {fixture = "catalog-io-files", version = 8},
+    iostandard = {fixture = "catalog-io-standard", version = 8},
+    -- The reactor under a minimal scheduler (catalog-reactor-driver): pipes
+    -- through the poller, files through the blocking-work pool.
+    reactorpipes = {
+        fixture = "catalog-reactor-pipes",
+        version = 8,
+        modules = {"catalog-reactor-driver"},
+        follow = true
+    },
+    reactorfiles = {
+        fixture = "catalog-reactor-files",
+        version = 8,
+        modules = {"catalog-reactor-driver"},
+        follow = true
+    },
+    -- Tasks reading pipes through the reactor the scheduler waits in.
+    tasksreactor = {fixture = "catalog-tasks-reactor", version = 8, follow = true},
+    -- Processes: Lua's os.execute, io.popen and os.exit, io.popen's process
+    -- handle, and the process layer under them, scheduled and not.
+    processexecute = {fixture = "catalog-process-execute", version = 8},
+    processpopen = {fixture = "catalog-process-popen", version = 8},
+    processhandle = {fixture = "catalog-process-handle", version = 8},
+    runnerlowering = {fixture = "catalog-runner-lowering", version = 8},
+    affineconstructors = {fixture = "catalog-affine-constructors", version = 8},
+    absentffi = {fixture = "catalog-absent-ffi", version = 8},
+    -- `cdef function` calls through the generic foreign call.
+    guestffi = {fixture = "catalog-guest-ffi", version = 8},
+    ffiaggregates = {fixture = "catalog-ffi-aggregates", version = 8},
+    -- C declarations through libclang (nupp.compiler.corecdecl).
+    corecdecl = {fixture = "catalog-core-cdecl", version = 8},
+    runnerresiduals = {fixture = "catalog-runner-residuals", version = 8},
+    spreadlibrary = {fixture = "catalog-spread-library", version = 8},
+    libraryresults = {fixture = "catalog-library-results", version = 8},
+    processlines = {fixture = "catalog-process-lines", version = 8},
+    selectvalues = {fixture = "catalog-select-values", version = 8},
+    processexit = {fixture = "catalog-process-exit", version = 8},
+    gcweak = {fixture = "catalog-gc-weak", version = 8},
+    gcfinalizers = {fixture = "catalog-gc-finalizers", version = 8},
+    gcoptions = {fixture = "catalog-gc-options", version = 8},
+    gcend = {fixture = "catalog-gc-end", version = 8},
+    gcexit = {fixture = "catalog-gc-exit", version = 8},
+    logwarn = {fixture = "catalog-log-warn", version = 8, follow = true},
+    gcwarn = {fixture = "catalog-gc-warn", version = 8},
+    gcraise = {fixture = "catalog-gc-raise", version = 8},
+    processlayer = {
+        fixture = "catalog-process-layer",
+        version = 8,
+        modules = {"catalog-reactor-driver"},
+        follow = true
+    },
+    -- Lua's os clock and calendar; its calls on file names with io.tmpfile;
+    -- and main's recursive os.remove and io.Path arguments.
+    ostime = {fixture = "catalog-os-time", version = 8},
+    osfiles = {fixture = "catalog-os-files", version = 8},
+    filesystem = {fixture = "catalog-filesystem", version = 8, follow = true},
+    osremove = {fixture = "catalog-os-remove", version = 8},
+    clihosts = {fixture = "catalog-cli-hosts", version = 8},
+    -- Lua's loaders over a binary chunk installed into the running program.
+    loadbinary = {fixture = "catalog-load-binary", version = 8, chunks = {"catalog-load-chunk"}},
+    -- Hostile binary chunks, each refused, while a loaded one waits suspended.
+    loadhostile = {fixture = "catalog-load-hostile", version = 8, chunks = {"catalog-load-chunk"}},
+    recordsarray = {fixture = "catalog-records-array", version = 8},
+    forwardfunctions = {fixture = "catalog-forward-functions", version = 8},
+    closurecaptures = {fixture = "catalog-closure-captures", version = 8},
+    standardosfirst = {fixture = "catalog-standard-os-first", version = 8, follow = true},
+    debuggetinfo = {fixture = "catalog-debug-getinfo", version = 8},
+    moduleinstances = {fixture = "catalog-module-instances", version = 8, instances = {"catalog-instance-module"}},
+    instancedefaults = {
+        fixture = "catalog-instance-defaults",
+        version = 8,
+        modules = {"catalog-instance-shapes"},
+        instances = {"catalog-instance-inherits"}
+    },
+    osfilesystem = {fixture = "catalog-os-filesystem", version = 8},
+    -- The compiler's lexer and parser on the core.
+    compilerfront = {fixture = "catalog-compiler-front", version = 8, follow = true},
+    -- Lua's loaders over source text, compiled on the core by the compiler
+    -- the program carries (`follow` reaches it).
+    compilerlexer = {fixture = "catalog-compiler-lexer", version = 8, follow = true},
+    callsspreadshort = {fixture = "catalog-calls-spread-short", version = 8},
+    loadsource = {fixture = "catalog-load-source", version = 8, modules = {"catalog-load-helper"}, follow = true},
+    -- The packaged test runner (nupp.lua build.targets.testRunner): the
+    -- delivery path runs it on the core.
+    testrunner = {fixture = "tests/tools/test/runner/main", version = 8, follow = true, rooted = true, module = "main"},
+    -- The compiler CLI bin/nupp runs (`check`, `build`): its VM entry and the
+    -- modules its image carries beside it. The delivery path runs it on the core.
+    compilercli = {
+        fixture = "src/nupp/tools/vm/root",
+        version = 8,
+        follow = true,
+        rooted = true,
+        module = "nupp.tools.vm.root",
+        modules = cliextras()
+    },
+    -- `nupp check` on the core through the CLI's real root, carrying what
+    -- the CLI's image carries beside it.
+    compilercheck = {fixture = "catalog-compiler-check", version = 8, follow = true, modules = cliextras()},
+    -- The bench harness's own entry: the bench/vm workloads under debug.bench.
+    benchworkloads = {
+        fixture = "bench/vm/workloads.bench",
+        version = 8,
+        follow = true,
+        rooted = true,
+        module = "bench.vm.workloads.bench"
+    }
+}
+
+-- The handlers a profile version dispatches, in table order.
+local function handlerNames(caseName: string, version: integer): {string}
+    local names = {"K", "Nil", "Move", "NewClosure", "CallK", "Ret", "Jmp", "JmpIf", "Invalid"}
+    if caseName == "modulePair" or version >= 8 then
+        table.insert(names, 2, "Require")
+    end
+    local introduced: {
+        [string]: integer
+    } = {
+        Add = 3,
+        Lt = 4,
+        Sub = 6,
+        Mul = 6,
+        Mod = 6,
+        Le = 6,
+        Eq = 6,
+        NewCell = 7,
+        GetCell = 7,
+        SetCell = 7,
+        GetUpval = 7,
+        NewTable = 8,
+        GetIdx = 8,
+        SetIdx = 8,
+        Len = 8,
+        MathFloor = 8,
+        LibCall = 8,
+        Not = 8,
+        RetN = 8,
+        CallV = 8,
+        RetV = 8,
+        PCall = 8,
+        XPHandle = 8,
+        Destroy = 8
+    }
+    for _, name in ipairs({
+        "Add",
+        "Lt",
+        "Sub",
+        "Mul",
+        "Mod",
+        "Le",
+        "Eq",
+        "NewCell",
+        "GetCell",
+        "SetCell",
+        "GetUpval",
+        "NewTable",
+        "GetIdx",
+        "SetIdx",
+        "Len",
+        "MathFloor",
+        "LibCall",
+        "Not",
+        "RetN",
+        "CallV",
+        "RetV",
+        "PCall",
+        "XPHandle",
+        "Destroy"
+    }) do
+        if version >= introduced[name] then
+            table.insert(names, 2, name)
+        end
+    end
+
+    return names
+end
+
+local function read(path: string): string
+    local file = assert(io.open(path, "rb"), "guest build: missing source " .. path)
+    local text = file:read("*a")
+    file:close()
+
+    return text
+end
+
+-- The runtime modules a guest links, beyond the service catalog's own.
+local RUNTIME = {
+    "arena",
+    "frames",
+    "context",
+    "frameaccess",
+    "instances",
+    "guestcatalog",
+    "guestentry",
+    "guestops",
+    "guesthandlers",
+    "guestscope",
+    "coretables",
+    "guestloader",
+    "chunkadmission"
+}
+
+-- One runtime build and selection per mode for the process: every case
+-- shares them, and only the program differs. Audited builds add the test-only
+-- lifecycle audit leaves, which primary programs must not link.
+local runtimes: {[string]: any} = {}
+local sessions: {[string]: any} = {}
+-- Each case's program, compiled once for the process: the program does not
+-- depend on the mode or the audit, and nothing downstream changes it.
+local programs: {[string]: any} = {}
+
+local function runtime(mode: string, cacheDirectory: string?, audited: boolean): any
+    local kind = audited and "audited" or "primary"
+    local held = runtimes[kind .. ":" .. mode]
+    if held then
+        return held
+    end
+    local root = assert(os.getenv("NUPP_COMPILER_ROOT"))
+    local fixtures = {}
+    for _, name in ipairs(RUNTIME) do
+        fixtures[
+            #fixtures + 1
+        ] = {moduleName = "nupp.runtime.core." .. name, path = root .. "/src/nupp/runtime/core/" .. name .. ".nupp"}
+    end
+    -- Every handler is built, so one selection serves every profile version.
+    local all = handlerNames("modulePair", 8)
+    local roots, handlers = {}, {}
+    for _, name in ipairs(all) do
+        roots[#roots + 1] = {"nupp.runtime.core.guesthandlers", name}
+        handlers["nupp.runtime.core.guesthandlers." .. name] = true
+    end
+    roots[#roots + 1] = {"nupp.runtime.core.guestentry", "start"}
+    roots[#roots + 1] = {"nupp.runtime.core.guestentry", "complete"}
+    for _, name in ipairs({"prepare", "open", "close", "finish"}) do
+        roots[#roots + 1] = {"nupp.runtime.core.guestscope", name}
+    end
+    roots[#roots + 1] = {"nupp.runtime.core.guestuncaught", "recover"}
+    if audited then
+        fixtures[
+            #fixtures + 1
+        ] = {
+            moduleName = "nupp.runtime.core.guestaudit",
+            path = root .. "/build/core-guest-audit/source/nupp/runtime/core/guestaudit.nupp",
+            include = "build/core-guest-audit/source"
+        }
+        for _, name in ipairs({"after", "failedPrefix", "stale", "failedStart"}) do
+            roots[#roots + 1] = {"nupp.runtime.core.guestaudit", name}
+        end
+    end
+    local began = os.time()
+    -- The checked session and catalog serve both modes.
+    sessions[kind] = sessions[kind] or service.buildUnits(fixtures, roots, handlers)
+    local units = sessions[kind]
+    io.stderr:write(("guest runtime session %ds\n"):format(os.time() - began))
+    local phases = {}
+    local started = os.clock()
+    local chosen = runner.select(
+        units,
+        mode,
+        cacheDirectory,
+        handlers,
+        function(name: string): nil
+            phases[#phases + 1] = {name = name, seconds = os.clock() - started}
+            io.stderr:write(("guest runtime %s %ds\n"):format(name, os.time() - began))
+        end,
+        units.session.module("nupp.runtime.core.context")
+    )
+    local scopes = {}
+    for _, name in ipairs(RUNTIME) do
+        scopes["nupp.runtime.core." .. name] = units.session.module("nupp.runtime.core." .. name)
+    end
+    scopes["nupp.runtime.vm.values"] = units.session.module("nupp.runtime.vm.values")
+    -- The modules the artifact producer holds to corelibrary's table.
+    for _, name in ipairs({"librarycalls", "corestorage"}) do
+        scopes["nupp.runtime.core." .. name] = units.session.module("nupp.runtime.core." .. name)
+    end
+    for _, subject in ipairs(corelibrary.subjects()) do
+        if subject.output then
+            local name = "nupp.runtime.core." .. subject.output
+            scopes[name] = units.session.module(name)
+        end
+    end
+    if audited then
+        scopes["nupp.runtime.core.guestaudit"] = units.session.module("nupp.runtime.core.guestaudit")
+    end
+    local names, metrics = {}, {}
+    for name in pairs(chosen.codes) do
+        names[#names + 1] = name
+    end
+    table.sort(names)
+    for _, name in ipairs(names) do
+        local code = chosen.codes[name]
+        metrics[
+            #metrics + 1
+        ] = {
+            name = name,
+            frameBytes = code.frameBytes,
+            spillSlots = code.allocation.spillSlots,
+            integerRegisters = code.allocation.integerRegisters,
+            floatRegisters = code.allocation.floatRegisters,
+            calls = #code.fixupName
+        }
+    end
+    held = {
+        codes = chosen.codes,
+        owners = chosen.owners,
+        scopes = scopes,
+        timings = phases,
+        metrics = metrics,
+        raises = chosen.raises
+    }
+    runtimes[kind .. ":" .. mode] = held
+
+    return held
+end
+
+-- A case names its modules as fixtures (`tests/core`), absolute
+-- paths, or library modules under `src/`, which it carries as they are.
+local function libraryModule(name: string): boolean
+    return name:sub(1, 4) == "src/" or name:find("/src/", 1, true) ~= nil
+end
+
+const NATIVE_HOST_LOADER = "nupp.runtime.native"
+
+-- The library module under `src/` that module `name` loads from on the
+-- core, or nil when none does: a declaration file, or a host module the
+-- core does not answer.
+local function librarypath(root: string, name: string): string?
+    local graph: any = require("nupp.compiler.vm.graph")
+    local relative = (graph.coremodule(name) as string):gsub("%.", "/")
+    for _, candidate in ipairs({"src/" .. relative, "src/" .. relative .. "/init"}) do
+        local file = io.open(root .. "/" .. candidate .. ".nupp", "rb")
+        if file then
+            file:close()
+            return candidate
+        end
+    end
+    -- A plain Lua module, vendored: named with its extension.
+    for _, candidate in ipairs({"src/" .. relative .. ".lua", "src/" .. relative .. "/init.lua"}) do
+        local file = io.open(root .. "/" .. candidate, "rb")
+        if file then
+            file:close()
+            return candidate
+        end
+    end
+
+    return nil
+end
+
+-- Whether a source may call `warn` or set a `__gc`: a builder reads it to
+-- carry `nupp.runtime.luawarn`, which gives both their Nupp side. A word
+-- anywhere counts; carrying it needlessly costs a module that loads first.
+local function readswarn(source: string): boolean
+    return source:find("__gc", 1, true) ~= nil or source:find("%f[%w_]warn%f[^%w_]") ~= nil
+end
+
+-- Lua's loaders, which `nupp.runtime.luaload` carries.
+local LOADERS: {[string]: boolean} = {load = true, loadstring = true, loadfile = true, dofile = true}
+
+-- Whether an unchecked tree may call Lua's loaders: a name spelled as one
+-- anywhere, a local of that name included. A builder reads it to carry
+-- `nupp.runtime.luaload`; carrying it needlessly costs a module.
+local function readsload(root: any): boolean
+    local found = false
+    local walk: function(any): nil
+    walk = function(node: any): nil
+        if found or type(node) ~= "table" then
+            return
+        end
+        if node.kind == "name" and node.token and LOADERS[node.token.text] then
+            found = true
+            return
+        end
+        for _, child in ipairs(node) do
+            walk(child)
+        end
+    end
+    walk(root)
+
+    return found
+end
+
+-- The `os` functions the core calls itself, which need no library carried.
+local COREOS: {[string]: boolean} = {getenv = true, monotonic = true}
+
+-- Whether an unchecked tree may read Lua's `os` library itself:
+-- `os.execute`, `os.exit` or `os` as a value, beyond the calls the core
+-- makes itself. A builder reads it to carry `nupp.runtime.luaos`.
+local function readsos(root: any): boolean
+    local found = false
+    local walk: function(any): nil
+    walk = function(node: any): nil
+        if found or type(node) ~= "table" then
+            return
+        end
+        if node.kind == "dotIndex"
+            and node.obj
+            and node.obj.kind == "name"
+            and node.obj.token
+            and node.obj.token.text == "os"
+        then
+            found = node.name == nil or not COREOS[node.name.text]
+            return
+        end
+        if node.kind == "name" and node.token and node.token.text == "os" then
+            found = true
+            return
+        end
+        for _, child in ipairs(node) do
+            walk(child)
+        end
+    end
+    walk(root)
+
+    return found
+end
+
+-- The modules a checked tree loads: its requires, its qualified paths, and
+-- the names its source says it requires dynamically.
+local function requiredmodules(root: any, source: string, follow: boolean): ({string}, {[string]: boolean})
+    local found: {string} = {}
+    local dynamic: {[string]: boolean} = {}
+    local mandatory: {[string]: boolean} = {}
+
+    local function add(name: string, optional: boolean): nil
+        found[#found + 1] = name
+        if optional then
+            if not mandatory[name] then
+                dynamic[name] = true
+            end
+        else
+            mandatory[name] = true
+            dynamic[name] = nil
+        end
+    end
+
+    local walk: function(any): nil
+    walk = function(node: any): nil
+        if type(node) ~= "table" then
+            return
+        end
+        local graph: any = require("nupp.compiler.vm.graph")
+        if node.kind == "call"
+            and node.runtimeLoader == "require"
+            and type(node.requiredModule) == "string"
+            and not node.typeOnlyRequire
+        then
+            add(node.requiredModule, false)
+        elseif follow and graph.dynamicRequire(node) then
+            local args = node.args
+            local exprs = args and args.exprs or {}
+            local argument = #exprs == 1 and not args.str and not args.table and exprs[1] or nil
+            local token = argument and (argument.kind == "string" or argument.kind == "dedentString") and argument.token
+                or #exprs == 0 and args and not args.table and args.str
+            local name = token and lexer.literalstring(token.text, argument ~= nil and argument.kind == "dedentString")
+            if name then
+                add(name, true)
+            end
+        end
+        if ownedcallables.taking(node) then
+            add(ownedcallables.MODULE, false)
+        end
+        -- A record a derive recipe gives members loads the factory, and
+        -- each helper its members call.
+        if managedcalls.managing(node) then
+            add(managedcalls.MODULE, false)
+        end
+        if derivedrecipes.derived(node) then
+            add(derivedrecipes.MODULE, false)
+            for _, helper in ipairs(derivedrecipes.helperModules(node)) do
+                add(helper, false)
+            end
+        end
+        -- A library call the core makes itself (`assert(v)`) loads nothing,
+        -- whatever module its name is checked through.
+        if node.kind == "call" and graph.coreLibraryCall(node) ~= nil then
+            for _, argument in ipairs(node.args and node.args.exprs or {}) do
+                walk(argument)
+            end
+            return
+        end
+        -- A qualified path loads its module only where it is a value; one
+        -- naming a type (`io.Writer`) loads nothing, as the graph sees it.
+        local projection = programgraph.builtinprojection(node)
+        local libraryValue = graph.libraryValue(node)
+        if libraryValue == "coroutine.create" or libraryValue == "coroutine.wrap" then
+            add(graph.libraryModule(libraryValue), false)
+        end
+        if projection then
+            add(graph.libraryModule(projection.root), false)
+            add(projection.module, false)
+        elseif node.kind == "dotIndex" and type(node.qualifiedModule) == "string" then
+            add(node.qualifiedModule, false)
+        end
+        for _, child in ipairs(node) do
+            walk(child)
+        end
+    end
+    walk(root)
+    if #scalartypeof.imports(root) > 0 then
+        add(scalartypeof.MODULE, false)
+    end
+    if follow then
+        for list in source:gmatch("@requires%-dynamically ([%w%._, ]+)") do
+            for name in list:gmatch("[%w%._]+") do
+                add(name, true)
+            end
+        end
+    end
+
+    return found, dynamic
+end
+
+-- Whether optional discovery can carry a library module. Known unavailable
+-- VM hosts and the versioned native loader make a provider nonportable, even
+-- when its loader has source. Mandatory checked dependencies bypass this
+-- filter.
+local function portable(root: string, library: string, seen: {[string]: boolean}?): boolean
+    local graph: any = require("nupp.compiler.vm.graph")
+    if library == "src/" .. NATIVE_HOST_LOADER:gsub("%.", "/")
+        and graph.coremodule(NATIVE_HOST_LOADER) == NATIVE_HOST_LOADER
+        and not graph.corecallmodule(NATIVE_HOST_LOADER)
+    then
+        return false
+    end
+    local visited = seen or {}
+    if visited[library] then
+        return true
+    end
+    visited[library] = true
+    local source = read(root .. "/" .. library .. (library:sub(-4) == ".lua" and "" or ".nupp"))
+    local parsed = parser.parse(source, root .. "/" .. library)
+    if #parsed.errors > 0 then
+        return false
+    end
+    local declared = cst.declaredModule(parsed.root)
+    local backend = declared and require("nupp.compiler.native").backend(declared)
+    if backend then
+        local implementation = librarypath(root, backend)
+        if implementation then
+            if not portable(root, implementation, visited) then
+                return false
+            end
+        elseif not graph.corecallmodule(backend) then
+            return false
+        end
+    end
+
+    for name in source:gmatch("require%(%s*[\"']([%w%._]+)[\"']%s*%)") do
+        local found = librarypath(root, name)
+        if found ~= nil then
+            if not portable(root, found, visited) then
+                return false
+            end
+        elseif unansweredhost(name) then
+            return false
+        end
+    end
+
+    return true
+end
+
+local function modulePath(root: string, name: string): string
+    if name:sub(-4) == ".lua" then
+        return root .. "/" .. name
+    end
+    if name:sub(1, 1) == "/" then
+        return name .. ".nupp"
+    elseif name:sub(1, 4) == "src/" then
+        return root .. "/" .. name .. ".nupp"
+    end
+
+    return root .. "/tests/core/" .. name .. ".nupp"
+end
+
+-- The static sources the runner snapshots and stages, named by their parsed
+-- module declarations. Generated and checkout-root cases keep their own paths.
+export function fixtures(): {{
+    path: string,
+    module: string,
+    source: string
+}}
+    local root = assert(os.getenv("NUPP_COMPILER_ROOT"))
+    local paths: {[string]: boolean} = {}
+    for _, case in pairs(CASES) do
+        if case.generated ~= true and case.rooted ~= true then
+            paths[case.fixture] = true
+            -- A library module a case carries is no fixture: it is checked
+            -- where it lives.
+            for _, name in ipairs(case.modules or {}) do
+                if not libraryModule(name) then
+                    paths[name] = true
+                end
+            end
+            for _, name in ipairs(case.chunks or {}) do
+                paths[name] = true
+            end
+            for _, name in ipairs(case.instances or {}) do
+                paths[name] = true
+            end
+        end
+    end
+    local names: {string} = {}
+    for name in pairs(paths) do
+        names[#names + 1] = name
+    end
+    table.sort(names)
+    local fixtures: {{
+        path: string,
+        module: string,
+        source: string
+    }} = {}
+    local declared: {[string]: string} = {}
+    for _, name in ipairs(names) do
+        local path = modulePath(root, name)
+        local source = read(path)
+        local parsed = parser.parse(source, path)
+        assert(#parsed.errors == 0, "guest fixture parse failed: " .. path)
+        local module = assert(cst.declaredModule(parsed.root), "guest fixture module required: " .. path)
+        assert(declared[module] == nil or declared[module] == source, "conflicting guest fixture module: " .. module)
+        declared[module] = source
+        fixtures[#fixtures + 1] = {path = "tests/core/" .. name .. ".nupp", module = module, source = source}
+    end
+
+    return fixtures
+end
+
+-- One project for the process's multi-module programs: the library modules
+-- they carry are checked once, not once per case. Its staged fixtures are
+-- written before the first case and not changed after.
+local sharedProject: any = nil
+
+local function checkedProject(root: string): any
+    if sharedProject == nil then
+        local incremental: any = require("nupp.compiler.project.incremental")
+        require("nupp.compiler.project.projectconfig")
+        require("nupp.compiler.hash")
+        sharedProject = incremental.new(root, {
+            cache = false,
+            nativeCompilerServices = false,
+            -- Its output is not the build directory the staged sources sit
+            -- in, which the project index would leave out, and a qualified
+            -- path resolves only modules the index declares. The test runner's
+            -- root is the repository's, so the runner checks as `main` there.
+            config = {
+                include = {"src", "build/core-guest-programs/source", "tests/tools/test/runner"},
+                build = {outDir = "build/core-guest-programs/out"},
+            }
+        })
+    end
+
+    return sharedProject
+end
+
+-- The checked program catalog for a case: its entry after every module it carries.
+local function programCatalog(caseName: string, fixture: string, version: integer): any
+    local root = assert(os.getenv("NUPP_COMPILER_ROOT"))
+    local names = {fixture}
+    -- A case's other modules come first, so the modules it requires precede it.
+    local declared = CASES[caseName]
+    local others = declared and declared.modules
+    if others then
+        names = {}
+        for _, name in ipairs(others) do
+            -- A generated case's modules are generated beside it.
+            names[#names + 1] = declared ~= nil
+                and declared.generated == true
+                and root .. "/build/core-guests/generated/" .. name
+                or name
+        end
+        names[#names + 1] = fixture
+    end
+    -- A program that takes a library function as a value carries the
+    -- functions that make those calls, before its entry.
+    if version >= 8 then
+        local graph: any = require("nupp.compiler.vm.graph")
+        local takes = false
+        for _, name in ipairs(names) do
+            local path = modulePath(root, name)
+            takes = takes or graph.mayTakeLibraryValue(parser.parse(read(path), path).root)
+        end
+        if takes then
+            table.insert(names, #names, root .. "/src/nupp/runtime/libraryvalues")
+        end
+        -- One that reads Lua's `io` or `os` carries the core's, over its
+        -- process and file layers and the reactor beneath them.
+        local usesio, usesos, useswarn, usesload = false, false, false, false
+        for _, name in ipairs(names) do
+            local source = read(modulePath(root, name))
+            local tree = parser.parse(source, modulePath(root, name)).root
+            usesio = usesio or graph.mayUseIo(tree)
+            usesos = usesos or readsos(tree)
+            useswarn = useswarn or readswarn(source)
+            usesload = usesload or readsload(tree)
+        end
+        if useswarn then
+            table.insert(names, #names, "src/nupp/runtime/luawarn")
+        end
+        -- The loaders read files through Lua's `io`.
+        if usesload then
+            table.insert(names, #names, "src/nupp/runtime/luaload")
+            usesio = true
+        end
+        if usesio or usesos then
+            -- Named as following a require names them, so a program that
+            -- also requires one carries it once.
+            table.insert(names, #names, "src/nupp/runtime/reactor")
+            table.insert(names, #names, "src/nupp/runtime/files")
+            table.insert(names, #names, "src/nupp/runtime/processes")
+            table.insert(names, #names, "src/nupp/runtime/luaargs")
+        end
+        if usesio then
+            table.insert(names, #names, "src/nupp/runtime/luastreams")
+            table.insert(names, #names, "src/nupp/runtime/luaprocess")
+            table.insert(names, #names, "src/nupp/runtime/luaio")
+        end
+        if usesos then
+            table.insert(names, #names, "src/nupp/runtime/luatime")
+            table.insert(names, #names, "src/nupp/runtime/luaos")
+        end
+        -- A program using the task surface carries the scheduler.
+        local tasks = false
+        for _, name in ipairs(names) do
+            local path = modulePath(root, name)
+            tasks = tasks or graph.mayUseScheduler(parser.parse(read(path), path).root)
+        end
+        if tasks then
+            -- The scheduler waits in the reactor, which a program reading
+            -- `io` or `os` carries already.
+            if not (usesio or usesos) then
+                table.insert(names, #names, "src/nupp/runtime/reactor")
+            end
+            table.insert(names, #names, root .. "/src/nupp/runtime/scheduler")
+        end
+    end
+    local staged = root .. "/build/core-guest-programs/source"
+    local project: any = nil
+    if #names > 1 or declared ~= nil and declared.follow == true then
+        project = checkedProject(root)
+    end
+    local modules = {}
+    local moduleName = ""
+    local follow = declared ~= nil and declared.follow == true
+    local carried: {[string]: boolean} = {}
+    local entry: any = nil
+    local queue: {string} = {}
+
+    local function enqueue(name: string): nil
+        -- Synthetic and followed dependencies may spell the same source
+        -- absolutely or relative to the compiler root. Check it only once.
+        local path = modulePath(root, name)
+        if not carried[path] then
+            carried[path] = true
+            queue[#queue + 1] = name
+        end
+    end
+
+    for _, name in ipairs(names) do
+        enqueue(name)
+    end
+    local at: integer = 1
+    local forwarding = false
+    while at <= #queue or not forwarding do
+        if at > #queue then
+            -- A program a require cycle re-enters carries the factory of the
+            -- forwarders its cyclic modules publish, checked as the rest is.
+            forwarding = true
+            local present: {any} = {}
+            for _, module in ipairs(modules) do
+                present[#present + 1] = module
+            end
+            present[#present + 1] = assert(entry, "guest entry module missing")
+            if next(forwardedexports.cyclic(present)) ~= nil then
+                enqueue("src/" .. forwardedexports.MODULE:gsub("%.", "/"))
+            end
+        else
+            local name = queue[at]
+            at = at + 1
+            local path = modulePath(root, name)
+            local source = read(path)
+            local parsed = parser.parse(source, path)
+            assert(#parsed.errors == 0, "guest source parse failed: " .. name)
+            -- A library module may be named by its path alone.
+            local named = cst.declaredModule(parsed.root)
+            local rooted = name == fixture and declared ~= nil and declared.rooted == true
+            if named == nil and rooted then
+                named = assert(declared).module
+            elseif named == nil and libraryModule(name) then
+                named = (name:match("src/(.*)$") as string):gsub("%.lua$", ""):gsub("/init$", ""):gsub("/", ".")
+            end
+            local declared = assert(named, "guest module declaration required: " .. name)
+            local diagnostics
+            if project then
+                -- A fixture is checked as its staged copy; a library module
+                -- the program carries, where it lives.
+                if not libraryModule(name) and not rooted then
+                    path = staged .. "/" .. declared:gsub("%.", "/") .. ".nupp"
+                    assert(read(path) == source, "staged guest source differs: " .. name)
+                end
+                local checked = project.checkFile(path)
+                parsed, diagnostics = assert(checked.result, "checked guest result required"), checked.diags
+            else
+                local env = environment.new(root, {memoryOnly = true, cache = false, nativeCompilerServices = false})
+                diagnostics = checker.check(parsed, path, env, {
+                    moduleName = declared,
+                    strict = false,
+                    lints = {["unused-binding"] = "off"}
+                })
+            end
+            for _, diagnostic in ipairs(diagnostics) do
+                assert(
+                    diagnostic.severity ~= "error",
+                    path .. ":" .. tostring(diagnostic.line) .. ": " .. diagnostic.msg
+                )
+            end
+            -- A plain Lua module is named by its path, as `require` finds it.
+            local named: any = parsed
+            if named.moduleName == nil and name:sub(-4) == ".lua" then
+                named.moduleName = declared
+            end
+            local module = {name = declared, path = path, parsed = parsed, diagnostics = diagnostics}
+            if name == fixture then
+                entry = module
+            else
+                modules[#modules + 1] = module
+            end
+            do
+                -- Checked value dependencies are mandatory in every profile. Only
+                -- Carried libraries retain their declared and literal dynamic
+                -- dependencies. The case flag controls discovery in fixture code.
+                local required, dynamic = requiredmodules(parsed.root or parsed, source, follow or libraryModule(name))
+                for _, name in ipairs(required) do
+                    local library = librarypath(root, name)
+                    if library and (not dynamic[name] or portable(root, library)) then
+                        enqueue(library)
+                    end
+                end
+                -- What it carries may take a library function as a value, read
+                -- from one unchecked tree.
+                local unchecked = parser.parse(source, path).root
+                local values = root .. "/src/nupp/runtime/libraryvalues"
+                local graph: any = require("nupp.compiler.vm.graph")
+                if graph.mayTakeLibraryValue(unchecked, version >= 8) then
+                    enqueue(values)
+                end
+                -- And it may read Lua's `io` or `os`, which the core carries as
+                -- modules.
+                local luaio = "src/nupp/runtime/luaio"
+                if graph.mayUseIo(unchecked) then
+                    enqueue(luaio)
+                end
+                local luaos = "src/nupp/runtime/luaos"
+                if readsos(unchecked) then
+                    enqueue(luaos)
+                end
+                local luawarn = "src/nupp/runtime/luawarn"
+                if readswarn(source) then
+                    enqueue(luawarn)
+                end
+            end
+            local luaload = "src/nupp/runtime/luaload"
+            if readsload(parser.parse(source, path).root) then
+                enqueue(luaload)
+            end
+        end
+    end
+    -- The entry is last, after the modules it requires.
+    modules[#modules + 1] = assert(entry, "guest entry module missing")
+    moduleName = entry.name
+    local catalog = programgraph.describe(modules, moduleName)
+    -- A fixture exports `result`, which is what its program answers.
+    catalog.entryExport = "result"
+
+    return catalog
+end
+
+local function profileFor(version: integer): any
+    return version >= 5 and tagged.forVersion(version) or tagged
+end
+
+-- Where two executables first differ, or nil when they are the same data. A
+-- linked executable carries its semantic graphs and contracts in its pieces,
+-- so those are left out.
+local function difference(actual: any, expected: any, path: string): string?
+    if type(actual) ~= type(expected) then
+        return path .. ": " .. type(actual) .. " for " .. type(expected)
+    elseif type(actual) ~= "table" then
+        if actual == expected and (type(actual) ~= "number" or math.type(actual) == math.type(expected)) then
+            return nil
+        end
+        return path .. ": " .. tostring(actual) .. " for " .. tostring(expected)
+    end
+    for key, item in pairs(expected as table) do
+        if not (path == "executable.semantic" and (key == "graphs" or key == "contracts")) then
+            local found = difference((actual as table)[key], item, path .. "." .. tostring(key))
+            if found then
+                return found
+            end
+        end
+    end
+    for key in pairs(actual as table) do
+        if (expected as table)[key] == nil then
+            return path .. "." .. tostring(key) .. ": unexpected"
+        end
+    end
+
+    return nil
+end
+
+-- The checked program for a case, compiled to the core executable. A v8
+-- program is compiled a module at a time and linked; NUPP_GUEST_PIECES=compare
+-- also compiles it whole and requires the two to be the same.
+local function compileProgram(caseName: string, fixture: string, version: integer): any
+    local began = os.clock()
+    local catalog = programCatalog(caseName, fixture, version)
+    local described = os.clock()
+    timings["compile catalog"] = (timings["compile catalog"] or 0) + described - began
+    if version ~= corepiece.VERSION then
+        return executable.fromChecked(programgraph.compile(catalog, profileFor(version)), version)
+    end
+    local pieces = corepiece.compile(catalog, profileFor(version))
+    local built = os.clock()
+    local linked = corelink.link(pieces, catalog.modules[#catalog.modules].name)
+    timings["compile pieces"] = (timings["compile pieces"] or 0) + built - described
+    timings["compile link"] = (timings["compile link"] or 0) + os.clock() - built
+    if os.getenv("NUPP_GUEST_PIECES") == "compare" then
+        local linkedAt = os.clock()
+        local whole = executable.fromChecked(programgraph.compile(catalog, profileFor(version)), version)
+        timings["compile whole"] = (timings["compile whole"] or 0) + os.clock() - linkedAt
+        local found = difference(linked, whole, "executable")
+        assert(found == nil, "linked " .. caseName .. " differs from its whole-program build at " .. tostring(found))
+    end
+
+    return linked
+end
+
+-- A case's program alone, compiled to the core executable, without the
+-- runtime a guest links: what a builder reads to see what the core refuses.
+local function caseFixture(case: any): string
+    local root = assert(os.getenv("NUPP_COMPILER_ROOT"))
+
+    return case.rooted == true and root .. "/" .. case.fixture
+        or case.generated == true and root .. "/build/core-guests/generated/" .. case.fixture
+        or case.fixture
+end
+
+export function program(caseName: string): any
+    local case = assert(CASES[caseName], "unknown guest case: " .. caseName)
+
+    return compileProgram(caseName, caseFixture(case), case.version)
+end
+
+-- Everything that keeps a case's program from compiling for the core, gathered
+-- across its whole closure rather than stopping at the first refusal.
+export function inventory(caseName: string): any
+    local case = assert(CASES[caseName], "unknown guest case: " .. caseName)
+    local catalog = programCatalog(caseName, caseFixture(case), case.version)
+
+    return programgraph.inventory(catalog, profileFor(case.version))
+end
+
+-- Fixture `name` compiled at profile `version` as a binary chunk's program:
+-- a program of its own, which a case loads (`chunks`).
+export function chunk(name: string, version: integer): any
+    local compiled = programs[name]
+    if compiled == nil then
+        compiled = compileProgram(name, name, version)
+        programs[name] = compiled
+    end
+
+    return compiled
+end
+
+-- The modules a case names beside its entry, as written for a generated case.
+export function modules(caseName: string): {string}
+    local case = assert(CASES[caseName], "unknown guest case: " .. caseName)
+
+    return case.modules or {}
+end
+
+-- The graph profile version a named case compiles at; generated oracle
+-- programs are v8.
+export function version(caseName: string): integer
+    local case = CASES[caseName]
+    if case == nil and caseName:match("^generated%d+$") then
+        return 8
+    end
+
+    return assert(case, "unknown guest case: " .. caseName).version
+end
+
+-- A guest build in the shape guestshim takes: the program executable, the
+-- runtime's selected code by qualified name, and the scopes whose layouts
+-- the shim and artifact writer read.
+export function guest(caseName: string, mode: string, cacheDirectory: string?, audited: boolean?): any
+    -- Generated oracle programs (tests/core/guests/oracle.lua) live under build.
+    local case = CASES[caseName]
+    if case == nil and caseName:match("^generated%d+$") then
+        case = {
+            fixture = assert(os.getenv("NUPP_COMPILER_ROOT")) .. "/build/core-guests/generated/" .. caseName,
+            version = 8
+        }
+    end
+    if case ~= nil and case.rooted == true then
+        case = {fixture = assert(os.getenv("NUPP_COMPILER_ROOT")) .. "/" .. case.fixture, version = case.version}
+    elseif case ~= nil and case.generated == true then
+        case = {
+            fixture = assert(os.getenv("NUPP_COMPILER_ROOT")) .. "/build/core-guests/generated/" .. case.fixture,
+            version = case.version
+        }
+    end
+    case = assert(case, "unknown guest case: " .. caseName)
+    local began = os.clock()
+    -- Refuse invalid guest source before preparing the native runtime.
+    -- Keyed by the entry's text too: a generated case may be rewritten.
+    local fixturePath = (case.fixture as string):sub(1, 1) == "/" and case.fixture .. ".nupp"
+        or assert(os.getenv("NUPP_COMPILER_ROOT")) .. "/tests/core/" .. case.fixture .. ".nupp"
+    local key = caseName .. "\0" .. read(fixturePath)
+    local cached = programs[key]
+    if cached == nil then
+        cached = compileProgram(caseName, case.fixture, case.version)
+        programs[key] = cached
+    end
+    -- Its chunks compile before the runtime's selection, as its program
+    -- does: a chunk checked after the runtime's session is refused.
+    for _, name in ipairs(case.chunks or {}) do
+        chunk(name, case.version)
+    end
+    -- Its chunks, each written as `<fixture>.chunk`: first its module
+    -- instance chunks, compiled as the core compiles a module's source for an
+    -- instance.
+    local chunks: {{
+        name: string,
+        bytes: string
+    }} = {}
+    local corechunk: any = case.instances and require("nupp.compiler.vm.corechunk")
+    if corechunk then
+        -- Its instance fixtures may require other fixtures, staged here.
+        corechunk.checkingRoot(assert(os.getenv("NUPP_COMPILER_ROOT")) .. "/build/core-guest-programs/source")
+    end
+    for _, name in ipairs(case.instances or {}) do
+        local display = "tests/core/" .. name .. ".nupp"
+        local bytes, problem = corechunk.compileModule(
+            read(assert(os.getenv("NUPP_COMPILER_ROOT")) .. "/" .. display),
+            display
+        )
+        chunks[#chunks + 1] = {name = name, bytes = assert(bytes, problem)}
+    end
+    local compiled = os.clock()
+    local held = runtime(mode, cacheDirectory, audited == true)
+    timings.compile = (timings.compile or 0) + compiled - began
+    timings.runtime = (timings.runtime or 0) + os.clock() - compiled
+    local resolved = {}
+    for name, owner in pairs(held.owners) do
+        resolved[name] = {owner = owner}
+    end
+    -- Then its chunks that are each a program of its own.
+    for _, name in ipairs(case.chunks or {}) do
+        chunks[#chunks + 1] = {name = name, bytes = writer.chunk(chunk(name, case.version), held.scopes)}
+    end
+
+    return {
+        resolved = resolved,
+        selected = held.codes,
+        scopes = held.scopes,
+        executable = cached,
+        handlers = handlerNames(caseName, case.version),
+        caseName = caseName,
+        audited = audited == true,
+        refusals = {},
+        timings = held.timings,
+        metrics = held.metrics,
+        -- The runtime's literal raises, whose texts the guest's errors carry.
+        raises = held.raises,
+        chunks = chunks
+    }
+end

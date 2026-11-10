@@ -386,7 +386,7 @@ end
 -- Uses the real checked ledger wrapper, not a synthetic nil-call signature.
 -- Its dependent nullable map path composes with the pointer lane before running.
 function M.unmapStatusIsAVisibleGraphValueAndScopeWrite()
-    local path = ROOT .. "/native/core/src/nupp/runtime/core/pagemappings.nupp"
+    local path = ROOT .. "/src/nupp/runtime/core/pagemappings.nupp"
     local session = unit.session(ROOT, {{moduleName = "nupp.runtime.core.pagemappings", path = path}}, TARGET)
     local functions = session.module("nupp.runtime.core.pagemappings").functions
     local owner = functions.unmapOwned

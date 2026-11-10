@@ -428,7 +428,7 @@ return creator(false)
 end
 
 function M.dedicatedSourceFixtureUsesAuthenticCheckedCall()
-    local file = assert(io.open("native/core/tests/catalog-boolean.nupp", "rb"))
+    local file = assert(io.open("tests/core/catalog-boolean.nupp", "rb"))
     local text = file:read("*a")
     file:close()
     local input = source(text, "nupp.core.catalogboolean")

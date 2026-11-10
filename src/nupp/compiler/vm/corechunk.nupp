@@ -92,6 +92,8 @@ triviaarena.installDefault(require("nupp.compiler.syntax.triviaarena.table"))
 
 -- The checking environment, made once: its prelude is the costly part.
 local held: any = nil
+-- Directories checked against beside the checkout (checkingRoot).
+local extraRoots: {string} = {}
 
 local function checkingEnvironment(): any
     if held == nil then
@@ -101,16 +103,31 @@ local function checkingEnvironment(): any
         local root = named ~= nil and named ~= "" and named or environment.compilerRoot() or "."
         bundled.checkout(root)
         held = environment.new(root, {
-            memoryOnly = true,
+            -- Module sources are found on disk only under extra roots.
+            memoryOnly = #extraRoots == 0,
             cache = false,
             nativeCompilerServices = false,
             -- The checkout's nupp.lua configures its projects, not a chunk;
             -- reading it would load Lua text from within `load`.
-            config = {}
+            config = {include = extraRoots}
         })
     end
 
     return held
+end
+
+--- Checks chunk sources against the modules under `path` too, beside the
+--- checkout's: a guest build's staged fixtures, which its module instance
+--- fixtures require.
+export function checkingRoot(path: string): nil
+    for _, root in ipairs(extraRoots) do
+        if root == path then
+            return
+        end
+    end
+    extraRoots[#extraRoots + 1] = path
+    -- The environment indexes its roots as it is made.
+    held = nil
 end
 
 -- Marks the opening's own require, which finds the environment the rest
@@ -211,8 +228,13 @@ local function requiresThroughEnvironment(root: any, path: string): nil
             end
             return
         end
-        -- The opening's require, and a require of types alone, which loads
-        -- nothing, stay as they are.
+        -- A standard library root (`io`, `require("io")`) projects the
+        -- running program's builtin library, and stays as it is.
+        if node.standardRoot ~= nil then
+            return
+        end
+        -- So do the opening's require and a require of types alone, which
+        -- loads nothing.
         if node.kind == "call" and node.runtimeLoader == "require" then
             if node.chunkOpening or node.typeOnlyRequire then
                 return
@@ -247,17 +269,31 @@ export function describeModule(text: string, display: string, source: string?): 
     if plain == nil then
         return nil, problem
     end
+    -- A module without a module statement is named by its path under a
+    -- checkout's src/, as the standard library's are, and its environment
+    -- is declared where its first statement starts.
     local name, statement = cst.declaredModule(plain.root)
+    local wrapped: string? = nil
     local last = statement and cst.lastToken(statement)
-    if name == nil or last == nil then
+    if last ~= nil then
+        local at = last.offset + #last.text - 1
+        wrapped = string.sub(text, 1, at) .. " " .. ENVIRONMENT_OPENING .. string.sub(text, at + 1)
+    else
+        local relative = string.match(path, "^src/(.+)%.nupp$") or string.match(path, "/src/(.+)%.nupp$")
+        local first = plain.root.blocks
+            and plain.root.blocks[1]
+            and plain.root.blocks[1].stats
+            and plain.root.blocks[1].stats[1]
+        local token = first and cst.firstToken(first)
+        if relative ~= nil and token ~= nil then
+            name = (string.gsub(string.gsub(relative as string, "/init$", ""), "/", "."))
+            wrapped = string.sub(text, 1, token.offset - 1) .. ENVIRONMENT_OPENING .. string.sub(text, token.offset)
+        end
+    end
+    if name == nil or wrapped == nil then
         return nil, positioned(display, 0, "a module instance needs a module declaration")
     end
-    local at = last.offset + #last.text - 1
-    local tree, wrappedProblem = parsed(
-        string.sub(text, 1, at) .. " " .. ENVIRONMENT_OPENING .. string.sub(text, at + 1),
-        path,
-        display
-    )
+    local tree, wrappedProblem = parsed(wrapped as string, path, display)
     if tree == nil then
         return nil, wrappedProblem
     end

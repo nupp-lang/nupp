@@ -169,4 +169,35 @@ function M.nativeCompilerResourcesCarryTheCliTestHarness()
     end
 end
 
+-- The runner's sources name the trees beside the native core one by one, so a
+-- tree added to src has to join them for a suite to load its modules.
+function M.theTestRunnerCarriesEverySourceButTheNativeCore()
+    local glob = require("nupp.compiler.shellsyntax").glob
+    local matchers = {}
+    for _, source in ipairs(assert(loadfile(ROOT .. "/nupp.lua"))().build.targets.testRunner.sources) do
+        matchers[#matchers + 1] = glob(source)
+    end
+    local listing = assert(io.popen("git -C '" .. ROOT .. "' ls-files src"))
+    local missing, carried, checked = {}, {}, 0
+    for path in listing:lines() do
+        if path:match("%.nupp$") and not path:match("%.d%.nupp$") then
+            checked = checked + 1
+            local core = path:match("^src/nupp/runtime/core/") or path:match("^src/nupp/core/")
+            local matched = false
+            for _, matches in ipairs(matchers) do
+                matched = matched or matches(path)
+            end
+            if core and matched then
+                carried[#carried + 1] = path
+            elseif not core and not matched then
+                missing[#missing + 1] = path
+            end
+        end
+    end
+    listing:close()
+    assert(checked > 100, "src lists too few sources to be the tree")
+    assert(#missing == 0, "the test runner omits:\n  " .. table.concat(missing, "\n  "))
+    assert(#carried == 0, "the test runner carries the native core:\n  " .. table.concat(carried, "\n  "))
+end
+
 return M

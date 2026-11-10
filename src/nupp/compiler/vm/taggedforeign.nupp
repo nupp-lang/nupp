@@ -3,7 +3,7 @@ module nupp.compiler.vm.taggedforeign
 -- A guest program's call of a `cdef function` in the tagged profile: one
 -- library call (FOREIGN_CALL) with the function's descriptor and a pack of
 -- its arguments, which the core answers by calling it through the generic
--- foreign call (native/core/src/nupp/runtime/core/guestforeign.nupp).
+-- foreign call (src/nupp/runtime/core/guestforeign.nupp).
 --
 -- The descriptor is the result's kind and each argument's, one letter each,
 -- those past a variadic function's declared ones after VARIADIC; then a NUL,
