@@ -1,10 +1,11 @@
 module nupp.core.catalogrunnersmall
 
 -- Small library behaviors the test runner's suites lean on, as main has
--- them: a traversal of a table with Boolean keys reaches them all; and
+-- them: a traversal of a table with Boolean keys reaches them all;
 -- package.loaded holds the standard libraries, so require("coroutine") as
--- a value is the coroutine table with the tasks surface installed. Each
--- check is a bit of the score.
+-- a value is the coroutine table with the tasks surface installed; and a
+-- read count with a fraction reads its whole part. Each check is a bit of
+-- the score.
 require("nupp.runtime.standardcoroutine")
 
 local score = 0
@@ -35,6 +36,19 @@ do
     check(type(tasks.scope) == "function" and type(tasks.race) == "function")
     check(type(tasks.iscancelled) == "function")
     check(package.loaded.coroutine == coroutine and package.loaded.math == math and package.loaded.string == string)
+end
+
+do
+    local name = (os.getenv("NUPP_GUEST_TEMP") or "/tmp") .. "/runner-small.txt"
+    local out = assert(io.open(name, "w"))
+    out:write("abcdef")
+    out:close()
+    local input = assert(io.open(name, "r"))
+    local read = input:read(1.8)
+    local rest = input:read(2.5)
+    input:close()
+    os.remove(name)
+    check(read == "a" and rest == "bc")
 end
 
 export const result = score
