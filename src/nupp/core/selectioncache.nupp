@@ -27,7 +27,7 @@ const FORMAT = "guest-selection/3"
 const KIND = "programs"
 -- The trees the guest project (tests/core/units/nupp.lua) resolves
 -- modules from, relative to the checkout root.
-const INPUTS = {"src", "native", "spike", "nupp.lua", "tests/core", "tests/fixtures/nativeheap"}
+const INPUTS = {"src", "native", "nupp.lua", "tests/core", "tests/fixtures/nativeheap"}
 const REPORTING = {"EMIT_SURVEY", "EMIT_TRACE", "EMIT_STUBS", "DEBUG_REGS", "NUPP_CORE_SYMBOLS", "NUPP_MIR_OUT"}
 const GENERATION = "/(%x+)/compiler%.image$"
 const GENERATION_LENGTH = 64
