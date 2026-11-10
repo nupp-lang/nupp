@@ -1220,6 +1220,7 @@ local function guarded(first: boolean): integer
     end
     ]]
                     .. variant.suffix
+                    .. "\n"
                     .. [[
 end
 export const result = guarded(false)
