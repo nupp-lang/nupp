@@ -48,18 +48,7 @@ export function main(arguments: {string}): integer
     local generation = assert(os.getenv("NUPP_PRIVATE_PRODUCER_BASE"), "base compiler generation required")
     local base = root .. "/.nupp/vm-cli/" .. generation
     local image = read(base .. "/compiler.image")
-    local inputs = driver.sourceInputs(root, kernelcompiler.reachedModules(root, ROOTS), driver.carriedModules())
-    for _, path in ipairs({
-        "nupp.lua",
-        "scripts/native-producer",
-        "scripts/native-producer-build.lua",
-        "scripts/native-producer-driver.lua",
-        "scripts/toolchain",
-        "scripts/toolchain.pins",
-        "scripts/sccache-wrapper"
-    }) do
-        inputs[#inputs + 1] = {path = path, sha256 = hash.sha256(read(root .. "/" .. path))}
-    end
+    local inputs = driver.producerInputs(root, kernelcompiler.reachedModules(root, ROOTS), driver.carriedModules())
     local identity = {
         format = FORMAT,
         root = root,
