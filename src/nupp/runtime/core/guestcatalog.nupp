@@ -6,7 +6,7 @@ const values = require("nupp.runtime.vm.values")
 
 -- This is the bounded executable artifact produced from the complete checked
 -- graph catalog. The caller retains its immutable mapping. Validation here
--- proves extents and scalar metadata, not source authenticity or raw phase 4.
+-- proves extents and scalar metadata, not source authenticity.
 export struct DescriptorV1
     version: uint64
     bytes: uint64
