@@ -1,8 +1,0 @@
-local First = {}
-function First.answer(): integer
-    local maximum: integer = 9223372036854775807
-    local one: integer = 1
-    return maximum + one
-end
-
-return First

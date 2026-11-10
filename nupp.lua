@@ -530,6 +530,54 @@ for _, relative in ipairs({
     ] = {source = "native/crates/vm/decls/" .. relative, output = "nupp/compiler/vmdecls/" .. relative,}
 end
 
+-- The test runner's source set: all of src but the native core. The core's
+-- runtime (src/nupp/runtime/core) is compiled for the core, not for the VM
+-- the runner is, and no suite loads its build tooling (src/nupp/core) by
+-- name. A target's sources take globs but no exclusions, so the trees beside
+-- the core are named one by one; bootstraptest holds the list to src.
+local TEST_RUNNER_SOURCES = {
+    "tests/tools/test/runner/main.nupp",
+    "tests/tools/test/runner/job.nupp",
+    "src/*.nupp",
+    "src/nupp/*.nupp",
+    "src/nupp/runtime/*.nupp",
+}
+for _, tree in ipairs({
+    "src/bytes",
+    "src/coroutine",
+    "src/debug",
+    "src/io",
+    "src/math",
+    "src/os",
+    "src/serde",
+    "src/types",
+    "src/nupp/array",
+    "src/nupp/bench",
+    "src/nupp/checksum",
+    "src/nupp/cli",
+    "src/nupp/codec",
+    "src/nupp/compiler",
+    "src/nupp/compression",
+    "src/nupp/digest",
+    "src/nupp/gpu",
+    "src/nupp/host",
+    "src/nupp/io",
+    "src/nupp/mem",
+    "src/nupp/serde",
+    "src/nupp/suspension",
+    "src/nupp/text",
+    "src/nupp/time",
+    "src/nupp/tools",
+    "src/nupp/util",
+    "src/nupp/workers",
+    "src/nupp/runtime/bindings",
+    "src/nupp/runtime/browser",
+    "src/nupp/runtime/provider",
+    "src/nupp/runtime/vm",
+}) do
+    TEST_RUNNER_SOURCES[#TEST_RUNNER_SOURCES + 1] = tree .. "/**.nupp"
+end
+
 return {
     include = {"src", "tests/tools/test/runner", "evals/lib"},
 
@@ -546,7 +594,7 @@ return {
                 -- static entry graph can enumerate what a selected run will need.
                 -- Carry the source set the suites test; coverage then instruments the
                 -- same modules an ordinary runner can load dynamically.
-                sources = {"tests/tools/test/runner/main.nupp", "tests/tools/test/runner/job.nupp", "src/**.nupp"},
+                sources = TEST_RUNNER_SOURCES,
 
                 nativeFeatures = {workers = true},
                 resources = RESOURCES,

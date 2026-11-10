@@ -309,7 +309,7 @@ export function session(projectRoot: string, requested: any, target: string, inc
     require("nupp.compiler.hash")
     need(type(requested) == "table" and #requested > 0, "nonempty module batch required")
     local roots = {}
-    for index, path in ipairs(include or {"src", "native/core/src"}) do
+    for index, path in ipairs(include or {"src"}) do
         roots[index] = path
     end
     local project = incremental.new(projectRoot, {

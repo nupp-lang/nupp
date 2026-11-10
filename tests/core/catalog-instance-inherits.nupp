@@ -1,0 +1,19 @@
+module nupp.core.cataloginstanceinherits
+
+-- A Nupp module that catalog-instance-defaults starts as instances: its
+-- record takes a default method from an interface in another module, read
+-- at run time from what the instance's require answers for that module.
+const shapes = require("nupp.core.cataloginstanceshapes")
+
+local record Square is shapes.Shape
+    side: integer
+
+    function area(self): integer
+        return self.side * self.side
+    end
+end
+
+export function describe(side: integer): string
+    local square = Square(side = side)
+    return square:describe()
+end
