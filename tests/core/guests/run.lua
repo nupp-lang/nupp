@@ -632,6 +632,64 @@ local ROOTED = {testrunner = "tests/tools/test/runner", benchworkloads = "bench/
 -- NUPP_CORE_CHUNKS names (nupp.runtime.chunkfiles), as the core cannot
 -- compile text itself yet.
 local RUNNER_SUITES = {"iopathargumenttest", "iofileargumenttest", "corewarnlogtest", "typefactoriestest"}
+-- The runner exits successfully rather than publishing a guest result. Its
+-- report must account for every requested suite and every executed test.
+OUTPUT.testrunner = function(printed)
+    -- Bridge jobs combine stdout and stderr. A passing serial runner emits
+    -- one progress dot per test on stderr before its JSON document.
+    local progress, document = printed:match("^([%.\n]+)(%{.*)$")
+    if not document then
+        return false
+    end
+    local ok, report = pcall(json.decodevalue, document)
+    if not ok
+        or type(report) ~= "table"
+        or report.schemaVersion ~= 1
+        or report.ok ~= true
+        or type(report.total) ~= "number"
+        or report.total <= 0
+        or report.passed ~= report.total
+        or report.failed ~= 0
+        or report.skipped ~= 0
+        or report.notExecuted ~= 0
+        or report.cached ~= 0
+        or type(report.tests) ~= "table"
+        or #report.tests ~= report.total
+        or type(report.suites) ~= "table"
+        or #report.suites ~= #RUNNER_SUITES
+    then
+        return false
+    end
+    local marks = string.rep(string.rep(".", 80) .. "\n", math.floor(report.total / 80))
+    if report.total % 80 ~= 0 then
+        marks = marks .. string.rep(".", report.total % 80) .. "\n"
+    end
+    if progress ~= marks then
+        return false
+    end
+    local counts = {}
+    for _, suite in ipairs(RUNNER_SUITES) do
+        counts[suite] = 0
+    end
+    for _, test in ipairs(report.tests) do
+        if type(test) ~= "table" or test.status ~= "passed" or counts[test.suite] == nil then
+            return false
+        end
+        counts[test.suite] = counts[test.suite] + 1
+    end
+    for _, suite in ipairs(report.suites) do
+        if type(suite) ~= "table"
+            or not counts[suite.suite]
+            or counts[suite.suite] <= 0
+            or suite.tests ~= counts[suite.suite]
+        then
+            return false
+        end
+        counts[suite.suite] = nil
+    end
+
+    return next(counts) == nil
+end
 local SOURCES = {
     runnerchunks = {
         "tests/core/runner-chunk-calls.lua",
@@ -657,7 +715,7 @@ local TEXT_SOURCES = {testrunner = {{"tests/cache.lua", "nupp:test-cache"}}}
 local ARGUMENTS = {
     hostlibrary = "alpha beta",
     benchworkloads = "--case fib --json --out /dev/null",
-    testrunner = "--jobs=1 " .. table.concat(RUNNER_SUITES, " ")
+    testrunner = "--jobs=1 --json --no-color " .. table.concat(RUNNER_SUITES, " ")
 }
 -- Cases whose program the core refuses to compile, and what it says.
 local REFUSED = {}
@@ -797,7 +855,7 @@ local RAISED = 1
 -- checked for the status and what they printed, output and errors
 -- together, and their twins against reference Lua the same way; the ABI
 -- guard, which runs the entry inside a test, is not run.
-local EXITS = {processexit = 3, errorsuncaught = RAISED, gcexit = 4, gcraise = RAISED}
+local EXITS = {testrunner = 0, processexit = 3, errorsuncaught = RAISED, gcexit = 4, gcraise = RAISED}
 local EXITTWINS = {processexit = "catalog-process-exit", gcexit = "catalog-gc-exit"}
 
 -- What a printed text must match: exactly this string, or this function's
@@ -1709,7 +1767,12 @@ local function main()
                             SETUP[name] or ""
                         ) .. GUEST_ENV .. (
                             "%s %s %s %s"
-                        ):format(quote(bridge), quote(bundle), quote(run[2]), quote(output)),
+                        ):format(
+                            quote(bridge),
+                            quote(bundle),
+                            quote(run[2]),
+                            quote(output)
+                        ) .. (ARGUMENTS[name] and " " .. ARGUMENTS[name] or ""),
                         function(status, printed)
                             check(
                                 status == EXITS[name],
