@@ -23,7 +23,7 @@ local fingerprint = require("nupp.compiler.project.fingerprint")
 local persisted, persist = pcall(require, "nupp.vm.persist")
 
 -- Bumped when an entry's shape or meaning changes.
-const FORMAT = "guest-selection/2"
+const FORMAT = "guest-selection/3"
 const KIND = "programs"
 -- The trees the guest project (native/core/tests/units/nupp.lua) resolves
 -- modules from, relative to the checkout root.
@@ -113,52 +113,142 @@ local function same(a: any, b: any): boolean
     return true
 end
 
+-- A durable encoding holds at most 256 MB, which the selection of a program
+-- carrying the compiler CLI passes: an entry is the selection without its
+-- programs, then its programs in pieces of about this many bytes of code.
+const PIECE_BYTES = 64 * 1048576
+-- What a program record holds besides its code, near enough.
+const RECORD_BYTES = 4096
+
+-- The selection and `extra` as pieces of durable encoding: first the selection
+-- without its programs with `extra` and the program count, then the programs in
+-- order. Nil when one cannot be encoded.
+local function encodePieces(selection: any, extra: any): {string}?
+    local programs: {any} = selection.programs or {}
+    local head: {[any]: any} = {}
+    for name, value in pairs(selection as table) do
+        if name ~= "programs" then
+            head[name] = value
+        end
+    end
+    local values: {any} = {{selection = head, extra = extra, programs = #programs}}
+    local chunk: {any} = {}
+    local size = 0
+    for _, program in ipairs(programs) do
+        chunk[#chunk + 1] = program
+        size = size + #(program.codeHex or "") + RECORD_BYTES
+        if size >= PIECE_BYTES then
+            values[#values + 1], chunk, size = chunk, {}, 0
+        end
+    end
+    if #chunk > 0 then
+        values[#values + 1] = chunk
+    end
+    local pieces: {string} = {}
+    for index, value in ipairs(values) do
+        local encoded, bytes = pcall(persist.saveData, value)
+        if not encoded then
+            return nil
+        end
+        pieces[index] = bytes
+    end
+
+    return pieces
+end
+
+-- The selection and `extra` the pieces encode, or nil.
+local function decodePieces(pieces: {string}): (any, any)
+    local decoded, first = pcall(persist.loadData, pieces[1] or "")
+    if not decoded or type(first) ~= "table" or type(first.selection) ~= "table" then
+        return nil, nil
+    end
+    local selection, programs = first.selection, {}
+    for index = 2, #pieces do
+        local ok, chunk = pcall(persist.loadData, pieces[index])
+        if not ok or type(chunk) ~= "table" then
+            return nil, nil
+        end
+        for _, program in ipairs(chunk as {any}) do
+            programs[#programs + 1] = program
+        end
+    end
+    if #programs ~= first.programs then
+        return nil, nil
+    end
+    selection.programs = programs
+
+    return selection, first.extra
+end
+
 -- The kept selection for `parts` (case, mode, capacity, build kind) and the
--- extra fields kept beside it, or nil. An entry whose body does not match its
--- seal, or does not decode, is a miss.
+-- extra fields kept beside it, or nil. An entry whose pieces do not match their
+-- seal, or do not decode, is a miss.
 export function lookup(root: string, parts: {string}): (any, any)
     local key = keyOf(root, parts)
     local text = key and sharedcache.get(sharedcache.directory(KIND), key as string)
     if not text then
         return nil, nil
     end
-    local ok, envelope = pcall(persist.loadData, text)
-    if not ok
-        or type(envelope) ~= "table"
+    local length = tonumber(text:match("^(%d+)\n"))
+    local opened, envelope = false, nil
+    if length then
+        local at = #tostring(length) + 2
+        opened, envelope = pcall(persist.loadData, text:sub(at, at + length - 1))
+        envelope = opened and type(envelope) == "table" and envelope or nil
+        if envelope then
+            envelope.body = text:sub(at + length)
+        end
+    end
+    if not envelope
         or envelope.format ~= FORMAT
-        or type(envelope.body) ~= "string"
+        or type(envelope.lengths) ~= "table"
         or envelope.seal ~= contentDigest(envelope.body)
     then
         return nil, nil
     end
-    local decoded, entry = pcall(persist.loadData, envelope.body)
-    if not decoded or type(entry) ~= "table" or type(entry.selection) ~= "table" then
+    local pieces: {string} = {}
+    local at = 1
+    for index, size in ipairs(envelope.lengths as {integer}) do
+        pieces[index] = (envelope.body as string):sub(at, at + size - 1)
+        at = at + size
+    end
+    local selection, extra = decodePieces(pieces)
+    if selection == nil then
         return nil, nil
     end
     sharedcache.touch(sharedcache.directory(KIND), {key as string})
 
-    return entry.selection, entry.extra
+    return selection, extra
 end
 
 -- Keeps `selection` for `parts`, with `extra` beside it, when it reads back as
--- the same data: a value the codec cannot carry exactly is not kept. The body
--- is sealed with its digest.
+-- the same data: a value the encoding cannot carry exactly is not kept. The
+-- pieces are sealed with their digest.
 export function keep(root: string, parts: {string}, selection: any, extra: any): boolean
     local key = keyOf(root, parts)
     if not key then
         return false
     end
-    local encoded, body = pcall(persist.saveData, {selection = selection, extra = extra})
-    local ok, decoded = false, nil
-    if encoded then
-        ok, decoded = pcall(persist.loadData, body)
+    local pieces = encodePieces(selection, extra)
+    local decoded, decodedExtra = nil, nil
+    if pieces then
+        decoded, decodedExtra = decodePieces(pieces as {string})
     end
-    if not ok or not same(decoded.selection, selection) or not same(decoded.extra, extra) then
+    if decoded == nil or not same(decoded, selection) or not same(decodedExtra, extra) then
         io.stderr:write("guest selection not kept: it does not read back as itself\n")
         return false
     end
-    local text = persist.saveData({format = FORMAT, seal = contentDigest(body), body = body})
-    local kept = sharedcache.put(sharedcache.directory(KIND), key as string, text)
+    local lengths: {integer} = {}
+    for index, piece in ipairs(pieces as {string}) do
+        lengths[index] = #piece
+    end
+    local body = table.concat(pieces as {string})
+    local header = persist.saveData({format = FORMAT, seal = contentDigest(body), lengths = lengths})
+    local kept = sharedcache.put(
+        sharedcache.directory(KIND),
+        key as string,
+        tostring(#header) .. "\n" .. header .. body
+    )
     sharedcache.sweep(root)
 
     return kept

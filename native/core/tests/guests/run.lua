@@ -88,6 +88,8 @@ local CASES = {
     {"systemprovider", 0x7FFF000000000007},
     {"systeminfo", 0x7FFF00000000000F},
     {"entropy", 0x7FFF00000000000F},
+    -- The C library's getentropy failing partway, through entropy-failure.c.
+    {"entropyfailure", 0x7FFF000000000007},
     {"boolean", 0x7FFB000000000000},
     {"nilValue", 0x7FF9000000000000},
     {"live", 0x7FFB000000000000},
@@ -192,9 +194,11 @@ local CASES = {
     {"modulescycle", 0x7FFF000000000017},
     {"pluckedarguments", 0x7FFF001C1CF80790},
     {"ownmanage", 0x7FFF000000000200},
+    {"aliasdowncast", 0x7FFF000000000C21},
+    {"methodspread", 0x7FFF000000003FFF},
     {"loopparameteralias", 0x7FFF000000000002},
     {"namedarguments", 0x7FFF000337156A8D},
-    {"legacyglobals", 0x7FFF000000000463},
+    {"legacyglobals", 0x7FFF000000000C33},
     {"gotocontinue", 0x7FFF0000000009E7},
     {"derivedmembers", 0x7FFF00000000000F},
     {"shortfunctions", 0x7FFF000000003BEE},
@@ -243,12 +247,14 @@ local CASES = {
     {"affineconstructors", 0x7FFF0000000000FF},
     {"absentffi", 0x7FFF000000000007},
     {"guestffi", 0x7FFF000000001FFF},
+    {"ffiaggregates", 0x7FFF0000003FFFFF},
     {"runnerresiduals", 0x7FFF00000000007F},
     -- Library calls spreading `...` through the library function's value.
     {"spreadlibrary", 0x7FFF0000000003FF},
     -- Library calls given every result of a call last, through the value.
     {"libraryresults", 0x7FFF000000001FFF},
     {"processlines", 0x7FFF000000000FFF},
+    {"selectvalues", 0x7FFF00000000007F},
     {"processlayer", 0x7FFF000000FFFFFF},
     -- os.exit(3): the program ends there, publishing nothing (EXITS).
     {"processexit", 0},
@@ -277,11 +283,18 @@ local CASES = {
     {"osremove", 0x7FFF000000001FFF},
     -- The compiler's host services as the core answers them for check and build.
     {"clihosts", 0x7FFF0000000000FF},
+    -- C declarations through libclang, and the VM's answers to every
+    -- request core-cdecl-record.lua records.
+    {"corecdecl", 0x7FFF0000000007FF},
     {"loadbinary", 0x7FFF000000001FFF},
     -- A record with an array part: fields and elements apart.
     {"recordsarray", 0x7FFF00000000000F},
     -- A function statement assigning a local declared before it.
     {"forwardfunctions", 0x7FFF000000000003},
+    -- A closure capturing seventy values.
+    {"closurecaptures", 0x7FFF0000000009B5},
+    -- The os namespace's module first, before anything reads Lua's os.
+    {"standardosfirst", 0x7FFF000000000003},
     -- Main's os filesystem and system functions; main answers the same word.
     {"osfilesystem", 0x7FFF0007FFFFFFFF},
     -- The compiler's lexer and parser on the core.
@@ -293,6 +306,8 @@ local CASES = {
     {"compilerlexer", 0x7FFF00000000000F},
     -- A checked call spreading fewer or more results than it has parameters.
     {"callsspreadshort", 0x7FFF00000000001F},
+    -- `nupp check` on the core: a clean file and one with a type error.
+    {"compilercheck", 0x7FFF000000000003},
     -- Lua's debug.getinfo: sources, lines and names by level and of values.
     {"debuggetinfo", 0x7FFF00000001FFFF},
     -- Instances of a Nupp module compiled as a chunk: fresh state, requires
@@ -341,6 +356,11 @@ local OUTPUT = {
 }
 -- The bench entry's record, which holds times: its shape and fib(20)'s
 -- checksum (SETUP) are what is checked, not what it measured.
+-- The broken file's diagnostic, as check prints it: position, code, message.
+OUTPUT.compilercheck = function(printed)
+    return printed:find("compilercheck%-broken%.nupp:1:%d+: error: NUPP%d+") ~= nil
+end
+
 OUTPUT.benchworkloads = function(printed)
     local ok, record = pcall(json.decodevalue, printed)
     local case = ok and type(record) == "table" and type(record.cases) == "table" and record.cases[1]
@@ -493,6 +513,7 @@ local STRESS = {
     affineconstructors = true,
     absentffi = true,
     guestffi = true,
+    ffiaggregates = true,
     runnerresiduals = true,
     spreadlibrary = true,
     libraryresults = true,
@@ -529,7 +550,24 @@ local SETUP = {
     processpopen = "ulimit -n 64; ",
     processlines = "ulimit -n 64; ",
     processlayer = "ulimit -n 64; ",
-    benchworkloads = "export BENCH_SCALE=-9; "
+    benchworkloads = "export BENCH_SCALE=-9; ",
+    -- The C library catalog-ffi-aggregates calls, built where each run finds it.
+    -- The VM's C declaration answers catalog-core-cdecl compares its own
+    -- with, recorded in the directory it then runs in.
+    corecdecl = (
+        "d=$(mktemp -d '%s/cdecl.XXXXXX') && cd \"$d\" && NUPP_VM_AUTO_REBUILD=0 '%s/bin/nupp' run "
+        .. "'%s/native/core/tests/core-cdecl-record.lua' \"$d/recorded\" > /dev/null "
+        .. "&& export CDECL_DIFF=\"$d/recorded\"; "
+    ):format(OUT, ROOT, ROOT),
+    -- The getentropy that fails the entropy failure guard's request.
+    entropyfailure = (
+        "d=$(mktemp -d '%s/entropy.XXXXXX') && cc -dynamiclib -o \"$d/libnuppentropyfailure.dylib\" '%s' "
+        .. "&& export DYLD_INSERT_LIBRARIES=\"$d/libnuppentropyfailure.dylib\"; "
+    ):format(OUT, TESTS .. "/entropy-failure.c"),
+    ffiaggregates = (
+        "d=$(mktemp -d '%s/ffi.XXXXXX') && cc -dynamiclib -o \"$d/libnuppffiaggregates.dylib\" '%s' "
+        .. "&& export DYLD_LIBRARY_PATH=\"$d\"; "
+    ):format(OUT, TESTS .. "/ffi-aggregates.c")
 }
 -- The program arguments a case is run with, after the bridge's own.
 -- The bench entry measures one case, writes its record as JSON on standard
@@ -625,6 +663,9 @@ local NUMERIC = {
     modulescycle = "catalog-modules-cycle",
     pluckedarguments = "catalog-plucked-arguments",
     ownmanage = "catalog-own-manage",
+    aliasdowncast = "catalog-alias-downcast",
+    methodspread = "catalog-method-spread",
+    selectvalues = "catalog-select-values",
     loopparameteralias = "catalog-loop-parameter-alias",
     namedarguments = "catalog-named-arguments",
     legacyglobals = "catalog-legacy-globals",

@@ -184,7 +184,11 @@ local function callRoom(term: any, nargs: integer): integer
     return own + CALL_CHAIN
 end
 
-local function derive(g: any, catalog: any): any
+-- Graph `g`'s executable function: its instructions, calls and frame plan.
+-- `catalog` answers its contracts and modules by the ids its graph names,
+-- which its instructions carry: a whole program's, or a module piece's
+-- symbols (nupp.compiler.vm.corepiece).
+export function derive(g: any, catalog: any): any
     local maximumArguments: integer = 0
     local metaCalls = false
     -- A function that destroys owners lands errors from its calls.
@@ -195,7 +199,12 @@ local function derive(g: any, catalog: any): any
         -- A capturing closure stages its captures in the call window too.
         for at, op in ipairs(block.op) do
             if op == "Closure" then
-                need(#block.args[at] - 1 <= 63, "closure capture capacity")
+                need(
+                    #block.args[at] - 1 <= bytecode.CLOSURE_CAPTURES,
+                    "closure capture capacity: " .. tostring(
+                        #block.args[at] - 1
+                    ) .. " captures in " .. tostring(g.name) .. " at " .. tostring(g.path)
+                )
                 maximumArguments = math.max(maximumArguments, #block.args[at] - 1) as integer
             elseif op == "LibCall" then
                 maximumArguments = math.max(maximumArguments, #block.args[at] - 1) as integer
@@ -715,25 +724,28 @@ local function deepest(functions: integer, successors: {{integer}}): integer
     return result
 end
 
-local function deriveCatalog(normalized: any): any
-    semantic.semantic(normalized)
-    local functions, total = {}, 0
-    for index, g in ipairs(normalized.graphs) do
-        functions[index] = derive(g, normalized)
-        total += functions[index].instructionCount
+-- What a program's executable functions admit together, from `semantic`'s
+-- schema and modules: their instruction total, the instances each module's
+-- initializer creates, and how deep frames nest. Calls and requires name
+-- functions by their program ids.
+export function bound(functions: {any}, semantic: any): any
+    local version, absent = semantic.schema.version as integer, semantic.schema.absent
+    local total: integer = 0
+    for _, fn in ipairs(functions) do
+        total += fn.instructionCount as integer
         need(total <= bounds.instructions, "complete executable instruction budget exceeded")
     end
-    local bounds, visiting = {}, {}
+    local extents, visiting = {}, {}
     local recursive = false
 
     -- v7 creates no instances (its closures are heap objects), so a cycle only
     -- deepens frames, which the entry bounds with depthbound.
-    local function bound(index: integer): any
-        if bounds[index] then
-            return bounds[index]
+    local function extent(index: integer): any
+        if extents[index] then
+            return extents[index]
         end
         if visiting[index] then
-            need(normalized.schema.version >= 7, "recursive executable call graph")
+            need(version >= 7, "recursive executable call graph")
             recursive = true
             return {instances = 0, depth = 1}
         end
@@ -746,32 +758,32 @@ local function deriveCatalog(normalized: any): any
         end
         for _, call in ipairs(fn.calls) do
             -- A dynamic call's callee is unknown: bound its depth like recursion.
-            if call.target == normalized.schema.absent then
+            if call.target == absent then
                 recursive = true
             else
-                local child = bound((call.target as integer) + 1)
+                local child = extent((call.target as integer) + 1)
                 need(not call.inLoop or child.instances == 0, "call in a loop creates unbounded instances")
                 instances += child.instances
                 depth = math.max(depth, child.depth + 1)
                 need(instances <= 1048576, "entry instance budget exceeded")
             end
         end
-        bounds[index] = {instances = instances, depth = depth}
+        extents[index] = {instances = instances, depth = depth}
         visiting[index] = nil
 
-        return bounds[index]
+        return extents[index]
     end
 
     for index = 1, #functions do
-        bound(index)
+        extent(index)
     end
     local initializers, capacity, creations = {}, 1, 0
-    for index, module in ipairs(normalized.modules) do
+    for index, module in ipairs(semantic.modules) do
         local owner = module.chunk
-        local extent = bounds[owner + 1]
+        local reach = extents[owner + 1]
         initializers[index] = owner
-        capacity = math.max(capacity, extent.instances)
-        creations += extent.instances
+        capacity = math.max(capacity, reach.instances)
+        creations += reach.instances
         need(creations <= 1048576, "module instance budget exceeded")
     end
     -- Frames nest through static calls and, from v8, through requires: a
@@ -782,17 +794,17 @@ local function deriveCatalog(normalized: any): any
     local successors: {{integer}} = {}
     local junction = #functions + 1
     local chunks: {integer} = {}
-    for _, module in ipairs(normalized.modules) do
+    for _, module in ipairs(semantic.modules) do
         chunks[#chunks + 1] = (module.chunk as integer) + 1
     end
     for index, fn in ipairs(functions) do
         local edges: {integer} = {}
         for _, call in ipairs(fn.calls) do
-            if call.target ~= normalized.schema.absent then
+            if call.target ~= absent then
                 edges[#edges + 1] = (call.target as integer) + 1
             end
         end
-        if normalized.schema.version >= 8 then
+        if version >= 8 then
             for _, target in ipairs(fn.requires) do
                 edges[#edges + 1] = (target as integer) + 1
             end
@@ -809,37 +821,89 @@ local function deriveCatalog(normalized: any): any
     end
 
     return {
-        version = normalized.schema.version >= 3 and normalized.schema.version or 1,
-        profile = normalized.schema.version >= 3 and normalized.schema.profile or "boolean-nil-acyclic-one-result",
-        entry = normalized.entry,
-        initializers = initializers,
-        semantic = normalized,
-        functions = functions,
         instructionCount = total,
+        initializers = initializers,
         instanceCapacity = capacity,
         instanceCreations = creations,
         frameDepth = depth
     }
 end
 
--- Where Lua's debug.getinfo says each function of `result` is defined, from
--- its checked owner in `catalog`: the lines its definition starts and ends
--- on, 0 for a module's chunk and the function Lua's `load` compiled a chunk
--- to, and its Lua source, "@" and its module's path or the name `load` was
--- given.
+-- The executable whose functions are `functions`, issued from semantic
+-- tables `semantic` (its schema, entry, modules, catalog and signatures).
+local function assemble(semantic: any, functions: {any}): any
+    local extent = bound(functions, semantic)
+
+    return {
+        version = semantic.schema.version >= 3 and semantic.schema.version or 1,
+        profile = semantic.schema.version >= 3 and semantic.schema.profile or "boolean-nil-acyclic-one-result",
+        entry = semantic.entry,
+        initializers = extent.initializers,
+        semantic = semantic,
+        functions = functions,
+        instructionCount = extent.instructionCount,
+        instanceCapacity = extent.instanceCapacity,
+        instanceCreations = extent.instanceCreations,
+        frameDepth = extent.frameDepth
+    }
+end
+
+local function deriveCatalog(normalized: any): any
+    semantic.semantic(normalized)
+    local functions = {}
+    for index, g in ipairs(normalized.graphs) do
+        functions[index] = derive(g, normalized)
+    end
+
+    return assemble(normalized, functions)
+end
+
+-- Where Lua's debug.getinfo says checked `owner`'s function is defined: the
+-- lines its definition starts and ends on, 0 for a module's chunk and the
+-- function Lua's `load` compiled a chunk to, and its Lua source, "@" and its
+-- module's path or the name `load` was given.
+export function definition(owner: any): ({integer}, string)
+    local first, last = nil, nil
+    if owner.kind ~= "module" and not owner.main then
+        first, last = cst.firstToken(owner.node), cst.lastToken(owner.node)
+    end
+
+    return {first and first.line or 0, last and last.line or 0}, owner.scope.chunkname or "@" .. owner.scope.path
+end
+
+-- Each function of `result` with a chunk name, defined where its checked
+-- owner in `catalog` is.
 local function described(result: any, catalog: any): nil
     local owners = catalog and catalog.owners or {}
     for _, fn in ipairs(result.functions) do
         local owner = owners[(fn.owner as integer) + 1]
         if fn.chunk ~= nil and owner ~= nil then
-            local first, last = nil, nil
-            if owner.kind ~= "module" and not owner.main then
-                first, last = cst.firstToken(owner.node), cst.lastToken(owner.node)
-            end
-            fn.defined = {first and first.line or 0, last and last.line or 0}
-            fn.source = owner.scope.chunkname or "@" .. owner.scope.path
+            fn.defined, fn.source = definition(owner)
         end
     end
+end
+
+-- Whether a program needs its calls' diagnostics: a call in tail position,
+-- or a library call that names the call it is positioned at (argument
+-- errors) or the functions calls give names to (debug.getinfo).
+export function diagnosed(diagnostics: {any}, graphs: {any}): boolean
+    for _, diagnostic in ipairs(diagnostics) do
+        if diagnostic.tail == true then
+            return true
+        end
+    end
+    local named = {[corelibrary.id("ARGUMENT_ERROR")] = true, [corelibrary.id("DEBUG_INFO")] = true}
+    for _, g in ipairs(graphs) do
+        for _, block in ipairs(g.blocks) do
+            for at, op in ipairs(block.op) do
+                if op == "LibCall" and named[corelibrary.split(block.args[at][1])] then
+                    return true
+                end
+            end
+        end
+    end
+
+    return false
 end
 
 -- The retained checker objects are immutable borrows within this build process.
@@ -853,23 +917,9 @@ export function fromChecked(compiled: any, version: integer?): any
     need(normalized.modules[#normalized.modules].chunk == normalized.entry, "entry module must initialize last")
     local result = deriveCatalog(normalized)
     described(result, compiled.catalog)
-    local required = false
-    for _, diagnostic in ipairs(diagnostics) do
-        required = required or diagnostic.tail == true
-    end
     -- Argument errors name the call they are positioned at, and
     -- debug.getinfo the names calls give the functions they call.
-    local named = {[corelibrary.id("ARGUMENT_ERROR")] = true, [corelibrary.id("DEBUG_INFO")] = true}
-    for _, g in ipairs(normalized.graphs) do
-        for _, block in ipairs(g.blocks) do
-            for at, op in ipairs(block.op) do
-                if op == "LibCall" and named[corelibrary.split(block.args[at][1])] then
-                    required = true
-                end
-            end
-        end
-    end
-    if required then
+    if diagnosed(diagnostics, normalized.graphs) then
         need(normalized.schema.version == 8, "argument diagnostics require checked source profile 8")
         result.diagnostics = diagnostics
     end
@@ -878,9 +928,26 @@ export function fromChecked(compiled: any, version: integer?): any
     return result
 end
 
+-- The executable a link joined from module pieces (nupp.compiler.vm.corelink):
+-- `functions` by program id, `semantic` its tables and `diagnostics` its
+-- calls' rows when it needs them. No checker object stands behind it, so
+-- validating it holds it to what was issued.
+export function fromLinked(semantic: any, functions: {any}, diagnostics: {any}?): any
+    need(semantic.schema.version == 8, "linked executables are v8 programs")
+    need(semantic.modules[#semantic.modules].chunk == semantic.entry, "entry module must initialize last")
+    local result = assemble(semantic, functions)
+    result.diagnostics = diagnostics
+    issued[result] = {snapshot = copy(result)}
+
+    return result
+end
+
 export function validate(result: any): nil
     local state = need(type(result) == "table" and rawget(issued, result), "unissued executable catalog")
     need(same(result, state.snapshot), "issued executable metadata changed")
+    if state.compiled == nil then
+        return
+    end
     local normalized, diagnostics = contracts.normalize(state.compiled, state.version)
     need(same(normalized, state.snapshot.semantic), "checked catalog changed")
     if state.snapshot.diagnostics then
@@ -891,6 +958,7 @@ end
 export function checkedOwner(result: any, id: integer): any
     validate(result)
     local state = issued[result]
+    need(state.compiled ~= nil, "a linked executable has no checked owners")
     local owner = need(state.compiled.catalog.owners[id + 1], "unknown checked owner")
     need(owner.id == id, "checked owner identity differs")
 

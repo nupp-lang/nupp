@@ -38,7 +38,7 @@ def main():
     program_source = args.program_source or ROOT / "native/core/program/program.nupp"
     if not program_source.exists():
         program_source = ROOT.parent / "native-core-first-programs/native/core/program/program.nupp"
-    directories = [ROOT / "src", ROOT / "native/core/src", ROOT / "spike/native-lowering/src", ROOT / "spike/native-lowering/nativegraph/src"]
+    directories = [ROOT / "src", ROOT / "native/core/src"]
     files = [p for d in directories for p in sorted(d.rglob("*")) if p.is_file() and p.suffix in (".nupp", ".lua")]
     inputs = {str(p.resolve()): sha(p) for p in [*files, program_source, Path(__file__), BOOT / "freeze.json", BOOT / "core-build-compiler-provenance.json", *tools.values()]}
     image_inputs = {path: value for path, value in inputs.items() if path != str(Path(__file__).resolve())}
@@ -71,7 +71,7 @@ def main():
         shutil.copyfile(program_source, modules / "program.nupp")
         includes = ["src", *directories, ROOT / "native/crates/vm/lib", ROOT / "native/crates/vm/decls"]
         (project / "nupp.lua").write_text("return {include = {" + ",".join(json.dumps(str(p)) for p in includes) + "}}\n")
-        checked = json.loads(run("check", [vm, "exec", compiler, "nupp.tools.vm.root", "check", "--json", str(ROOT / "native/core/src/nupp/core/producer.nupp"), str(ROOT / "native/core/src/nupp/core/shim.nupp"), str(ROOT / "spike/native-lowering/nativegraph/src/nupp/compiler/s0/nativegraph.nupp"), str(ROOT / "src/nupp/compiler/vm/machinerecipes.nupp"), str(ROOT / "src/nupp/compiler/vm/nativegraph.nupp"), str(ROOT / "native/core/src/nupp/runtime/core/entry.nupp")], project))
+        checked = json.loads(run("check", [vm, "exec", compiler, "nupp.tools.vm.root", "check", "--json", str(ROOT / "native/core/src/nupp/core/producer.nupp"), str(ROOT / "native/core/src/nupp/core/shim.nupp"), str(ROOT / "src/nupp/compiler/s0/nativegraph.nupp"), str(ROOT / "src/nupp/compiler/vm/machinerecipes.nupp"), str(ROOT / "src/nupp/compiler/vm/nativegraph.nupp"), str(ROOT / "native/core/src/nupp/runtime/core/entry.nupp")], project))
         assert checked["ok"] is True, checked
         run("compile-producer", [vm, "run", compiler, "nupp.tools.vm.project", "emit", project, "nupp.core.producer", "", "--output", image, "--tasks"], project)
         image_proof.write_text(json.dumps({"inputs": image_inputs, "imageSha256": sha(image)}, indent=2) + "\n")

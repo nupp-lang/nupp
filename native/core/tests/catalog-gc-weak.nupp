@@ -89,8 +89,12 @@ end
 -- cleared.
 local function views(block: any): any
     local t: any = setmetatable({}, {__mode = "v"})
-    t[1] = calls.cast(block, 1)
+    -- The view is stored for the collector to clear, not used after.
+    @unsafe do
+        t[1] = calls.cast(block, 1)
+    end
     t[2] = block
+
     return t
 end
 

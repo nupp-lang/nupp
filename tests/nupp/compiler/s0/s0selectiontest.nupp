@@ -1,0 +1,144 @@
+-- The owned backend's instruction selection, and the forms it refuses
+-- (nupp.compiler.s0.select).
+module nupp.compiler.s0.s0selectiontest
+
+local reader = require("nupp.compiler.s0.reader")
+local ir = require("nupp.compiler.s0.ir")
+local allocate = require("nupp.compiler.s0.allocate")
+local selector = require("nupp.compiler.s0.select")
+local arm = require("nupp.compiler.s0.arm64")
+local link = require("nupp.compiler.s0.link")
+
+local function compile(text: string, spill: boolean): selector.Code
+    local f = reader.read(text)[1]
+    local target = selector.target()
+    if spill then
+        target.integerRegisters, target.floatRegisters = {}, {}
+    end
+
+    return selector.run(f, allocate.run(f, target))
+end
+
+export function cases(): string
+    local leaf = [[
+function %leaf(i64, i64) -> i64 tail {
+block0(v0: i64, v1: i64):
+    v2 = iadd v0, v1
+    return v2
+}
+]]
+    for _, spill in ipairs({false, true}) do
+        local code = compile(leaf, spill)
+        assert(code.frameBytes % 16 == 0 and code.words[1] == arm.str(8, 30, 23, 0))
+        assert(code.words[#code.words] == arm.ret(30))
+        assert(code.opCounts[ir.opcode("iadd")] == 1 and code.opCounts[ir.opcode("return")] == 1)
+        assert(#code.fixupWord == 0)
+    end
+    local cycle = [[
+function %cycle(i64, i64, i64) -> i64 tail {
+block0(v0: i64, v1: i64, v2: i64):
+    jump block1(v0, v1, v2)
+block1(v3: i64, v4: i64, v5: i64):
+    v6 = iconst.i64 1
+    v7 = isub v5, v6
+    v8 = icmp ne v7, v6
+    brif v8, block1(v4, v3, v7), block2(v3)
+block2(v9: i64):
+    return v9
+}
+]]
+    for _, spill in ipairs({false, true}) do
+        local code = compile(cycle, spill)
+        assert(#code.blockWord == 3 and #code.fixupWord == 0)
+        assert(code.opCounts[ir.opcode("brif")] == 1)
+    end
+    local indirect = [[
+function %indirect(i64, i64) -> i64 tail {
+    sig0 = (i64) -> i64 tail
+block0(v0: i64, v1: i64):
+    v2 = call_indirect sig0, v0(v1)
+    v3 = iadd v2, v1
+    return v3
+}
+]]
+    local code = compile(indirect, true)
+    assert(code.opCounts[ir.opcode("call_indirect")] == 1)
+    assert(not pcall(link.build, reader.read(indirect), "indirect", false))
+    local recursive = [[
+function %recursive() -> i64 tail {
+    sig0 = () -> i64 tail
+    fn0 = %recursive sig0
+block0:
+    v0 = call fn0()
+    return v0
+}
+]]
+    assert(not pcall(link.build, reader.read(recursive), "recursive", false))
+    local borrowed = [[
+function %borrowed(i64) -> i64 tail {
+    ss0 = explicit_slot 16, align = 16
+    sig0 = (i64) -> i64 tail
+    fn0 = %borrowed sig0
+block0(v0: i64):
+    v1 = stack_addr.i64 ss0
+    v2 = iadd v1, v0
+    jump block1(v2)
+block1(v3: i64):
+    return_call fn0(v3)
+}
+]]
+    assert(not pcall(compile, borrowed, false))
+
+    local pair = [[
+function %pair(i64, i64) -> i64, i64 tail {
+    sig0 = (i64, i64) -> i64, i64 tail
+    fn0 = %pair sig0
+block0(v0: i64, v1: i64):
+    v2, v3 = call fn0(v0, v1)
+    return v3, v2
+}
+]]
+    for _, spill in ipairs({false, true}) do
+        local paired = compile(pair, spill)
+        assert(paired.opCounts[ir.opcode("call")] == 1 and paired.opCounts[ir.opcode("return")] == 1)
+    end
+    local floating = [[
+function %floating(f64, f64, f64, i64) -> f64 tail {
+block0(v0: f64, v1: f64, v2: f64, v3: i64):
+    v4 = fma v0, v1, v2
+    v5 = iconst.i64 0
+    v6 = icmp ne v3, v5
+    v7 = select v6, v4, v0
+    return v7
+}
+]]
+    local fp = compile(floating, true)
+    assert(fp.opWords[ir.opcode("fma")] > 1 and fp.opWords[ir.opcode("select")] > 1)
+    local masks: {integer} = {255, 0xffff0000, 0x5555555555555555, 0xffffffffffff}
+    local n: {integer} = {1, 1, 0, 1}
+    local r: {integer} = {0, 48, 0, 0}
+    local imms: {integer} = {7, 15, 60, 47}
+    for p, mask in ipairs(masks) do
+        local text = (
+            [[
+function %%mask(i64) -> i64 tail {
+block0(v0: i64):
+    v1 = iconst.i64 %d
+    v2 = band v0, v1
+    return v2
+}
+]]
+        ):format(mask)
+        local selected = compile(text, false)
+        local found = false
+        local expected = arm.and_imm(64, 0, 0, n[p], r[p], imms[p]) & 0xfffffc00
+        for _, word in ipairs(selected.words) do
+            if (word & 0xfffffc00) == expected then
+                found = true
+            end
+        end
+        assert(found, "S0 select: logical immediate mask selection")
+    end
+
+    return "selector entry, spill, cycle, indirect-call and derived-stack refusal cases passed"
+end

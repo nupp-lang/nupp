@@ -1,4 +1,9 @@
-//! Test-only raw unmap fault for one emitted shared-backing fixture.
+//! Test-only page faults for the emitted shared-backing fixtures. The guest
+//! maps its pages through the C library's mmap and munmap, which it finds
+//! by name in the running program; this test program defines both, faults
+//! the exact calls a case asks for, and passes every other to the C
+//! library's own.
+use std::ffi::{CStr, c_void};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 
 static ENABLED: AtomicBool = AtomicBool::new(false);
@@ -22,7 +27,8 @@ const CONSUMED: u64 = 2;
 const FAILED: u64 = 3;
 const FAILURE: u64 = 22;
 
-unsafe extern "C" fn unmap(address: u64, bytes: u64) -> u64 {
+/// The status a faulted unmap of `address` for `bytes` answers, if it is one.
+unsafe fn unmap_fault(address: u64, bytes: u64) -> Option<u64> {
     let faults = TICKET_FAULTS.load(Ordering::SeqCst);
     if faults != 0 && bytes >= PREFIX_BYTES {
         // Test transport only inspects a still-owned terminal map. It never
@@ -39,7 +45,7 @@ unsafe extern "C" fn unmap(address: u64, bytes: u64) -> u64 {
             ADDRESS.store(address, Ordering::SeqCst);
             EXTENT.store(bytes, Ordering::SeqCst);
             ATTEMPTS.fetch_add(1, Ordering::SeqCst);
-            return FAILURE;
+            return Some(FAILURE);
         }
         if exact && capacity == TICKET_BYTES && faults & 2 != 0 {
             let node = unsafe { prefix.add((PREFIX_BYTES / 8) as usize) };
@@ -59,7 +65,7 @@ unsafe extern "C" fn unmap(address: u64, bytes: u64) -> u64 {
             NODE_ADDRESS.store(address, Ordering::SeqCst);
             NODE_EXTENT.store(bytes, Ordering::SeqCst);
             NODE_ATTEMPTS.fetch_add(1, Ordering::SeqCst);
-            return CONTROL_FAILURE;
+            return Some(CONTROL_FAILURE);
         }
     }
     if ENABLED.load(Ordering::SeqCst) && bytes >= PREFIX_BYTES {
@@ -78,42 +84,73 @@ unsafe extern "C" fn unmap(address: u64, bytes: u64) -> u64 {
             ADDRESS.store(address, Ordering::SeqCst);
             EXTENT.store(bytes, Ordering::SeqCst);
             ATTEMPTS.fetch_add(1, Ordering::SeqCst);
-            return FAILURE;
+            return Some(FAILURE);
         }
     }
-    unsafe { super::platform::unmap_pages(address, bytes) }
+    None
 }
 
-unsafe extern "C" fn map(bytes: u64) -> u64 {
+/// Whether a map of `bytes` is refused.
+fn map_fault(bytes: u64) -> bool {
     if TICKET_MAP_REFUSAL.load(Ordering::SeqCst) && bytes == super::platform::page_size() {
         let attempt = MAP_ATTEMPTS.fetch_add(1, Ordering::SeqCst);
         if attempt == 1 {
-            return 0;
+            return true;
         }
     }
     if QUEUE_MAP_REFUSAL.load(Ordering::SeqCst) && bytes == super::platform::page_size() {
         MAP_ATTEMPTS.fetch_add(1, Ordering::SeqCst);
-        return 0;
+        return true;
     }
     if MAP_REFUSAL.load(Ordering::SeqCst) && bytes == 17 * super::platform::page_size() {
         MAP_ATTEMPTS.fetch_add(1, Ordering::SeqCst);
-        return 0;
+        return true;
     }
-    super::platform::map_pages(bytes)
+    false
 }
 
-pub(super) fn imports<const N: usize>(mut imports: [u64; N]) -> [u64; N] {
-    if ENABLED.load(Ordering::SeqCst) || TICKET_FAULTS.load(Ordering::SeqCst) != 0 {
-        assert!(N > 1);
-        imports[1] = unmap as *const () as u64;
+unsafe extern "C" {
+    fn dlsym(handle: *mut c_void, name: *const std::ffi::c_char) -> *mut c_void;
+    fn __error() -> *mut i32;
+}
+/// dlsym's RTLD_NEXT: the definition after this program's.
+const NEXT: *mut c_void = -1isize as *mut c_void;
+const MAP_FAILED: *mut c_void = -1isize as *mut c_void;
+
+/// The C library's own definition of `name`.
+fn next(name: &CStr) -> *mut c_void {
+    let found = unsafe { dlsym(NEXT, name.as_ptr()) };
+    assert!(!found.is_null(), "C library function");
+    found
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn mmap(
+    address: *mut c_void,
+    length: usize,
+    protection: i32,
+    flags: i32,
+    fd: i32,
+    offset: i64,
+) -> *mut c_void {
+    if super::abi::RUNNING.load(Ordering::SeqCst) && map_fault(length as u64) {
+        return MAP_FAILED;
     }
-    if MAP_REFUSAL.load(Ordering::SeqCst)
-        || QUEUE_MAP_REFUSAL.load(Ordering::SeqCst)
-        || TICKET_MAP_REFUSAL.load(Ordering::SeqCst)
-    {
-        imports[0] = map as *const () as u64;
+    let real: unsafe extern "C" fn(*mut c_void, usize, i32, i32, i32, i64) -> *mut c_void =
+        unsafe { std::mem::transmute(next(c"mmap")) };
+    unsafe { real(address, length, protection, flags, fd, offset) }
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn munmap(address: *mut c_void, length: usize) -> i32 {
+    let guest = super::abi::RUNNING.load(Ordering::SeqCst);
+    if let Some(status) = guest.then(|| unsafe { unmap_fault(address as u64, length as u64) }).flatten() {
+        unsafe { *__error() = status as i32 };
+        return -1;
     }
-    imports
+    let real: unsafe extern "C" fn(*mut c_void, usize) -> i32 =
+        unsafe { std::mem::transmute(next(c"munmap")) };
+    unsafe { real(address, length) }
 }
 
 struct Cleanup;

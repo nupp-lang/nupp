@@ -1,0 +1,316 @@
+module nupp.compiler.s0.link
+
+local ir = require("nupp.compiler.s0.ir")
+local reader = require("nupp.compiler.s0.reader")
+local allocate = require("nupp.compiler.s0.allocate")
+local selector = require("nupp.compiler.s0.select")
+local arm = require("nupp.compiler.s0.arm64")
+local link = {}
+
+record link.Image
+    words: {integer}
+    imports: {string}
+    entry: integer
+    arenaBytes: integer
+end
+
+-- E1 uses one checked mapping per C entry. The full runtime provider supplies
+-- reusable thread arenas separately; this transport is not its timing path.
+function link.build(functions: {ir.Function}, entry: string, spill: boolean, binding: string?): link.Image
+    local codes: {selector.Code} = {}
+    local named: {[string]: integer} = {}
+    local offsets: {integer} = {}
+    local imports: {string} = {}
+    local importIndex: {[string]: integer} = {}
+    local words: {integer} = {}
+
+    local function imported(name: string): integer
+        if not importIndex[name] then
+            imports[#imports + 1] = name
+            importIndex[name] = #imports
+        end
+
+        return assert(importIndex[name]) - 1
+    end
+
+    for index, f in ipairs(functions) do
+        assert(not named[f.name], "S0 link: duplicate function")
+        named[f.name] = index
+        local target = selector.target()
+        if spill then
+            target.integerRegisters, target.floatRegisters = {}, {}
+        end
+        codes[index] = selector.run(f, allocate.run(f, target))
+    end
+    local root = assert(named[entry], "S0 link: missing entry")
+    -- Test-only closed target: replace entry parameter zero in the C shim.
+    -- No inferred aliases or unknown callees participate in the arena proof.
+    local boundTarget: integer = 0
+    local boundHost: string = ""
+    local boundSignature: ir.Signature? = nil
+    if binding then
+        if binding == "C:nupp_os_page_size" then
+            boundHost = "nupp_os_page_size"
+            boundSignature = ir.Signature(params = {}, results = {ir.I64}, convention = ir.C)
+        elseif binding == "C:nupp_rt_power" then
+            boundHost = "nupp_rt_power"
+            boundSignature = ir.Signature(params = {ir.F64, ir.F64}, results = {ir.F64}, convention = ir.C)
+        else
+            local name = assert(binding:match("^N:([%w_]+)$"), "S0 link: unknown indirect binding")
+            boundTarget = assert(named[name], "S0 link: missing indirect target")
+            boundSignature = functions[boundTarget].signature
+            assert(boundSignature.convention == ir.INTERNAL, "S0 link: indirect target convention")
+        end
+        assert(functions[root].signature.params[1] == ir.I64, "S0 link: indirect pointer must be entry parameter zero")
+    end
+
+    local function same(a: {integer}, b: {integer}): boolean
+        if #a ~= #b then
+            return false
+        end
+        for at, kind in ipairs(a) do
+            if kind ~= b[at] then
+                return false
+            end
+        end
+
+        return true
+    end
+
+    local indirectCount: integer = 0
+
+    local function checkIndirect(index: integer, f: ir.Function, at: integer, op: integer): nil
+        local expected = assert(boundSignature, "S0 link: indirect arena extent needs a runtime bound")
+        assert(index == root, "S0 link: only root may call indirect")
+        assert(
+            f.args[f.firstArg[at]] == f.params[f.firstParam[1]] and f.valueKinds[f.args[f.firstArg[at]]] == ir.I64,
+            "S0 link: unproven indirect pointer"
+        )
+        local actual = f.signatures[f.aux[at]]
+        assert(
+            actual.convention == expected.convention
+            and same(actual.params, expected.params)
+            and same(actual.results, expected.results),
+            "S0 link: indirect signature mismatch"
+        )
+        if op == ir.OP_RETURN_CALL_INDIRECT then
+            assert(same(actual.results, f.signature.results), "S0 link: indirect tail result mismatch")
+        end
+        indirectCount = indirectCount + 1
+    end
+
+    local visiting: {[integer]: boolean} = {}
+    local bounds: {[integer]: integer} = {}
+
+    local function bound(index: integer): integer
+        assert(not visiting[index], "S0 link: recursive arena extent needs a runtime bound")
+        if bounds[index] then
+            return (assert(bounds[index]))
+        end
+        visiting[index] = true
+        local f = functions[index]
+        local extra: integer = 0
+        for at, opcode in ipairs(f.op) do
+            local op = ir.opNames[opcode]
+            if opcode == ir.OP_CALL_INDIRECT or opcode == ir.OP_RETURN_CALL_INDIRECT then
+                checkIndirect(index, f, at, opcode)
+            end
+            if op == "call" or op == "return_call" or op == "call_indirect" or op == "return_call_indirect" then
+                local callee = (op == "call_indirect" or op == "return_call_indirect") and boundTarget
+                    or named[f.importNames[f.aux[at]]]
+                if callee and callee ~= 0 then
+                    -- Conservatively include the caller even for tail calls.
+                    local extent = bound(callee)
+                    if extent > extra then
+                        extra = extent
+                    end
+                end
+            end
+        end
+        visiting[index] = false
+        local extent = codes[index].frameBytes + extra
+        bounds[index] = extent
+        assert(extent <= 16773120, "S0 link: arena extent limit")
+
+        return extent
+    end
+
+    local arenaBytes = (bound(root) + 4095) & -4096
+    assert(not binding or indirectCount > 0, "S0 link: unused indirect binding")
+
+    local function emit(word: integer): nil
+        words[#words + 1] = word
+    end
+
+    local function constant(rd: integer, value: integer): nil
+        emit(arm.movz(64, rd, value & 65535, 0))
+        if value >> 16 ~= 0 then
+            emit(arm.movk(64, rd, (value >> 16) & 65535, 1))
+        end
+    end
+
+    local function host(name: string): nil
+        emit(arm.ldr(8, 16, 22, imported(name) * 8))
+        emit(arm.blr(16))
+    end
+
+    -- Preserve the complete AAPCS64 callee-saved set at the C boundary only.
+    emit(arm.sub_imm(64, 31, 31, 192, 0))
+    for reg = 19, 29, 2 do
+        emit(arm.stp(64, reg, reg + 1, 31, (reg - 19) * 8, 0))
+    end
+    for reg = 8, 14, 2 do
+        emit(arm.stp_fp(64, reg, reg + 1, 31, 96 + (reg - 8) * 8, 0))
+    end
+    emit(arm.str(8, 0, 31, 160))
+    emit(arm.str(8, 1, 31, 168))
+    constant(16, 1)
+    emit(arm.str(8, 16, 1, 0))
+    local invalid: {integer} = {}
+
+    local function check(offset: integer, expected: integer, condition: integer): nil
+        emit(arm.ldr(8, 16, 0, offset))
+        emit(arm.cmp_imm(64, 16, expected, 0))
+        invalid[#invalid + 1] = #words + 1
+        emit(arm.b_cond(condition, 0))
+    end
+
+    check(0, 1, 1)
+    check(64, #functions[root].signature.params, 1)
+    check(72, 3, 3)
+    emit(arm.ldr(8, 22, 0, 40))
+    constant(0, arenaBytes)
+    host("nupp_os_map_pages")
+    local mapFailed = #words + 1
+    emit(arm.cbz(64, 0, 0))
+    emit(arm.str(8, 0, 31, 176))
+    emit(arm.mov_reg(64, 23, 0))
+    emit(arm.ldr(8, 16, 31, 160))
+    emit(arm.ldr(8, 17, 16, 56))
+    local integers: integer = 0
+    local floats: integer = 0
+    for at, kind in ipairs(functions[root].signature.params) do
+        if ir.isFloat(kind) then
+            assert(floats < 8, "S0 link: stack C arguments unsupported")
+            emit(arm.ldr_fp(kind == ir.F32 and 32 or 64, floats, 17, (at - 1) * 8))
+            floats = floats + 1
+        else
+            assert(integers < 8, "S0 link: stack C arguments unsupported")
+            emit(arm.ldr(8, integers, 17, (at - 1) * 8))
+            integers = integers + 1
+        end
+    end
+    local boundAddress: integer = 0
+    if boundTarget ~= 0 then
+        boundAddress = #words + 1
+        emit(arm.adr(0, 0))
+    elseif boundHost ~= "" then
+        emit(arm.ldr(8, 0, 22, imported(boundHost) * 8))
+    end
+    local invoke = #words + 1
+    emit(arm.bl(0))
+    emit(arm.ldr(8, 16, 31, 168))
+    integers, floats = 0, 0
+    for at, kind in ipairs(functions[root].signature.results) do
+        if ir.isFloat(kind) then
+            emit(arm.fmov_to_int(kind == ir.F32 and 32 or 64, 17, floats))
+            floats = floats + 1
+            emit(arm.str(8, 17, 16, at * 8))
+        else
+            emit(arm.str(8, integers, 16, at * 8))
+            integers = integers + 1
+        end
+    end
+    emit(arm.str(8, 31, 16, 0))
+    emit(arm.ldr(8, 0, 31, 176))
+    constant(1, arenaBytes)
+    host("nupp_os_unmap_pages")
+    local success = #words + 1
+    emit(arm.b(0))
+    words[mapFailed] = arm.cbz(64, 0, (#words + 1 - mapFailed) * 4)
+    emit(arm.ldr(8, 16, 31, 168))
+    constant(17, 2)
+    emit(arm.str(8, 17, 16, 0))
+    local epilogue = #words + 1
+    words[success] = arm.b((epilogue - success) * 4)
+    for _, at in ipairs(invalid) do
+        words[at] = arm.b_cond(at == invalid[3] and 3 or 1, (epilogue - at) * 4)
+    end
+    for reg = 8, 14, 2 do
+        emit(arm.ldp_fp(64, reg, reg + 1, 31, 96 + (reg - 8) * 8, 0))
+    end
+    for reg = 19, 29, 2 do
+        emit(arm.ldp(64, reg, reg + 1, 31, (reg - 19) * 8, 0))
+    end
+    emit(arm.add_imm(64, 31, 31, 192, 0))
+    emit(arm.ret(30))
+    for index, code in ipairs(codes) do
+        offsets[index] = #words + 1
+        for _, word in ipairs(code.words) do
+            emit(word)
+        end
+    end
+    words[invoke] = arm.bl((offsets[root] - invoke) * 4)
+    if boundAddress ~= 0 then
+        words[boundAddress] = arm.adr(0, (offsets[boundTarget] - boundAddress) * 4)
+    end
+    for index, code in ipairs(codes) do
+        for fixup, localWord in ipairs(code.fixupWord) do
+            local at, kind = offsets[index] + localWord - 1, code.fixupKind[fixup]
+            local name = code.fixupName[fixup]
+            if kind == selector.IMPORT_LOAD then
+                assert(not named[name], "S0 link: internal import marked host")
+                words[at] = arm.ldr(8, 16, 22, imported(name) * 8)
+            else
+                local target = offsets[assert(named[name], "S0 link: unresolved function " .. name)]
+                local delta = (target - at) * 4 + code.fixupAddend[fixup]
+                words[at] = kind == selector.B26 and arm.b(delta) or arm.bl(delta)
+            end
+        end
+    end
+
+    return link.Image(words = words, imports = imports, entry = 0, arenaBytes = arenaBytes)
+end
+
+function link.bundle(
+    corpus: string,
+    entry: string,
+    directory: string,
+    digest: string,
+    mode: string,
+    binding: string?
+): string
+    assert(digest:match("^[%da-f]+$") and #digest == 64, "S0 link: invalid layout digest")
+    local input = assert(io.open(corpus, "rb"))
+    local image = link.build(reader.read(assert(input:read("*a"))), entry, mode == "spill", binding)
+    input:close()
+    local bytes: {string} = {}
+    for _, word in ipairs(image.words) do
+        bytes[#bytes + 1] = string.char(word & 255, (word >> 8) & 255, (word >> 16) & 255, (word >> 24) & 255)
+    end
+    local code = assert(io.open(directory .. "/code.bin", "wb"))
+    code:write(table.concat(bytes));
+    code:close()
+    local data = assert(io.open(directory .. "/data.bin", "wb"));
+    data:close()
+    local names: {string} = {}
+    for _, name in ipairs(image.imports) do
+        assert(name:match("^[%w_]+$"), "S0 link: invalid import name")
+        names[#names + 1] = '"' .. name .. '"'
+    end
+    local manifest = assert(io.open(directory .. "/bundle.json", "wb"))
+    manifest:write(
+        '{"version":1,"architecture":"aarch64","layoutDigest":"'
+        .. digest
+        .. '","entry":0,"code":"code.bin","data":"data.bin","imports":['
+        .. table.concat(
+            names,
+            ","
+        ) .. '],"outputWords":3}\n'
+    )
+    manifest:close()
+
+    return ("%d words; %d arena bytes"):format(#image.words, image.arenaBytes)
+end
+
+export = link

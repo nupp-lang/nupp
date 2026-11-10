@@ -49,9 +49,7 @@ def main():
     required = ("src/main.rs", "src/platform.rs", "tests/support/abi.rs",
                 "tests/support/abi-aarch64.S", "tests/support/scratch.rs")
     assert all(str(ROOT / "native/core/bridge" / name) in guard_sources for name in required)
-    directories = [ROOT / "src", ROOT / "native/core/src",
-                   ROOT / "spike/native-lowering/src",
-                   ROOT / "spike/native-lowering/nativegraph/src"]
+    directories = [ROOT / "src", ROOT / "native/core/src"]
     files = [path for directory in directories for path in sorted(directory.rglob("*"))
              if path.is_file() and path.suffix in (".nupp", ".lua")]
     producer = ROOT / "native/core/tests/void-producer.nupp"
@@ -108,7 +106,7 @@ def main():
             ROOT / "src/nupp/compiler/vm/nativegraph.nupp",
             ROOT / "src/nupp/compiler/vm/functiongraph.nupp",
             ROOT / "src/nupp/compiler/vm/graph.nupp",
-            ROOT / "spike/native-lowering/nativegraph/src/nupp/compiler/s0/nativegraph.nupp"], project))
+            ROOT / "src/nupp/compiler/s0/nativegraph.nupp"], project))
         assert checked["ok"], checked
         image = out / "producer.image"
         run("emit", [vm, "run", compiler, "nupp.tools.vm.project", "emit", project,

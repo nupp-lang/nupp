@@ -1,0 +1,1178 @@
+module nupp.compiler.s0.nativegraph
+
+local graph = require("nupp.compiler.vm.graph")
+local physical = require("nupp.compiler.vm.nativephysical")
+local residual = require("nupp.compiler.vm.residual")
+local recipes = require("nupp.compiler.vm.machinerecipes")
+local ir = require("nupp.compiler.s0.ir")
+local literal = require("nupp.compiler.s0.literal")
+local nativeos = require("nupp.compiler.vm.nativeos")
+local service = require("nupp.compiler.vm.nativeservice")
+local sink = {}
+local finalframe = require("nupp.compiler.vm.nativeframecontract")
+local issuedResults: any = setmetatable({}, {__mode = "k"})
+local issuedCodes: any = setmetatable({}, {__mode = "k"})
+local integerOps: {[string]: string} = recipes.integerOps
+local comparisons: {
+    [string]: string
+} = {["=="] = "eq", ["~="] = "ne", ["<"] = "lt", ["<="] = "le", [">"] = "gt", [">="] = "ge"}
+
+local floatOps: {
+    [string]: string
+} = {
+    FAdd = "fadd",
+    FSub = "fsub",
+    FMul = "fmul",
+    FDiv = "fdiv",
+    FNeg = "fneg",
+    NativeFloor = "floor",
+    NativeCeil = "ceil",
+    NativeSqrt = "sqrt"
+}
+local machineKinds: {
+    [string]: string
+} = {
+    voidptr = "i64",
+    int32 = "i64",
+    uint32 = "i64",
+    int64 = "i64",
+    uint64 = "i64",
+    boolean = "i8",
+    float32 = "f32",
+    float64 = "f64"
+}
+
+local function machineKind(kind: any): string
+    return (assert(machineKinds[kind], "S0 graph: unsupported exact kind"))
+end
+
+record sink.Result
+    machine: ir.Function
+    body: any
+    pc: integer
+    count: integer
+    source: any
+    positions: any
+    segments: any
+    -- Zero marks synthetic entry setup; other entries index the graph metadata.
+    instructionPosition: {integer}
+    instructionOperation: {integer}
+    instructionSegment: {integer}
+    instructionBlock: {integer}
+    callees: any
+    contextLayout: any
+    osImports: any
+end
+
+local function copy(value: any): any
+    if type(value) ~= "table" then
+        return value
+    end
+    local result = {}
+    for key, item in pairs(value) do
+        result[key] = copy(item)
+    end
+
+    return result
+end
+
+-- Trusted checked producer input, not a runtime pointer admission API. Every
+-- forwarded context must retain a mapped SIZE-byte owner and immutable table.
+local function contextLayout(scope: any): any
+    assert(
+        type(scope) == "table"
+        and scope.name == "nupp.runtime.core.context"
+        and type(scope.path) == "string"
+        and scope.constants
+        and scope.exportedConstants,
+        "S0 graph: checked context layout required"
+    )
+
+    local function constant(name: string): integer
+        local found: integer?
+        for definition, node in pairs(scope.constants) do
+            if definition.name == name then
+                assert(
+                    found == nil
+                    and definition.filename == scope.path
+                    and definition.token.definition == definition
+                    and definition.constant
+                    and node.kind == "number"
+                    and scope.exportedConstants[name] == node.token.text,
+                    "S0 graph: context declaration identity"
+                )
+                local kind = definition.type
+                while kind and (kind.tag == "literal" or kind.tag == "const") do
+                    kind = kind.tag == "literal" and kind.base or kind.inner
+                end
+                assert(
+                    kind and (kind.tag == "integer" or kind.tag == "int64" or kind.tag == "uint64"),
+                    "S0 graph: context constant integer kind"
+                )
+                local value = literal.integer(node.token.text)
+                assert(value >= 0 and value < 16777216, "S0 graph: context extent range")
+                found = value as integer
+            end
+        end
+
+        return (assert(found, "S0 graph: missing context constant " .. name))
+    end
+
+    local bytes, offset = constant("SIZE"), constant("DISPATCH_TABLE")
+    assert(
+        bytes >= 8 and bytes % 8 == 0 and offset % 8 == 0 and offset <= bytes - 8,
+        "S0 graph: context dispatch bounds"
+    )
+
+    return {owner = scope, bytes = bytes, dispatchOffset = offset}
+end
+
+-- Prototype: private compiler-result provenance is checked before public data
+-- can be observed. Loader opcode/tag and integer-window authority remain pending.
+-- The returned artifact retains the exact body owner through linking/execution.
+local function lower(bound: any, name: string, unbound: boolean, resolved: any?, context: any?): sink.Result
+    local g = bound.graph
+    graph.verify(g)
+    if g.nativePhysical then
+        assert(g.native.abi == "leaf", "S0 graph: physical graphs require leaf ABI")
+        assert(
+            unbound and g.nativePhysical.context.target == "aarch64-apple-darwin",
+            "S0 graph: physical graph requires explicit owned ARM64 target"
+        )
+    end
+    assert(bound.body ~= nil, "S0 graph: retained body owner required")
+    assert(name:match("^[%w_%.]+$") ~= nil, "S0 graph: invalid name")
+    assert(
+        g.native
+        and (
+            g.native.abi == "handler" and g.nparams == 6
+            or unbound and g.native.abi == "leaf" and (g.nparams >= 1 or g.nativeService ~= nil) and g.nparams <= 8
+        ),
+        "S0 graph: supported native entry required"
+    )
+    local handler = g.native.abi == "handler"
+    local guestSlotsChecked = false
+    local layout = unbound and handler and contextLayout(context) or nil
+    assert((unbound or #g.blocks == 1) and #g.blocks[1].params == 0, "S0 graph: closed entry block required")
+    assert(
+        #g.certificates == 0 and g.recovery == nil and g.recoveries == nil,
+        "S0 graph: recovery metadata unsupported"
+    )
+    for _, block in ipairs(g.blocks) do
+        for _, certificate in ipairs(block.cert) do
+            assert(certificate == 0, "S0 graph: certificates unsupported")
+        end
+    end
+    local parameters: {integer} = {}
+    for index, kind in ipairs(g.native.params) do
+        parameters[index] = ir.kind(machineKind(kind))
+    end
+    local signature = ir.Signature(
+        params = parameters,
+        results = g.native.result == "nil" and {} or {ir.kind(machineKind(g.native.result))},
+        convention = ir.INTERNAL
+    )
+    local f = ir.new(name, signature)
+    f.signatures[1] = signature
+    f.blockStart[1], f.firstParam[1], f.nparams[1] = 1, 1, g.nparams
+    -- Preserve reader's vN -> N+1 mapping, including its unused value zero slot.
+    local nextValue = #g.types + 1
+    local tableValue = nextValue + 1
+    nextValue = tableValue
+    for index = 1, g.nparams do
+        local value = handler and not unbound and index == 6 and tableValue or index + 1
+        f.params[index] = value
+        ir.value(f, value, parameters[index], -1)
+    end
+    local positions, instructions, segments, blocks, callees = {}, {}, {}, {}, {}
+    local imports, pageImports = {}, {}
+    -- The stack slot every foreign call in this function lays its block in.
+    local foreignSlot: integer? = nil
+    local selectTail: {any} = {}
+    local position, operation, segment, blockIndex = 0, 0, 0, 1
+
+    -- Records where machine instruction `at` came from.
+    local function placed(at: integer): nil
+        positions[at], instructions[at], segments[at], blocks[at] = position, operation, segment, blockIndex
+    end
+
+    -- A machine value no graph value names.
+    local function fresh(): integer
+        nextValue = nextValue + 1
+        return nextValue
+    end
+
+    -- The import `symbol` names, added with `signature` the first time.
+    local function imported(symbol: string, signature: ir.Signature): integer
+        local index: integer? = imports[symbol]
+        if index == nil then
+            f.signatures[#f.signatures + 1] = signature
+            index = #f.importNames + 1
+            f.importNames[index as integer], f.importSignatures[index as integer] = symbol, #f.signatures
+            imports[symbol] = index
+        end
+
+        return index as integer
+    end
+
+    -- `values`, then the machine values of graph operands args[2] onward.
+    local function operands(args: any, values: {integer}): {integer}
+        for at = 2, #args do
+            values[#values + 1] = (args[at] as integer) + 1
+        end
+
+        return values
+    end
+
+    local function emit(
+        op: string,
+        destination: any,
+        first: any,
+        second: any,
+        tail: {any}?,
+        kind: string,
+        loadBits: integer,
+        text: string?
+    ): any
+        local result: integer = destination or 0
+        if result == 0
+            and op ~= "store"
+            and op ~= "return_call_indirect"
+            and op ~= "return"
+            and op ~= "jump"
+            and op ~= "brif"
+        then
+            result = fresh()
+        end
+        local immediate: int64 = text and literal.integer(text) or 0
+        local aux = op == "return_call_indirect" and 1
+            or (
+                (op == "load" or op == "sload" or op == "icmp" or op == "fcmp" or op == "store" and loadBits ~= 64)
+                and loadBits
+                or 0
+            )
+        local at = ir.instructionRange(
+            f,
+            ir.opcode(op),
+            result,
+            (op == "store" or op == "return" or op == "jump" or op == "brif") and 0 or ir.kind(kind),
+            first,
+            second,
+            tail,
+            1,
+            tail and #tail or 0,
+            immediate,
+            aux
+        )
+        placed(at)
+
+        return result
+    end
+
+    -- The address `at` bytes past machine value `base`.
+    local function offsetAddress(base: any, at: any): integer
+        local displacement = emit("iconst", nil, nil, nil, nil, "i64", 0, tostring(at))
+        return emit("iadd", nil, base, displacement, nil, "i64", 0, nil)
+    end
+
+    local sourceSegments = bound.segments
+    if not unbound then
+        local block = g.blocks[1]
+        sourceSegments = sourceSegments
+            or {{pc = bound.pc, source = g.source, first = 1, last = #block.op, dispatch = block.term}}
+        assert(#sourceSegments == (bound.count or 1), "S0 graph: segment count")
+        local nextOperation = 1
+        for index, item in ipairs(sourceSegments) do
+            assert(
+                item.first == nextOperation and item.last >= item.first and item.last <= #block.op,
+                "S0 graph: segment coverage"
+            )
+            assert(item.pc == bound.pc + (index - 1) * 16, "S0 graph: segment PC")
+            nextOperation = item.last + 1
+        end
+        assert(nextOperation == #block.op + 1, "S0 graph: segment coverage")
+    end
+    local detached = copy(sourceSegments or {})
+    for bi, block in ipairs(g.blocks) do
+        blockIndex, position, operation = bi, 0, 0
+        f.blockStart[bi] = #f.op + 1
+        if bi == 1 then
+            if handler and not unbound then
+                recipes.entry(emit, 7, 3, 32)
+            end
+        else
+            f.firstParam[bi], f.nparams[bi] = #f.params + 1, #block.params
+            for _, parameter in ipairs(block.params) do
+                local value = (parameter as integer) + 1
+                f.params[#f.params + 1] = value
+                ir.value(f, value, ir.kind(machineKind(g.exactTypes[parameter])), -bi)
+            end
+        end
+        if unbound then
+            segment = bi
+            detached[bi] = {block = bi, source = copy(g.source), first = 1, last = #block.op, firstMachine = #f.op + 1}
+        end
+        for index, op in ipairs(block.op) do
+            operation, position = index, block.pos[index]
+            if not unbound then
+                for at, item in ipairs(sourceSegments) do
+                    if index >= item.first and index <= item.last then
+                        segment = at
+                        if index == item.first then
+                            detached[at].firstMachine = #f.op + 1
+                        end
+                    end
+                end
+            end
+            local args = block.args[index]
+            local destination: integer = block.dst[index]
+            local result = destination ~= 0 and destination + 1 or nil
+            local _ = switch op do
+                case "NativeLeafCall" -> do
+                    assert(unbound, "S0 graph: resolved leaf call requires compiler input")
+                    local declaration = args[1]
+                    local symbol = declaration.moduleName .. "." .. declaration.name
+                    local target = resolved and resolved[symbol]
+                    assert(target and target.owner and target.graph, "S0 graph: unresolved leaf " .. symbol)
+                    local other, owner = target.graph, target.owner
+                    local checked = graph.nativeLeafDeclaration(
+                        owner,
+                        g.nativePhysical and g.nativePhysical.context or nil,
+                        nil,
+                        nil,
+                        declaration.service
+                    )
+                    if declaration.physical or checked.physical then
+                        assert(
+                            declaration.physical
+                            and checked.physical
+                            and other.nativePhysical
+                            and other.nativePhysical.signature
+                            and physical.sameSignature(declaration.physical, checked.physical)
+                            and physical.sameSignature(declaration.physical, other.nativePhysical.signature),
+                            "S0 graph: checked pointer leaf signature mismatch"
+                        )
+                    end
+                    if declaration.service then
+                        service.verify(other)
+                        assert(other.nativeService == declaration.service, "S0 graph: service closure differs")
+                    else
+                        assert(other.nativeService == nil, "S0 graph: missing service ABI")
+                    end
+                    assert(
+                        other.native.abi == "leaf"
+                        and other.native.result == declaration.result
+                        and #other.native.params == #declaration.params,
+                        "S0 graph: leaf signature mismatch"
+                    )
+                    assert(
+                        other.source.module == declaration.moduleName
+                        and other.source.name == declaration.name
+                        and type(declaration.source) == "table"
+                        and declaration.source.path == other.source.path
+                        and declaration.source.module == other.source.module
+                        and declaration.source.name == other.source.name
+                        and other.source.path == owner.scope.path
+                        and owner.scope.name == declaration.moduleName
+                        and owner.name == declaration.name,
+                        "S0 graph: leaf source mismatch"
+                    )
+                    assert(
+                        checked.result == declaration.result and #checked.params == #declaration.params,
+                        "S0 graph: checked leaf signature mismatch"
+                    )
+                    local kinds: {integer} = {}
+                    for at, kind in ipairs(declaration.params) do
+                        assert(
+                            other.native.params[at] == kind and checked.params[at] == kind,
+                            "S0 graph: leaf parameter mismatch"
+                        )
+                        kinds[at] = ir.kind(machineKind(kind))
+                    end
+                    local index = imported(
+                        symbol,
+                        ir.Signature(
+                            params = kinds,
+                            results = declaration.result == "nil" and {} or {ir.kind(machineKind(declaration.result))},
+                            convention = ir.INTERNAL
+                        )
+                    )
+                    callees[symbol] = target
+                    placed(
+                        ir.instruction(
+                            f,
+                            ir.opcode("call"),
+                            result or 0,
+                            declaration.result == "nil" and 0 or ir.kind(machineKind(declaration.result)),
+                            operands(args, {}),
+                            0,
+                            index
+                        )
+                    )
+                    yield nil
+                end
+                case "NativeHelperCall" -> do
+                    assert(unbound, "S0 graph: OS call requires checked compiler input")
+                    local declaration = args[1]
+                    local binding = nativeos.binding(declaration)
+                    local narrow = nativeos.narrow(declaration)
+                    local kinds = {}
+                    for at, kind in ipairs(declaration.params) do
+                        kinds[at] = ir.kind(machineKind(kind))
+                    end
+                    local returned = declaration.result == "nil" and 0
+                        or ir.kind(narrow and "i32" or machineKind(declaration.result))
+                    local signature = ir.Signature(
+                        params = kinds,
+                        results = returned == 0 and {} or {returned},
+                        convention = ir.C,
+                        fixed = binding and binding.fixed or nil
+                    )
+                    -- An OS import is called through its slot; a foreign symbol
+                    -- is resolved once into the bridge's table
+                    -- (nupp.compiler.s0.select), then called through what it
+                    -- resolved to.
+                    -- A routine the selector writes in place (the generic
+                    -- foreign call) has no slot.
+                    local call = {op = ir.opcode("call"), aux = 0, values = {} as {integer}, complete = false}
+                    local routine = nativeos.routine(declaration)
+                    if routine then
+                        call.aux = imported(routine, signature)
+                    elseif binding then
+                        -- A foreign symbol is resolved once into the bridge's
+                        -- table (nupp.compiler.s0.select); the call itself is the
+                        -- generic foreign call. Arguments that all go in registers are
+                        -- its operands after the function (its fast path);
+                        -- any others are laid in a block in this function's
+                        -- frame where the C convention passes them
+                        -- (nativeos.foreignPlacement).
+                        local tableSlot, openSlot, symbolSlot = nativeos.foreignImports()
+                        local symbol = table.concat(
+                            {
+                                "foreign",
+                                tostring(tableSlot),
+                                tostring(openSlot),
+                                tostring(symbolSlot),
+                                binding.library,
+                                binding.symbol
+                            },
+                            "\0"
+                        )
+                        local resolver = imported(
+                            symbol,
+                            ir.Signature(params = {}, results = {ir.I64}, convention = ir.C)
+                        )
+                        local pointer = fresh()
+                        placed(ir.instruction(f, call.op, pointer, ir.I64, {}, 0, resolver))
+                        local placement = nativeos.foreignPlacement(declaration.params, binding.fixed)
+                        local passed: {integer} = {pointer}
+                        local routineParams: {integer} = {ir.I64}
+                        if placement.words == 0 then
+                            for at, kind in ipairs(kinds) do
+                                passed[at + 1], routineParams[at + 1] = (args[at + 1] as integer) + 1, kind
+                            end
+                        else
+                            local blockBytes, functionAt = nativeos.foreignBlock()
+                            if foreignSlot == nil then
+                                foreignSlot = #f.stackBytes + 1
+                                f.stackBytes[
+                                    foreignSlot as integer
+                                ], f.stackAlign[foreignSlot as integer] = blockBytes, 16
+                            end
+                            local block = emit("stack_addr", nil, nil, nil, nil, "i64", 0, "0")
+                            f.aux[#f.op] = foreignSlot as integer
+
+                            local function into(value: integer, at: integer, kind: string, bytes: integer): nil
+                                local address = offsetAddress(block, at)
+                                emit("store", 0, value, address, nil, kind, bytes == 8 and 0 or bytes * 8, nil)
+                            end
+
+                            into(pointer, functionAt, "i64", 8)
+                            for at, kind in ipairs(declaration.params) do
+                                local value = (args[at + 1] as integer) + 1
+                                local machine = machineKind(kind)
+                                local place = placement.args[at]
+                                if machine == "i8" then
+                                    -- A Boolean passes extended to a whole word.
+                                    value = emit("uextend", nil, value, nil, nil, "i64", 0, nil)
+                                    machine = "i64"
+                                end
+                                into(value, place.at, machine, place.bytes)
+                            end
+                            passed[1] = block
+                        end
+                        local answer = returned == 0 and "v"
+                            or returned == ir.F32 and "s"
+                            or returned == ir.F64 and "d"
+                            or "x"
+                        local routine = imported(
+                            nativeos.foreignRoutine(placement, answer),
+                            ir.Signature(
+                                params = routineParams,
+                                results = returned == 0 and {} or {returned},
+                                convention = ir.C,
+                                fixed = placement.words == 0 and binding.fixed or nil
+                            )
+                        )
+                        call.aux, call.values, call.complete = routine, passed, true
+                    else
+                        local symbol = "core_os_" .. tostring(nativeos.slot(declaration, bound.body))
+                        call.aux = imported(symbol, signature)
+                        pageImports[symbol] = declaration
+                    end
+                    -- A 32-bit C result arrives with its upper bits unset
+                    -- and is extended to the value the graph names.
+                    local called: integer = result or 0
+                    if narrow and result then
+                        called = fresh()
+                    end
+                    local values = call.complete and call.values or operands(args, call.values)
+                    placed(ir.instruction(f, call.op, called, returned, values, 0, call.aux))
+                    if narrow and result then
+                        local extend = ir.opcode(narrow == "int32" and "sextend" or "uextend")
+                        placed(
+                            ir.instruction(f, extend, result, ir.kind(machineKind(declaration.result)), {called}, 0, 0)
+                        )
+                    end
+                    yield nil
+                end
+                case "NativeConstant" -> do
+                    assert(
+                        g.exactTypes[destination] == "int64"
+                        or g.exactTypes[destination] == "uint64"
+                        or g.exactTypes[destination] == "int32"
+                        or g.exactTypes[destination] == "uint32",
+                        "S0 graph: word literal required"
+                    )
+                    emit("iconst", result, nil, nil, nil, "i64", 0, args[1])
+                    yield nil
+                end
+                case "IAdd", "ISub", "NativeIMul", "NativeUDiv", "NativeURem", "NativeSDiv", "NativeSRem", "IAnd", "IOr", "IXor", "INot", "IShl", "IShrU" -> do
+                    emit(
+                        assert(integerOps[op]),
+                        result,
+                        args[1] + 1,
+                        args[2] and args[2] + 1 or nil,
+                        nil,
+                        g.exactTypes[destination] == "boolean" and "i8" or "i64",
+                        0,
+                        nil
+                    )
+                    yield nil
+                end
+                case "NativeSelect" -> do
+                    selectTail[1] = args[2] + 1
+                    emit(
+                        "select",
+                        result,
+                        args[1] + 1,
+                        args[3] + 1,
+                        selectTail,
+                        machineKind(g.exactTypes[destination]),
+                        0,
+                        nil
+                    )
+                    yield nil
+                end
+                case "NativeBoolean" -> do
+                    emit("iconst", result, nil, nil, nil, "i8", 0, args[1] and "1" or "0")
+                    yield nil
+                end
+                case "NativeICmp", "NativeFCmp" -> do
+                    local condition = assert(comparisons[args[3]], "S0 graph: unknown integer comparison")
+                    if op == "NativeICmp" and condition ~= "eq" and condition ~= "ne" then
+                        condition = (
+                            (g.exactTypes[args[1]] == "int64" or g.exactTypes[args[1]] == "int32") and "s" or "u"
+                        ) .. condition
+                    end
+                    emit(
+                        op == "NativeICmp" and "icmp" or "fcmp",
+                        result,
+                        args[1] + 1,
+                        args[2] + 1,
+                        nil,
+                        "i8",
+                        ir.condition(condition),
+                        nil
+                    )
+                    yield nil
+                end
+                case "FAdd", "FSub", "FMul", "FDiv", "FNeg", "NativeFloor", "NativeCeil", "NativeSqrt" -> do
+                    emit(
+                        assert(floatOps[op]),
+                        result,
+                        args[1] + 1,
+                        args[2] and args[2] + 1 or nil,
+                        nil,
+                        machineKind(g.exactTypes[destination]),
+                        0,
+                        nil
+                    )
+                    yield nil
+                end
+                case "NativeIntToFloat", "NativeFloatToInt" -> do
+                    local code = op == "NativeIntToFloat"
+                        and (g.exactTypes[args[1]] == "uint64" and "fcvt_from_uint" or "fcvt_from_sint")
+                        or (g.exactTypes[destination] == "uint64" and "fcvt_to_uint_sat" or "fcvt_to_sint_sat")
+                    emit(code, result, args[1] + 1, nil, nil, machineKind(g.exactTypes[destination]), 0, nil)
+                    yield nil
+                end
+                case "NativeFloatBits", "NativeFloatFromBits" -> do
+                    emit("bitcast", result, args[1] + 1, nil, nil, machineKind(g.exactTypes[destination]), 0, nil)
+                    yield nil
+                end
+                case "NativeAsWord" -> do
+                    emit("uextend", result, args[1] + 1, nil, nil, "i64", 0, nil)
+                    yield nil
+                end
+                case "NativeLocal" -> do
+                    local contract = args[1]
+                    physical.validateLocal(contract)
+                    assert(
+                        g.nativePhysical.values[destination] == contract.descriptor and contract.owner == bound.body,
+                        "S0 graph: local construction identity"
+                    )
+                    local slot = #f.stackBytes + 1
+                    f.stackBytes[slot], f.stackAlign[slot] = contract.layout.size, contract.layout.alignment
+                    emit("stack_addr", result, nil, nil, nil, "i64", 0, "0")
+                    f.aux[#f.op] = slot
+                    local zero = emit("iconst", nil, nil, nil, nil, "i64", 0, "0")
+                    -- Private zeroed storage includes target padding. All source
+                    -- initializer SSA operands have already been evaluated.
+                    local offset = 0
+                    while offset < contract.layout.size do
+                        local remaining = contract.layout.size - offset
+                        local width = remaining >= 8 and 8 or remaining >= 4 and 4 or remaining >= 2 and 2 or 1
+                        local address = offsetAddress(result, offset)
+                        emit("store", 0, zero, address, nil, "i64", 0, nil)
+                        f.aux[#f.op] = width == 8 and 0 or width * 8
+                        offset = offset + width
+                    end
+                    for index, binding in ipairs(contract.bindings) do
+                        assert(
+                            binding.width == 1 or binding.width == 2 or binding.width == 4 or binding.width == 8,
+                            "S0 graph: unsupported physical local field width"
+                        )
+                        local address = offsetAddress(result, binding.offset)
+                        emit("store", 0, args[index + 1] + 1, address, nil, machineKind(contract.params[index]), 0, nil)
+                        f.aux[#f.op] = binding.width == 8 and 0 or binding.width * 8
+                    end
+                    yield nil
+                end
+                case "NativeBorrowPointer" -> do
+                    physical.validateCast(args[3])
+                    assert(
+                        g.nativePhysical.values[args[1]] == args[3].source
+                        and g.nativePhysical.values[destination] == args[3].target,
+                        "S0 graph: borrow pointer identity"
+                    )
+                    local zero = emit("iconst", nil, nil, nil, nil, "i64", 0, "0")
+                    emit("iadd", result, args[1] + 1, zero, nil, "i64", 0, nil)
+                    yield nil
+                end
+                case "NativePointerView" -> do
+                    physical.validateCast(args[2])
+                    assert(
+                        g.nativePhysical.values[args[1]] == args[2].source
+                        and g.nativePhysical.values[destination] == args[2].target,
+                        "S0 graph: physical pointer view identity"
+                    )
+                    local zero = emit("iconst", nil, nil, nil, nil, "i64", 0, "0")
+                    emit("iadd", result, args[1] + 1, zero, nil, "i64", 0, nil)
+                    yield nil
+                end
+                case "NativeFieldLoad" -> do
+                    local access = args[2]
+                    physical.validateField(access)
+                    assert(
+                        access.width == 1 or access.width == 2 or access.width == 4 or access.width == 8,
+                        "S0 graph: unsupported physical field width"
+                    )
+                    assert(
+                        g.nativePhysical.values[args[1]] == access.receiver
+                        and not access.write
+                        and (
+                            access.valueType.tag == "boolean" and physical.booleanField(access)
+                            or access.storage.machineKind == "voidptr"
+                            and access.width == 8
+                            and not access.signed
+                            and g.nativePhysical.values[destination] == access.storage
+                            or physical.integerField(access) == g.exactTypes[destination]
+                        ),
+                        "S0 graph: checked physical field contract"
+                    )
+                    local offset = emit("iconst", nil, nil, nil, nil, "i64", 0, tostring(access.offset))
+                    local address = emit("iadd", nil, args[1] + 1, offset, nil, "i64", 0, nil)
+                    if access.valueType.tag == "boolean" then
+                        local raw = emit("load", nil, address, nil, nil, "i8", 8, nil)
+                        local zero = emit("iconst", nil, nil, nil, nil, "i8", 0, "0")
+                        emit("icmp", result, raw, zero, nil, "i8", ir.condition("ne"), nil)
+                    else
+                        emit(
+                            access.signed and access.width < 8 and "sload" or "load",
+                            result,
+                            address,
+                            nil,
+                            nil,
+                            "i64",
+                            access.width * 8,
+                            nil
+                        )
+                    end
+                    yield nil
+                end
+                case "NativeBorrowAddress" -> do
+                    physical.validateCast(args[2])
+                    assert(
+                        physical.viewKind(args[2]) == "address" and g.nativePhysical.values[args[1]] == args[2].source,
+                        "S0 graph: checked borrowed address"
+                    )
+                    local zero = emit("iconst", nil, nil, nil, nil, "i64", 0, "0")
+                    emit("iadd", result, args[1] + 1, zero, nil, "i64", 0, nil)
+                    yield nil
+                end
+                case "NativeWordCast", "NativePointer", "NativeAddress" -> do
+                    local zero = emit("iconst", nil, nil, nil, nil, "i64", 0, "0")
+                    emit("iadd", result, args[1] + 1, zero, nil, "i64", 0, nil)
+                    yield nil
+                end
+                case "NativeStore" -> do
+                    local access = args[4]
+                    assert(
+                        unbound
+                        and (access.width == 1 or access.width == 2 or access.width == 4 or access.width == 8)
+                        and (
+                            access.kind == "uint64"
+                            or access.kind == "int64"
+                            or access.field
+                            and (access.kind == "uint32" or access.kind == "int32" or access.kind == "boolean")
+                            or access.width == 8 and (access.kind == "float64" or access.kind == "voidptr")
+                        ),
+                        "S0 graph: unsupported scalar store"
+                    )
+                    if access.field then
+                        if access.field.storage.machineKind == "voidptr" then
+                            assert(
+                                access.retention
+                                and physical.storeValue(
+                                    access.retention,
+                                    access.field,
+                                    g.nativePhysical.values[args[3]],
+                                    g.source
+                                ),
+                                "S0 graph: checked pointer store"
+                            )
+                        elseif access.field.storage.machineKind == "boolean" then
+                            physical.booleanField(access.field)
+                        else
+                            physical.integerField(access.field)
+                        end
+                        assert(
+                            g.nativePhysical.values[args[1]] == access.field.receiver,
+                            "S0 graph: physical store receiver identity differs"
+                        )
+                    end
+                    local address = emit("iadd", nil, args[1] + 1, args[2] + 1, nil, "i64", 0, nil)
+                    emit(
+                        "store",
+                        nil,
+                        args[3] + 1,
+                        address,
+                        nil,
+                        machineKind(g.exactTypes[args[3]]),
+                        access.width * 8,
+                        nil
+                    )
+                    yield nil
+                end
+                case "ProgramLoad", "NativeLoad" -> do
+                    assert(unbound, "S0 graph: unbound load requires compiler input")
+                    local access = args[3]
+                    local width = (access.width as integer) * 8
+                    assert(
+                        (width == 8 or width == 16 or width == 32 or width == 64)
+                        and (
+                            g.exactTypes[destination] == "int64"
+                            or g.exactTypes[destination] == "uint64"
+                            or width == 64
+                            and (g.exactTypes[destination] == "float64" or g.exactTypes[destination] == "voidptr")
+                        )
+                        and (width ~= 8 or access.signed ~= true),
+                        "S0 graph: unsupported word load"
+                    )
+                    local address = emit("iadd", nil, args[1] + 1, args[2] + 1, nil, "i64", 0, nil)
+                    emit(
+                        (access.kind == "int32" or access.signed == true and width < 64) and "sload" or "load",
+                        result,
+                        address,
+                        nil,
+                        nil,
+                        machineKind(g.exactTypes[destination]),
+                        width,
+                        nil
+                    )
+                    yield nil
+                end
+                case "PointerOffset" -> do
+                    emit("iadd", result, args[1] + 1, args[2] + 1, nil, "i64", 0, nil)
+                    yield nil
+                end
+                case "FrameSlotRead", "FrameSlotWrite" -> do
+                    local access = args[op == "FrameSlotRead" and 4 or 5]
+                    if access.class == "v" then
+                        assert(
+                            unbound and handler and access.kind == "uint64" and access.width == 8,
+                            "S0 graph: guest word slot required"
+                        )
+                        -- Test builds are tested, not proven (runtime plan,
+                        -- "Direction").
+                        local tested = require(
+                            "nupp.compiler.vm.nativeservice"
+                        ).isUnitModule(g.source and g.source.module)
+                        if not guestSlotsChecked and not tested then
+                            finalframe.requireGuestSlots(g)
+                            guestSlotsChecked = true
+                        end
+                    else
+                        assert(
+                            access.class == "i" and (access.kind == "uint64" or access.kind == "int64")
+                            or access.class == "f" and access.kind == "float64",
+                            "S0 graph: raw numeric slot required"
+                        )
+                    end
+                    recipes.slot(
+                        emit,
+                        result,
+                        args[2] + 1,
+                        args[3] + 1,
+                        op == "FrameSlotWrite" and args[4] + 1 or nil,
+                        access,
+                        machineKind(access.kind)
+                    )
+                    yield nil
+                end
+                else -> do
+                    error("S0 graph: unsupported bound operation " .. op, 0)
+                end
+            end
+            if not unbound then
+                for at, item in ipairs(sourceSegments) do
+                    if index == item.last then
+                        detached[at].lastMachine = #f.op
+                    end
+                end
+            end
+        end
+        position, operation = block.term.pos, #block.op + 1
+        if unbound then
+            detached[bi].lastMachine = #f.op
+        else
+            segment = #sourceSegments
+        end
+        local term = block.term
+        local _ = switch term.kind do
+            case "dispatch" -> do
+                assert(handler, "S0 graph: dispatch requires handler ABI")
+                local arguments = {}
+                for index = 1, unbound and 6 or 5 do
+                    arguments[index] = term.args[index] + 1
+                end
+                if unbound then
+                    local offset = emit("iconst", nil, nil, nil, nil, "i64", 0, tostring(layout.dispatchOffset))
+                    local address = emit("iadd", nil, arguments[5], offset, nil, "i64", 0, nil)
+                    local dispatch = emit("load", nil, address, nil, nil, "i64", 64, nil)
+                    local target = recipes.dispatchTarget(emit, arguments[1], dispatch)
+                    emit("return_call_indirect", nil, target, nil, arguments, "i64", 0, nil)
+                else
+                    recipes.dispatch(emit, arguments, tableValue)
+                end
+                yield nil
+            end
+            case "return" -> do
+                assert(not handler, "S0 graph: scalar return requires leaf ABI")
+                if g.native.result == "nil" then
+                    emit("return", nil, nil, nil, nil, "i64", 0, nil)
+                else
+                    emit("return", nil, term.value + 1, nil, nil, machineKind(g.native.result), 0, nil)
+                end
+                yield nil
+            end
+            case "nativeFail" -> do
+                local scoped = service.isFailure(g, term)
+                if scoped and g.native.result == "nil" then
+                    emit("return", nil, nil, nil, nil, "i64", 0, nil)
+                else
+                    local kind = scoped and machineKind(g.native.result) or "i64"
+                    -- These bits satisfy only the closed machine return ABI.
+                    -- No graph result exists and the caller must test scope.
+                    local zero = emit(
+                        (kind == "f32" or kind == "f64") and "fconst" or "iconst",
+                        nil,
+                        nil,
+                        nil,
+                        nil,
+                        kind,
+                        0,
+                        "0"
+                    )
+                    emit("return", nil, zero, nil, nil, kind, 0, nil)
+                end
+                yield nil
+            end
+            case "jump", "branch" -> do
+                assert(unbound, "S0 graph: bound control flow unsupported")
+                emit(
+                    term.kind == "jump" and "jump" or "brif",
+                    nil,
+                    term.kind == "branch" and term.value + 1 or nil,
+                    nil,
+                    nil,
+                    "i64",
+                    0,
+                    nil
+                )
+                for _, edge in ipairs(term.edges) do
+                    local arguments = {}
+                    for index, value in ipairs(edge.args) do
+                        arguments[index] = value + 1
+                    end
+                    ir.edge(f, #f.op, edge.target, arguments)
+                end
+                yield nil
+            end
+            else -> error("S0 graph: unsupported terminator " .. term.kind, 0)
+        end
+        f.blockEnd[bi] = #f.op
+    end
+
+    return sink.Result(
+        machine = f,
+        body = bound.body,
+        pc = bound.pc,
+        count = bound.count or 1,
+        source = copy(g.source),
+        positions = copy(g.positions),
+        segments = detached,
+        instructionPosition = positions,
+        instructionOperation = instructions,
+        instructionSegment = segments,
+        instructionBlock = blocks,
+        callees = callees,
+        contextLayout = layout,
+        osImports = pageImports
+    )
+end
+
+function sink.lower(bound: any, name: string): sink.Result
+    return lower(residual.snapshot(bound), name, false, nil, nil)
+end
+
+local function snapshot(value: any): any
+    if type(value) ~= "table" then
+        return value
+    end
+    local result = {}
+    for key, item in next, value do
+        result[key] = snapshot(item)
+    end
+
+    return setmetatable(result, getmetatable(value))
+end
+
+local function unchanged(actual: any, saved: any): boolean
+    if type(actual) ~= "table" or type(saved) ~= "table" then
+        return actual == saved
+    end
+    if getmetatable(actual) ~= getmetatable(saved) then
+        return false
+    end
+    for key, value in next, saved do
+        if not unchanged(rawget(actual, key), value) then
+            return false
+        end
+    end
+    for key in next, actual do
+        if rawget(saved, key) == nil then
+            return false
+        end
+    end
+
+    return true
+end
+
+-- Build-time checked compiler graphs only; no public runtime graph admission.
+function sink.compilerGraph(g: any, name: string, owner: any, resolved: any?, context: any?): sink.Result
+    local authenticated = finalframe.requireOriginal(g, owner)
+    if authenticated then
+        finalframe.requireContext(g, owner, context)
+    end
+    local result = lower({graph = g, body = owner, pc = 0, count = 1}, name, true, resolved, context)
+    if authenticated then
+        local callees = {}
+        for symbol, item in pairs(result.callees) do
+            finalframe.target(g, owner, item.graph, item.owner)
+            callees[symbol] = {graph = item.graph, owner = item.owner}
+        end
+        local machine = snapshot(result.machine)
+        local pageImports = {}
+        for symbol, declaration in pairs(result.osImports) do
+            nativeos.validate(declaration, owner)
+            pageImports[symbol] = declaration
+        end
+        issuedResults[
+            result
+        ] = {graph = g, owner = owner, machine = machine, callees = callees, osImports = pageImports}
+    end
+
+    return result
+end
+
+-- This wrapper issues code provenance only after verifying the original graph
+-- and the exact MIR that compilerGraph produced. There is no annotateCode API.
+function sink.selectAuthenticated(result: sink.Result, mode: string): any
+    local held = assert(issuedResults[result], "S0 graph: original authenticated Result required")
+    assert(result.body == held.owner and unchanged(result.machine, held.machine), "S0 graph: Result changed")
+    assert(finalframe.requireOriginal(held.graph, held.owner))
+    graph.verify(held.graph)
+    local allocate = require("nupp.compiler.s0.allocate")
+    local check = require("nupp.compiler.s0.allocationcheck")
+    local selector = require("nupp.compiler.s0.select")
+    assert(mode == "normal" or mode == "spill", "S0 graph: closed allocation mode required")
+    local target = selector.target()
+    if mode == "spill" then
+        target.integerRegisters, target.floatRegisters = {}, {}
+    end
+    local allocation = allocate.run(result.machine, target)
+    assert(check.run(result.machine, target, allocation))
+    local code = selector.run(result.machine, allocation)
+    issuedCodes[code] = {result = result, held = held, code = snapshot(code)}
+
+    return {
+        code = code,
+        spillSlots = allocation.spillSlots,
+        integerRegisters = #target.integerRegisters,
+        floatRegisters = #target.floatRegisters
+    }
+end
+
+-- Identity guard for accidental downgrade into the legacy linker. Mechanical
+-- MIR/word tables remain trusted host data: reconstructing them through the
+-- generic backend is outside this closed producer's provenance contract.
+function sink.refuseLegacyCode(code: any): nil
+    assert(not issuedCodes[code], "S0 graph: issued Code requires authenticated linking")
+end
+
+function sink.verifyCode(code: any): nil
+    local saved = assert(issuedCodes[code], "S0 graph: authenticated Code required")
+    assert(unchanged(code, saved.code), "S0 graph: issued Code changed")
+    local held, result = saved.held, saved.result
+    assert(result.body == held.owner and unchanged(result.machine, held.machine), "S0 graph: retained Result changed")
+    assert(finalframe.requireOriginal(held.graph, held.owner))
+    graph.verify(held.graph)
+end
+
+-- Closed multi-entry builders also bind roots that have no incoming direct
+-- call fixup (dispatch handlers and the C boundary's start/complete services).
+function sink.verifyCodeOrigin(code: any, g: any, owner: any): nil
+    sink.verifyCode(code)
+    local held = issuedCodes[code].held
+    assert(held.graph == g and held.owner == owner, "S0 graph: Code origin differs")
+end
+
+local function codeEntry(saved: any): nil
+    local held = saved.held
+    finalframe.requireEntry(held.graph, held.owner)
+end
+
+local function codeTarget(saved: any, symbol: string, target: any): nil
+    local source, destination = saved.held, target.held
+    local callee = assert(source.callees[symbol], "S0 graph: fixup lacks retained checked callee")
+    assert(
+        callee.owner == destination.owner and callee.graph == destination.graph,
+        "S0 graph: fixup changed its checked target/Result"
+    )
+    finalframe.target(source.graph, source.owner, destination.graph, destination.owner)
+end
+
+local function codeImport(saved: any, symbol: string): integer
+    local held = saved.held
+    local declaration = assert(held.osImports[symbol], "S0 graph: unissued OS import")
+    local slot = nativeos.slot(declaration, held.owner)
+    assert(symbol == "core_os_" .. tostring(slot), "S0 graph: OS import identity differs")
+
+    return slot
+end
+
+function sink.verifyCodeEntry(code: any): nil
+    sink.verifyCode(code)
+    codeEntry(issuedCodes[code])
+end
+
+function sink.verifyCodeTarget(code: any, symbol: string, target: any): nil
+    sink.verifyCode(code)
+    sink.verifyCode(target)
+    codeTarget(issuedCodes[code], symbol, issuedCodes[target])
+end
+
+function sink.verifyCodeImport(code: any, symbol: string): integer
+    sink.verifyCode(code)
+    return codeImport(issuedCodes[code], symbol)
+end
+
+-- One synchronous link checks each original Code once. The private set cannot
+-- escape or authorize a later link; only the checked import slot data returns.
+-- Every occurrence still checks its exact entry, callee or OS declaration.
+function sink.verifyLinkInputs(roots: {any}, functions: {[string]: any}): any
+    assert(getmetatable(roots) == nil and getmetatable(functions) == nil, "S0 graph: plain link inputs required")
+    assert(#roots > 0 and #roots <= 256, "core link function count")
+    local count: integer = 0
+    for key in pairs(roots) do
+        assert(
+            type(key) == "number" and key % 1 == 0 and key >= 1 and key <= #roots,
+            "S0 graph: dense link roots required"
+        )
+        count += 1
+    end
+    assert(count == #roots, "S0 graph: dense link roots required")
+    local verified, ordered = {}, {}
+
+    local function include(code: any): nil
+        if not verified[code] then
+            sink.verifyCode(code)
+            verified[code] = issuedCodes[code]
+            ordered[#ordered + 1] = code
+        end
+    end
+
+    for _, code in ipairs(roots) do
+        include(code)
+    end
+    count = 0
+    for name, code in pairs(functions) do
+        assert(type(name) == "string", "S0 graph: link symbol must be a string")
+        count += 1
+        assert(count <= 256, "core link function count")
+        include(code)
+    end
+    for _, code in ipairs(roots) do
+        codeEntry(verified[code])
+    end
+    local imports = {}
+    local selector = require("nupp.compiler.s0.select")
+    for _, code in ipairs(ordered) do
+        local saved = verified[code]
+        imports[code] = {}
+        for index, symbol in ipairs(code.fixupName) do
+            if code.fixupKind[index] == selector.IMPORT_LOAD then
+                imports[code][symbol] = codeImport(saved, symbol)
+            elseif code.fixupKind[index] ~= selector.FOREIGN_CELL then
+                local target = assert(functions[symbol], "core link unresolved function")
+                codeTarget(saved, symbol, (assert(verified[target], "S0 graph: unchecked link target")))
+            end
+        end
+    end
+
+    return imports
+end
+
+export = sink

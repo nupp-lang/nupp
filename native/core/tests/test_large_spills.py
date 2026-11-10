@@ -30,7 +30,7 @@ def main():
     tools = {role: Path(freeze['artifacts'][name]['path']) for role, name in freeze['coreBuildTool'].items() if role in ('runtime', 'compiler')}
     for role, path in tools.items():
         assert sha(path) == freeze['artifacts'][freeze['coreBuildTool'][role]]['sha256']
-    directories = [ROOT / 'src', ROOT / 'native/core/src', ROOT / 'spike/native-lowering/src']
+    directories = [ROOT / 'src', ROOT / 'native/core/src']
     source = ROOT / 'native/core/tests/large-spill-producer.nupp'
     files = [p for d in directories for p in sorted(d.rglob('*')) if p.is_file() and p.suffix in ('.nupp', '.lua')]
     inputs = {str(p.resolve()): sha(p) for p in [*files, source, Path(__file__), args.bridge, args.baseline_selector, *tools.values()]}

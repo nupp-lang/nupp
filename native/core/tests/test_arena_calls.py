@@ -27,7 +27,7 @@ def main():
     for role, path in tools.items():
         assert sha(path) == freeze['artifacts'][freeze['coreBuildTool'][role]]['sha256']
     source = ROOT / 'native/core/tests/arena-producer.nupp'
-    directories = [ROOT / 'src', ROOT / 'native/core/src', ROOT / 'spike/native-lowering/src', ROOT / 'spike/native-lowering/nativegraph/src']
+    directories = [ROOT / 'src', ROOT / 'native/core/src']
     files = [p for d in directories for p in sorted(d.rglob('*')) if p.is_file() and p.suffix in ('.nupp', '.lua')]
     inputs = {str(p.resolve()): sha(p) for p in [*files, source, ROOT / 'native/core/tests/arena-probe.nupp', ROOT / 'native/core/tests/boolean-probe.nupp', Path(__file__), args.bridge, BOOT / 'freeze.json', *tools.values()]}
     report = {'status': 'running', 'scope': 'Checked source arena service calls, ordinary INTERNAL ABI, caller-live values and bounded whole-chain arena; no guest call or loader authority claim', 'inputs': inputs, 'steps': [], 'runs': []}

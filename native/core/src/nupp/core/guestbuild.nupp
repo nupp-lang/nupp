@@ -20,6 +20,8 @@ local derivedrecipes = require("nupp.compiler.vm.derivedrecipes")
 local managedcalls = require("nupp.compiler.vm.managedcalls")
 local tagged = require("nupp.compiler.vm.taggedprofile")
 local executable = require("nupp.compiler.vm.coregraphexecutable")
+local corepiece = require("nupp.compiler.vm.corepiece")
+local corelink = require("nupp.compiler.vm.corelink")
 local corelibrary = require("nupp.compiler.vm.corelibrary")
 local writer = require("nupp.core.guestartifact")
 require("nupp.compiler.hostservices")
@@ -276,6 +278,8 @@ local CASES: {[string]: {
     namedarguments = {fixture = "catalog-named-arguments", version = 8},
     loopparameteralias = {fixture = "catalog-loop-parameter-alias", version = 8},
     ownmanage = {fixture = "catalog-own-manage", version = 8},
+    aliasdowncast = {fixture = "catalog-alias-downcast", version = 8},
+    methodspread = {fixture = "catalog-method-spread", version = 8},
     pluckedarguments = {fixture = "catalog-plucked-arguments", version = 8},
     modulescycle = {
         fixture = "catalog-modules-cycle",
@@ -335,10 +339,14 @@ local CASES: {[string]: {
     absentffi = {fixture = "catalog-absent-ffi", version = 8},
     -- `cdef function` calls through the generic foreign call.
     guestffi = {fixture = "catalog-guest-ffi", version = 8},
+    ffiaggregates = {fixture = "catalog-ffi-aggregates", version = 8},
+    -- C declarations through libclang (nupp.compiler.corecdecl).
+    corecdecl = {fixture = "catalog-core-cdecl", version = 8},
     runnerresiduals = {fixture = "catalog-runner-residuals", version = 8},
     spreadlibrary = {fixture = "catalog-spread-library", version = 8},
     libraryresults = {fixture = "catalog-library-results", version = 8},
     processlines = {fixture = "catalog-process-lines", version = 8},
+    selectvalues = {fixture = "catalog-select-values", version = 8},
     processexit = {fixture = "catalog-process-exit", version = 8},
     gcweak = {fixture = "catalog-gc-weak", version = 8},
     gcfinalizers = {fixture = "catalog-gc-finalizers", version = 8},
@@ -363,10 +371,10 @@ local CASES: {[string]: {
     clihosts = {fixture = "catalog-cli-hosts", version = 8},
     -- Lua's loaders over a binary chunk installed into the running program.
     loadbinary = {fixture = "catalog-load-binary", version = 8, chunks = {"catalog-load-chunk"}},
-    -- A record with an array part: fields and elements apart.
     recordsarray = {fixture = "catalog-records-array", version = 8},
-    -- A function statement assigning a local declared before it.
     forwardfunctions = {fixture = "catalog-forward-functions", version = 8},
+    closurecaptures = {fixture = "catalog-closure-captures", version = 8},
+    standardosfirst = {fixture = "catalog-standard-os-first", version = 8, follow = true},
     debuggetinfo = {fixture = "catalog-debug-getinfo", version = 8},
     moduleinstances = {fixture = "catalog-module-instances", version = 8, instances = {"catalog-instance-module"}},
     instancedefaults = {
@@ -396,6 +404,9 @@ local CASES: {[string]: {
         module = "nupp.tools.vm.root",
         modules = cliextras()
     },
+    -- `nupp check` on the core through the CLI's real root, carrying what
+    -- the CLI's image carries beside it.
+    compilercheck = {fixture = "catalog-compiler-check", version = 8, follow = true, modules = cliextras()},
     -- The bench harness's own entry: the bench/vm workloads under debug.bench.
     benchworkloads = {
         fixture = "bench/vm/workloads.bench",
@@ -886,8 +897,12 @@ export function fixtures(): {{
     for _, case in pairs(CASES) do
         if case.generated ~= true and case.rooted ~= true then
             paths[case.fixture] = true
+            -- A library module a case carries is no fixture: it is checked
+            -- where it lives.
             for _, name in ipairs(case.modules or {}) do
-                paths[name] = true
+                if not libraryModule(name) then
+                    paths[name] = true
+                end
             end
             for _, name in ipairs(case.chunks or {}) do
                 paths[name] = true
@@ -1175,12 +1190,60 @@ local function profileFor(version: integer): any
     return version >= 5 and tagged.forVersion(version) or tagged
 end
 
--- The checked program for a case, compiled to the core executable.
+-- Where two executables first differ, or nil when they are the same data. A
+-- linked executable carries its semantic graphs and contracts in its pieces,
+-- so those are left out.
+local function difference(actual: any, expected: any, path: string): string?
+    if type(actual) ~= type(expected) then
+        return path .. ": " .. type(actual) .. " for " .. type(expected)
+    elseif type(actual) ~= "table" then
+        if actual == expected and (type(actual) ~= "number" or math.type(actual) == math.type(expected)) then
+            return nil
+        end
+        return path .. ": " .. tostring(actual) .. " for " .. tostring(expected)
+    end
+    for key, item in pairs(expected as table) do
+        if not (path == "executable.semantic" and (key == "graphs" or key == "contracts")) then
+            local found = difference((actual as table)[key], item, path .. "." .. tostring(key))
+            if found then
+                return found
+            end
+        end
+    end
+    for key in pairs(actual as table) do
+        if (expected as table)[key] == nil then
+            return path .. "." .. tostring(key) .. ": unexpected"
+        end
+    end
+
+    return nil
+end
+
+-- The checked program for a case, compiled to the core executable. A v8
+-- program is compiled a module at a time and linked; NUPP_GUEST_PIECES=compare
+-- also compiles it whole and requires the two to be the same.
 local function compileProgram(caseName: string, fixture: string, version: integer): any
-    return executable.fromChecked(
-        programgraph.compile(programCatalog(caseName, fixture, version), profileFor(version)),
-        version
-    )
+    local began = os.clock()
+    local catalog = programCatalog(caseName, fixture, version)
+    local described = os.clock()
+    timings["compile catalog"] = (timings["compile catalog"] or 0) + described - began
+    if version ~= corepiece.VERSION then
+        return executable.fromChecked(programgraph.compile(catalog, profileFor(version)), version)
+    end
+    local pieces = corepiece.compile(catalog, profileFor(version))
+    local built = os.clock()
+    local linked = corelink.link(pieces, catalog.modules[#catalog.modules].name)
+    timings["compile pieces"] = (timings["compile pieces"] or 0) + built - described
+    timings["compile link"] = (timings["compile link"] or 0) + os.clock() - built
+    if os.getenv("NUPP_GUEST_PIECES") == "compare" then
+        local linkedAt = os.clock()
+        local whole = executable.fromChecked(programgraph.compile(catalog, profileFor(version)), version)
+        timings["compile whole"] = (timings["compile whole"] or 0) + os.clock() - linkedAt
+        local found = difference(linked, whole, "executable")
+        assert(found == nil, "linked " .. caseName .. " differs from its whole-program build at " .. tostring(found))
+    end
+
+    return linked
 end
 
 -- A case's program alone, compiled to the core executable, without the

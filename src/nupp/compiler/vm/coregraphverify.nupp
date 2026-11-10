@@ -690,6 +690,215 @@ local function reference(id: any, values: any): any
     return need(values[id + 1], "semantic reference outside table")
 end
 
+-- Each signature record of `p`, in order.
+local function checkSignatures(p: any): nil
+    for index, signature in ipairs(p.signatures) do
+        fields(signature, "id kind params result variadic")
+        need(signature.id == index - 1, "signature order differs")
+        need(
+            signature.variadic == nil
+            or signature.variadic == true and p.schema.version >= 8 and #signature.params >= 1,
+            "variadic signature outside its profile"
+        )
+        need(signature.kind == "initializer" or signature.kind == "callable", "unknown signature kind")
+        need(
+            signature.result == "boolean"
+            or signature.result == "nil"
+            or p.schema.version >= 3 and signature.result == "number"
+            or p.schema.version >= 8 and signature.result == "value",
+            "unsupported scalar result"
+        )
+        dense(signature.params, 239)
+        for _, kind in ipairs(signature.params) do
+            need(
+                kind == "boolean"
+                or kind == "nil"
+                or p.schema.version >= 3 and kind == "number"
+                or p.schema.version >= 8 and kind == "value",
+                "unsupported scalar parameter"
+            )
+        end
+    end
+end
+
+-- What checking catalog relationships keeps across owners: the module of each
+-- initializer by its owner, each module's initializer by name, the
+-- signatures, contracts and callsites seen, and each graph's block arities and
+-- static callees.
+local function relations(p: any, modulesByOwner: any, chunks: any): any
+    local scope: any = {
+        modulesByOwner = modulesByOwner,
+        chunks = chunks,
+        signatures = {},
+        arities = {},
+        calls = {},
+        used = {},
+        sites = {},
+        admitted = {},
+        terms = {},
+        -- Each owner's lexical root, memoized so a walk stops at the first
+        -- owner already resolved: linear in owners however deep the nesting.
+        roots = {}
+    }
+    for _, operation in ipairs(p.schema.operations) do
+        scope.admitted[operation.name] = operation
+    end
+    for _, term in ipairs(p.schema.terms) do
+        scope.terms[term.name] = term
+    end
+
+    return scope
+end
+
+local function root(p: any, scope: any, owner: any): any
+    local path, ancestor, remaining = {}, owner, #p.catalog
+    while ancestor.kind ~= "module" and scope.roots[ancestor] == nil do
+        need(remaining > 0, "cyclic lexical parents")
+        remaining -= 1
+        path[#path + 1] = ancestor
+        ancestor = reference(ancestor.parent, p.catalog)
+    end
+    local found = scope.roots[ancestor] or ancestor
+    for _, item in ipairs(path) do
+        scope.roots[item] = found
+    end
+
+    return found
+end
+
+-- The relationships of catalog record `index` (`owner`) of `p` and its graph:
+-- its signature, lexical root and module, its closures', requires' and calls'
+-- targets, and the arity of each block's call.
+local function relate(p: any, scope: any, index: integer, owner: any): nil
+    fields(owner, "id kind parent signature graph effect")
+    need(owner.id == index - 1 and owner.graph == index - 1, "owner/graph order differs")
+    need(owner.effect == 0 or owner.effect == 1, "unknown owner effect")
+    local signature = reference(owner.signature, p.signatures)
+    scope.signatures[owner.signature] = true
+    if owner.kind == "module" then
+        need(
+            scope.modulesByOwner[owner.id] ~= nil
+            and owner.parent == nil
+            and signature.kind == "initializer"
+            and #signature.params == 0,
+            "invalid initializer signature/parent"
+        )
+    else
+        need(owner.kind == "function" and signature.kind == "callable", "invalid function signature")
+        need(scope.modulesByOwner[root(p, scope, owner).id] ~= nil, "foreign lexical root")
+    end
+    local g = p.graphs[index]
+    copyGraph(g, p.schema.version)
+    need(g.programOwner == owner.id and g.nparams == #signature.params, "graph owner/signature differs")
+    local module = need(scope.modulesByOwner[root(p, scope, owner).id], "graph module is not cataloged")
+    need(g.module == module.name and g.path == module.path, "graph module source differs")
+    local arities, calls = {}, {}
+    scope.arities[index], scope.calls[index] = arities, calls
+    for bi, block in ipairs(g.blocks) do
+        arities[bi] = 4294967295
+        for at, op in ipairs(block.op) do
+            local operation = need(scope.admitted[op], "unsupported semantic operation " .. op)
+            if op == "Closure" then
+                need(p.schema.version >= 7 or #block.args[at] == 1, "captures are unsupported")
+                local target = reference(block.args[at][1], p.catalog)
+                need(target.kind == "function" and target.parent == owner.id, "closure lexical target differs")
+            elseif op == "Require" then
+                local constant = reference(block.args[at][1], g.constants)
+                need(constant.kind == "str", "require needs a static module name")
+                local target = scope.chunks[constant.value]
+                need(
+                    target ~= nil and (target < owner.id or p.schema.version >= 8),
+                    "forward or cyclic require is unsupported"
+                )
+            end
+            need(
+                #block.args[at] == #operation.args or operation.variadic and #block.args[at] > #operation.args,
+                "operation operand count differs"
+            )
+        end
+        local term = block.term
+        local policy = need(scope.terms[term.kind], "unsupported semantic terminator")
+        need(#term.edges == policy.edges, "terminator edge count differs")
+        if term.kind == "invoke" then
+            local contract = reference(term.contract, p.contracts)
+            need(not scope.used[term.contract], "reused invoke contract")
+            scope.used[term.contract] = true
+            need(contract.owner == owner.id and contract.block == block.id, "contract owner/block differs")
+            -- A dynamic call (v8) has no target: its callee is checked against
+            -- the call's signature when it runs.
+            local dynamic = contract.target == p.schema.absent
+            need(not dynamic or p.schema.version >= 8, "dynamic call outside its profile")
+            -- A dynamic call's signature is its own use: no owner need share it.
+            if dynamic then
+                scope.signatures[contract.signature] = true
+            end
+            if not dynamic then
+                local target = reference(contract.target, p.catalog)
+                need(
+                    target.kind == "function" and contract.signature == target.signature,
+                    "contract target/signature differs"
+                )
+                calls[#calls + 1] = target.id + 1
+            end
+            local called = reference(contract.signature, p.signatures)
+            local fixed = called.variadic and #called.params - 1 or #called.params
+            -- xpcall's handler rides last among the term's arguments.
+            local given = contract.handled and #term.args - 1 or #term.args
+            need(
+                given == fixed or called.variadic and given > fixed or term.spread ~= nil,
+                "invoke operand count differs"
+            )
+            arities[bi] = #term.args
+        end
+    end
+end
+
+-- Every signature of `p` is one an owner or a call uses.
+local function checkUsed(p: any, scope: any): nil
+    for index in ipairs(p.signatures) do
+        need(scope.signatures[index - 1], "unused signature record")
+    end
+end
+
+-- Each contract of `p` is used once, in order, with its own callsite when
+-- `callsites` asks for one.
+local function checkContracts(p: any, scope: any, callsites: boolean): nil
+    for index, contract in ipairs(p.contracts) do
+        fields(contract, "id owner block callsite target signature effect protected handled")
+        need(
+            contract.protected == nil or contract.protected == true and p.schema.version >= 8,
+            "protected call outside its profile"
+        )
+        need(
+            contract.handled == nil or contract.handled == true and contract.protected == true,
+            "handled call is not protected"
+        )
+        need(contract.id == index - 1 and scope.used[index - 1], "unused or unordered contract")
+        if callsites then
+            integer(contract.callsite, bounds.calls - 1)
+            need(not scope.sites[contract.callsite], "reused callsite identity")
+            scope.sites[contract.callsite] = true
+        end
+        need(contract.effect == 1, "invoke effect must remain conservative")
+    end
+end
+
+-- The effect each of the first `count` records of `p` declares is its graph's.
+local function checkEffects(p: any, scope: any, count: integer): nil
+    for index = 1, count do
+        local effect = 0
+        for _, block in ipairs(p.graphs[index].blocks) do
+            for _, op in ipairs(block.op) do
+                effect = math.max(effect, scope.admitted[op].effect)
+            end
+            if block.term.kind == "invoke" then
+                effect = 1
+            end
+        end
+        need(p.catalog[index].effect == effect, "owner effect differs from graph")
+    end
+end
+
 -- Catalog relationships only. This does not prove usable SSA, scalar
 -- provenance, checked source identity, or permission to execute. Input must
 -- come from the bounded decoder or the full semantic tree-budget preflight.
@@ -723,178 +932,19 @@ export function catalog(p: any): any
         modulesByOwner[owner.id] = {name = name, path = path}
     end
     need(modulesByOwner[p.entry] ~= nil, "entry initializer is not cataloged")
-    for index, signature in ipairs(p.signatures) do
-        fields(signature, "id kind params result variadic")
-        need(signature.id == index - 1, "signature order differs")
-        need(
-            signature.variadic == nil
-            or signature.variadic == true and p.schema.version >= 8 and #signature.params >= 1,
-            "variadic signature outside its profile"
-        )
-        need(signature.kind == "initializer" or signature.kind == "callable", "unknown signature kind")
-        need(
-            signature.result == "boolean"
-            or signature.result == "nil"
-            or p.schema.version >= 3 and signature.result == "number"
-            or p.schema.version >= 8 and signature.result == "value",
-            "unsupported scalar result"
-        )
-        dense(signature.params, 239)
-        for _, kind in ipairs(signature.params) do
-            need(
-                kind == "boolean"
-                or kind == "nil"
-                or p.schema.version >= 3 and kind == "number"
-                or p.schema.version >= 8 and kind == "value",
-                "unsupported scalar parameter"
-            )
-        end
-    end
-    local signatures, arities, calls, used, sites, admitted, terms = {}, {}, {}, {}, {}, {}, {}
-    for _, operation in ipairs(p.schema.operations) do
-        admitted[operation.name] = operation
-    end
-    for _, term in ipairs(p.schema.terms) do
-        terms[term.name] = term
-    end
-    -- Each owner's lexical root, memoized so a walk stops at the first owner
-    -- already resolved: linear in owners however deep the nesting.
-    local roots = {}
-
-    local function root(owner: any): any
-        local path, ancestor, remaining = {}, owner, count
-        while ancestor.kind ~= "module" and roots[ancestor] == nil do
-            need(remaining > 0, "cyclic lexical parents")
-            remaining -= 1
-            path[#path + 1] = ancestor
-            ancestor = reference(ancestor.parent, p.catalog)
-        end
-        local found = roots[ancestor] or ancestor
-        for _, item in ipairs(path) do
-            roots[item] = found
-        end
-
-        return found
-    end
-
+    checkSignatures(p)
+    local scope = relations(p, modulesByOwner, chunks)
     for index, owner in ipairs(p.catalog) do
-        fields(owner, "id kind parent signature graph effect")
-        need(owner.id == index - 1 and owner.graph == index - 1, "owner/graph order differs")
-        need(owner.effect == 0 or owner.effect == 1, "unknown owner effect")
-        local signature = reference(owner.signature, p.signatures)
-        signatures[owner.signature] = true
-        if owner.kind == "module" then
-            need(
-                modulesByOwner[owner.id] ~= nil
-                and owner.parent == nil
-                and signature.kind == "initializer"
-                and #signature.params == 0,
-                "invalid initializer signature/parent"
-            )
-        else
-            need(owner.kind == "function" and signature.kind == "callable", "invalid function signature")
-            need(modulesByOwner[root(owner).id] ~= nil, "foreign lexical root")
-        end
-        local g = p.graphs[index]
-        copyGraph(g, p.schema.version)
-        need(g.programOwner == owner.id and g.nparams == #signature.params, "graph owner/signature differs")
-        local module = need(modulesByOwner[root(owner).id], "graph module is not cataloged")
-        need(g.module == module.name and g.path == module.path, "graph module source differs")
-        arities[index], calls[index] = {}, {}
-        for bi, block in ipairs(g.blocks) do
-            arities[index][bi] = 4294967295
-            for at, op in ipairs(block.op) do
-                local operation = need(admitted[op], "unsupported semantic operation " .. op)
-                if op == "Closure" then
-                    need(p.schema.version >= 7 or #block.args[at] == 1, "captures are unsupported")
-                    local target = reference(block.args[at][1], p.catalog)
-                    need(target.kind == "function" and target.parent == owner.id, "closure lexical target differs")
-                elseif op == "Require" then
-                    local constant = reference(block.args[at][1], g.constants)
-                    need(constant.kind == "str", "require needs a static module name")
-                    local target = chunks[constant.value]
-                    need(
-                        target ~= nil and (target < owner.id or p.schema.version >= 8),
-                        "forward or cyclic require is unsupported"
-                    )
-                end
-                need(
-                    #block.args[at] == #operation.args or operation.variadic and #block.args[at] > #operation.args,
-                    "operation operand count differs"
-                )
-            end
-            local term = block.term
-            local policy = need(terms[term.kind], "unsupported semantic terminator")
-            need(#term.edges == policy.edges, "terminator edge count differs")
-            if term.kind == "invoke" then
-                local contract = reference(term.contract, p.contracts)
-                need(not used[term.contract], "reused invoke contract")
-                used[term.contract] = true
-                need(contract.owner == owner.id and contract.block == block.id, "contract owner/block differs")
-                -- A dynamic call (v8) has no target: its callee is checked against
-                -- the call's signature when it runs.
-                local dynamic = contract.target == p.schema.absent
-                need(not dynamic or p.schema.version >= 8, "dynamic call outside its profile")
-                -- A dynamic call's signature is its own use: no owner need share it.
-                if dynamic then
-                    signatures[contract.signature] = true
-                end
-                if not dynamic then
-                    local target = reference(contract.target, p.catalog)
-                    need(
-                        target.kind == "function" and contract.signature == target.signature,
-                        "contract target/signature differs"
-                    )
-                    calls[index][#calls[index] + 1] = target.id + 1
-                end
-                local called = reference(contract.signature, p.signatures)
-                local fixed = called.variadic and #called.params - 1 or #called.params
-                -- xpcall's handler rides last among the term's arguments.
-                local given = contract.handled and #term.args - 1 or #term.args
-                need(
-                    given == fixed or called.variadic and given > fixed or term.spread ~= nil,
-                    "invoke operand count differs"
-                )
-                arities[index][bi] = #term.args
-            end
-        end
+        relate(p, scope, index, owner)
     end
-    for index in ipairs(p.signatures) do
-        need(signatures[index - 1], "unused signature record")
-    end
-    for index, contract in ipairs(p.contracts) do
-        fields(contract, "id owner block callsite target signature effect protected handled")
-        need(
-            contract.protected == nil or contract.protected == true and p.schema.version >= 8,
-            "protected call outside its profile"
-        )
-        need(
-            contract.handled == nil or contract.handled == true and contract.protected == true,
-            "handled call is not protected"
-        )
-        need(contract.id == index - 1 and used[index - 1], "unused or unordered contract")
-        integer(contract.callsite, bounds.calls - 1)
-        need(not sites[contract.callsite], "reused callsite identity")
-        sites[contract.callsite] = true
-        need(contract.effect == 1, "invoke effect must remain conservative")
-    end
+    checkUsed(p, scope)
+    checkContracts(p, scope, true)
     if p.schema.version < 7 then
-        topological(p.catalog, calls, nil)
+        topological(p.catalog, scope.calls, nil)
     end
-    for index, g in ipairs(p.graphs) do
-        local effect = 0
-        for _, block in ipairs(g.blocks) do
-            for _, op in ipairs(block.op) do
-                effect = math.max(effect, admitted[op].effect)
-            end
-            if block.term.kind == "invoke" then
-                effect = 1
-            end
-        end
-        need(p.catalog[index].effect == effect, "owner effect differs from graph")
-    end
+    checkEffects(p, scope, count)
 
-    return {arities = arities, owners = count, contracts = #p.contracts}
+    return {arities = scope.arities, owners = count, contracts = #p.contracts}
 end
 
 export function semantic(p: any): nil
@@ -916,4 +966,73 @@ export function semantic(p: any): nil
             "semantic result differs from signature"
         )
     end
+end
+
+-- One module's part of a v8 program, which a link joins to the others
+-- (nupp.compiler.vm.corelink): `view` is shaped as a semantic catalog whose
+-- first `count` catalog records are the module's owners, the first its
+-- initializer, and whose later records stand for what its graphs name outside
+-- it: functions, as their signatures, and other modules' initializers. Its
+-- modules are its own and those it requires, named by those records. `kinds`
+-- holds each graph's result kind (`resultKind`). The relationships within the
+-- module are checked here; the link checks those that cross it. Returns how
+-- many semantic items and text bytes the module's tables hold, toward the
+-- program's budget.
+export function piece(view: any, count: integer, kinds: {string}): any
+    need(view.schema.version == 8, "module pieces are v8 programs")
+    same(view.schema, schema.describe(view.schema.version))
+    need(count > 0 and dense(view.graphs, bounds.owners) == count, "complete semantic graph table required")
+    dense(view.contracts, bounds.calls)
+    need(dense(view.catalog, bounds.owners) >= count, "complete semantic catalog required")
+    dense(view.signatures, bounds.signatures)
+    local module = view.modules[1]
+    fields(module, "name path chunk")
+    need(module.chunk == 0, "module piece initializer order differs")
+    local chunks: {[string]: integer} = {}
+    for _, item in ipairs(view.modules) do
+        need(chunks[item.name] == nil, "duplicate semantic module")
+        chunks[item.name] = item.chunk
+    end
+    local scope = relations(view, {[0] = {name = text(module.name), path = text(module.path)}}, chunks)
+    checkSignatures(view)
+    for index = 1, count do
+        relate(view, scope, index, view.catalog[index])
+    end
+    -- A call outside the module uses the signature it names its callee by.
+    for _, contract in ipairs(view.contracts) do
+        if contract.target ~= view.schema.absent and contract.target >= count then
+            scope.signatures[contract.signature] = true
+        end
+    end
+    for index = count + 1, #view.catalog do
+        local stub = view.catalog[index]
+        if stub.signature ~= nil then
+            scope.signatures[stub.signature] = true
+        end
+    end
+    checkUsed(view, scope)
+    checkContracts(view, scope, false)
+    checkEffects(view, scope, count)
+    local owners: {any} = {}
+    for index = 1, count do
+        owners[index] = view.catalog[index]
+    end
+    local measured = budget.measure({
+        catalog = owners,
+        signatures = view.signatures,
+        graphs = view.graphs,
+        contracts = view.contracts,
+        module = module
+    })
+    for index, g in ipairs(view.graphs) do
+        graph.verifyGuestStructure(g, scope.arities[index])
+        local signature = view.signatures[view.catalog[index].signature + 1]
+        local kind = kinds[index]
+        need(
+            kind == signature.result or kind == "value" or signature.result == "value" or kind == "nil",
+            "semantic result differs from signature"
+        )
+    end
+
+    return {items = measured.items, bytes = measured.bytes}
 end

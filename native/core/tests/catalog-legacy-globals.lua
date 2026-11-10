@@ -2,5 +2,6 @@
 local unpackAny = table.unpack
 local a, b, c = unpackAny({1, 2, 3})
 local platform = tostring(jit and jit.os)
+local environment = setfenv
 
-return a * 100 + b * 10 + c + (platform == "nil" and 1000 or 0)
+return a * 100 + b * 10 + c + (platform == "nil" and 1000 or 0) + (environment == nil and 2000 or 0)

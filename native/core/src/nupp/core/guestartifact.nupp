@@ -6,7 +6,7 @@ module nupp.core.guestartifact
 -- runtime's own, or a guest reads its artifact wrongly.
 local executable = require("nupp.compiler.vm.coregraphexecutable")
 local targetLayout = require("nupp.compiler.targetlayout")
-local literal = require("s0.literal")
+local literal = require("nupp.compiler.s0.literal")
 local schema = require("nupp.compiler.vm.coregraphschema")
 local corelibrary = require("nupp.compiler.vm.corelibrary")
 local writer = require("nupp.compiler.vm.coreartifact")

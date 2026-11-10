@@ -1,6 +1,6 @@
 module nupp.core.guestshim
 
-local arm = require("s0.arm64")
+local arm = require("nupp.compiler.s0.arm64")
 local linker = require("nupp.core.link")
 local nativeos = require("nupp.compiler.vm.nativeos")
 local targetLayout = require("nupp.compiler.targetlayout")

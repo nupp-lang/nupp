@@ -1,0 +1,84 @@
+module nupp.runtime.core.hostpages
+
+-- The system's pages, as the C library maps them: the page size, and
+-- anonymous private readable and writable mappings, zeroed, made and
+-- unmade a whole page at a time. pagemappings, which keeps the ledger of
+-- what is mapped, is the only caller (nativeservice holds it to that).
+const native = require("nupp.runtime.vm.intrinsics")
+
+cdef function getpagesize(): int32
+cdef function mmap(
+    borrows address: voidptr,
+    length: uint64,
+    protection: int64,
+    flags: int64,
+    fd: int64,
+    offset: int64
+): voidptr
+cdef function munmap(borrows address: voidptr, length: uint64): int32
+-- Where the calling thread's errno lives (hostc's, which this module, under
+-- every other one, cannot require).
+cdef function __error(): voidptr
+
+-- PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANON (macOS's), and the fd an
+-- anonymous mapping names, negated.
+const READ_WRITE: int64 = 3
+const PRIVATE_ANONYMOUS: int64 = 0x1002
+const NO_FILE: int64 = 1
+-- MAP_FAILED, and the most bytes one mapping may span.
+const FAILED: uint64 = 0xffffffffffffffffULL
+const LARGEST: uint64 = 0x7fffffffffffffffULL
+-- What unmapPages answers for an extent it refuses before asking the system.
+const REFUSED: uint64 = 1ULL
+
+-- The system's page size in bytes.
+export function pageSize(): uint64
+    local page: int64 = getpagesize()
+    return native.word(page)
+end
+
+-- `bytes` rounded up to whole pages, or 0 for none or too many.
+local function rounded(bytes: uint64): uint64
+    local page = pageSize()
+    if bytes == 0ULL or page == 0ULL or (page & (page - 1ULL)) ~= 0ULL or bytes > LARGEST - (page - 1ULL) then
+        return 0ULL
+    end
+
+    return (bytes + page - 1ULL) & ~(page - 1ULL)
+end
+
+-- The address of `bytes` of zeroed memory at a page boundary, or 0 when the
+-- system refuses. The caller (pagemappings) makes it the pointer it owns.
+export function mapPages(bytes: uint64): uint64
+    local size = rounded(bytes)
+    @unsafe do
+        if size ~= 0ULL then
+            local address = native.address(
+                mmap(native.pointer(0ULL), size, READ_WRITE, PRIVATE_ANONYMOUS, 0 - NO_FILE, 0)
+            )
+            if address ~= FAILED then
+                return address
+            end
+        end
+    end
+
+    return 0ULL
+end
+
+-- Unmaps what mapPages mapped at `base` for `bytes`: 0, or the system's
+-- error number, or REFUSED for an extent that is not whole pages from a
+-- page boundary.
+export function unmapPages(base: voidptr, bytes: uint64): uint64
+    local size = rounded(bytes)
+    local address = native.address(base)
+    if size == 0ULL or address == 0ULL or (address & (pageSize() - 1ULL)) ~= 0ULL then
+        return REFUSED
+    end
+    if munmap(base, size) ~= 0 then
+        @unsafe do
+            return native.word(native.load32(__error(), 0))
+        end
+    end
+
+    return 0ULL
+end

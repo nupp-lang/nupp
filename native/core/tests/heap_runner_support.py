@@ -12,8 +12,7 @@ import shutil
 import time
 
 SOURCE_DIRS = (
-    "src", "tests", "native/core/src", "native/core/tests", "spike/native-lowering/src",
-    "spike/native-lowering/nativegraph/src", "native/crates/vm/lib",
+    "src", "tests", "native/core/src", "native/core/tests", "native/crates/vm/lib",
     "native/crates/vm/decls",
 )
 
@@ -320,7 +319,7 @@ def prepare():
         targets += [root / "native/core/src/nupp/core/heapshim.nupp",
                     root / "src/nupp/compiler/vm/nativecellcontract.nupp",
                     root / "src/nupp/compiler/vm/nativeframecontract.nupp",
-                    root / "spike/native-lowering/nativegraph/src/nupp/compiler/s0/nativegraph.nupp"]
+                    root / "src/nupp/compiler/s0/nativegraph.nupp"]
         checked = json.loads(run("union-check", [runtime, "exec", compiler, "nupp.tools.vm.root",
                                                 "check", "--json", *targets], project))
         assert checked["ok"], checked

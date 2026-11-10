@@ -7,6 +7,9 @@ const journal = require("nupp.runtime.core.resourcejournal")
 const files = require("nupp.runtime.core.hostfiles")
 const clock = require("nupp.runtime.core.hostclock")
 const process = require("nupp.runtime.core.hostprocess")
+const hostpages = require("nupp.runtime.core.hostpages")
+const entropy = require("nupp.runtime.core.hostentropy")
+const arguments = require("nupp.runtime.core.hostarguments")
 
 const RESOURCE_REFUSAL: int64 = 24
 const INVALID: int64 = 22
@@ -192,10 +195,8 @@ export function unmapPages(scope: voidptr, base: voidptr, bytes: uint64): nil
 end
 
 export function pageSize(scope: voidptr): uint64
-    -- Scope is an explicit source operand even though this primitive cannot
-    -- mutate it. The raw import has its own zero-argument C signature.
     local _ = scope
-    return os.pageSize()
+    return hostpages.pageSize()
 end
 
 export function foreignCall(scope: voidptr, block: voidptr): uint64
@@ -206,6 +207,11 @@ end
 export function foreignCells(scope: voidptr): voidptr
     local _ = scope
     return os.foreignCells()
+end
+
+export function foreignCollector(scope: voidptr): voidptr
+    local _ = scope
+    return os.foreignCollector()
 end
 
 export function atomicload64(scope: voidptr, base: voidptr, offset: int64): uint64
@@ -230,7 +236,7 @@ end
 
 export function securefill(scope: voidptr, base: voidptr, bytes: uint64): int64
     local _ = scope
-    return os.securefill(base, bytes)
+    return entropy.securefill(base, bytes)
 end
 
 export function systemquery(scope: voidptr, field: uint64, base: voidptr, room: uint64): int64
@@ -245,7 +251,7 @@ end
 
 export function argument(scope: voidptr, index: uint64, out: voidptr, room: uint64): int64
     local _ = scope
-    return os.argument(index, out, room)
+    return arguments.argument(index, out, room)
 end
 
 export function poolStart(scope: voidptr, threads: uint64): int64
