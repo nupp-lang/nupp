@@ -1286,14 +1286,15 @@ end
 --- `path` under the checkout: its text compiled here as a text chunk
 --- (nupp.compiler.vm.corechunk), as `loadfile` would compile it on the core,
 --- or with `display`, as `load` would compile the file's text named so; or
---- nil and why it does not compile.
+--- nil and why it does not compile. Its source, as debug.getinfo answers it,
+--- is "@" and the path for `loadfile`, and the name `load` was given.
 export function sourceChunk(path: string, display: string?): (string?, string?)
     local corechunk: any = require("nupp.compiler.vm.corechunk")
     local chunkfiles: any = require("nupp.runtime.chunkfiles")
     local text = read(assert(os.getenv("NUPP_COMPILER_ROOT")) .. "/" .. path)
     -- loadfile skips a Unix exec line; load does not.
     local compiled = display == nil and chunkfiles.execLineSkipped(text) or text
-    local bytes, problem = corechunk.compile(compiled, display or path)
+    local bytes, problem = corechunk.compile(compiled, display or path, display or "@" .. path)
 
     return bytes and chunkfiles.contents(text, bytes as string), problem
 end
