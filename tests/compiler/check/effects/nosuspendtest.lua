@@ -765,6 +765,169 @@ function M.allowsAQuietComparator()
     end
 end
 
+-- `math.floor` has no body this file can follow, so the helper's other effects are
+-- unknown, but its type promises `@nosuspend`, and that is the fact a comparator
+-- boundary asks about.
+function M.allowsAComparatorThatReachesOnlyNoSuspendBuiltins()
+    local _, diags = diagnose(
+        table.concat(
+            {
+                "local function key(value: number): integer",
+                "    if value ~= math.floor(value) then",
+                "        error('whole numbers only')",
+                "    end",
+                "    return value as integer",
+                "end",
+                "local t = {3, 1, 2}",
+                "table.sort(t, function(a: integer, b: integer): boolean",
+                "    return key(a) < key(b)",
+                "end)",
+                "return t",
+            },
+            "\n"
+        )
+    )
+    for _, diag in ipairs(diags) do
+        assert(diag.code ~= "NUPP2702", "a @nosuspend builtin leaves suspension known: " .. diag.msg)
+    end
+end
+
+-- An owner's terminal is reached without a call naming it. A terminal whose only
+-- unfollowable call is `@nosuspend` keeps suspension known through the helper that
+-- discharges it, as a direct call to it does.
+function M.allowsAComparatorWhoseHelperDischargesANoSuspendTerminal()
+    local _, diags = diagnose(
+        table.concat(
+            {
+                "local record Resource value: number end",
+                "local function settle(takes resource: Resource): nil",
+                "    resource.value = math.floor(resource.value)",
+                "end",
+                "local function open(value: number): affine(Resource, settle)",
+                "    return Resource(value = value)",
+                "end",
+                "local function key(value: integer): integer",
+                "    local resource = open(value)",
+                "    return value",
+                "end",
+                "local t = {3, 1, 2}",
+                "table.sort(t, function(a: integer, b: integer): boolean",
+                "    return key(a) < key(b)",
+                "end)",
+                "return t",
+            },
+            "\n"
+        )
+    )
+    for _, diag in ipairs(diags) do
+        assert(diag.code ~= "NUPP2702", "a @nosuspend terminal leaves suspension known: " .. diag.msg)
+    end
+end
+
+-- The same helper shape still refuses when what it cannot follow carries no such
+-- promise.
+function M.refusesAComparatorThatReachesAnUntypedCall()
+    local _, diags = diagnose(
+        table.concat(
+            {
+                "local function key(value: number, hook: function(value: number): nil): integer",
+                "    hook(value)",
+                "    return value as integer",
+                "end",
+                "local function sorted(t: {integer}, hook: function(value: number): nil): {integer}",
+                "    table.sort(t, function(a: integer, b: integer): boolean",
+                "        return key(a, hook) < key(b, hook)",
+                "    end)",
+                "    return t",
+                "end",
+                "return sorted",
+            },
+            "\n"
+        )
+    )
+    local found = nil
+    for _, diag in ipairs(diags) do
+        if diag.code == "NUPP2702" then
+            found = diag
+        end
+    end
+    assert(found ~= nil, "a callee that may suspend through an unknown call is refused")
+    assert(found.msg:find("unknown effects", 1, true) ~= nil, "and says why: " .. found.msg)
+end
+
+-- Sorts with a comparator calling `key(a)` and `key(b)` after `helper`, and
+-- returns the NUPP2702 refusal, if any.
+local function comparatorRefusal(helper)
+    local lines = {}
+    for _, line in ipairs(helper) do
+        lines[#lines + 1] = line
+    end
+    for _, line in ipairs({
+        "local t = {3, 1, 2}",
+        "table.sort(t, function(a: integer, b: integer): boolean",
+        "    return key(a) < key(b)",
+        "end)",
+        "return t",
+    }) do
+        lines[#lines + 1] = line
+    end
+    local _, diags = diagnose(table.concat(lines, "\n"))
+    for _, diag in ipairs(diags) do
+        if diag.code == "NUPP2702" then
+            return diag
+        end
+    end
+
+    return nil
+end
+
+-- The refusal twin of the `@nosuspend` terminal: the terminal's unfollowable call
+-- carries no promise, so the helper discharging it may suspend.
+function M.refusesAComparatorWhoseHelperDischargesAnUntypedTerminal()
+    local found = comparatorRefusal({
+        "local record Resource value: number end",
+        "local hooks: {park: function(): nil} = {park = function() end}",
+        "local function settle(takes resource: Resource): nil",
+        "    hooks.park()",
+        "end",
+        "local function open(value: number): affine(Resource, settle)",
+        "    return Resource(value = value)",
+        "end",
+        "local function key(value: integer): integer",
+        "    local resource = open(value)",
+        "    return value",
+        "end",
+    })
+    assert(found ~= nil, "a helper whose terminal may suspend is refused")
+    assert(found.msg:find("unknown effects", 1, true) ~= nil, "and says why: " .. found.msg)
+end
+
+-- An interpolation converts through `tostring`, which may reach a `__tostring`
+-- that suspends, and no type promises otherwise.
+function M.refusesAComparatorWhoseHelperInterpolates()
+    local found = comparatorRefusal({
+        "local function key(value: integer): integer",
+        "    local text = `${value}`",
+        "    return #text",
+        "end",
+    })
+    assert(found ~= nil, "a helper that interpolates is refused")
+    assert(found.msg:find("unknown effects", 1, true) ~= nil, "and says why: " .. found.msg)
+end
+
+-- A concatenation with an `any` operand may reach a `__concat` that suspends.
+function M.refusesAComparatorWhoseHelperConcatenatesAnAny()
+    local found = comparatorRefusal({
+        "local labels: {[integer]: any} = {}",
+        "local function key(value: integer): integer",
+        "    local text = labels[value] .. '!'",
+        "    return #text",
+        "end",
+    })
+    assert(found ~= nil, "a helper with a non-primitive concatenation is refused")
+    assert(found.msg:find("unknown effects", 1, true) ~= nil, "and says why: " .. found.msg)
+end
+
 function M.doesNotMistakeALocalNamedTableForThePrelude()
     -- Definition identity, never spelling.
     local _, diags = diagnose(
