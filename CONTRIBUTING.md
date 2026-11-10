@@ -26,7 +26,11 @@ cd nupp
 plus the shell, `tar` and a downloader. `NUPP_CC` and `NUPP_CXX` name them; with
 neither set, Unix probes `clang`, `cc` and `gcc` in that order. Windows probes
 the MinGW `gcc` pair first because the provisioned dependencies use GNU make;
-the corresponding C++ names are probed beside each C compiler.
+the corresponding C++ names are probed beside each C compiler. Use a UCRT
+MinGW-w64, such as MSYS2's `ucrt64` environment, and run the toolchain from Git
+Bash. Under the older MSVCRT runtime, LuaJIT's `os.tmpname` answers a
+drive-relative name that the test runner's shell cannot open. MSYS2 names its
+make `mingw32-make`, so set `MAKE=mingw32-make`.
 
 **Rust 1.98.0 with Cargo**, selected exactly rather than by a minimum version.
 Rustup reads the committed toolchain file automatically. `NUPP_RUSTC` and
@@ -191,6 +195,14 @@ renders as escaped text without highlighting.
 
 Inside a checkout, run `./bin/nupp`. Everywhere else, either put the checkout's
 `bin` on your path, or build a self-contained binary.
+
+On Windows, `bin/nupp` is a shell script that `cmd.exe` and other programs
+cannot start, so `bin/nupp.cmd` runs it under Git Bash. With `bin` on `PATH`,
+a project task whose argv names `nupp` and a program that spawns the checkout's
+launcher by path both reach the checkout. It uses `NUPP_BASH` when set and
+otherwise the `bash.exe` beside the Git on `PATH`, never a bare `bash`, which on
+Windows is the WSL launcher. A project that builds targets with native
+facilities needs the checkout rather than the self-contained binary.
 
 ## Self-contained binary
 

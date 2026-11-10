@@ -154,6 +154,19 @@ fi
 export LUA_PATH LUA_CPATH
 export NUPP_COMPILER_ROOT="$LUA_ROOT"
 
+# On Windows the test runner hands shell commands to Git Bash rather than
+# cmd.exe and refuses to start without being told where it is. This launcher is
+# already running under it, so `nupp test` in any project names that one unless
+# the caller chose another.
+case "$(uname -s 2>/dev/null)" in
+    MINGW*|MSYS*|CYGWIN*)
+        if [ -z "${NUPP_TEST_BASH:-}" ] && [ -n "${BASH:-}" ]; then
+            NUPP_TEST_BASH=$(cygpath -w "$BASH")
+            export NUPP_TEST_BASH
+        fi
+        ;;
+esac
+
 # A compiler rebuild happens before the requested command can parse its options,
 # but colour is meant to cover the whole command, including that rebuild. Keep
 # the one colour spelling the caller chose so the temporary `build` invocation
