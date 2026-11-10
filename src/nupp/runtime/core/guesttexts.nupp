@@ -141,8 +141,15 @@ export function argumenterror(ctx: voidptr, position: uint64, fallback: uint64, 
             if forward == catalog.FORWARD_NONE then
                 local flags = native.load64(row, native.fieldOffset<catalog.CallDiagnostic>("method"))
                 -- A Lua tail call supplies no caller name or receiver form.
-                -- Calls into a C library retain that caller's checked context.
-                if flags & catalog.CALL_TAIL == 0ULL or guesterrors.clibrary(ctx, frame) then
+                -- C libraries and checked forwarding retain their public context.
+                local terminal = guesterrors.waitingrow(c, frame, false)
+                local forwarded = skipped ~= 0ULL
+                    or terminal ~= 0ULL
+                    and native.load64(
+                        native.pointer(terminal),
+                        native.fieldOffset<catalog.CallDiagnostic>("forward")
+                    ) ~= catalog.FORWARD_NONE
+                if flags & catalog.CALL_TAIL == 0ULL or guesterrors.clibrary(ctx, frame) or forwarded then
                     method = flags & catalog.CALL_METHOD
                     name = native.load64(row, native.fieldOffset<catalog.CallDiagnostic>("name"))
                 end
