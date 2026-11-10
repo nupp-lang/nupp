@@ -217,6 +217,7 @@ local CASES: {[string]: {
     recordsaffineraise = {fixture = "catalog-records-affine-raise", version = 8},
     recordsdynamic = {fixture = "catalog-records-dynamic", version = 8},
     recordscallable = {fixture = "catalog-records-callable", version = 8, modules = {"catalog-modules-boxes"}},
+    chunkvalues = {fixture = "catalog-chunk-values", version = 8, chunks = {"catalog-chunk-value-source"}},
     recordruntime = {
         fixture = "catalog-record-runtime",
         version = 8,

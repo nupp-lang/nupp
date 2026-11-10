@@ -179,7 +179,9 @@ local texts: {Text} = {
     {name = "TEXT_METHOD", id = 155, text = "method"},
     {name = "TEXT_FIELD", id = 156, text = "field"},
     {name = "TEXT_UPVALUE", id = 157, text = "upvalue"},
-    {name = "TEXT_ITERATOR", id = 158, text = "for iterator"}
+    {name = "TEXT_ITERATOR", id = 158, text = "for iterator"},
+    {name = "TEXT_BOOLEAN", id = 159, text = "boolean"},
+    {name = "TEXT_NIL", id = 160, text = "nil"}
 }
 
 local byName: {[string]: Text} = {}

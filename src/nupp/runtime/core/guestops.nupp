@@ -271,6 +271,16 @@ local function compatibleSignatures(c: voidptr, site: uint64, callee: uint64): u
     return 1ULL
 end
 
+-- A value refusal uses the entry's existing fault record while preparation
+-- retains its zero-or-frame contract. `other` holds the kind and position.
+const ARGUMENT_KIND_SHIFT: uint64 = 8ULL
+const ARGUMENT_POSITION_MASK: uint64 = 255ULL
+
+local function argumentRefused(ctx: voidptr): boolean
+    local services = native.loadPointer(ctx, context.SERVICE_SCOPE)
+    return native.load64(services, native.fieldOffset<guestscope.Services>("fault")) == guestscope.FAULT_ARGUMENT
+end
+
 -- The callee is the actual registry handle loaded from a live slot. Hint alone
 -- cannot select a body. Canonical byte fields must also match this PC's retained
 -- checked callsite, its target signature and each canonical scalar argument.
@@ -285,6 +295,10 @@ export function prepare(
     counts: uint64,
     hint: uint64
 ): uint64
+    -- A previous refusal cannot misclassify a later allocation failure.
+    if argumentRefused(ctx) then
+        guesterrors.fault(ctx, 0ULL, values.NIL, values.NIL)
+    end
     local nargs = counts & 0xffffffffULL
     local wanted = counts >> 32ULL
     -- The calling handler has checked its frame (current), whose record
@@ -384,6 +398,7 @@ export function prepare(
             value = native.load64(window, native.index((base + 1ULL + at) * 8ULL))
         end
         if catalog.scalar(kind, value) == 0ULL then
+            guesterrors.fault(ctx, guestscope.FAULT_ARGUMENT, value, (kind << ARGUMENT_KIND_SHIFT) | (at + 1ULL))
             return 0ULL
         end
         at = at + 1ULL
@@ -779,6 +794,47 @@ local function refused(ctx: voidptr, frame: voidptr, base: uint64, wanted: uint6
     end
 
     return CALL_ANSWERED
+end
+
+-- PCall has not published a protected frame at argument admission. It answers
+-- false and the message here; ordinary calls raise at their original site.
+export function prepareRefused(
+    ctx: voidptr,
+    frame: voidptr,
+    pc: voidptr,
+    base: uint64,
+    wanted: uint64,
+    protected: uint64
+): uint64
+    if not argumentRefused(ctx) then
+        if texts.overflow(ctx) == 1ULL then
+            fail(ctx, frame, pc, context.GUEST_ERROR_STATUS)
+        else
+            fail(ctx, frame, pc, RESOURCE)
+        end
+        return CALL_FAILED
+    end
+    local services = native.loadPointer(ctx, context.SERVICE_SCOPE)
+    local metadata = native.load64(services, native.fieldOffset<guestscope.Services>("other"))
+    local position = metadata & ARGUMENT_POSITION_MASK
+    local kind = metadata >> ARGUMENT_KIND_SHIFT
+    local value = native.load64(services, native.fieldOffset<guestscope.Services>("culprit"))
+    guesterrors.fault(ctx, 0ULL, values.NIL, values.NIL)
+    local expected = librarytexts.TEXT_NUMBER
+    if kind == catalog.BOOLEAN then
+        expected = librarytexts.TEXT_BOOLEAN
+    elseif kind == catalog.NIL then
+        expected = librarytexts.TEXT_NIL
+    end
+    local message = texts.checkedArgument(ctx, position, expected, 0ULL, value)
+    if protected ~= 1ULL then
+        guestscope.raise(ctx, message, 1ULL)
+        fail(ctx, frame, pc, context.GUEST_ERROR_STATUS)
+    else
+        return refused(ctx, frame, base, wanted, message)
+    end
+
+    return CALL_FAILED
 end
 
 -- A call whose callee, staged at `base` in the frame's window with `nargs`

@@ -1,0 +1,59 @@
+module nupp.core.catalogchunkvaluesource
+
+const hostcalls = require("nupp.runtime.hostcalls")
+
+local function number(value: integer): integer
+    return value + 1
+end
+
+local function boolean(value: boolean): boolean
+    return value
+end
+
+local function nothing(value: nil): nil
+    return value
+end
+
+local function argument(position: any): nil
+    hostcalls.argerror(position, "probe", "detail", 0)
+end
+
+export const result = function(operation: integer, value: any, ...: any): any
+    if operation == 1 then
+        argument(value)
+    elseif operation == 2 then
+        hostcalls.argerror(1, value, "detail", 0)
+    elseif operation == 3 then
+        return number(value)
+    elseif operation == 4 then
+        return number(...)
+    elseif operation == 5 then
+        local make: any = number
+        local ok, message = pcall(make, value)
+        return {ok, message}
+    elseif operation == 6 then
+        return os.getenv("NUPP_GUEST_PROBE")
+    elseif operation == 7 then
+        return boolean(value)
+    elseif operation == 8 then
+        return nothing(value)
+    elseif operation == 9 then
+        local make: any = number
+
+        local function protect(callback: any, input: any): ...any
+            return pcall(callback, input)
+        end
+
+        return {protect(make, value)}
+    elseif operation == 10 then
+        hostcalls.argerror(1, "probe", value, 0)
+    elseif operation == 11 then
+        hostcalls.argerror(1, "probe", "detail", value)
+    elseif operation == 12 then
+        hostcalls.argerror(1, "probe", "kept", 0)
+    elseif operation == 13 then
+        return string.rep(value, 2)
+    end
+
+    return number(7)
+end

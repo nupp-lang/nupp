@@ -1322,17 +1322,29 @@ export function LibCall(
         return native.fail()
     end
     if libraryId == librarycalls.ARGUMENT_ERROR then
-        if count ~= 4ULL
-            or not wide.isInteger(a)
-            or not wide.isInteger(d)
-            or wide.bitsOf(a) == 0ULL
-            or wide.bitsOf(a) > MAX_ARGUMENT_POSITION
-            or wide.bitsOf(d) > MAX_ARGUMENT_LEVEL
-            or strings.header(b) == 0ULL
-            or strings.header(c) == 0ULL
-            or catalog.diagnostics(native.loadPointer(ctx, context.CATALOG)) == 0ULL
-        then
+        if count ~= 4ULL or catalog.diagnostics(native.loadPointer(ctx, context.CATALOG)) == 0ULL then
             ops.fail(ctx, frame, pc, ops.INVALID)
+            return native.fail()
+        end
+        local bad, expected, value = 0ULL, 0ULL, a
+        if not wide.isInteger(a) then
+            bad, expected = 1ULL, librarytexts.TEXT_NUMBER
+        elseif wide.bitsOf(a) == 0ULL or wide.bitsOf(a) > MAX_ARGUMENT_POSITION then
+            bad = 1ULL
+        elseif strings.header(b) == 0ULL then
+            bad, expected, value = 2ULL, librarytexts.TEXT_STRING, b
+        elseif strings.header(c) == 0ULL then
+            bad, expected, value = 3ULL, librarytexts.TEXT_STRING, c
+        elseif not wide.isInteger(d) then
+            bad, expected, value = 4ULL, librarytexts.TEXT_NUMBER, d
+        elseif wide.bitsOf(d) > MAX_ARGUMENT_LEVEL then
+            bad, value = 4ULL, d
+        end
+        if bad ~= 0ULL then
+            -- This precedes librarySite. The explicit guest raise/fail names
+            -- this chunk PC without borrowing a previous library's context.
+            guestscope.raise(ctx, texts.checkedArgument(ctx, bad, expected, librarytexts.TEXT_VALUE_RANGE, value), 1ULL)
+            ops.fail(ctx, frame, pc, context.GUEST_ERROR_STATUS)
             return native.fail()
         end
         texts.argumenterror(ctx, wide.bitsOf(a), b, c, wide.bitsOf(d))
@@ -1828,12 +1840,8 @@ export function CallK(pc: voidptr, regs: voidptr, ints: voidptr, floats: voidptr
         hint
     )
     if child == 0ULL then
-        -- No room for another frame is Lua's "stack overflow", which a
-        -- protected call can take.
-        if texts.overflow(ctx) == 1ULL then
-            ops.fail(ctx, frame, pc, context.GUEST_ERROR_STATUS)
-        else
-            ops.fail(ctx, frame, pc, ops.RESOURCE)
+        if ops.prepareRefused(ctx, frame, pc, native.word(base), native.word(wanted), 0ULL) ~= ops.CALL_FAILED then
+            ops.fail(ctx, frame, pc, ops.INVALID)
         end
         return native.fail()
     end
@@ -2264,12 +2272,8 @@ export function CallV(pc: voidptr, regs: voidptr, ints: voidptr, floats: voidptr
         hint
     )
     if child == 0ULL then
-        -- No room for another frame is Lua's "stack overflow", which a
-        -- protected call can take.
-        if texts.overflow(ctx) == 1ULL then
-            ops.fail(ctx, frame, pc, context.GUEST_ERROR_STATUS)
-        else
-            ops.fail(ctx, frame, pc, ops.RESOURCE)
+        if ops.prepareRefused(ctx, frame, pc, native.word(base), native.word(wanted), 0ULL) ~= ops.CALL_FAILED then
+            ops.fail(ctx, frame, pc, ops.INVALID)
         end
         return native.fail()
     end
@@ -2604,14 +2608,15 @@ export function PCall(pc: voidptr, regs: voidptr, ints: voidptr, floats: voidptr
         hint
     )
     if child == 0ULL then
-        -- No room for another frame is Lua's "stack overflow", which a
-        -- protected call can take.
-        if texts.overflow(ctx) == 1ULL then
-            ops.fail(ctx, frame, pc, context.GUEST_ERROR_STATUS)
-        else
-            ops.fail(ctx, frame, pc, ops.RESOURCE)
+        if ops.prepareRefused(ctx, frame, pc, native.word(base), native.word(wanted), 1ULL) ~= ops.CALL_ANSWERED then
+            return native.fail()
         end
-        return native.fail()
+        local after = ops.branch(ctx, frame, pc, 0)
+        if after == 0ULL then
+            ops.fail(ctx, frame, pc, ops.INVALID)
+            return native.fail()
+        end
+        return native.dispatch(native.pointer(after), regs, ints, floats, ctx, frame)
     end
     if wanted > 1 and frames.wantResults(s, native.pointer(child), native.word(wanted)) ~= 1ULL then
         ops.failure(ctx, ops.INVALID)
