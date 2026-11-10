@@ -151,6 +151,11 @@ export record Inc
     --- so the build planner need not know how memos are laid out.
     moduleDependencies: function(path: string): {string}
 
+    --- The module names whose interface or exports checking this file read, sorted:
+    --- its requires and type-only imports, and the modules a type-side lookup
+    --- (a builtin extension, an indexed declaration) reached without one.
+    moduleReads: function(path: string): {string}
+
     --- The checked interface a dependency worker needs to consume this module.
     moduleSemantic: function(name: string, path: string?): any
 
@@ -1264,14 +1269,15 @@ export function new(rootDir: string, opts: table?): Inc
         return modulePath(q, name)
     end
 
-    local function apiModuleDependencies(path: string): {string}
+    -- The keys of the `kinds` queries checking `path` read, sorted.
+    local function checkReads(path: string, kinds: {[string]: boolean}): {string}
         q:get("checkModule", path)
         local byPath = q.memo.checkModule
         local memo = byPath and byPath[path]
         local names: {string} = {}
         local seen: {[any]: boolean} = {}
         for _, dep in ipairs(memo and memo.deps or {}) do
-            if dep.name == "moduleInterface" and not seen[dep.key] then
+            if kinds[dep.name] and not seen[dep.key] then
                 seen[dep.key] = true
                 names[#names + 1] = dep.key
             end
@@ -1279,6 +1285,14 @@ export function new(rootDir: string, opts: table?): Inc
         table.sort(names)
 
         return names
+    end
+
+    local function apiModuleDependencies(path: string): {string}
+        return checkReads(path, {moduleInterface = true})
+    end
+
+    local function apiModuleReads(path: string): {string}
+        return checkReads(path, {moduleInterface = true, moduleExports = true})
     end
 
     local function apiModuleSemantic(name: string, knownPath: string?): any
@@ -1509,6 +1523,7 @@ export function new(rootDir: string, opts: table?): Inc
         projectHeader = apiProjectHeader,
         modulePath = apiModulePath,
         moduleDependencies = apiModuleDependencies,
+        moduleReads = apiModuleReads,
         moduleSemantic = apiModuleSemantic,
         importModules = apiImportModules,
         projectDependencies = apiProjectDependencies,
