@@ -57,6 +57,12 @@ write(
 )
 check(root.main({"build"}) == 0)
 check(exists("build/app"))
+-- The image names its source relative to the project, as the host's does, so
+-- the directory the project was built in is not part of the program.
+local image = assert(io.open("build/.nupp-vm-program.image", "rb"))
+local lowered = image:read("a")
+image:close()
+check(lowered:find("@main.nupp", 1, true) ~= nil and lowered:find("/main.nupp", 1, true) == nil)
 -- Through its value, so the handle is a plain value as Lua's files are.
 local popen: any = io.popen
 local ran = popen("./build/app")

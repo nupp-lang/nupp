@@ -313,7 +313,7 @@ local CASES = {
     -- The compiler's host layout key from the runtime's own description.
     {"hostlayout", 0x7FFF000000000007},
     -- `nupp build` on the core: a library, then a VM binary that is run.
-    {"compilerbuild", 0x7FFF00000000001F},
+    {"compilerbuild", 0x7FFF00000000003F},
     -- Lua's debug.getinfo: sources, lines and names by level and of values.
     {"debuggetinfo", 0x7FFF00000001FFFF},
     -- Instances of a Nupp module compiled as a chunk: fresh state, requires
