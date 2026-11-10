@@ -1,0 +1,13 @@
+#!/bin/sh
+# Explicit compiler-sized workload: the repository's dist target on the host
+# and on the standalone core, with separate source caches and equal images.
+set -eu
+ROOT=$(CDPATH= cd -- "$(dirname "$0")/../.." && pwd)
+cd "$ROOT"
+export NUPP_COMPILER_ROOT="$ROOT" NUPP_VM_AUTO_REBUILD=0 NO_JIT=1
+rm -rf build/self-build-host
+mkdir -p build/self-build-host
+NUPP_CACHE_DIR="$ROOT/build/self-build-host/cache" \
+    ./bin/nupp build --target dist --output build/self-build-host --json --progress always \
+    > build/self-build-host/build.json
+./scripts/native-producer compilerselfbuild
