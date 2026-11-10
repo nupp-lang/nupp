@@ -61,3 +61,10 @@ export function create(value: any, spec: any): any
 
     return namespace.__manage(value, cleanup, spec.policy)
 end
+
+--- `own.recoveralias(value)`: `value` as the managed alias it is, checked by
+--- its brand, or nil and the problem, as main's `__recoverAlias` answers.
+--- The second operand is the factory shape's, and unused.
+export function recover(value: any, _: any): (any, any)
+    return namespace.__recoverAlias(value)
+end

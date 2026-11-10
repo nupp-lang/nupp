@@ -50,7 +50,7 @@ local actual = {}
 local env
 
 local function checked(source, path, name)
-    env = env or environment.new(ROOT .. "/native/core/tests/units")
+    env = env or environment.new(ROOT .. "/tests/core/units")
     local parsed = parser.parse(source, path)
     assert(#parsed.errors == 0, parsed.errors[1] and parsed.errors[1].msg)
     local diagnostics = checker.check(parsed, path, env, {

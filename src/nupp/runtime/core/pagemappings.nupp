@@ -1,0 +1,524 @@
+module nupp.runtime.core.pagemappings
+
+const native = require("nupp.runtime.vm.intrinsics")
+const os = require("nupp.runtime.vm.os")
+const hostpages = require("nupp.runtime.core.hostpages")
+
+-- Explicit mapped metadata, retained outside every mapping owned here and
+-- outside logical frames/helper spill storage. Exclusive, no suspend/callback.
+-- A failed close consumes the scope and retains failed mappings; never reset it.
+export struct Scope
+    records: uint64
+    capacity: uint64
+    issued: uint64
+    live: uint64
+    phase: uint64
+    status: uint64
+    cleanupFailed: uint64
+end
+
+export struct Mapping
+    base: uint64
+    bytes: uint64
+    serial: uint64
+    state: uint64
+end
+
+-- The one bootstrap mapping contains all retained entry metadata and helpers.
+-- It is outside its own heap ledger and is released last, after that ledger
+-- closes successfully. This is not permission for general unjournaled maps.
+export struct EntryBacking
+    base: uint64
+    bytes: uint64
+    phase: uint64
+end
+
+-- Private independent mapping prefix. No field points into a source heap,
+-- arena, service scope, or mapping ledger. Payload follows this prefix.
+export struct SharedBacking
+    base: uint64
+    mapped: uint64
+    capacity: uint64
+    phase: uint64
+    references: uint64
+    mutex: uint64
+    tickets: uint64
+    ticketcount: uint64
+    writer: uint64
+end
+
+-- Separately mapped interval control; no node points into a managed heap.
+-- Only references is atomic. Links/count are protected by its block mutex;
+-- phase is owned by the last alias after detachment.
+export struct RangeTicket
+    block: uint64
+    offset: uint64
+    count: uint64
+    previous: uint64
+    next: uint64
+    references: uint64
+    phase: uint64
+    error: uint64
+    failed: uint64
+end
+
+export const SHARED_LIVE: uint64 = 1ULL
+export const SHARED_CONSUMED: uint64 = 2ULL
+export const SHARED_FAILED: uint64 = 3ULL
+const WORD_MASK: uint64 = 7ULL
+
+const LIMIT: uint64 = 281474976710656ULL
+const MAXIMUM: uint64 = 0xffffffffffffffffULL
+const MAX_RECORDS: uint64 = 4096ULL
+
+local function extent(base: uint64, bytes: uint64): boolean
+    return base ~= 0ULL and bytes ~= 0ULL and bytes <= MAXIMUM - base
+end
+
+local function overlap(a: uint64, an: uint64, b: uint64, bn: uint64): boolean
+    return a < b + bn and b < a + an
+end
+
+-- An active reference or the winning last-release authority keeps a nonnull
+-- block readable until its terminal unmap.
+-- These checks validate its immutable envelope, not an arbitrary address.
+local function sharedvalid(block: voidptr): boolean
+    local address = native.address(block)
+    local prefix = native.sizeOf<SharedBacking>()
+    if address == 0ULL or (address & WORD_MASK) ~= 0ULL then
+        return false
+    end
+    local mapped = native.load64(block, native.fieldOffset<SharedBacking>("mapped"))
+    local capacity = native.load64(block, native.fieldOffset<SharedBacking>("capacity"))
+    local page = hostpages.pageSize()
+    if page == 0ULL
+        or page > LIMIT
+        or (page & (page - 1ULL)) ~= 0ULL
+        or (address & (page - 1ULL)) ~= 0ULL
+        or capacity > LIMIT - prefix
+        or capacity + prefix > LIMIT - (page - 1ULL)
+        or not extent(address, mapped)
+    then
+        return false
+    end
+
+    return native.load64(block, native.fieldOffset<SharedBacking>("base")) == address
+        and mapped == ((capacity + prefix + page - 1ULL) & ~(page - 1ULL))
+        and os.atomicload64(block, native.fieldOffset<SharedBacking>("phase")) == SHARED_LIVE
+end
+
+-- Status storage is caller-owned and remains mapped after the block is gone.
+export function sharedscopevalid(statusScope: voidptr, block: voidptr): boolean
+    if not sharedvalid(block) then
+        return false
+    end
+    local status = native.address(statusScope)
+    local size = native.sizeOf<Scope>()
+
+    return extent(status, size)
+        and (status & WORD_MASK) == 0ULL
+        and not overlap(
+            status,
+            size,
+            native.address(block),
+            native.load64(block, native.fieldOffset<SharedBacking>("mapped"))
+        )
+end
+
+-- The exact immutable mapping charge, checked before acquiring any reference.
+-- Zero refuses geometry; page slack and the independent prefix are included.
+export function sharedextent(capacity: uint64): uint64
+    local prefix = native.sizeOf<SharedBacking>()
+    local page = hostpages.pageSize()
+    if page == 0ULL
+        or page > LIMIT
+        or (page & (page - 1ULL)) ~= 0ULL
+        or capacity > LIMIT - prefix
+        or capacity + prefix > LIMIT - (page - 1ULL)
+    then
+        return 0ULL
+    end
+
+    return (capacity + prefix + page - 1ULL) & ~(page - 1ULL)
+end
+
+-- This exact constructor owns the unjournaled mapping before publication.
+-- Map refusal is nil. All initialization after map is nonallocating and
+-- cannot raise, collect, suspend, or call guest code.
+export function acquireshared(capacity: uint64): voidptr?
+    local mapped = sharedextent(capacity)
+    if mapped == 0ULL then
+        return nil
+    end
+    local address = hostpages.mapPages(mapped)
+    if address == 0ULL then
+        return nil
+    end
+    local block = native.pointer(address)
+    native.store64(block, native.fieldOffset<SharedBacking>("base"), native.address(block))
+    native.store64(block, native.fieldOffset<SharedBacking>("mapped"), mapped)
+    native.store64(block, native.fieldOffset<SharedBacking>("capacity"), capacity)
+    native.store64(block, native.fieldOffset<SharedBacking>("phase"), SHARED_LIVE)
+    native.store64(block, native.fieldOffset<SharedBacking>("references"), 1ULL)
+    native.store64(block, native.fieldOffset<SharedBacking>("mutex"), 0ULL)
+    native.store64(block, native.fieldOffset<SharedBacking>("tickets"), 0ULL)
+    native.store64(block, native.fieldOffset<SharedBacking>("ticketcount"), 0ULL)
+    native.store64(block, native.fieldOffset<SharedBacking>("writer"), 0ULL)
+
+    return block
+end
+
+-- Raw atomic transport stays inside the existing raw infrastructure owner.
+-- Refcount policy is implemented by the caller in Nupp.
+export function sharedreferences(block: voidptr): uint64
+    return os.atomicload64(block, native.fieldOffset<SharedBacking>("references"))
+end
+
+export function sharedcompare(block: voidptr, expected: uint64, replacement: uint64): uint64
+    return os.atomiccas64(block, native.fieldOffset<SharedBacking>("references"), expected, replacement)
+end
+
+-- Existing SeqCst transport protects the private registry. Hold no mutex
+-- across allocation, callbacks, IO, suspension, or payload access. Every
+-- caller keeps an independent block reference through unlock.
+export function sharedlock(block: voidptr): nil
+    while os.atomiccas64(block, native.fieldOffset<SharedBacking>("mutex"), 0ULL, 1ULL) ~= 0ULL do
+    end
+end
+
+export function sharedunlock(block: voidptr): nil
+    local _ = os.atomiccas64(block, native.fieldOffset<SharedBacking>("mutex"), 1ULL, 0ULL)
+end
+
+-- A ticket token is its payload address, never its SharedBacking prefix.
+-- An active alias or unique pending-finalizer capability keeps it mapped.
+export function ticketreferences(ticket: uint64): uint64
+    return os.atomicload64(native.pointer(ticket), native.fieldOffset<RangeTicket>("references"))
+end
+
+export function ticketcompare(ticket: uint64, expected: uint64, replacement: uint64): uint64
+    return os.atomiccas64(native.pointer(ticket), native.fieldOffset<RangeTicket>("references"), expected, replacement)
+end
+
+-- Caller won references 1 -> 0 and alone owns the terminal operation.
+-- Validation refusal has not attempted unmap. A consumed failed unmap stays
+-- mapped, with its actual status retained externally; it must not be retried.
+export function releaseshared(statusScope: voidptr, block: voidptr): uint64
+    if not sharedscopevalid(statusScope, block) or sharedreferences(block) ~= 0ULL then
+        return 0ULL
+    end
+    local mapped = native.load64(block, native.fieldOffset<SharedBacking>("mapped"))
+    if os.atomiccas64(
+        block,
+        native.fieldOffset<SharedBacking>("phase"),
+        SHARED_LIVE,
+        SHARED_CONSUMED
+    ) ~= SHARED_LIVE then
+        return 0ULL
+    end
+    native.store64(statusScope, native.fieldOffset<Scope>("status"), hostpages.unmapPages(block, mapped))
+    if native.load64(statusScope, native.fieldOffset<Scope>("status")) ~= 0ULL then
+        native.store64(block, native.fieldOffset<SharedBacking>("phase"), SHARED_FAILED)
+        return 0ULL
+    end
+
+    return 1ULL
+end
+
+-- All pointer parameters are borrowed mapped extents, not integer-address
+-- authentication. Caller retains exclusive access through the entire scope.
+export function initialize(
+    scope: voidptr,
+    scopeBytes: uint64,
+    records: voidptr,
+    recordBytes: uint64,
+    capacity: uint64
+): uint64
+    local sb, rb = native.address(scope), native.address(records)
+    if scopeBytes < native.sizeOf<Scope>()
+        or capacity == 0ULL
+        or capacity > MAX_RECORDS
+        or recordBytes < capacity * native.sizeOf<Mapping>()
+        or not extent(sb, scopeBytes)
+        or not extent(rb, recordBytes)
+        or (sb & 7ULL) ~= 0ULL
+        or (rb & 7ULL) ~= 0ULL
+    then
+        return 0ULL
+    end
+    if overlap(sb, scopeBytes, rb, recordBytes) then
+        return 0ULL
+    end
+    local at: uint64 = 0ULL
+    while at < native.sizeOf<Scope>() do
+        if native.load64(scope, native.index(at)) ~= 0ULL then
+            return 0ULL
+        end
+        at = at + 8ULL
+    end
+    at = 0ULL
+    while at < capacity * native.sizeOf<Mapping>() do
+        native.store64(records, native.index(at), 0ULL)
+        at = at + 8ULL
+    end
+    native.store64(scope, native.fieldOffset<Scope>("records"), rb)
+    native.store64(scope, native.fieldOffset<Scope>("capacity"), capacity)
+    native.store64(scope, native.fieldOffset<Scope>("phase"), 1ULL)
+
+    return 1ULL
+end
+
+-- Only the authenticated mechanical entry may expose these two wrappers.
+-- Failure leaves a self-contained mapping; no bridge-scratch pointer is stored.
+export function acquireEntry(bytes: uint64): voidptr?
+    if bytes < native.sizeOf<EntryBacking>() or bytes > 67108864ULL then
+        return nil
+    end
+    local mapped = native.pointer(hostpages.mapPages(bytes))
+    if native.address(mapped) == 0ULL then
+        return nil
+    end
+    native.store64(mapped, native.fieldOffset<EntryBacking>("base"), native.address(mapped))
+    native.store64(mapped, native.fieldOffset<EntryBacking>("bytes"), bytes)
+    native.store64(mapped, native.fieldOffset<EntryBacking>("phase"), 1ULL)
+
+    return mapped
+end
+
+-- statusScope is disjoint borrowed bridge storage and stays mapped through
+-- this call. The selected OS operation writes its actual C result into
+-- Scope.status immediately after unmap, exactly as for unmapOwned.
+export function releaseEntry(statusScope: voidptr, base: voidptr, bytes: uint64): uint64
+    local statusAddress, address = native.address(statusScope), native.address(base)
+    if not extent(statusAddress, native.sizeOf<Scope>())
+        or (statusAddress & 7ULL) ~= 0ULL
+        or not extent(address, bytes)
+        or bytes < native.sizeOf<EntryBacking>()
+        or bytes > 67108864ULL
+        or overlap(statusAddress, native.sizeOf<Scope>(), address, bytes)
+    then
+        return 0ULL
+    end
+    if native.load64(base, native.fieldOffset<EntryBacking>("base")) ~= address
+        or native.load64(base, native.fieldOffset<EntryBacking>("bytes")) ~= bytes
+        or native.load64(base, native.fieldOffset<EntryBacking>("phase")) ~= 1ULL
+    then
+        return 0ULL
+    end
+    -- Consume before the attempt. A failed release retains the mapping and
+    -- never permits reset/retry or use by a newly initialized service scope.
+    native.store64(base, native.fieldOffset<EntryBacking>("phase"), 2ULL)
+    native.store64(statusScope, native.fieldOffset<Scope>("status"), hostpages.unmapPages(base, bytes))
+    if native.load64(statusScope, native.fieldOffset<Scope>("status")) ~= 0ULL then
+        return 0ULL
+    end
+
+    return 1ULL
+end
+
+local function valid(scope: voidptr): boolean
+    if native.load64(scope, native.fieldOffset<Scope>("phase")) ~= 1ULL then
+        return false
+    end
+    local base = native.load64(scope, native.fieldOffset<Scope>("records"))
+    local count = native.load64(scope, native.fieldOffset<Scope>("capacity"))
+
+    return count ~= 0ULL
+        and count <= MAX_RECORDS
+        and extent(base, count * native.sizeOf<Mapping>())
+        and (base & 7ULL) == 0ULL
+        and native.load64(scope, native.fieldOffset<Scope>("live")) <= count
+end
+
+local function entry(scope: voidptr, index: uint64): voidptr
+    return native.pointer(native.load64(scope, native.fieldOffset<Scope>("records")) + index * native.sizeOf<Mapping>())
+end
+
+local function reserve(scope: voidptr, bytes: uint64): uint64
+    if not valid(scope) then
+        return 0ULL
+    end
+    local serial = native.load64(scope, native.fieldOffset<Scope>("issued"))
+    if serial >= 0xffffffffffffULL then
+        return 0ULL
+    end
+    local count = native.load64(scope, native.fieldOffset<Scope>("capacity"))
+    local index: uint64 = 0ULL
+    while index < count do
+        local record = entry(scope, index)
+        if native.load64(record, native.fieldOffset<Mapping>("state")) == 0ULL then
+            serial = serial + 1ULL
+            native.store64(record, native.fieldOffset<Mapping>("base"), 0ULL)
+            native.store64(record, native.fieldOffset<Mapping>("bytes"), bytes)
+            native.store64(record, native.fieldOffset<Mapping>("serial"), serial)
+            native.store64(record, native.fieldOffset<Mapping>("state"), 1ULL)
+            native.store64(scope, native.fieldOffset<Scope>("issued"), serial)
+            return (serial << 16) | (index + 1ULL)
+        end
+        index = index + 1ULL
+    end
+
+    return 0ULL
+end
+
+local function owns(scope: voidptr, token: uint64, state: uint64): boolean
+    if not valid(scope) then
+        return false
+    end
+    local index = token & 65535ULL
+    if index == 0ULL
+        or index > native.load64(scope, native.fieldOffset<Scope>("capacity"))
+        or (token >> 16) == 0ULL
+    then
+        return false
+    end
+    local record = entry(scope, index - 1ULL)
+
+    return native.load64(record, native.fieldOffset<Mapping>("serial")) == token >> 16
+        and native.load64(record, native.fieldOffset<Mapping>("state")) == state
+end
+
+-- This exact checked wrapper is the only source nil OS call with raw C-status
+-- capture. The profile emits a visible graph store to Scope.status immediately
+-- after the C call. All ownership/error decisions below remain ordinary Nupp.
+export function unmapOwned(scope: voidptr, token: uint64): uint64
+    if not owns(scope, token, 2ULL) then
+        return 0ULL
+    end
+    local record = entry(scope, (token & 65535ULL) - 1ULL)
+    local base = native.load64(record, native.fieldOffset<Mapping>("base"))
+    local bytes = native.load64(record, native.fieldOffset<Mapping>("bytes"))
+    if base == 0ULL or bytes == 0ULL then
+        return 0ULL
+    end
+    native.store64(scope, native.fieldOffset<Scope>("status"), hostpages.unmapPages(native.pointer(base), bytes))
+    if native.load64(scope, native.fieldOffset<Scope>("status")) ~= 0ULL then
+        native.store64(scope, native.fieldOffset<Scope>("cleanupFailed"), 1ULL)
+        return 0ULL
+    end
+    native.store64(record, native.fieldOffset<Mapping>("state"), 0ULL)
+    native.store64(record, native.fieldOffset<Mapping>("base"), 0ULL)
+    native.store64(
+        scope,
+        native.fieldOffset<Scope>("live"),
+        native.load64(scope, native.fieldOffset<Scope>("live")) - 1ULL
+    )
+
+    return 1ULL
+end
+
+-- Mapping failure is a normal optional result, never a fabricated success or
+-- managed error allocation. Record capacity is reserved before the OS call.
+export function map(scope: voidptr, bytes: uint64): voidptr?
+    local page = hostpages.pageSize()
+    if page == 0ULL
+        or (page & (page - 1ULL)) ~= 0ULL
+        or bytes == 0ULL
+        or bytes > LIMIT
+        or page > LIMIT
+        or bytes > LIMIT - (page - 1ULL)
+    then
+        return nil
+    end
+    local rounded = (bytes + page - 1ULL) & ~(page - 1ULL)
+    local token = reserve(scope, rounded)
+    if token == 0ULL then
+        return nil
+    end
+    local record = entry(scope, (token & 65535ULL) - 1ULL)
+    local address = hostpages.mapPages(rounded)
+    if address == 0ULL then
+        native.store64(record, native.fieldOffset<Mapping>("state"), 0ULL)
+        return nil
+    end
+    local base = address
+    native.store64(record, native.fieldOffset<Mapping>("base"), base)
+    native.store64(record, native.fieldOffset<Mapping>("state"), 2ULL)
+    native.store64(
+        scope,
+        native.fieldOffset<Scope>("live"),
+        native.load64(scope, native.fieldOffset<Scope>("live")) + 1ULL
+    )
+    if base == 0ULL or base >= LIMIT or rounded > LIMIT - base then
+        local _ = unmapOwned(scope, token)
+        return nil
+    end
+
+    return native.pointer(base)
+end
+
+-- Adapts existing source unmap(base,bytes) calls only after a caller explicitly
+-- supplies this ledger scope. Source-service propagation is a separate gate.
+export function unmap(scope: voidptr, base: voidptr, bytes: uint64): uint64
+    if not valid(scope) then
+        return 0ULL
+    end
+    local page = hostpages.pageSize()
+    if page == 0ULL
+        or page > LIMIT
+        or (page & (page - 1ULL)) ~= 0ULL
+        or bytes == 0ULL
+        or bytes > LIMIT - (page - 1ULL)
+    then
+        native.store64(scope, native.fieldOffset<Scope>("cleanupFailed"), 1ULL)
+        return 0ULL
+    end
+    local rounded = (bytes + page - 1ULL) & ~(page - 1ULL)
+    local index: uint64 = 0ULL
+    while index < native.load64(scope, native.fieldOffset<Scope>("capacity")) do
+        local record = entry(scope, index)
+        if native.load64(record, native.fieldOffset<Mapping>("state")) == 2ULL
+            and native.load64(record, native.fieldOffset<Mapping>("base")) == native.address(base)
+            and native.load64(record, native.fieldOffset<Mapping>("bytes")) == rounded
+        then
+            return unmapOwned(
+                scope,
+                (native.load64(record, native.fieldOffset<Mapping>("serial")) << 16) | (index + 1ULL)
+            )
+        end
+        index = index + 1ULL
+    end
+    native.store64(scope, native.fieldOffset<Scope>("cleanupFailed"), 1ULL)
+
+    return 0ULL
+end
+
+-- Call only after all final-frame/range borrowers are proven retired. No
+-- callbacks, allocation, collection or cancellation checks during this drain.
+export function close(scope: voidptr): uint64
+    if not valid(scope) then
+        return 0ULL
+    end
+    local index: uint64 = 0ULL
+    local count = native.load64(scope, native.fieldOffset<Scope>("capacity"))
+    while index < count do
+        local record = entry(scope, index)
+        local state = native.load64(record, native.fieldOffset<Mapping>("state"))
+        if state == 1ULL or state > 2ULL then
+            native.store64(scope, native.fieldOffset<Scope>("cleanupFailed"), 1ULL)
+            native.store64(scope, native.fieldOffset<Scope>("phase"), 3ULL)
+            return 0ULL
+        end
+        index = index + 1ULL
+    end
+    index = 0ULL
+    while index < count do
+        local record = entry(scope, index)
+        if native.load64(record, native.fieldOffset<Mapping>("state")) == 2ULL then
+            local _ = unmapOwned(
+                scope,
+                (native.load64(record, native.fieldOffset<Mapping>("serial")) << 16) | (index + 1ULL)
+            )
+        end
+        index = index + 1ULL
+    end
+    if native.load64(scope, native.fieldOffset<Scope>("live")) ~= 0ULL
+        or native.load64(scope, native.fieldOffset<Scope>("cleanupFailed")) ~= 0ULL
+    then
+        native.store64(scope, native.fieldOffset<Scope>("phase"), 3ULL)
+        return 0ULL
+    end
+    native.store64(scope, native.fieldOffset<Scope>("phase"), 2ULL)
+
+    return 1ULL
+end

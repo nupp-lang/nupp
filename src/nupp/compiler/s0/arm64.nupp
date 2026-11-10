@@ -1,0 +1,440 @@
+module nupp.compiler.s0.arm64
+
+local arm64 = {}
+
+local function reg(value: integer): integer
+    assert(value >= 0 and value <= 31, "ARM64: register outside 0..31")
+    return value
+end
+
+local function width(bits: integer): integer
+    assert(bits == 32 or bits == 64, "ARM64: width must be 32 or 64")
+    return bits == 64 and 0x80000000 or 0
+end
+
+local function fpwidth(bits: integer): integer
+    assert(bits == 32 or bits == 64, "ARM64: float width must be 32 or 64")
+    return bits == 64 and 0x400000 or 0
+end
+
+local function unsigned(value: integer, limit: integer): integer
+    assert(value >= 0 and value < limit, "ARM64: unsigned immediate out of range")
+    return value
+end
+
+local function signed(value: integer, bits: integer, scale: integer): integer
+    local limit = 1 << (bits - 1)
+    assert(value % scale == 0, "ARM64: misaligned immediate")
+    local scaled = value // scale
+    assert(scaled >= -limit and scaled < limit, "ARM64: signed immediate out of range")
+
+    return scaled & ((1 << bits) - 1)
+end
+
+local function r3(base: integer, rd: integer, rn: integer, rm: integer): integer
+    return base | (reg(rm) << 16) | (reg(rn) << 5) | reg(rd)
+end
+
+local function r2(base: integer, rd: integer, rn: integer): integer
+    return base | (reg(rn) << 5) | reg(rd)
+end
+
+function arm64.add_reg(bits: integer, rd: integer, rn: integer, rm: integer, shift: integer): integer
+    return r3(width(bits) | 0x0b000000 | (unsigned(shift, bits) << 10), rd, rn, rm)
+end
+
+function arm64.sub_reg(bits: integer, rd: integer, rn: integer, rm: integer, shift: integer): integer
+    return r3(width(bits) | 0x4b000000 | (unsigned(shift, bits) << 10), rd, rn, rm)
+end
+
+function arm64.cmp_reg(bits: integer, rn: integer, rm: integer): integer
+    return r3(width(bits) | 0x6b000000, 31, rn, rm)
+end
+
+function arm64.add_imm(bits: integer, rd: integer, rn: integer, imm: integer, shift12: integer): integer
+    return r2(width(bits) | 0x11000000 | (unsigned(shift12, 2) << 22) | (unsigned(imm, 4096) << 10), rd, rn)
+end
+
+function arm64.sub_imm(bits: integer, rd: integer, rn: integer, imm: integer, shift12: integer): integer
+    return r2(width(bits) | 0x51000000 | (unsigned(shift12, 2) << 22) | (unsigned(imm, 4096) << 10), rd, rn)
+end
+
+function arm64.cmp_imm(bits: integer, rn: integer, imm: integer, shift12: integer): integer
+    return r2(width(bits) | 0x71000000 | (unsigned(shift12, 2) << 22) | (unsigned(imm, 4096) << 10), 31, rn)
+end
+
+function arm64.movz(bits: integer, rd: integer, imm: integer, half: integer): integer
+    return width(bits) | 0x52800000 | (unsigned(half, bits // 16) << 21) | (unsigned(imm, 65536) << 5) | reg(rd)
+end
+
+function arm64.movn(bits: integer, rd: integer, imm: integer, half: integer): integer
+    return width(bits) | 0x12800000 | (unsigned(half, bits // 16) << 21) | (unsigned(imm, 65536) << 5) | reg(rd)
+end
+
+function arm64.movk(bits: integer, rd: integer, imm: integer, half: integer): integer
+    return width(bits) | 0x72800000 | (unsigned(half, bits // 16) << 21) | (unsigned(imm, 65536) << 5) | reg(rd)
+end
+
+function arm64.mov_reg(bits: integer, rd: integer, rm: integer): integer
+    return r3(width(bits) | 0x2a000000, rd, 31, rm)
+end
+
+function arm64.and_reg(bits: integer, rd: integer, rn: integer, rm: integer): integer
+    return r3(width(bits) | 0x0a000000, rd, rn, rm)
+end
+
+function arm64.orr_reg(bits: integer, rd: integer, rn: integer, rm: integer): integer
+    return r3(width(bits) | 0x2a000000, rd, rn, rm)
+end
+
+function arm64.eor_reg(bits: integer, rd: integer, rn: integer, rm: integer): integer
+    return r3(width(bits) | 0x4a000000, rd, rn, rm)
+end
+
+local function logical(bits: integer, n: integer, immr: integer, imms: integer): integer
+    width(bits)
+    unsigned(n, 2)
+    unsigned(immr, 64)
+    unsigned(imms, 64)
+    assert(bits == 64 or n == 0, "ARM64: 32-bit logical immediate requires N=0")
+    local pattern = (n << 6) | ((~imms) & 63)
+    local length = 0
+    while pattern > 1 do
+        pattern = pattern >> 1
+        length = length + 1
+    end
+    assert(length >= 1, "ARM64: invalid logical immediate element size")
+    local levels = (1 << length) - 1
+    assert((imms & levels) ~= levels, "ARM64: logical immediate cannot be all ones")
+
+    return (n << 22) | (immr << 16) | (imms << 10)
+end
+
+function arm64.and_imm(bits: integer, rd: integer, rn: integer, n: integer, immr: integer, imms: integer): integer
+    return r2(width(bits) | 0x12000000 | logical(bits, n, immr, imms), rd, rn)
+end
+
+function arm64.orr_imm(bits: integer, rd: integer, rn: integer, n: integer, immr: integer, imms: integer): integer
+    return r2(width(bits) | 0x32000000 | logical(bits, n, immr, imms), rd, rn)
+end
+
+function arm64.eor_imm(bits: integer, rd: integer, rn: integer, n: integer, immr: integer, imms: integer): integer
+    return r2(width(bits) | 0x52000000 | logical(bits, n, immr, imms), rd, rn)
+end
+
+function arm64.mvn(bits: integer, rd: integer, rm: integer): integer
+    return r3(width(bits) | 0x2a200000, rd, 31, rm)
+end
+
+function arm64.lslv(bits: integer, rd: integer, rn: integer, rm: integer): integer
+    return r3(width(bits) | 0x1ac02000, rd, rn, rm)
+end
+
+function arm64.lsrv(bits: integer, rd: integer, rn: integer, rm: integer): integer
+    return r3(width(bits) | 0x1ac02400, rd, rn, rm)
+end
+
+function arm64.asrv(bits: integer, rd: integer, rn: integer, rm: integer): integer
+    return r3(width(bits) | 0x1ac02800, rd, rn, rm)
+end
+
+function arm64.ubfm(bits: integer, rd: integer, rn: integer, immr: integer, imms: integer): integer
+    return r2(
+        width(bits)
+        | (bits == 64 and 0x00400000 or 0)
+        | 0x53000000
+        | (unsigned(immr, bits) << 16)
+        | (unsigned(imms, bits) << 10),
+        rd,
+        rn
+    )
+end
+
+function arm64.sbfm(bits: integer, rd: integer, rn: integer, immr: integer, imms: integer): integer
+    return r2(
+        width(bits)
+        | (bits == 64 and 0x00400000 or 0)
+        | 0x13000000
+        | (unsigned(immr, bits) << 16)
+        | (unsigned(imms, bits) << 10),
+        rd,
+        rn
+    )
+end
+
+function arm64.madd(bits: integer, rd: integer, rn: integer, rm: integer, ra: integer): integer
+    return r3(width(bits) | 0x1b000000 | (reg(ra) << 10), rd, rn, rm)
+end
+
+function arm64.msub(bits: integer, rd: integer, rn: integer, rm: integer, ra: integer): integer
+    return r3(width(bits) | 0x1b008000 | (reg(ra) << 10), rd, rn, rm)
+end
+
+function arm64.umulh(rd: integer, rn: integer, rm: integer): integer
+    return r3(0x9bc07c00, rd, rn, rm)
+end
+
+function arm64.smulh(rd: integer, rn: integer, rm: integer): integer
+    return r3(0x9b407c00, rd, rn, rm)
+end
+
+function arm64.udiv(bits: integer, rd: integer, rn: integer, rm: integer): integer
+    return r3(width(bits) | 0x1ac00800, rd, rn, rm)
+end
+
+function arm64.sdiv(bits: integer, rd: integer, rn: integer, rm: integer): integer
+    return r3(width(bits) | 0x1ac00c00, rd, rn, rm)
+end
+
+function arm64.csel(bits: integer, rd: integer, rn: integer, rm: integer, condition: integer): integer
+    return r3(width(bits) | 0x1a800000 | (unsigned(condition, 16) << 12), rd, rn, rm)
+end
+
+function arm64.cset(bits: integer, rd: integer, condition: integer): integer
+    return r3(width(bits) | 0x1a800400 | ((unsigned(condition, 14) ~ 1) << 12), rd, 31, 31)
+end
+
+function arm64.ccmp_reg(bits: integer, rn: integer, rm: integer, nzcv: integer, condition: integer): integer
+    return width(bits)
+        | 0x7a400000
+        | (reg(rm) << 16)
+        | (unsigned(condition, 16) << 12)
+        | (reg(rn) << 5)
+        | unsigned(nzcv, 16)
+end
+
+function arm64.b(offset: integer): integer
+    return 0x14000000 | signed(offset, 26, 4)
+end
+
+function arm64.bl(offset: integer): integer
+    return 0x94000000 | signed(offset, 26, 4)
+end
+
+function arm64.b_cond(condition: integer, offset: integer): integer
+    return 0x54000000 | (signed(offset, 19, 4) << 5) | unsigned(condition, 16)
+end
+
+function arm64.cbz(bits: integer, rt: integer, offset: integer): integer
+    return width(bits) | 0x34000000 | (signed(offset, 19, 4) << 5) | reg(rt)
+end
+
+function arm64.cbnz(bits: integer, rt: integer, offset: integer): integer
+    return width(bits) | 0x35000000 | (signed(offset, 19, 4) << 5) | reg(rt)
+end
+
+function arm64.br(rn: integer): integer
+    return 0xd61f0000 | (unsigned(rn, 31) << 5)
+end
+
+function arm64.blr(rn: integer): integer
+    return 0xd63f0000 | (unsigned(rn, 31) << 5)
+end
+
+function arm64.ret(rn: integer): integer
+    return 0xd65f0000 | (unsigned(rn, 31) << 5)
+end
+
+function arm64.adr(rd: integer, offset: integer): integer
+    local imm = signed(offset, 21, 1)
+    return 0x10000000 | ((imm & 3) << 29) | ((imm >> 2) << 5) | reg(rd)
+end
+
+function arm64.ldr_literal(rt: integer, offset: integer): integer
+    return 0x58000000 | (signed(offset, 19, 4) << 5) | reg(rt)
+end
+
+function arm64.brk(imm: integer): integer
+    return 0xd4200000 | (unsigned(imm, 65536) << 5)
+end
+
+local function size(bytes: integer): integer
+    assert(bytes == 1 or bytes == 2 or bytes == 4 or bytes == 8, "ARM64: memory width must be 1, 2, 4 or 8")
+    return bytes == 8 and 3 or bytes == 4 and 2 or bytes == 2 and 1 or 0
+end
+
+function arm64.ldr(bytes: integer, rt: integer, rn: integer, offset: integer): integer
+    local form = size(bytes)
+    assert(offset % bytes == 0, "ARM64: misaligned load offset")
+    return r2((form << 30) | 0x39400000 | (unsigned(offset // bytes, 4096) << 10), rt, rn)
+end
+
+function arm64.str(bytes: integer, rt: integer, rn: integer, offset: integer): integer
+    local form = size(bytes)
+    assert(offset % bytes == 0, "ARM64: misaligned store offset")
+    return r2((form << 30) | 0x39000000 | (unsigned(offset // bytes, 4096) << 10), rt, rn)
+end
+
+function arm64.memory64(store: boolean, rt: integer, rn: integer, rm: integer): integer
+    return r3(store and 0xf8207800 or 0xf8607800, rt, rn, rm)
+end
+
+function arm64.ldrsw(rt: integer, rn: integer, offset: integer): integer
+    assert(offset % 4 == 0, "ARM64: misaligned signed load offset")
+    return r2(0xb9800000 | (unsigned(offset // 4, 4096) << 10), rt, rn)
+end
+
+function arm64.ldur(bytes: integer, rt: integer, rn: integer, offset: integer): integer
+    return r2((size(bytes) << 30) | 0x38400000 | (signed(offset, 9, 1) << 12), rt, rn)
+end
+
+function arm64.stur(bytes: integer, rt: integer, rn: integer, offset: integer): integer
+    return r2((size(bytes) << 30) | 0x38000000 | (signed(offset, 9, 1) << 12), rt, rn)
+end
+
+-- Load-acquire of the 64-bit word at [rn] (ARMv8.0 LDAR).
+function arm64.ldar(rt: integer, rn: integer): integer
+    return r2(0xc8dffc00, rt, rn)
+end
+
+-- Compare-and-swap with acquire and release semantics (ARMv8.1 CASAL): the
+-- 64-bit word at [rn] is replaced by rt when it equals rs; rs answers it.
+function arm64.casal(rs: integer, rt: integer, rn: integer): integer
+    return r2(0xc8e0fc00 | (reg(rs) << 16), rt, rn)
+end
+
+function arm64.ldr_fp(bits: integer, rt: integer, rn: integer, offset: integer): integer
+    local bytes = bits // 8
+    local form = fpwidth(bits)
+    assert(offset % bytes == 0, "ARM64: misaligned float load offset")
+    return r2((form == 0 and 0xbd400000 or 0xfd400000) | (unsigned(offset // bytes, 4096) << 10), rt, rn)
+end
+
+function arm64.str_fp(bits: integer, rt: integer, rn: integer, offset: integer): integer
+    local bytes = bits // 8
+    local form = fpwidth(bits)
+    assert(offset % bytes == 0, "ARM64: misaligned float store offset")
+    return r2((form == 0 and 0xbd000000 or 0xfd000000) | (unsigned(offset // bytes, 4096) << 10), rt, rn)
+end
+
+local function pair(
+    base: integer,
+    bytes: integer,
+    rt: integer,
+    rt2: integer,
+    rn: integer,
+    offset: integer,
+    mode: integer
+): integer
+    unsigned(mode, 3)
+    local indexing = mode == 1 and 0x00800000 or mode == 2 and -0x00800000 or 0
+    return r2((base + indexing) | (signed(offset, 7, bytes) << 15) | (reg(rt2) << 10), rt, rn)
+end
+
+function arm64.ldp(bits: integer, rt: integer, rt2: integer, rn: integer, offset: integer, mode: integer): integer
+    width(bits)
+    assert(rt ~= rt2, "ARM64: pair load registers overlap")
+    assert(mode == 0 or rn == 31 or (rn ~= rt and rn ~= rt2), "ARM64: pair writeback overlaps source")
+    return pair(bits == 64 and 0xa9400000 or 0x29400000, bits // 8, rt, rt2, rn, offset, mode)
+end
+
+function arm64.stp(bits: integer, rt: integer, rt2: integer, rn: integer, offset: integer, mode: integer): integer
+    width(bits)
+    assert(mode == 0 or rn == 31 or (rn ~= rt and rn ~= rt2), "ARM64: pair writeback overlaps source")
+    return pair(bits == 64 and 0xa9000000 or 0x29000000, bits // 8, rt, rt2, rn, offset, mode)
+end
+
+function arm64.ldp_fp(bits: integer, rt: integer, rt2: integer, rn: integer, offset: integer, mode: integer): integer
+    fpwidth(bits)
+    assert(rt ~= rt2, "ARM64: pair load registers overlap")
+    return pair(bits == 64 and 0x6d400000 or 0x2d400000, bits // 8, rt, rt2, rn, offset, mode)
+end
+
+function arm64.stp_fp(bits: integer, rt: integer, rt2: integer, rn: integer, offset: integer, mode: integer): integer
+    fpwidth(bits)
+    return pair(bits == 64 and 0x6d000000 or 0x2d000000, bits // 8, rt, rt2, rn, offset, mode)
+end
+
+function arm64.fadd(bits: integer, rd: integer, rn: integer, rm: integer): integer
+    return r3(fpwidth(bits) | 0x1e202800, rd, rn, rm)
+end
+
+function arm64.fsub(bits: integer, rd: integer, rn: integer, rm: integer): integer
+    return r3(fpwidth(bits) | 0x1e203800, rd, rn, rm)
+end
+
+function arm64.fmul(bits: integer, rd: integer, rn: integer, rm: integer): integer
+    return r3(fpwidth(bits) | 0x1e200800, rd, rn, rm)
+end
+
+function arm64.fdiv(bits: integer, rd: integer, rn: integer, rm: integer): integer
+    return r3(fpwidth(bits) | 0x1e201800, rd, rn, rm)
+end
+
+function arm64.fmov(bits: integer, rd: integer, rn: integer): integer
+    return r2(fpwidth(bits) | 0x1e204000, rd, rn)
+end
+
+function arm64.fneg(bits: integer, rd: integer, rn: integer): integer
+    return r2(fpwidth(bits) | 0x1e214000, rd, rn)
+end
+
+function arm64.fabs(bits: integer, rd: integer, rn: integer): integer
+    return r2(fpwidth(bits) | 0x1e20c000, rd, rn)
+end
+
+function arm64.fsqrt(bits: integer, rd: integer, rn: integer): integer
+    return r2(fpwidth(bits) | 0x1e21c000, rd, rn)
+end
+
+function arm64.frintm(bits: integer, rd: integer, rn: integer): integer
+    return r2(fpwidth(bits) | 0x1e254000, rd, rn)
+end
+
+function arm64.frintp(bits: integer, rd: integer, rn: integer): integer
+    return r2(fpwidth(bits) | 0x1e24c000, rd, rn)
+end
+
+function arm64.fcmp(bits: integer, rn: integer, rm: integer): integer
+    return r3(fpwidth(bits) | 0x1e202000, 0, rn, rm)
+end
+
+function arm64.fccmp(bits: integer, rn: integer, rm: integer, nzcv: integer, condition: integer): integer
+    return fpwidth(bits)
+        | 0x1e200400
+        | (reg(rm) << 16)
+        | (unsigned(condition, 16) << 12)
+        | (reg(rn) << 5)
+        | unsigned(nzcv, 16)
+end
+
+function arm64.fcsel(bits: integer, rd: integer, rn: integer, rm: integer, condition: integer): integer
+    return r3(fpwidth(bits) | 0x1e200c00 | (unsigned(condition, 16) << 12), rd, rn, rm)
+end
+
+function arm64.fmadd(bits: integer, rd: integer, rn: integer, rm: integer, ra: integer): integer
+    return r3(fpwidth(bits) | 0x1f000000 | (reg(ra) << 10), rd, rn, rm)
+end
+
+function arm64.fcvt(toBits: integer, fromBits: integer, rd: integer, rn: integer): integer
+    fpwidth(toBits)
+    fpwidth(fromBits)
+    assert(toBits ~= fromBits, "ARM64: conversion widths must differ")
+    return r2(toBits == 64 and 0x1e22c000 or 0x1e624000, rd, rn)
+end
+
+function arm64.fmov_to_int(bits: integer, rd: integer, rn: integer): integer
+    return r2(width(bits) | fpwidth(bits) | 0x1e260000, rd, rn)
+end
+
+function arm64.fmov_from_int(bits: integer, rd: integer, rn: integer): integer
+    return r2(width(bits) | fpwidth(bits) | 0x1e270000, rd, rn)
+end
+
+function arm64.scvtf(floatBits: integer, integerBits: integer, rd: integer, rn: integer): integer
+    return r2(fpwidth(floatBits) | width(integerBits) | 0x1e220000, rd, rn)
+end
+
+function arm64.ucvtf(floatBits: integer, integerBits: integer, rd: integer, rn: integer): integer
+    return r2(fpwidth(floatBits) | width(integerBits) | 0x1e230000, rd, rn)
+end
+
+function arm64.fcvtzs(floatBits: integer, integerBits: integer, rd: integer, rn: integer): integer
+    return r2(fpwidth(floatBits) | width(integerBits) | 0x1e380000, rd, rn)
+end
+
+function arm64.fcvtzu(floatBits: integer, integerBits: integer, rd: integer, rn: integer): integer
+    return r2(fpwidth(floatBits) | width(integerBits) | 0x1e390000, rd, rn)
+end
+
+export = arm64

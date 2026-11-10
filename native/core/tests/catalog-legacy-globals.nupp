@@ -1,9 +1,0 @@
-module nupp.core.cataloglegacyglobals
-
--- LuaJIT's globals as values: `unpack` is `table.unpack`, and `jit`, which the
--- core does not have, reads nil, as on a Lua without it.
-local unpackAny = unpack as function(table, integer?, integer?): ...any
-local a, b, c = unpackAny({1, 2, 3})
-local platform = tostring(jit and jit.os)
-
-export const result = (a as integer) * 100 + (b as integer) * 10 + (c as integer) + (platform == "nil" and 1000 or 0)

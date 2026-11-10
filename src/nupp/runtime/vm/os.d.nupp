@@ -72,8 +72,8 @@ local record Os
 
     --- Copies the program argument at `index`, 0 the program and then its
     --- arguments in order, into `out`, at most `room` bytes: its whole
-    --- length, or -1 past the last. The core's bridge answers it; the VM
-    --- builds its `arg` table itself.
+    --- length, or -1 past the last. The core reads its command line
+    --- (hostarguments); the VM builds its `arg` table itself.
     @vmHelperEffects(mayCollect = false, mayPark = false, mayRaise = false, pure = false)
     argument: function(index: uint64, out: voidptr, room: uint64): int64
 
@@ -125,7 +125,8 @@ local record Os
     atomiccas64: function(base: voidptr, offset: int64, expected: uint64, replacement: uint64): uint64
 
     --- Fills exactly bytes from the host secure random source: 0 on success,
-    --- otherwise its negative OS status (or a negative getrandom internal status).
+    --- otherwise its negative OS status. The core asks the C library's
+    --- getentropy (hostentropy).
     --- No result bytes are publishable after failure. The destination stays
     --- owned and writable through this noncollecting, noncallback call.
     @vmHelperEffects(mayCollect = false, mayPark = false, mayRaise = false, pure = false)

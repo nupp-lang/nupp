@@ -1020,6 +1020,39 @@ function M.namedArgumentsDescribeTwice()
     end
 end
 
+-- A project checks a tree it shares across programs again, which declares a
+-- function statement's name anew: the next program still has the statement
+-- assign the local it names.
+function M.forwardFunctionStatementAssignsItsLocalAfterARecheck()
+    local input = checked(
+        "local odd: function(integer): boolean\n"
+        .. "function odd(n: integer): boolean return n % 2 == 1 end\n"
+        .. "return odd(3)"
+    )
+    local function statementName(node)
+        if type(node) ~= "table" then
+            return nil
+        elseif node.kind == "funcStmt" then
+            return node.name.base
+        end
+        for _, child in ipairs(node) do
+            local found = statementName(child)
+            if found then
+                return found
+            end
+        end
+    end
+    local env = environment.new(".", {memoryOnly = true, cache = false, nativeCompilerServices = false})
+    for round = 1, 2 do
+        if round == 2 then
+            input.diagnostics = checker.check(input.parsed, input.path, env, {moduleName = input.name, strict = false})
+        end
+        program.describe({input}, input.name)
+        local token = assert(statementName(input.parsed.root), "function statement")
+        assert(token.definition.token ~= token, "round " .. round .. " assigns the declared local")
+    end
+end
+
 function M.unsafeStillRequiresItsCheckedAnnotationDefinition()
     local input = checked('@unsafe do local answer = 42 end\nreturn 7')
     local pragma = input.parsed.root.blocks[1].stats[1]

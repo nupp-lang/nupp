@@ -3,9 +3,8 @@
 --[[
 Lua 5.5's `os` library on the native core, written over its process layer
 (`nupp.runtime.processes`): `os.execute` runs a command line in the shell
-and answers Lua's results (true or nil, "exit" or "signal", and the code),
-or with no command whether a shell exists; `os.exit` ends the program;
-`os.getenv` reads the environment; `os.monotonic` is Nupp's clock;
+and answers its status as main does, in Lua 5.1's form (see `execute`);
+`os.exit` ends the program; `os.getenv` reads the environment; `os.monotonic` is Nupp's clock;
 `os.remove`, `os.rename` and `os.tmpname` work on file names through the
 file layer; `os.setlocale` answers the one locale the core has, C's; and
 the clock and calendar functions are `nupp.runtime.luatime`'s.
@@ -31,20 +30,27 @@ const SUCCESS = 0
 
 const FAILURE = 1
 
--- Runs `command` in the shell and answers how it ended, as Lua's
--- luaL_execresult does; with no command, whether a shell exists.
+-- Where a wait status holds an exit code: its second byte.
+const STATUS_SHIFT = 8
+
+-- Runs `command` in the shell and answers how it ended as main's os.execute
+-- does, in Lua 5.1's form: the wait status, an exit code in its high byte
+-- (`exit 1` is 256), or a signal's number; with no command, an empty
+-- command line's; nil and the reason when the shell cannot start. The core
+-- follows main here, and moves to Lua 5.5's results only when main does.
 local function execute(...: any): ...any
     local command: any = select(1, ...)
-    if command == nil then
-        return processes.hasshell()
-    end
-    local line = luaargs.stringarg(command, nil, 1, "os.execute", 2)
+    local line = command == nil and "" or luaargs.stringarg(command, nil, 1, "os.execute", 2)
     local child, code = processes.shell(line, processes.INHERIT, processes.INHERIT)
     if child == nil then
-        return nil, files.reason(code), code
+        return nil, files.reason(code)
+    end
+    local exit = processes.wait(child as processes.Process)
+    if exit.reason == "signal" then
+        return exit.code
     end
 
-    return processes.results(processes.wait(child as processes.Process))
+    return exit.code << STATUS_SHIFT
 end
 
 -- Ends the program with `code`: true or none is success, false failure.

@@ -1,0 +1,53 @@
+module nupp.core.catalogaliasdowncast
+
+-- An alias that crossed `any` comes back through `own.recoveralias`, and
+-- `alias:downcast<T>()` checks the cell's cleanup policy against T's: the
+-- matching type answers the alias, any other answers nil and NUPP2613.
+local closed: integer = 0
+
+local record Handle
+    id: integer
+end
+
+local record Other
+    id: integer
+end
+
+local function release(takes value: Handle): nil
+    closed += value.id
+end
+
+local function discard(takes value: Other): nil
+    closed += 100 * value.id
+end
+
+local function open(id: integer): affine(Handle, release)
+    return Handle(id = id)
+end
+
+local function recovered(): integer
+    local owner = own.manage(open(5))
+    local erased: any = owner:alias()
+    local alias, problem = own.recoveralias(erased)
+    if not alias or problem ~= nil then
+        return 1000
+    end
+    local handle, wrong = alias:downcast<affine(Handle, release)>()
+    local mismatch, mismatchProblem = alias:downcast<affine(Other, discard)>()
+    local score = (handle ~= nil and 1 or 0) + (wrong == nil and 2 or 0) + (mismatch == nil and 4 or 0)
+    if mismatchProblem and mismatchProblem.code == "NUPP2613" then
+        score += 8
+    end
+    if handle then
+        handle:close()
+    end
+
+    return score
+end
+
+local function stranger(): integer
+    local _, problem = own.recoveralias({id = 3} as any)
+    return problem and problem.code == "NUPP2614" and 16 or 0
+end
+
+export const result = (recovered() + stranger()) * 100 + closed

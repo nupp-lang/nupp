@@ -2,6 +2,7 @@ module nupp.compiler.vm.programgraph
 
 local cst = require("nupp.compiler.syntax.cst")
 local lexer = require("nupp.compiler.syntax.lexer")
+local types = require("nupp.compiler.types")
 local graph = require("nupp.compiler.vm.graph")
 local construction = require("nupp.compiler.vm.construction")
 local builtinextensions = require("nupp.compiler.builtinextensions")
@@ -18,6 +19,7 @@ local derivedrecipes = require("nupp.compiler.vm.derivedrecipes")
 local managedcalls = require("nupp.compiler.vm.managedcalls")
 local indexedaccess = require("nupp.compiler.vm.indexedaccess")
 local namedarguments = require("nupp.compiler.vm.namedarguments")
+local aliasdowncast = require("nupp.compiler.vm.aliasdowncast")
 
 local typeSyntax = {
     tconst = true,
@@ -397,6 +399,65 @@ local function eachToken(node: any, visit: function(any): nil, enter: (function(
     end
 end
 
+-- A call of a chunk's global `require` of module `name`, issued at `anchor`
+-- and never written into the checked tree, which a chunk makes where it
+-- reads what a module it does not carry exports.
+local function chunkRequire(name: string, anchor: any): any
+    local function token(kind: string, text: string): any
+        return {kind = kind, text = text, line = anchor.line, col = anchor.col, offset = anchor.offset, trivia = {}}
+    end
+
+    local callee = token("name", "require")
+    local quoted = token("string", string.format("%q", name))
+    local argument = {kind = "string", token = quoted, inferredType = types.string, quoted}
+    local args = {kind = "args", exprs = {argument}, argument}
+    local obj = {kind = "name", token = callee, callee}
+
+    return {kind = "call", obj = obj, args = args, inferredType = types.any, obj, args}
+end
+
+-- The library calls a chunk guards: those it makes through a global name
+-- (`print`, `io.write`) other than the forms the core lowers itself around
+-- the call (pcall, xpcall, require, a callback's library). Answers the
+-- library's name, which keys the function the program started with.
+local UNGUARDED: {[string]: boolean} = {pcall = true, xpcall = true, ["require.dynamic"] = true}
+
+-- Whether a call is made in the arguments under `node`, outside the bodies
+-- of functions they make. Each arm of a guarded call lowers its arguments,
+-- and a call there would be two callsites of one checked call: such a
+-- library call is made through the environment alone.
+local function callsWithin(p: any, node: any): boolean
+    if type(node) ~= "table" or cst.isToken(node) or p.byBody[node] ~= nil then
+        return false
+    elseif node.kind == "call" or node.kind == "methodCall" then
+        return true
+    end
+    for _, child in ipairs(node) do
+        if callsWithin(p, child) then
+            return true
+        end
+    end
+
+    return false
+end
+
+local function guardedLibrary(p: any, node: any): string?
+    local library = graph.coreLibraryCall(node)
+    if library == nil or UNGUARDED[library] or graph.callbackArgument(node) ~= nil or p.callByNode[node] ~= nil then
+        return nil
+    end
+    local callee = node.obj
+    local root = callee and callee.kind == "dotIndex" and callee.obj or callee
+    if root == nil or root.kind ~= "name" or not chunkGlobal(p, root) then
+        return nil
+    end
+    if callee ~= root and (callee.obj ~= root or callee.name == nil) then
+        return nil
+    end
+
+    return library
+end
+
 -- A function statement naming a local declared before it (`local f` then
 -- `function f()`) assigns that local, as in Lua; the checker declares the
 -- statement's name anew. This points the statement's name, and every name
@@ -455,11 +516,20 @@ end
 export function describe(modules: {any}, entryModule: string, options: any?): any
     local p: any = {
         chunk = options ~= nil and options.chunk == true,
+        -- A chunk that is a Nupp module (an instance of it), not a function
+        -- of `...`.
+        chunkModule = options ~= nil and options.module == true,
         -- In a chunk, the name tokens that read or write a global, each to
         -- the read of the chunk's environment it is a field of.
         globals = {},
-        -- In a chunk, the name of the local its environment is in.
+        -- In a chunk, the name of the local its environment is in, and of
+        -- the one the library functions as the program started are in.
         environment = options ~= nil and options.environment or nil,
+        builtins = options ~= nil and options.builtins or nil,
+        -- In a chunk, the library calls through a global, each to what its
+        -- guard reads: the call is the core's own while the environment
+        -- still holds the function the program started with.
+        guarded = {},
         modules = {},
         owners = {},
         bindings = {},
@@ -525,9 +595,10 @@ export function describe(modules: {any}, entryModule: string, options: any?): an
         sourcePaths[input.path] = true
         local parsed = need(input.parsed, "checked parse required")
         need(parsed.root and parsed.symbols and parsed.moduleName == input.name, "checked module identity required")
-        -- Once per checked tree: a project shares its trees across programs.
-        if parsed.forwardNames == nil then
-            parsed.forwardNames = {}
+        -- Once per check of a tree: a project shares its trees across
+        -- programs, and checking one again declares its names anew.
+        if parsed.forwardSymbols ~= parsed.symbols then
+            parsed.forwardNames, parsed.forwardSymbols = {}, parsed.symbols
             assignForwardLocals(parsed.root, parsed.forwardNames)
         end
         for own, assigned in pairs(parsed.forwardNames) do
@@ -538,7 +609,16 @@ export function describe(modules: {any}, entryModule: string, options: any?): an
         for _, diagnostic in ipairs(input.diagnostics) do
             need(p.chunk or diagnostic.severity ~= "error", "module has checker errors")
         end
-        local scope: any = {name = input.name, path = input.path, constants = {}, functions = {}, exports = {}}
+        -- A chunk's Lua source, the name Lua's `load` was given; a module's
+        -- is "@" and its path.
+        local scope: any = {
+            name = input.name,
+            path = input.path,
+            chunkname = input.chunkname,
+            constants = {},
+            functions = {},
+            exports = {}
+        }
         local owner: any = {
             id = #p.owners,
             kind = "module",
@@ -661,6 +741,9 @@ export function describe(modules: {any}, entryModule: string, options: any?): an
                 body = body,
                 parent = owner.id,
                 scope = owner.scope,
+                -- A chunk is the function of `...` its module returns, which
+                -- Lua's debug.getinfo calls a main chunk.
+                main = p.chunk and not p.chunkModule and owner.kind == "module" or nil,
                 signature = signature,
                 paramKinds = {},
                 captures = {},
@@ -775,11 +858,16 @@ export function describe(modules: {any}, entryModule: string, options: any?): an
             )
         end
     end
-    -- A chunk's environment: the declaration of the local its opening makes.
+    -- A chunk's environment and the library functions as the program
+    -- started: the declarations of the locals its opening makes.
     if p.chunk then
         for _, b in ipairs(p.bindings) do
-            if b.definition.name == p.environment and p.owners[b.owner + 1].kind == "module" then
-                p.chunkEnvironment = b.definition
+            if p.owners[b.owner + 1].kind == "module" then
+                if b.definition.name == p.environment then
+                    p.chunkEnvironment = b.definition
+                elseif b.definition.name == p.builtins then
+                    p.chunkBuiltins = b.definition
+                end
             end
         end
         need(p.chunkEnvironment ~= nil, "chunk environment declaration is missing")
@@ -929,19 +1017,23 @@ export function describe(modules: {any}, entryModule: string, options: any?): an
 
     -- A read of the chunk's environment where global `token` is, in `owner`:
     -- a reference of its own, which capture analysis carries into closures.
-    local function environmentRead(token: any, owner: any): any
+    local function chunkLocalRead(token: any, owner: any, name: string, definition: any): any
         local read: any = {
             kind = "name",
-            text = p.environment,
+            text = name,
             line = token.line,
             col = token.col,
             offset = token.offset,
             trivia = {},
-            definition = p.chunkEnvironment
+            definition = definition
         }
         reference(read, owner)
 
         return read
+    end
+
+    local function environmentRead(token: any, owner: any): any
+        return chunkLocalRead(token, owner, p.environment, p.chunkEnvironment)
     end
 
     reference = function(token: any, owner: any): nil
@@ -1063,6 +1155,10 @@ export function describe(modules: {any}, entryModule: string, options: any?): an
         if node.kind == "call" or node.kind == "methodCall" then
             for _, skipped in ipairs(namedarguments.normalize(node) or {}) do
                 collect(skipped, owner)
+            end
+            -- `alias:downcast<T>()` calls `_downcast` with T's policy, as main does.
+            for _, policy in ipairs(aliasdowncast.normalize(node) or {}) do
+                collect(policy, owner)
             end
         end
         local bodyOwner = p.byBody[node]
@@ -1272,6 +1368,16 @@ export function describe(modules: {any}, entryModule: string, options: any?): an
             node.runtimeLoader = nil
             node.chunkRequire = true
         end
+        -- A chunk's library call through a global that makes a call in its
+        -- arguments calls what its environment holds (callsWithin).
+        if p.chunk
+            and p.chunkBuiltins ~= nil
+            and node.kind == "call"
+            and callsWithin(p, node.args)
+            and guardedLibrary(p, node) ~= nil
+        then
+            node.chunkDynamic = true
+        end
         -- Library intrinsics the core implements as operations (math.floor) are
         -- forms too: the global they name is never read, unless the call
         -- spreads `...` where its form cannot, calling the function's value.
@@ -1346,6 +1452,11 @@ export function describe(modules: {any}, entryModule: string, options: any?): an
                     tokens[
                         super.interfaceName
                     ] = {qualifiedModule = origin.moduleName, inheritFrom = declaration.name.text}
+                elseif super.interfaceName and definition and definition.filename ~= owner.scope.path and p.chunk then
+                    -- A chunk's interface from a module the program does not
+                    -- carry: that module as the chunk's `require` answers it,
+                    -- as main's `require(...).Interface` is read.
+                    tokens[super.interfaceName] = {chunkModule = origin.moduleName, inheritFrom = declaration.name.text}
                 elseif super.interfaceName and definition and definition.filename == owner.scope.path then
                     local token: any = {
                         kind = "name",
@@ -1385,6 +1496,11 @@ export function describe(modules: {any}, entryModule: string, options: any?): an
                     }
                     p.requires[#p.requires + 1], p.requireByNode[site] = item, item
                     tokens[taken] = site
+                elseif from and from.chunkModule then
+                    local call = chunkRequire(from.chunkModule, cst.firstToken(node))
+                    call.inheritFrom, call.inheritedDefault = from.inheritFrom, taken
+                    collect(call, owner)
+                    tokens[taken] = call
                 end
             end
             p.inheritTokens[node] = tokens
@@ -1574,6 +1690,9 @@ export function describe(modules: {any}, entryModule: string, options: any?): an
             -- inference. Its marker is a dependency, not a fabricated binding.
             p.intrinsics[#p.intrinsics + 1] = {id = #p.intrinsics, owner = owner.id, node = node, operation = intrinsic}
         end
+        -- `own.recoveralias(v)` calls coremanaged's factory in its place: its
+        -- callee is never read, nor called.
+        local recovered = managedcalls.recovering(node)
         -- pcall is a library form whose name is never read, but it calls its
         -- first argument, so it is a callsite all the same.
         local protected = node.kind == "call"
@@ -1612,10 +1731,28 @@ export function describe(modules: {any}, entryModule: string, options: any?): an
             and (node.obj.kind ~= "name" or throughValue)
             and not loader
             and not intrinsic
+            and not recovered
             and (not loopForms[node] or graph.callbackArgument(node) ~= nil)
             or node.kind == "methodCall" and graph.callbackArgument(node) ~= nil
         then
             local item = {id = #p.calls, owner = owner.id, node = node, field = true}
+            p.calls[#p.calls + 1], p.callByNode[node] = item, item
+        end
+        -- A chunk's library call through a global (`print(x)`, `io.write(s)`)
+        -- calls what its environment holds: the core's own operation while
+        -- that is the function the program started with, else a call of it.
+        local guard = p.chunk and p.chunkBuiltins ~= nil and node.kind == "call" and guardedLibrary(p, node)
+        if guard then
+            local root = node.obj.kind == "dotIndex" and node.obj.obj or node.obj
+            p.globals[root.token] = p.globals[root.token] or environmentRead(root.token, owner)
+            p.guarded[
+                node
+            ] = {
+                library = guard,
+                root = root,
+                builtins = chunkLocalRead(cst.firstToken(node), owner, p.builtins, p.chunkBuiltins)
+            }
+            local item = {id = #p.calls, owner = owner.id, node = node, field = true, guarded = true}
             p.calls[#p.calls + 1], p.callByNode[node] = item, item
         end
         -- A generic `for` over anything but ipairs, pairs or gmatch calls its
@@ -1696,7 +1833,7 @@ export function describe(modules: {any}, entryModule: string, options: any?): an
             return
         end
         for _, child in ipairs(node) do
-            if not (intrinsic or loader or loopForms[node]) or child ~= node.obj then
+            if not (intrinsic or recovered or loader or loopForms[node]) or child ~= node.obj then
                 collect(child, owner)
             end
         end
@@ -2306,6 +2443,7 @@ export function verify(p: any): boolean
                 -- A library function called by its name through its value.
                 or node.kind == "call" and graph.libraryValue(node.obj) ~= nil
                 or node.kind == "call" and chunkValueCall(p, node)
+                or item.guarded == true and p.guarded[node] ~= nil
                 or node.kind == "methodCall"
                 and graph.callbackArgument(node) ~= nil)
                 and p.callByNode[node] == item
@@ -2394,8 +2532,8 @@ export function select(p: any, moduleName: string, name: string): any
 end
 
 -- One owner's graph from a verified catalog whose external references and
--- intrinsics the caller has established for this owner.
-local function ownerGraph(p: any, owner: any, profile: any): any
+-- intrinsics the caller has established for this owner (`admit`).
+export function ownerGraph(p: any, owner: any, profile: any): any
     need(p.owners[owner.id + 1] == owner, "foreign function owner")
     graph.checking(owner.scope and owner.scope.path)
     -- A profile may give a function that acquires cleanups its own variant.
@@ -2435,6 +2573,76 @@ local function explicitOperands(op: string): nil
     end
 end
 
+-- Checked `owner`'s graph `g` names only what the catalog holds: its own
+-- identity and source, closures of its own children, its captures, and the
+-- checked callsites and callees of its calls.
+export function verifyOwner(p: any, owner: any, g: any): nil
+    need(g.native == nil, "core guest program cannot admit a native graph")
+    local nparams = owner.kind == "module" and 0 or #graph.parameters(owner.body)
+    need(g.nparams == nparams, "graph parameter count differs from checked owner")
+    need(g.programOwner == owner.id, "graph owner identity mismatch")
+    need(
+        g.name == owner.name and g.module == owner.scope.name and g.path == owner.scope.path,
+        "graph owner source mismatch"
+    )
+    graph.verify(g)
+    for _, block in ipairs(g.blocks) do
+        for at, op in ipairs(block.op) do
+            local args = block.args[at]
+            need(op ~= "NewClosure", "core program requires explicit closure capture SSA operands")
+            explicitOperands(op)
+            local targetId, captureCount = graph.closureTarget(op, args)
+            if targetId ~= nil then
+                local target = need(p.owners[targetId + 1], "invalid closure function reference")
+                need(target.kind == "function", "closure target is not a function")
+                need(target.parent == g.programOwner, "closure crosses lexical parent")
+                need(captureCount == #target.captures, "closure capture count mismatch")
+            elseif op == "GetUpval" then
+                local captureId = args[1]
+                need(
+                    type(captureId) == "number"
+                    and captureId >= 0
+                    and captureId < #owner.captures
+                    and captureId % 1 == 0,
+                    "invalid graph capture reference"
+                )
+            end
+        end
+        if block.term.kind == "invoke" then
+            local contract = block.term.contract
+            local site = need(p.callByNode[contract.call], "invoke lacks checked callsite")
+            need(site.owner == owner.id, "invoke callsite belongs to another owner")
+            if contract.dynamic then
+                need(p.functionsByDefinition[site.definition] == nil, "dynamic invoke names a declaration")
+            else
+                local target = contract.owner
+                need(
+                    p.owners[target.id + 1] == target
+                    and p.functionsByDefinition[site.definition] == target
+                    and target.definition == contract.definition,
+                    "invoke callee belongs to another catalog"
+                )
+            end
+        end
+        if block.term.kind == "returns" then
+            explicitOperands("RetN")
+        end
+    end
+    for _, constant in ipairs(g.constants) do
+        if constant.kind == "func" then
+            local functionId = constant.value
+            need(
+                type(functionId) == "number"
+                and functionId >= 0
+                and functionId < #p.owners
+                and functionId % 1 == 0
+                and p.owners[functionId + 1].kind == "function",
+                "invalid graph function reference"
+            )
+        end
+    end
+end
+
 -- Every checked owner has exactly one graph. This verifies program references;
 -- capture storage modes, runtime roots and execution admission remain separate.
 export function verifyGraphs(p: any, graphs: {any}): nil
@@ -2449,71 +2657,7 @@ export function verifyGraphs(p: any, graphs: {any}): nil
     for index = 1, #p.owners do
         local g = graphs[index]
         need(type(g) == "table", "incomplete graph table")
-        local owner = p.owners[index]
-        need(g.native == nil, "core guest program cannot admit a native graph")
-        local nparams = owner.kind == "module" and 0 or #graph.parameters(owner.body)
-        need(g.nparams == nparams, "graph parameter count differs from checked owner")
-        need(g.programOwner == owner.id, "graph owner identity mismatch")
-        need(
-            g.name == owner.name and g.module == owner.scope.name and g.path == owner.scope.path,
-            "graph owner source mismatch"
-        )
-        graph.verify(g)
-        for _, block in ipairs(g.blocks) do
-            for at, op in ipairs(block.op) do
-                local args = block.args[at]
-                need(op ~= "NewClosure", "core program requires explicit closure capture SSA operands")
-                explicitOperands(op)
-                local targetId, captureCount = graph.closureTarget(op, args)
-                if targetId ~= nil then
-                    local target = need(p.owners[targetId + 1], "invalid closure function reference")
-                    need(target.kind == "function", "closure target is not a function")
-                    need(target.parent == g.programOwner, "closure crosses lexical parent")
-                    need(captureCount == #target.captures, "closure capture count mismatch")
-                elseif op == "GetUpval" then
-                    local captureId = args[1]
-                    need(
-                        type(captureId) == "number"
-                        and captureId >= 0
-                        and captureId < #owner.captures
-                        and captureId % 1 == 0,
-                        "invalid graph capture reference"
-                    )
-                end
-            end
-            if block.term.kind == "invoke" then
-                local contract = block.term.contract
-                local site = need(p.callByNode[contract.call], "invoke lacks checked callsite")
-                need(site.owner == owner.id, "invoke callsite belongs to another owner")
-                if contract.dynamic then
-                    need(p.functionsByDefinition[site.definition] == nil, "dynamic invoke names a declaration")
-                else
-                    local target = contract.owner
-                    need(
-                        p.owners[target.id + 1] == target
-                        and p.functionsByDefinition[site.definition] == target
-                        and target.definition == contract.definition,
-                        "invoke callee belongs to another catalog"
-                    )
-                end
-            end
-            if block.term.kind == "returns" then
-                explicitOperands("RetN")
-            end
-        end
-        for _, constant in ipairs(g.constants) do
-            if constant.kind == "func" then
-                local functionId = constant.value
-                need(
-                    type(functionId) == "number"
-                    and functionId >= 0
-                    and functionId < #p.owners
-                    and functionId % 1 == 0
-                    and p.owners[functionId + 1].kind == "function",
-                    "invalid graph function reference"
-                )
-            end
-        end
+        verifyOwner(p, p.owners[index], g)
     end
 end
 
@@ -2548,9 +2692,9 @@ local function unexecutableIntrinsics(p: any): {string}
     return names
 end
 
--- No graph is omitted, and no image is returned after a partial lowering.
--- Profiles must explicitly support real module initializer owners.
-export function compile(p: any, profile: any): any
+-- What a catalog must establish before any of its owners lowers: no
+-- unresolved reference, no unbound external and only executable intrinsics.
+export function admit(p: any): nil
     verify(p)
     if #p.unresolved > 0 then
         local first = p.unresolved[1]
@@ -2568,6 +2712,12 @@ export function compile(p: any, profile: any): any
     -- owner lowers without verifying the catalog again, which made compiling
     -- quadratic in the program's owners.
     need(#p.externalReferences == 0, "external execution bindings are not established")
+end
+
+-- No graph is omitted, and no image is returned after a partial lowering.
+-- Profiles must explicitly support real module initializer owners.
+export function compile(p: any, profile: any): any
+    admit(p)
     local graphs, modules = {}, {}
     for index, owner in ipairs(p.owners) do
         graphs[index] = ownerGraph(p, owner, profile)

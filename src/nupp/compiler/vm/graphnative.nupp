@@ -206,10 +206,7 @@ export function verifyNativeOperation(g: any, op: string, args: any, dst: intege
                 or op == "NativeBorrowPointer"
                 or op == "NativeFieldLoad"
                 or op == "NativeLocal"
-                or op == "NativeLeafCall" and args[1].physical ~= nil
-                or op == "NativeHelperCall"
-                and nativeos.isIssued(args[1])
-                and nativeos.result(args[1]) == physicalValues[dst],
+                or op == "NativeLeafCall" and args[1].physical ~= nil,
                 "unsupported physical value origin"
             )
         end

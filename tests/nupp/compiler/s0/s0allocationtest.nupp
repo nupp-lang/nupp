@@ -1,0 +1,243 @@
+-- The owned backend's register allocator and the checker that proves its
+-- allocations (nupp.compiler.s0.allocate, allocationcheck).
+module nupp.compiler.s0.s0allocationtest
+
+local ir = require("nupp.compiler.s0.ir")
+local reader = require("nupp.compiler.s0.reader")
+local allocate = require("nupp.compiler.s0.allocate")
+local check = require("nupp.compiler.s0.allocationcheck")
+
+local function target(tiny: boolean): allocate.Target
+    local preserved: {boolean} = {}
+    for r = 25, 29 do
+        preserved[r] = true
+    end
+    for r = 73, 80 do
+        preserved[r] = true
+    end
+
+    return allocate.Target(
+        integerRegisters = tiny and {1, 25}
+        or {1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 25, 26, 27, 28, 29},
+        floatRegisters = tiny and {65, 73} or {65, 66, 67, 68, 69, 70, 71, 72, 73, 74, 75, 76, 77, 78, 79, 80},
+        preservedInternal = {},
+        preservedC = preserved,
+        scratchInt = 17,
+        scratchFloat = 96
+    )
+end
+
+local function parse(text: string): ir.Function
+    return reader.read(text)[1]
+end
+
+local function verify(text: string): allocate.Allocation
+    local f, t = parse(text), target(true)
+    local a = allocate.run(f, t)
+    assert(check.run(f, t, a))
+    return a
+end
+
+export function cases(): string
+    local f = parse(
+        [[
+function %loop(i64, i64) -> i64 tail {
+block0(v0: i64, v1: i64):
+    v2 = iconst.i64 1
+    jump block1(v0, v1)
+block1(v3: i64, v4: i64):
+    v5 = iadd v3, v2
+    v6 = icmp ult v5, v0
+    brif v6, block1(v4, v5), block2(v5)
+block2(v7: i64):
+    return v7
+}
+]]
+    )
+    local t = target(true)
+    local a = allocate.run(f, t)
+    assert(check.run(f, t, a))
+    assert(a.spillSlots > 0)
+    local before = a.location[1]
+    a.location[1] = a.location[2]
+    assert(not pcall(check.run, f, t, a))
+    a.location[1] = before
+    local first = #a.moveSource + 1
+    allocate.parallel({1, 25, -1}, {25, -1, 1}, {ir.I64, ir.I64, ir.I64}, t, a)
+    local state: {[integer]: integer} = {[1] = 100, [25] = 200, [-1] = 300}
+    for m = first, #a.moveSource do
+        state[a.moveTarget[m]] = assert(state[a.moveSource[m]])
+    end
+    assert(state[25] == 100 and state[-1] == 200 and state[1] == 300)
+    assert(#a.moveSource - first + 1 == 4)
+    first = #a.moveSource + 1
+    allocate.parallel({65, 73, 65}, {73, 65, -2}, {ir.F64, ir.F64, ir.F64}, t, a)
+    state = {[65] = 100, [73] = 200}
+    for m = first, #a.moveSource do
+        state[a.moveTarget[m]] = assert(state[a.moveSource[m]])
+    end
+    assert(state[73] == 100 and state[65] == 200 and state[-2] == 100)
+    local calls = [[
+function %%calls(i64) -> i64 tail {
+    sig0 = (i64) -> i64 %s
+    fn0 = %%callee sig0
+block0(v0: i64):
+    v1 = call fn0(v0)
+    v2 = iadd v0, v1
+    return v2
+}
+]]
+    local c = parse(calls:format("system_v"))
+    local ca = allocate.run(c, t)
+    assert(check.run(c, t, ca) and ca.acrossC[1] and ca.location[1] == 25)
+    local internal = parse(
+        calls:format("tail") .. [[
+function %callee(i64) -> i64 tail {
+block0(v0: i64):
+    return v0
+}
+]]
+    )
+    local ia = allocate.run(internal, t)
+    assert(check.run(internal, t, ia) and ia.acrossInternal[1] and ia.location[1] < 0)
+    ia.location[1] = 25
+    assert(not pcall(check.run, internal, t, ia))
+    verify(
+        [[
+function %diamond(i64) -> i64 tail {
+block0(v0: i64):
+    brif v0, block2(v0), block1(v0)
+block1(v1: i64):
+    v2 = iconst.i64 1
+    v3 = iadd v1, v2
+    jump block3(v3)
+block2(v4: i64):
+    jump block3(v4)
+block3(v5: i64):
+    return v5
+}
+]]
+    )
+    verify(
+        [[
+function %nested(i64, i64) -> i64 tail {
+block0(v0: i64, v1: i64):
+    v2 = iconst.i64 1
+    jump block1(v0)
+block1(v3: i64):
+    jump block2(v1)
+block2(v4: i64):
+    v5 = iadd v4, v2
+    v6 = icmp ult v5, v1
+    brif v6, block2(v5), block3(v5)
+block3(v7: i64):
+    v8 = iadd v3, v2
+    v9 = icmp ult v8, v0
+    brif v9, block1(v8), block4(v7)
+block4(v10: i64):
+    return v10
+}
+]]
+    )
+    local unary = parse([[
+function %coalesce(i64) -> i64 tail {
+block0(v0: i64):
+    v1 = bnot v0
+    return v1
+}
+]])
+    local ua = allocate.run(unary, t)
+    assert(check.run(unary, t, ua) and ua.location[1] == ua.location[2])
+    assert(ua.finish[1] < ua.start[2] and not ca.acrossC[2] and not ia.acrossInternal[2])
+    local badMoves = allocate.run(f, t)
+    local edge: integer = 1
+    while badMoves.nmoves[edge] == 0 do
+        edge = edge + 1
+    end
+    badMoves.nmoves[edge] = badMoves.nmoves[edge] - 1
+    assert(not pcall(check.run, f, t, badMoves))
+    local seed: integer = 1729
+    local workspace = allocate.workspace()
+    local reuse = allocate.run(f, t)
+    for test = 1, 1000 do
+        local locations = test % 2 == 0 and {1, 2, 25, -1, -2, -3} or {65, 66, 73, -4, -5, -6}
+        local source: {integer} = {}
+        local destination: {integer} = {}
+        local kinds: {integer} = {}
+        local expected: {[integer]: integer} = {}
+        state = {}
+        for index, location in ipairs(locations) do
+            state[location] = index + test * 10
+            expected[location] = state[location]
+        end
+        for index = 1, test % 7 do
+            local location = locations[index]
+            seed = (seed * 48271) % 2147483647
+            source[index], destination[index] = locations[seed % #locations + 1], location
+            kinds[index] = test % 2 == 0 and ir.I64 or ir.F64
+            expected[location] = assert(state[source[index]])
+        end
+        local copied: {integer} = {}
+        for p, value in ipairs(source) do
+            copied[p] = value
+        end
+        local reused = #reuse.moveSource + 1
+        first = #a.moveSource + 1
+        allocate.parallel(source, destination, kinds, t, a)
+        allocate.parallel(copied, destination, kinds, t, reuse, workspace)
+        assert(#reuse.moveSource - reused == #a.moveSource - first)
+        for offset = 0, #a.moveSource - first do
+            assert(a.moveSource[first + offset] == reuse.moveSource[reused + offset])
+            assert(a.moveTarget[first + offset] == reuse.moveTarget[reused + offset])
+            assert(a.moveKind[first + offset] == reuse.moveKind[reused + offset])
+        end
+        assert(#a.moveSource - first + 1 <= 2 * #source)
+        for m = first, #a.moveSource do
+            state[a.moveTarget[m]] = assert(state[a.moveSource[m]])
+        end
+        for _, location in ipairs(locations) do
+            assert(state[location] == expected[location])
+        end
+    end
+    local irreducible = parse(
+        [[
+function %irreducible(i64) -> i64 tail {
+block0(v0: i64):
+    brif v0, block1(), block2()
+block1:
+    jump block2()
+block2:
+    brif v0, block1(), block3()
+block3:
+    return v0
+}
+]]
+    )
+    local conservative = allocate.run(irreducible, t)
+    assert(conservative.conservativeBlocks > 0 and check.run(irreducible, t, conservative))
+
+    local pair = parse(
+        [[
+function %pairCaller(i64, i64, i64) -> i64 tail {
+    sig0 = (i64, i64) -> (i64, i64) tail
+block0(v0: i64, v1: i64, v2: i64):
+    v3, v4 = call_indirect sig0, v0(v1, v2)
+    v5 = iadd v3, v4
+    v6 = iadd v5, v1
+    return v6
+}
+]]
+    )
+    local pairAllocation = allocate.run(pair, t)
+    assert(check.run(pair, t, pairAllocation))
+    assert(pairAllocation.location[4] ~= pairAllocation.location[5])
+    assert(
+        pairAllocation.acrossInternal[2]
+        and not pairAllocation.acrossInternal[4]
+        and not pairAllocation.acrossInternal[5]
+    )
+    pairAllocation.location[5] = pairAllocation.location[4]
+    assert(not pcall(check.run, pair, t, pairAllocation))
+
+    return "S0 allocation cases passed"
+end

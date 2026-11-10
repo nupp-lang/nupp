@@ -1,0 +1,531 @@
+module nupp.compiler.s0.allocate
+
+local ir = require("nupp.compiler.s0.ir")
+local allocate = {}
+
+record allocate.Target
+    integerRegisters: {integer}
+    floatRegisters: {integer}
+    preservedInternal: {boolean}
+    preservedC: {boolean}
+    scratchInt: integer
+    scratchFloat: integer
+end
+
+record allocate.Allocation
+    start: {integer}
+    finish: {integer}
+    location: {integer}
+    acrossInternal: {boolean}
+    acrossC: {boolean}
+    rematerialize: {integer}
+    instructionPosition: {integer}
+    blockEntry: {integer}
+    blockExit: {integer}
+    blockOrder: {integer}
+    firstMove: {integer}
+    nmoves: {integer}
+    moveSource: {integer}
+    moveTarget: {integer}
+    moveKind: {integer}
+    spillKinds: {integer}
+    spillValues: {integer}
+    spillSlots: integer
+    conservativeBlocks: integer
+    conservativeValues: integer
+end
+
+local CALL, INDIRECT = ir.opcode("call"), ir.opcode("call_indirect")
+local ICONST, FCONST, ADDRESS = ir.opcode("iconst"), ir.opcode("fconst"), ir.opcode("stack_addr")
+
+local function zeros(n: integer): {integer}
+    local result: {integer} = {}
+    for i = 1, n do
+        result[i] = 0
+    end
+
+    return result
+end
+
+local function newAllocation(f: ir.Function): allocate.Allocation
+    return allocate.Allocation(
+        start = zeros(#f.valueKinds),
+        finish = zeros(#f.valueKinds),
+        location = zeros(#f.valueKinds),
+        acrossInternal = {},
+        acrossC = {},
+        rematerialize = zeros(#f.valueKinds),
+        instructionPosition = zeros(#f.op),
+        blockEntry = zeros(#f.blockStart),
+        blockExit = zeros(#f.blockStart),
+        blockOrder = {},
+        firstMove = {},
+        nmoves = {},
+        moveSource = {},
+        moveTarget = {},
+        moveKind = {},
+        spillKinds = {},
+        spillValues = {},
+        conservativeBlocks = 0,
+        conservativeValues = 0,
+        spillSlots = 0
+    )
+end
+
+local function dominates(parent: {integer}, ancestor: integer, block: integer): boolean
+    while block > ancestor do
+        block = parent[block]
+    end
+    return block == ancestor
+end
+
+-- RPO is allocation order only: MIR instruction and block IDs never change.
+-- A one-pass candidate dominator tree is checked against every CFG edge before
+-- it is used. Irreducible regions conservatively overlap their live values.
+local function order(f: ir.Function, a: allocate.Allocation): ({integer}, {integer}, {integer}, {integer}, {integer})
+    local n = #f.blockStart
+    assert(n > 0, "S0 allocation: no blocks")
+    local blockOf, head, nextEdge, predecessors, nextPred = zeros(
+        #f.op
+    ), zeros(n), zeros(#f.edgeTarget), zeros(n), zeros(#f.edgeTarget)
+    for b = 1, n do
+        assert(f.blockStart[b] <= f.blockEnd[b], "S0 allocation: empty block")
+        for i = f.blockStart[b], f.blockEnd[b] do
+            blockOf[i] = b
+        end
+    end
+    for e = #f.edgeTarget, 1, -1 do
+        local from, to = blockOf[f.edgeFrom[e]], f.edgeTarget[e]
+        assert(from > 0 and to > 0 and to <= n, "S0 allocation: invalid edge")
+        nextEdge[e], head[from] = head[from], e
+        nextPred[e], predecessors[to] = predecessors[to], e
+    end
+    local seen, post, stack, cursor = zeros(n), {}, {}, {}
+    seen[1], stack[1], cursor[1] = 1, 1, head[1]
+    while #stack > 0 do
+        local depth, b = #stack, stack[#stack]
+        local e = cursor[depth]
+        if e == 0 then
+            post[#post + 1] = b
+            stack[depth], cursor[depth] = nil, nil
+        else
+            cursor[depth] = nextEdge[e]
+            local to = f.edgeTarget[e]
+            if seen[to] == 0 then
+                seen[to] = 1
+                stack[depth + 1], cursor[depth + 1] = to, head[to]
+            end
+        end
+    end
+    assert(#post == n, "S0 allocation: unreachable blocks require removal")
+    local rank, parent, loopEnd = zeros(n), zeros(n), zeros(n)
+    local position: integer = 0
+    for r = 1, n do
+        local b = post[n - r + 1]
+        a.blockOrder[r], rank[b] = b, r
+        a.blockEntry[b] = 2 * (position + 1) - 1
+        for i = f.blockStart[b], f.blockEnd[b] do
+            position = position + 1
+            a.instructionPosition[i] = position
+        end
+        a.blockExit[b] = 2 * position
+    end
+    for r = 2, n do
+        local candidate: integer = 0
+        local e = predecessors[a.blockOrder[r]]
+        while e ~= 0 do
+            local p = rank[blockOf[f.edgeFrom[e]]]
+            if p < r then
+                if candidate == 0 then
+                    candidate = p
+                else
+                    while candidate ~= p do
+                        if candidate > p then
+                            candidate = parent[candidate]
+                        else
+                            p = parent[p]
+                        end
+                    end
+                end
+            end
+            e = nextPred[e]
+        end
+        assert(candidate > 0, "S0 allocation: invalid RPO")
+        parent[r] = candidate
+    end
+    local reach, bad = zeros(n), zeros(n)
+    for e = 1, #f.edgeTarget do
+        local from, to = blockOf[f.edgeFrom[e]], f.edgeTarget[e]
+        local r, t = rank[from], rank[to]
+        if t <= r then
+            reach[t] = math.max(reach[t], r)
+            loopEnd[to] = math.max(loopEnd[to], a.blockExit[from])
+            if not dominates(parent, t, r) then
+                bad[t] = 1
+            end
+        end
+        if t ~= 1 and not dominates(parent, parent[t], r) then
+            local first, last = math.min(r, t), math.max(r, t)
+            reach[first], bad[first] = math.max(reach[first], last), 1
+        end
+    end
+    -- Merge overlapping backward-edge spans. Only spans containing an
+    -- irreducible edge become conservative; natural loops keep precise ranges.
+    local regionStart, regionEnd = zeros(n), zeros(n)
+    local first: integer = 1
+    while first <= n do
+        local last: integer = math.max(first, reach[first])
+        local affected = false
+        local cursor: integer = first
+        while cursor <= last do
+            last = math.max(last, reach[cursor])
+            affected = affected or bad[cursor] ~= 0
+            cursor = cursor + 1
+        end
+        if affected then
+            for r = first, last do
+                local b = a.blockOrder[r]
+                regionStart[b], regionEnd[b] = a.blockEntry[a.blockOrder[first]], a.blockExit[a.blockOrder[last]]
+                a.conservativeBlocks = a.conservativeBlocks + 1
+            end
+        end
+        first = last + 1
+    end
+
+    return rank, loopEnd, regionStart, regionEnd, blockOf
+end
+
+-- Sparse live-in lists share flat storage. The current block uses a stamp set;
+-- there is no per-instruction object and no iterative production dataflow.
+local function intervals(f: ir.Function, a: allocate.Allocation): nil
+    local rank, loopEnd, regionStart, regionEnd, blockOf = order(f, a)
+    local definedRegion = zeros(#f.valueKinds)
+    for v = 1, #f.valueKinds do
+        if f.valueKinds[v] ~= 0 then
+            local d = f.definitions[v]
+            a.start[v] = d < 0 and a.blockEntry[-d] or 2 * a.instructionPosition[d] + 1
+            a.finish[v] = a.start[v]
+            local block = d < 0 and -d or blockOf[d]
+            if regionStart[block] ~= 0 then
+                a.start[v], a.finish[v], definedRegion[v] = regionStart[block], regionEnd[block], regionStart[block]
+                a.conservativeValues = a.conservativeValues + 1
+            end
+            if d > 0 and (f.op[d] == ICONST or f.op[d] == FCONST or f.op[d] == ADDRESS) then
+                a.rematerialize[v] = d
+            end
+        end
+    end
+    local liveFirst, liveCount, liveValues = zeros(#f.blockStart), zeros(#f.blockStart), {}
+    local stamp, present, members = zeros(#f.valueKinds), zeros(#f.valueKinds), {}
+    for r = #a.blockOrder, 1, -1 do
+        local b, generation = a.blockOrder[r], r
+        members = {}
+
+        local function add(v: integer, at: integer): nil
+            assert(v > 0 and f.valueKinds[v] ~= 0, "S0 allocation: undefined use")
+            assert(a.start[v] <= at, "S0 allocation: use precedes definition")
+            a.finish[v] = math.max(a.finish[v], at, regionEnd[b])
+            if stamp[v] ~= generation then
+                stamp[v] = generation
+                members[#members + 1] = v
+            end
+            present[v] = generation
+        end
+
+        for i = f.blockStart[b], f.blockEnd[b] do
+            for e = f.firstEdge[i], f.firstEdge[i] + f.nedges[i] - 1 do
+                local target = f.edgeTarget[e]
+                assert(f.edgeNargs[e] == f.nparams[target], "S0 allocation: edge arity")
+                if rank[target] > r then
+                    for p = liveFirst[target], liveFirst[target] + liveCount[target] - 1 do
+                        add(liveValues[p], a.blockExit[b])
+                    end
+                end
+                for p = 0, f.edgeNargs[e] - 1 do
+                    local v, parameter = f.edgeArgs[f.edgeFirstArg[e] + p], f.params[f.firstParam[target] + p]
+                    assert(f.valueKinds[v] == f.valueKinds[parameter], "S0 allocation: edge type")
+                    add(v, 2 * a.instructionPosition[i])
+                end
+            end
+        end
+        for i = f.blockEnd[b], f.blockStart[b], -1 do
+            local result = f.result[i]
+            if result ~= 0 then
+                present[result] = 0
+            end
+            if f.result2[i] ~= 0 then
+                present[f.result2[i]] = 0
+            end
+            for p = f.firstArg[i], f.firstArg[i] + f.nargs[i] - 1 do
+                add(f.args[p], 2 * a.instructionPosition[i])
+            end
+        end
+        for p = f.firstParam[b], f.firstParam[b] + f.nparams[b] - 1 do
+            present[f.params[p]] = 0
+        end
+        liveFirst[b] = #liveValues + 1
+        for _, v in ipairs(members) do
+            local internal = regionStart[b] ~= 0
+                and a.blockEntry[b] == regionStart[b]
+                and definedRegion[v] == regionStart[b]
+            if present[v] == generation and not internal then
+                assert(a.start[v] < a.blockEntry[b], "S0 allocation: non-dominating definition")
+                a.finish[v] = math.max(a.finish[v], loopEnd[b])
+                liveValues[#liveValues + 1] = v
+            end
+        end
+        liveCount[b] = #liveValues + 1 - liveFirst[b]
+    end
+    assert(liveCount[1] == 0, "S0 allocation: unbound entry value")
+    local internal, external = zeros(2 * #f.op + 2), zeros(2 * #f.op + 2)
+    internal[0], external[0] = 0, 0
+    local internalCount: integer = 0
+    local externalCount: integer = 0
+    for _, b in ipairs(a.blockOrder) do
+        for i = f.blockStart[b], f.blockEnd[b] do
+            local p = 2 * a.instructionPosition[i]
+            internal[p - 1], external[p - 1] = internalCount, externalCount
+            if f.op[i] == CALL or f.op[i] == INDIRECT then
+                local signature = f.op[i] == CALL and f.importSignatures[f.aux[i]] or f.aux[i]
+                if f.signatures[signature].convention == ir.INTERNAL then
+                    internalCount = internalCount + 1
+                else
+                    externalCount = externalCount + 1
+                end
+            end
+            internal[p], internal[p + 1] = internalCount, internalCount
+            external[p], external[p + 1] = externalCount, externalCount
+        end
+    end
+    for v = 1, #f.valueKinds do
+        a.acrossInternal[v] = f.valueKinds[v] ~= 0 and internal[a.finish[v] - 1] > internal[a.start[v]]
+        a.acrossC[v] = f.valueKinds[v] ~= 0 and external[a.finish[v] - 1] > external[a.start[v]]
+    end
+end
+
+local function spill(f: ir.Function, a: allocate.Allocation, v: integer): nil
+    a.spillSlots = a.spillSlots + 1
+    a.location[v], a.spillKinds[a.spillSlots] = -a.spillSlots, f.valueKinds[v]
+    a.spillValues[a.spillSlots] = v
+end
+
+local function registers(f: ir.Function, a: allocate.Allocation, target: allocate.Target): nil
+    local valid, values = zeros(96), {}
+    for class = 1, 2 do
+        local list = class == 1 and target.integerRegisters or target.floatRegisters
+        for _, reg in ipairs(list) do
+            assert(
+                reg > 0 and reg <= 96 and (class == 1 and reg <= 31 or class == 2 and reg >= 65),
+                "S0 allocation: register class"
+            )
+            assert(
+                valid[reg] == 0 and reg ~= target.scratchInt and reg ~= target.scratchFloat,
+                "S0 allocation: duplicate or scratch register"
+            )
+            valid[reg] = 1
+        end
+    end
+    assert(
+        target.scratchInt >= 1 and target.scratchInt <= 31 and target.scratchFloat >= 65 and target.scratchFloat <= 96,
+        "S0 allocation: scratch class"
+    )
+    local hint = zeros(#f.valueKinds)
+    for e = 1, #f.edgeTarget do
+        local b = f.edgeTarget[e]
+        for p = 0, f.edgeNargs[e] - 1 do
+            local source, dest = f.edgeArgs[f.edgeFirstArg[e] + p], f.params[f.firstParam[b] + p]
+            if hint[dest] == 0 then
+                hint[dest] = source
+            end
+        end
+    end
+    for i = 1, #f.op do
+        if f.result[i] ~= 0 and f.nargs[i] > 0 then
+            hint[f.result[i]] = f.args[f.firstArg[i]]
+        end
+    end
+    for v = 1, #f.valueKinds do
+        if f.valueKinds[v] ~= 0 then
+            values[#values + 1] = v
+        end
+    end
+    table.sort(values, function(x: integer, y: integer): boolean
+        return a.start[x] < a.start[y] or a.start[x] == a.start[y] and x < y
+    end)
+    local occupied = zeros(96)
+    for _, v in ipairs(values) do
+        local list = ir.isFloat(f.valueKinds[v]) and target.floatRegisters or target.integerRegisters
+        local selected: integer = 0
+        local victim: integer = 0
+        local preferred = hint[v] ~= 0 and a.location[hint[v]] or 0
+        for _, reg in ipairs(list) do
+            local old = occupied[reg]
+            if old ~= 0 and a.finish[old] < a.start[v] then
+                occupied[reg], old = 0, 0
+            end
+            if (not a.acrossInternal[v] or target.preservedInternal[reg])
+                and (not a.acrossC[v] or target.preservedC[reg])
+            then
+                if old == 0 then
+                    if selected == 0 or reg == preferred then
+                        selected = reg
+                    end
+                elseif victim == 0 or a.finish[old] > a.finish[victim] then
+                    victim = old
+                end
+            end
+        end
+        if selected == 0 and victim ~= 0 and a.finish[victim] > a.finish[v] then
+            selected = a.location[victim]
+            spill(f, a, victim)
+        end
+        if selected == 0 then
+            spill(f, a, v)
+        else
+            a.location[v], occupied[selected] = selected, v
+        end
+    end
+end
+
+local function slot(location: integer): integer
+    return location > 0 and location or 96 - location
+end
+
+record allocate.MoveWorkspace
+    counts: {integer}
+    writer: {integer}
+    pending: {boolean}
+    queue: {integer}
+    readers: {integer}
+    nextReader: {integer}
+end
+
+function allocate.workspace(): allocate.MoveWorkspace
+    return allocate.MoveWorkspace(counts = {}, writer = {}, pending = {}, queue = {}, readers = {}, nextReader = {})
+end
+
+local function appendMove(a: allocate.Allocation, source: integer, destination: integer, kind: integer): nil
+    a.moveSource[
+        #a.moveSource + 1
+    ], a.moveTarget[#a.moveTarget + 1], a.moveKind[#a.moveKind + 1] = source, destination, kind
+end
+
+-- Inputs and outputs are parallel assignments. A destination becomes ready when
+-- no pending assignment reads it. Breaking a cycle saves one source in scratch.
+function allocate.parallel(
+    source: {integer},
+    destination: {integer},
+    kinds: {integer},
+    target: allocate.Target,
+    a: allocate.Allocation,
+    workspace: allocate.MoveWorkspace?
+): nil
+    local counts: {integer}
+    local writer: {integer}
+    local pending: {boolean}
+    local queue: {integer}
+    local readers: {integer}
+    local nextReader: {integer}
+    if workspace ~= nil then
+        counts, writer, pending, queue = workspace.counts, workspace.writer, workspace.pending, workspace.queue
+        readers, nextReader = workspace.readers, workspace.nextReader
+    else
+        counts, writer, pending, queue, readers, nextReader = {}, {}, {}, {}, {}, {}
+    end
+    -- Only current source/destination locations and scratch can be inspected.
+    -- Reset their entries; all other backing capacity remains reusable.
+    for i = 1, #source do
+        local s, d = slot(source[i]), slot(destination[i])
+        counts[s], counts[d], writer[s], writer[d], readers[s], readers[d], pending[i] = 0, 0, 0, 0, 0, 0, false
+    end
+    for class = 1, 2 do
+        local scratch = slot(class == 1 and target.scratchInt or target.scratchFloat)
+        counts[scratch], writer[scratch], readers[scratch] = 0, 0, 0
+    end
+    local queued: integer = 0
+    local remaining = 0
+    for i = 1, #source do
+        assert(source[i] ~= 0 and destination[i] ~= 0, "S0 allocation: invalid move location")
+        if source[i] ~= destination[i] then
+            local s, d = slot(source[i]), slot(destination[i])
+            assert(writer[d] == 0, "S0 allocation: duplicate move destination")
+            counts[s], writer[d], pending[i] = counts[s] + 1, i, true
+            nextReader[i], readers[s] = readers[s], i
+            remaining = remaining + 1
+        end
+    end
+    for i = 1, #source do
+        if pending[i] and counts[slot(destination[i])] == 0 then
+            queued = queued + 1
+            queue[queued] = i
+        end
+    end
+    local read: integer = 1
+    local first: integer = 1
+
+    while remaining > 0 do
+        if read <= queued then
+            local i = queue[read]
+            read = read + 1
+            if pending[i] then
+                appendMove(a, source[i], destination[i], kinds[i])
+                pending[i], remaining = false, remaining - 1
+                local s = slot(source[i])
+                counts[s] = counts[s] - 1
+                local dependent = writer[s]
+                if counts[s] == 0 and dependent ~= 0 and pending[dependent] then
+                    queued = queued + 1
+                    queue[queued] = dependent
+                end
+            end
+        else
+            while not pending[first] do
+                first = first + 1
+            end
+            local saved = source[first]
+            local scratch = ir.isFloat(kinds[first]) and target.scratchFloat or target.scratchInt
+            appendMove(a, saved, scratch, kinds[first])
+            local i = readers[slot(saved)]
+            while i ~= 0 do
+                if pending[i] then
+                    source[i] = scratch
+                end
+                i = nextReader[i]
+            end
+            counts[slot(scratch)], counts[slot(saved)] = counts[slot(saved)], 0
+            local dependent = writer[slot(saved)]
+            assert(dependent ~= 0 and pending[dependent], "S0 allocation: invalid move cycle")
+            queued = queued + 1
+            queue[queued] = dependent
+        end
+    end
+end
+
+function allocate.run(f: ir.Function, target: allocate.Target): allocate.Allocation
+    local a = newAllocation(f)
+    intervals(f, a)
+    registers(f, a, target)
+    local source: {integer} = {}
+    local destination: {integer} = {}
+    local kinds: {integer} = {}
+    local workspace = allocate.workspace()
+    for e = 1, #f.edgeTarget do
+        local b = f.edgeTarget[e]
+        for p = #source, f.edgeNargs[e] + 1, -1 do
+            source[p], destination[p], kinds[p] = nil, nil, nil
+        end
+        for p = 0, f.edgeNargs[e] - 1 do
+            local v, parameter = f.edgeArgs[f.edgeFirstArg[e] + p], f.params[f.firstParam[b] + p]
+            source[
+                p + 1
+            ], destination[p + 1], kinds[p + 1] = a.location[v], a.location[parameter], f.valueKinds[parameter]
+        end
+        a.firstMove[e] = #a.moveSource + 1
+        allocate.parallel(source, destination, kinds, target, a, workspace)
+        a.nmoves[e] = #a.moveSource + 1 - a.firstMove[e]
+    end
+
+    return a
+end
+
+export = allocate

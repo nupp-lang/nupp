@@ -198,6 +198,25 @@ function M.nativeChangeSelectsEveryPlatform()
     })
 end
 
+function M.theNativeCoreSelectsWhatNativeCodeDoes()
+    for _, path in ipairs({
+        "src/nupp/runtime/core/frames.nupp",
+        "src/nupp/core/guestbuild.nupp",
+        "native/crates/core-bridge/src/main.rs"
+    }) do
+        selects(path, {
+            "fast-checks",
+            "linux-integration",
+            "macos-integration",
+            "windows-integration",
+            "gpu-linux",
+            "gpu-windows",
+            "fixpoint",
+        })
+    end
+    selects("tests/core/guests/run.lua", {"fast-checks", "linux-integration", "macos-integration", "windows-integration"})
+end
+
 function M.packagingChangeSelectsEveryPlatform()
     selects("templates/library/nupp.lua", {"linux-integration", "macos-integration", "windows-integration"})
 end

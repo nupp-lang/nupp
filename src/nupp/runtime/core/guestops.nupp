@@ -1,0 +1,893 @@
+module nupp.runtime.core.guestops
+
+const native = require("nupp.runtime.vm.intrinsics")
+const frames = require("nupp.runtime.core.frames")
+const instances = require("nupp.runtime.core.instances")
+const catalog = require("nupp.runtime.core.guestcatalog")
+const context = require("nupp.runtime.core.context")
+const values = require("nupp.runtime.vm.values")
+const heap = require("nupp.runtime.vm.heap")
+const guestscope = require("nupp.runtime.core.guestscope")
+const threads = require("nupp.runtime.core.threads")
+const stacks = require("nupp.runtime.core.stacks")
+const guesterrors = require("nupp.runtime.core.guesterrors")
+const guestmeta = require("nupp.runtime.core.guestmeta")
+const texts = require("nupp.runtime.core.guesttexts")
+const librarytexts = require("nupp.runtime.core.librarytexts")
+const report = require("nupp.runtime.core.guestreport")
+
+export const INVALID: uint64 = 4ULL
+export const RESOURCE: uint64 = 5ULL
+-- An instruction is sixteen bytes: a pc's index is its offset from the
+-- code shifted down by this.
+export const INSTRUCTION_SHIFT: uint64 = 4ULL
+
+-- Lua 5.5 calls a table through its __call with the table as an extra first
+-- argument, and follows a __call that is a table in turn this many deep; the
+-- compiler leaves room for that many receivers past a call's arguments.
+export const CALL_CHAIN: uint64 = 15ULL
+-- The most arguments a call stages itself.
+export const CALL_ARGUMENTS: uint64 = 63ULL
+-- What callTable did: started the call, whose frame or thread the state now
+-- runs; answered it as a protected call's failure, the caller resuming after
+-- `pc`; or failed, the failure recorded.
+export const CALL_STARTED: uint64 = 1ULL
+export const CALL_ANSWERED: uint64 = 2ULL
+export const CALL_FAILED: uint64 = 0ULL
+
+-- These helpers borrow only the entry-owned State/catalog/registry and current
+-- logical frame. Their raw signatures do not authorize arbitrary context data.
+-- The closed producer proves the disjoint mappings and exact checked bodies.
+export function state(ctx: voidptr): uint64
+    return native.load64(ctx, context.STATE)
+end
+
+export function fail(ctx: voidptr, frame: voidptr, pc: voidptr, status: uint64): nil
+    if native.load64(ctx, context.STATUS) == 0ULL then
+        native.store64(ctx, context.STATUS, status)
+        native.store64(ctx, context.ERROR_OWNER, native.load64(frame, native.fieldOffset<frames.Frame>("functionId")))
+        local code = native.load64(frame, native.fieldOffset<frames.Frame>("code"))
+        local address = native.address(pc)
+        local index: uint64 = 0ULL
+        if address >= code then
+            index = (address - code) // 16ULL
+        end
+        native.store64(ctx, context.ERROR_PC, index)
+        -- A limit the core reached ends the program with no Lua error to
+        -- report it, so it is named where it was reached.
+        if status == RESOURCE then
+            report.resource(ctx, native.load64(frame, native.fieldOffset<frames.Frame>("functionId")), index)
+        end
+    end
+end
+
+-- Charge before catalog/instance lookup or frame reservation. Failure records
+-- the original owner/PC once; cleanup neither charges nor overwrites the error.
+export function charge(ctx: voidptr, frame: voidptr, pc: voidptr): uint64
+    if native.load64(ctx, context.STATUS) ~= 0ULL then
+        return 0ULL
+    end
+    if native.load64(ctx, context.CANCELLED) ~= 0ULL then
+        fail(ctx, frame, pc, context.CANCELLED_STATUS)
+        return 0ULL
+    end
+    local remaining = native.load64(ctx, context.REMAINING)
+    if remaining == 0ULL then
+        fail(ctx, frame, pc, context.BUDGET_STATUS)
+        return 0ULL
+    end
+    if remaining ~= context.UNLIMITED then
+        native.store64(ctx, context.REMAINING, remaining - 1ULL)
+    end
+
+    return 1ULL
+end
+
+-- The function record of the frame a handler runs in, or zero when that is
+-- not the active frame. Nothing else is checked again per instruction:
+-- frames are made from admitted catalog rows (frames.prepareFixed), which
+-- set bodyOwner to the record, and every pc comes from a checked branch or
+-- a frame's resume point.
+export function current(ctx: voidptr, frame: voidptr, pc: voidptr): uint64
+    local s = native.loadPointer(ctx, context.STATE)
+    if native.load64(s, native.fieldOffset<frames.State>("active")) ~= native.address(frame) then
+        return 0ULL
+    end
+
+    return native.load64(frame, native.fieldOffset<frames.Frame>("bodyOwner"))
+end
+
+export function constantPresent(ctx: voidptr, frame: voidptr, pc: voidptr, index: uint64): uint64
+    local found = current(ctx, frame, pc)
+    if found == 0ULL then
+        return 0ULL
+    end
+
+    if index < native.load64(native.pointer(found), native.fieldOffset<catalog.Function>("constantCount")) then
+        return 1ULL
+    end
+
+    return 0ULL
+end
+
+export function constant(ctx: voidptr, frame: voidptr, pc: voidptr, index: uint64): uint64
+    local found = current(ctx, frame, pc)
+    if found == 0ULL then
+        return 0ULL
+    end
+    local fn = native.pointer(found)
+    if index >= native.load64(fn, native.fieldOffset<catalog.Function>("constantCount")) then
+        return 0ULL
+    end
+    local c = native.loadPointer(ctx, context.CATALOG)
+    local data = native.loadPointer(c, native.fieldOffset<catalog.Catalog>("data"))
+    local offset = native.load64(fn, native.fieldOffset<catalog.Function>("constants"))
+
+    return native.load64(data, native.index(offset + index * 8ULL))
+end
+
+-- The first initializer publishes one immediate only after successful root
+-- retirement. A later initializer can observe that committed value once.
+export function moduleValue(ctx: voidptr, frame: voidptr, pc: voidptr, target: uint64): uint64
+    if current(ctx, frame, pc) == 0ULL or native.load64(ctx, context.MODULE_ORDINAL) ~= 1ULL then
+        return 0ULL
+    end
+    local c = native.loadPointer(ctx, context.CATALOG)
+    local data = native.loadPointer(c, native.fieldOffset<catalog.Catalog>("data"))
+    if native.load64(data, native.fieldOffset<catalog.DescriptorV1>("version")) ~= 2ULL
+        or native.load64(data, native.fieldOffset<catalog.Descriptor>("moduleCount")) ~= 2ULL
+    then
+        return 0ULL
+    end
+    local offset = native.load64(data, native.fieldOffset<catalog.Descriptor>("modules"))
+    if target ~= native.load64(data, native.index(offset)) then
+        return 0ULL
+    end
+    local world = native.loadPointer(ctx, context.WORLD)
+    if native.load64(world, native.fieldOffset<instances.World>("modulePhase")) ~= 1ULL then
+        return 0ULL
+    end
+    local value = native.load64(world, native.fieldOffset<instances.World>("moduleValue"))
+    if value ~= values.TRUE and value ~= values.FALSE and value ~= values.NIL then
+        return 0ULL
+    end
+
+    return value
+end
+
+export function closure(ctx: voidptr, frame: voidptr, pc: voidptr, target: uint64): uint64
+    local parent = current(ctx, frame, pc)
+    if parent == 0ULL then
+        return 0ULL
+    end
+    local c = native.loadPointer(ctx, context.CATALOG)
+    if target >= native.load64(c, native.fieldOffset<catalog.Catalog>("count")) then
+        return 0ULL
+    end
+    local fn = native.offset(
+        native.loadPointer(c, native.fieldOffset<catalog.Catalog>("records")),
+        native.index(target * native.sizeOf<catalog.Function>())
+    )
+    if native.load64(fn, native.fieldOffset<catalog.Function>("kind")) ~= catalog.FUNCTION
+        or native.load64(
+            fn,
+            native.fieldOffset<catalog.Function>("parentPlusOne")
+        ) ~= native.load64(frame, native.fieldOffset<frames.Frame>("functionId")) + 1ULL
+    then
+        return 0ULL
+    end
+
+    return instances.create(
+        native.loadPointer(ctx, context.REGISTRY),
+        native.loadPointer(c, native.fieldOffset<catalog.Catalog>("targets")),
+        target
+    )
+end
+
+-- The first catalog version whose closures live on the collected heap.
+const CLOSURE_VERSION: uint64 = 7ULL
+
+-- v7 and later keep every closure on the collected heap: a KIND_CLOSURE whose
+-- first slot holds its target as an integer immediate and whose remaining slots
+-- hold its captures.
+export function heapClosures(ctx: voidptr): uint64
+    local c = native.loadPointer(ctx, context.CATALOG)
+    local data = native.loadPointer(c, native.fieldOffset<catalog.Catalog>("data"))
+    if native.load64(data, native.fieldOffset<catalog.Descriptor>("version")) >= CLOSURE_VERSION then
+        return 1ULL
+    end
+
+    return 0ULL
+end
+
+-- 1 when `target` is a function nested directly in the current frame's.
+export function closureTarget(ctx: voidptr, frame: voidptr, pc: voidptr, target: uint64): uint64
+    if current(ctx, frame, pc) == 0ULL then
+        return 0ULL
+    end
+    local c = native.loadPointer(ctx, context.CATALOG)
+    if target >= native.load64(c, native.fieldOffset<catalog.Catalog>("count")) then
+        return 0ULL
+    end
+    local fn = native.offset(
+        native.loadPointer(c, native.fieldOffset<catalog.Catalog>("records")),
+        native.index(target * native.sizeOf<catalog.Function>())
+    )
+    if native.load64(fn, native.fieldOffset<catalog.Function>("kind")) ~= catalog.FUNCTION
+        or native.load64(
+            fn,
+            native.fieldOffset<catalog.Function>("parentPlusOne")
+        ) ~= native.load64(frame, native.fieldOffset<frames.Frame>("functionId")) + 1ULL
+    then
+        return 0ULL
+    end
+
+    return 1ULL
+end
+
+-- The target of a heap closure value plus one, or zero for anything else.
+export function heapTarget(callee: uint64): uint64
+    if callee & values.TAG_MASK ~= values.TAG_OBJ then
+        return 0ULL
+    end
+    local header = native.pointer(callee & values.PAYLOAD)
+    if native.word(native.load8(header, native.fieldOffset<heap.Header>("kind"))) ~= heap.KIND_CLOSURE
+        or native.load64(header, native.fieldOffset<heap.Header>("auxLen")) == 0ULL
+    then
+        return 0ULL
+    end
+    local first = native.load64(native.pointer(native.load64(header, native.fieldOffset<heap.Header>("auxPtr"))), 0)
+
+    return (first & values.PAYLOAD) + 1ULL
+end
+
+-- 1 when a v7 or later callee is not a closure: calling it is a guest
+-- error, as Lua raises one.
+export function uncallable(ctx: voidptr, callee: uint64): uint64
+    if heapClosures(ctx) == 1ULL and heapTarget(callee) == 0ULL then
+        return 1ULL
+    end
+
+    return 0ULL
+end
+
+-- 1 when a dynamic callsite's signature admits the callee's: a result the
+-- site takes as given or as any value. The counts may differ: as Lua calls,
+-- extra arguments are dropped and missing ones are nil.
+local function compatibleSignatures(c: voidptr, site: uint64, callee: uint64): uint64
+    local records = native.loadPointer(c, native.fieldOffset<catalog.Catalog>("signatures"))
+    local a = native.offset(records, native.index(site * native.sizeOf<catalog.Signature>()))
+    local b = native.offset(records, native.index(callee * native.sizeOf<catalog.Signature>()))
+    local wanted = native.load64(a, native.fieldOffset<catalog.Signature>("resultKind"))
+    local given = native.load64(b, native.fieldOffset<catalog.Signature>("resultKind"))
+    -- Values are tagged, so a result is whatever the callee gives: a site
+    -- typed for nil takes any (a function of no annotated results passed as
+    -- `function(T): nil`), and a callee that gives any value is checked where
+    -- its result is used.
+    if wanted ~= catalog.VALUE and wanted ~= catalog.NIL and given ~= catalog.VALUE and wanted ~= given then
+        return 0ULL
+    end
+
+    return 1ULL
+end
+
+-- The callee is the actual registry handle loaded from a live slot. Hint alone
+-- cannot select a body. Canonical byte fields must also match this PC's retained
+-- checked callsite, its target signature and each canonical scalar argument.
+-- `counts` holds the argument count in its low half and the results wanted
+-- in its high half.
+export function prepare(
+    ctx: voidptr,
+    frame: voidptr,
+    pc: voidptr,
+    callee: uint64,
+    base: uint64,
+    counts: uint64,
+    hint: uint64
+): uint64
+    local nargs = counts & 0xffffffffULL
+    local wanted = counts >> 32ULL
+    -- The calling handler has checked its frame (current), whose record
+    -- this is.
+    local found = native.load64(frame, native.fieldOffset<frames.Frame>("bodyOwner"))
+    if found == 0ULL or nargs > 63ULL or wanted == 0ULL or wanted > frames.MAX_RESULTS then
+        return 0ULL
+    end
+    local fn = native.pointer(found)
+    local c = native.loadPointer(ctx, context.CATALOG)
+    local count = native.load64(c, native.fieldOffset<catalog.Catalog>("count"))
+    local nv = native.load64(frame, native.fieldOffset<frames.Frame>("valueCount"))
+    -- A dynamic call (v8) carries the absent hint and resolves its callee here.
+    local data = native.loadPointer(c, native.fieldOffset<catalog.Catalog>("data"))
+    local heaped = native.load64(data, native.fieldOffset<catalog.Descriptor>("version")) >= CLOSURE_VERSION
+    local dynamic = hint == 0xffffffffULL and heaped
+    if hint >= count and not dynamic or base >= nv - 1ULL or nargs > nv - base - 1ULL then
+        return 0ULL
+    end
+    local index = (
+        native.address(pc) - native.load64(frame, native.fieldOffset<frames.Frame>("code"))
+    ) >> INSTRUCTION_SHIFT
+    local contract = catalog.callsite(c, fn, index)
+    if contract == 0ULL then
+        return 0ULL
+    end
+    local call = native.pointer(contract)
+    if native.load64(call, native.fieldOffset<catalog.Callsite>("target")) ~= hint
+        or native.load64(call, native.fieldOffset<catalog.Callsite>("argumentBase")) ~= base
+        or native.load64(call, native.fieldOffset<catalog.Callsite>("argumentCount")) ~= nargs
+        and native.load64(call, native.fieldOffset<catalog.Callsite>("spread")) ~= 1ULL
+        or native.load64(call, native.fieldOffset<catalog.Callsite>("argumentCount")) > nargs
+        or native.load64(call, native.fieldOffset<catalog.Callsite>("wanted")) ~= wanted
+        or native.load64(call, native.fieldOffset<catalog.Callsite>("resultSlot")) ~= base + 1ULL
+        or native.load64(call, native.fieldOffset<catalog.Callsite>("resumePC")) ~= index + 1ULL
+    then
+        return 0ULL
+    end
+    local targets = native.loadPointer(c, native.fieldOffset<catalog.Catalog>("targets"))
+    local resolved: uint64 = 0ULL
+    if heaped then
+        resolved = heapTarget(callee)
+    else
+        resolved = instances.resolve(native.loadPointer(ctx, context.REGISTRY), targets, callee)
+    end
+    if resolved == 0ULL or not dynamic and resolved - 1ULL ~= hint or resolved > count then
+        return 0ULL
+    end
+    local actual = resolved - 1ULL
+    local target = native.offset(
+        native.loadPointer(c, native.fieldOffset<catalog.Catalog>("records")),
+        native.index(actual * native.sizeOf<catalog.Function>())
+    )
+    local siteSignature = native.load64(call, native.fieldOffset<catalog.Callsite>("signature"))
+    local signatureId = native.load64(target, native.fieldOffset<catalog.Function>("signature"))
+    if native.load64(target, native.fieldOffset<catalog.Function>("kind")) ~= catalog.FUNCTION then
+        return 0ULL
+    end
+    -- A dynamic call's site may see the callee through erased type
+    -- parameters: it holds when the counts agree and the site takes the result
+    -- as the callee gives it or as any value. Arguments are checked against
+    -- the callee's own kinds below.
+    if signatureId ~= siteSignature
+        and (not dynamic or compatibleSignatures(c, siteSignature, signatureId) == 0ULL)
+    then
+        return 0ULL
+    end
+    local signature = native.offset(
+        native.loadPointer(c, native.fieldOffset<catalog.Catalog>("signatures")),
+        native.index(signatureId * native.sizeOf<catalog.Signature>())
+    )
+    -- A call spreading a call's results last (`f(g())`) gives as many
+    -- arguments as those results run to, as Lua's does: missing parameters are
+    -- nil and extra arguments are dropped, as for a dynamic call. The kinds
+    -- below still hold of every parameter.
+    local spread = native.load64(call, native.fieldOffset<catalog.Callsite>("spread")) == 1ULL
+    -- A variadic callee's last parameter is its pack of extra arguments.
+    local declared = native.load64(signature, native.fieldOffset<catalog.Signature>("parameterCount"))
+    local variadic = native.load64(signature, native.fieldOffset<catalog.Signature>("variadic")) == 1ULL
+    local fixed = declared
+    if variadic then
+        fixed = declared - 1ULL
+        if nargs < fixed and not dynamic and not spread then
+            return 0ULL
+        end
+    elseif declared ~= nargs and not dynamic and not spread then
+        return 0ULL
+    end
+    local kinds = native.load64(signature, native.fieldOffset<catalog.Signature>("parameters"))
+    local window = native.loadPointer(frame, native.fieldOffset<frames.Frame>("values"))
+    local at: uint64 = 0ULL
+    while at < fixed do
+        local kind = native.load64(data, native.index(kinds + at * 8ULL))
+        -- A parameter past the arguments given is nil.
+        local value = values.NIL
+        if at < nargs then
+            value = native.load64(window, native.index((base + 1ULL + at) * 8ULL))
+        end
+        if catalog.scalar(kind, value) == 0ULL then
+            return 0ULL
+        end
+        at = at + 1ULL
+    end
+    local info = native.offset(
+        native.loadPointer(c, native.fieldOffset<catalog.Catalog>("infos")),
+        native.index(actual * native.sizeOf<frames.FunctionInfo>())
+    )
+    local plan = native.offset(
+        native.loadPointer(c, native.fieldOffset<catalog.Catalog>("plans")),
+        native.index(actual * native.sizeOf<frames.WindowPlan>())
+    )
+    local s = native.loadPointer(ctx, context.STATE)
+    local child = frames.prepareFixed(s, frame, info, callee, base, nargs, base + 1ULL, plan)
+    -- No room for the frame: its stack grows a chunk.
+    if child == 0ULL
+        and stacks.grow(s, native.load64(plan, native.fieldOffset<frames.WindowPlan>("bytes"))) == 1ULL
+    then
+        child = frames.prepareFixed(s, frame, info, callee, base, nargs, base + 1ULL, plan)
+    end
+
+    return child
+end
+
+-- After prepare: a variadic callee's pack {[0] = n, ...} of the arguments
+-- past its fixed ones, stored in its last parameter slot before it is filled
+-- so the prepared frame roots it throughout. Answers 1, or 0 on refusal.
+export function packVarargs(ctx: voidptr, frame: voidptr, child: voidptr, base: uint64, nargs: uint64): uint64
+    local c = native.loadPointer(ctx, context.CATALOG)
+    local id = native.load64(child, native.fieldOffset<frames.Frame>("functionId"))
+    if id >= native.load64(c, native.fieldOffset<catalog.Catalog>("count")) then
+        return 0ULL
+    end
+    local record = native.offset(
+        native.loadPointer(c, native.fieldOffset<catalog.Catalog>("records")),
+        native.index(id * native.sizeOf<catalog.Function>())
+    )
+    local signature = native.offset(
+        native.loadPointer(c, native.fieldOffset<catalog.Catalog>("signatures")),
+        native.index(
+            native.load64(
+                record,
+                native.fieldOffset<catalog.Function>("signature")
+            ) * native.sizeOf<catalog.Signature>()
+        )
+    )
+    if native.load64(signature, native.fieldOffset<catalog.Signature>("variadic")) ~= 1ULL then
+        return 1ULL
+    end
+    local declared = native.load64(signature, native.fieldOffset<catalog.Signature>("parameterCount"))
+    local fixed = declared - 1ULL
+    local window = native.loadPointer(frame, native.fieldOffset<frames.Frame>("values"))
+    local pack = guestscope.newTable(ctx)
+    local slots = native.loadPointer(child, native.fieldOffset<frames.Frame>("values"))
+    native.store64(slots, native.index(declared * 8ULL), values.TAG_OBJ | pack)
+    -- A dynamic call may give fewer than the fixed ones: then none extra.
+    local count: uint64 = 0ULL
+    if nargs > fixed then
+        count = nargs - fixed
+    end
+    guestmeta.tableSet(ctx, pack, values.TAG_INTEGER, values.TAG_INTEGER | count)
+    local k: uint64 = 0ULL
+    while k < count do
+        local value = native.load64(window, native.index((base + 1ULL + fixed + k) * 8ULL))
+        guestmeta.tableSet(ctx, pack, values.TAG_INTEGER | (k + 1ULL), value)
+        k = k + 1ULL
+    end
+
+    return 1ULL
+end
+
+export function result(ctx: voidptr, frame: voidptr, pc: voidptr, value: uint64): uint64
+    local found = current(ctx, frame, pc)
+    if found == 0ULL then
+        return 0ULL
+    end
+    local c = native.loadPointer(ctx, context.CATALOG)
+    local id = native.load64(native.pointer(found), native.fieldOffset<catalog.Function>("signature"))
+    local signature = native.offset(
+        native.loadPointer(c, native.fieldOffset<catalog.Catalog>("signatures")),
+        native.index(id * native.sizeOf<catalog.Signature>())
+    )
+
+    return catalog.scalar(native.load64(signature, native.fieldOffset<catalog.Signature>("resultKind")), value)
+end
+
+export function root(ctx: voidptr, frame: voidptr): uint64
+    if native.address(frame) ~= native.load64(ctx, context.ORIGINAL_ROOT) then
+        return 0ULL
+    end
+    return 1ULL
+end
+
+export function finish(ctx: voidptr, frame: voidptr, value: uint64): uint64
+    if root(ctx, frame) == 0ULL then
+        return 0ULL
+    end
+    return frames.finishRoot(
+        native.loadPointer(ctx, context.STATE),
+        native.loadPointer(ctx, context.ROOT_CONTROL),
+        frame,
+        native.load64(ctx, context.ROOT_SERIAL),
+        value
+    )
+end
+
+-- The handler at `pc` has already checked its frame (current).
+export function branch(ctx: voidptr, frame: voidptr, pc: voidptr, displacement: int64): uint64
+    local code = native.load64(frame, native.fieldOffset<frames.Frame>("code"))
+    local count = native.load64(frame, native.fieldOffset<frames.Frame>("instructionCount"))
+    local index = (native.address(pc) - code) >> INSTRUCTION_SHIFT
+    local target: uint64 = 0ULL
+    if displacement >= 0 then
+        local distance = native.word(displacement)
+        if distance >= count - index - 1ULL then
+            return 0ULL
+        end
+        target = index + 1ULL + distance
+    else
+        -- Byte encoding bounds displacement to signed32; -(d+1) is safe even
+        -- at its minimum. This formulation does not wrap an unsigned address.
+        local distance = native.word(0 - (displacement + 1))
+        if distance > index then
+            return 0ULL
+        end
+        target = index - distance
+    end
+
+    return code + (target << INSTRUCTION_SHIFT)
+end
+
+-- Record the source position before a transition can retire its Frame. Failure
+-- handling after that call uses only retained Context and never the old frame.
+export function checkpoint(ctx: voidptr, frame: voidptr, pc: voidptr): nil
+    if native.load64(ctx, context.STATUS) == 0ULL then
+        native.store64(ctx, context.ERROR_OWNER, native.load64(frame, native.fieldOffset<frames.Frame>("functionId")))
+        native.store64(
+            ctx,
+            context.ERROR_PC,
+            (native.address(pc) - native.load64(frame, native.fieldOffset<frames.Frame>("code"))) >> INSTRUCTION_SHIFT
+        )
+    end
+end
+
+export function failure(ctx: voidptr, status: uint64): nil
+    if native.load64(ctx, context.STATUS) == 0ULL then
+        native.store64(ctx, context.STATUS, status)
+    end
+end
+
+export function resume(ctx: voidptr, frame: voidptr, pc: voidptr): uint64
+    return (
+        (native.address(pc) - native.load64(frame, native.fieldOffset<frames.Frame>("code"))) >> INSTRUCTION_SHIFT
+    ) + 1ULL
+end
+
+-- A call the handler at `pc` makes itself: the callee staged at `base` in
+-- the frame's window and `nargs` arguments after it, its first result
+-- landing in `resultSlot`. Answers the prepared, unpublished child, or 0
+-- after recording the failure; the caller publishes it to resume after
+-- `pc`. A callee that takes fewer arguments gets the first of them.
+export function metaPrepare(
+    ctx: voidptr,
+    frame: voidptr,
+    pc: voidptr,
+    base: uint64,
+    nargs: uint64,
+    resultSlot: uint64
+): uint64
+    local found = current(ctx, frame, pc)
+    local nv = native.load64(frame, native.fieldOffset<frames.Frame>("valueCount"))
+    if found == 0ULL
+        or base >= nv
+        or nargs > nv - base - 1ULL
+        or nargs > CALL_ARGUMENTS + CALL_CHAIN
+        or resultSlot >= nv
+    then
+        fail(ctx, frame, pc, INVALID)
+        return 0ULL
+    end
+    local window = native.loadPointer(frame, native.fieldOffset<frames.Frame>("values"))
+    local callee = native.load64(window, native.index(base * 8ULL))
+    local resolved = heapTarget(callee)
+    local c = native.loadPointer(ctx, context.CATALOG)
+    if heapClosures(ctx) ~= 1ULL
+        or resolved == 0ULL
+        or resolved > native.load64(c, native.fieldOffset<catalog.Catalog>("count"))
+    then
+        guesterrors.fault(ctx, guestscope.FAULT_CALL, callee, values.NIL)
+        fail(ctx, frame, pc, context.GUEST_ERROR_STATUS)
+        return 0ULL
+    end
+    local actual = resolved - 1ULL
+    local target = native.offset(
+        native.loadPointer(c, native.fieldOffset<catalog.Catalog>("records")),
+        native.index(actual * native.sizeOf<catalog.Function>())
+    )
+    local signature = native.offset(
+        native.loadPointer(c, native.fieldOffset<catalog.Catalog>("signatures")),
+        native.index(
+            native.load64(
+                target,
+                native.fieldOffset<catalog.Function>("signature")
+            ) * native.sizeOf<catalog.Signature>()
+        )
+    )
+    if native.load64(target, native.fieldOffset<catalog.Function>("kind")) ~= catalog.FUNCTION then
+        fail(ctx, frame, pc, context.GUEST_ERROR_STATUS)
+        return 0ULL
+    end
+    -- As a dynamic call adjusts them: parameters past the arguments are nil,
+    -- arguments past the parameters are dropped, and a variadic callee packs
+    -- those past its fixed ones.
+    local declared = native.load64(signature, native.fieldOffset<catalog.Signature>("parameterCount"))
+    local variadic = native.load64(signature, native.fieldOffset<catalog.Signature>("variadic")) == 1ULL
+    local fixed = declared
+    if variadic then
+        fixed = declared - 1ULL
+    end
+    local data = native.loadPointer(c, native.fieldOffset<catalog.Catalog>("data"))
+    local kinds = native.load64(signature, native.fieldOffset<catalog.Signature>("parameters"))
+    local at: uint64 = 0ULL
+    while at < fixed do
+        local kind = native.load64(data, native.index(kinds + at * 8ULL))
+        local value = values.NIL
+        if at < nargs then
+            value = native.load64(window, native.index((base + 1ULL + at) * 8ULL))
+        end
+        if catalog.scalar(kind, value) == 0ULL then
+            fail(ctx, frame, pc, context.GUEST_ERROR_STATUS)
+            return 0ULL
+        end
+        at = at + 1ULL
+    end
+    local taken = nargs
+    if not variadic and fixed < nargs then
+        taken = fixed
+    end
+    local info = native.offset(
+        native.loadPointer(c, native.fieldOffset<catalog.Catalog>("infos")),
+        native.index(actual * native.sizeOf<frames.FunctionInfo>())
+    )
+    local plan = native.offset(
+        native.loadPointer(c, native.fieldOffset<catalog.Catalog>("plans")),
+        native.index(actual * native.sizeOf<frames.WindowPlan>())
+    )
+    local s = native.loadPointer(ctx, context.STATE)
+    checkpoint(ctx, frame, pc)
+    local child = frames.prepareFixed(s, frame, info, callee, base, taken, resultSlot, plan)
+    if child == 0ULL
+        and stacks.grow(s, native.load64(plan, native.fieldOffset<frames.WindowPlan>("bytes"))) == 1ULL
+    then
+        child = frames.prepareFixed(s, frame, info, callee, base, taken, resultSlot, plan)
+    end
+    if child == 0ULL then
+        fail(ctx, frame, pc, RESOURCE)
+        return 0ULL
+    end
+    if variadic and packVarargs(ctx, frame, native.pointer(child), base, nargs) ~= 1ULL then
+        failure(ctx, INVALID)
+        return 0ULL
+    end
+
+    return child
+end
+
+-- The metamethod a library call at `pc` waits on (`guestreplay.replaybegin`),
+-- staged as metaCall stages one: its caller runs `pc` again once it
+-- answers. Answers the child's address, or 0 after recording the failure.
+export function libraryCall(ctx: voidptr, frame: voidptr, pc: voidptr, nargs: uint64, resultSlot: uint64): uint64
+    local nv = native.load64(frame, native.fieldOffset<frames.Frame>("valueCount"))
+    if nv < 5ULL or nargs > 3ULL then
+        fail(ctx, frame, pc, INVALID)
+        return 0ULL
+    end
+    -- A wrapped coroutine's function as the metamethod: its thread resumes
+    -- with the arguments, and what it yields first answers the call, which
+    -- then runs again (`threads.handover`). Its thread stands for the frame
+    -- the call waits on.
+    local window = native.loadPointer(frame, native.fieldOffset<frames.Frame>("values"))
+    local wrapped = threads.wrapped(native.load64(window, native.index((nv - 4ULL) * 8ULL)))
+    if wrapped ~= 0ULL then
+        local answer = threads.callwrapped(ctx, frame, pc, wrapped, nv - 3ULL, nargs, resultSlot | (1ULL << 32ULL))
+        if answer == threads.RAISED then
+            fail(ctx, frame, pc, context.GUEST_ERROR_STATUS)
+            return 0ULL
+        elseif answer ~= threads.SWITCHED then
+            fail(ctx, frame, pc, INVALID)
+            return 0ULL
+        end
+        threads.waitinglibrary(wrapped)
+        return wrapped & values.PAYLOAD
+    end
+    local child = metaPrepare(ctx, frame, pc, nv - 4ULL, nargs, resultSlot)
+    if child == 0ULL then
+        return 0ULL
+    end
+    local s = native.loadPointer(ctx, context.STATE)
+    if frames.libraryresult(s, native.pointer(child)) ~= 1ULL
+        or frames.publish(s, frame, native.pointer(child), resume(ctx, frame, pc) - 1ULL) ~= 1ULL
+    then
+        failure(ctx, INVALID)
+        return 0ULL
+    end
+
+    return child
+end
+
+-- A metamethod call from the handler at `pc`: the callee is staged at the
+-- top of the frame's call window (slot valueCount - 4) and `nargs`
+-- arguments after it; its result lands in `resultSlot`, and the frame
+-- resumes after `pc`, as if the handler had finished. Answers 1 once the
+-- callee's frame is published, 0 after recording the failure. A callee
+-- that takes fewer arguments gets the first of them, as Lua drops extras.
+-- With `truth` the caller takes its result as a boolean.
+export function metaCall(
+    ctx: voidptr,
+    frame: voidptr,
+    pc: voidptr,
+    nargs: uint64,
+    resultSlot: uint64,
+    truth: uint64
+): uint64
+    local nv = native.load64(frame, native.fieldOffset<frames.Frame>("valueCount"))
+    if nv < 5ULL or nargs > 3ULL then
+        fail(ctx, frame, pc, INVALID)
+        return 0ULL
+    end
+    -- A wrapped coroutine's function as the metamethod: its thread resumes
+    -- with the arguments, and what it yields or returns first lands in
+    -- resultSlot, a boolean for a comparison.
+    local window = native.loadPointer(frame, native.fieldOffset<frames.Frame>("values"))
+    local wrapped = threads.wrapped(native.load64(window, native.index((nv - 4ULL) * 8ULL)))
+    if wrapped ~= 0ULL then
+        local args = guestscope.packValues(ctx, native.offset(window, native.index((nv - 3ULL) * 8ULL)), nargs, 0ULL)
+        -- The frame roots the pack until the thread has it.
+        native.store64(window, native.index((nv - 3ULL) * 8ULL), args)
+        local answer = threads.resume(
+            ctx,
+            frame,
+            pc,
+            wrapped,
+            args,
+            threads.MODE_CALL,
+            resultSlot | (1ULL << 32ULL) | (truth << 62ULL)
+        )
+        if answer == threads.RAISED then
+            fail(ctx, frame, pc, context.GUEST_ERROR_STATUS)
+            return 0ULL
+        elseif answer ~= threads.SWITCHED then
+            fail(ctx, frame, pc, INVALID)
+            return 0ULL
+        end
+        return 1ULL
+    end
+    local child = metaPrepare(ctx, frame, pc, nv - 4ULL, nargs, resultSlot)
+    if child == 0ULL then
+        return 0ULL
+    end
+    local s = native.loadPointer(ctx, context.STATE)
+    if truth == 1ULL and frames.truth(s, native.pointer(child)) ~= 1ULL then
+        failure(ctx, INVALID)
+        return 0ULL
+    end
+    if frames.publish(s, frame, native.pointer(child), resume(ctx, frame, pc)) ~= 1ULL then
+        failure(ctx, INVALID)
+        return 0ULL
+    end
+
+    return 1ULL
+end
+
+-- A protected call that could not start answers false and `message`, nil
+-- filled, as a failure in the call would: in the slots its `wanted` results
+-- take after `base`, or as one pack when it wants them all (wanted 0).
+local function refused(ctx: voidptr, frame: voidptr, base: uint64, wanted: uint64, message: uint64): uint64
+    local window = native.loadPointer(frame, native.fieldOffset<frames.Frame>("values"))
+    -- The window roots the message while its pack is made.
+    native.store64(window, native.index((base + 1ULL) * 8ULL), message)
+    if wanted == 0ULL then
+        native.store64(window, native.index((base + 1ULL) * 8ULL), guestscope.failedvalues(ctx, message))
+        return CALL_ANSWERED
+    end
+    native.store64(window, native.index((base + 1ULL) * 8ULL), values.FALSE)
+    local at: uint64 = 1ULL
+    while at < wanted do
+        native.store64(
+            window,
+            native.index((base + 1ULL + at) * 8ULL),
+            native.chooseWord(at == 1ULL, message, values.NIL)
+        )
+        at = at + 1ULL
+    end
+
+    return CALL_ANSWERED
+end
+
+-- A call whose callee, staged at `base` in the frame's window with `nargs`
+-- arguments after it, is no function: a table with __call (or a chain of
+-- them) is called through it, each table moving in ahead of the arguments.
+-- Its first result lands after `base`, `wanted` of them (0: all, as one
+-- pack). With `protected`, the call is pcall's: what it raises answers false
+-- and the error, and a callee that cannot be called answers so at once, as
+-- Lua's pcall does, without a position. Answers CALL_STARTED, CALL_ANSWERED
+-- or CALL_FAILED.
+export function callTable(
+    ctx: voidptr,
+    frame: voidptr,
+    pc: voidptr,
+    base: uint64,
+    nargs: uint64,
+    wanted: uint64,
+    protected: uint64
+): uint64
+    local window = native.loadPointer(frame, native.fieldOffset<frames.Frame>("values"))
+    local nv = native.load64(frame, native.fieldOffset<frames.Frame>("valueCount"))
+    local callee = native.load64(window, native.index(base * 8ULL))
+    local count = nargs
+    local receivers: uint64 = 0ULL
+    while threads.wrapped(callee) == 0ULL and uncallable(ctx, callee) == 1ULL do
+        local handler = guestmeta.binaryMeta(ctx, guestmeta.META_CALL, callee, values.NIL)
+        if handler == 0ULL or receivers == CALL_CHAIN then
+            local message: uint64 = 0ULL
+            if handler == 0ULL then
+                guesterrors.fault(ctx, guestscope.FAULT_CALL, callee, values.NIL)
+            end
+            if protected == 1ULL and handler == 0ULL then
+                message = guesterrors.runtimeError(ctx)
+                guesterrors.fault(ctx, 0ULL, values.NIL, values.NIL)
+            elseif protected == 1ULL then
+                message = texts.textvalue(ctx, librarytexts.TEXT_CALL_CHAIN)
+            end
+            if protected == 1ULL then
+                return refused(ctx, frame, base, wanted, message)
+            end
+            if handler ~= 0ULL then
+                -- Positioned at the call, as Lua's is.
+                guestscope.raise(ctx, texts.textvalue(ctx, librarytexts.TEXT_CALL_CHAIN), 1ULL)
+            end
+            fail(ctx, frame, pc, context.GUEST_ERROR_STATUS)
+            return CALL_FAILED
+        end
+        if base + count + 1ULL >= nv or count >= CALL_ARGUMENTS + CALL_CHAIN then
+            fail(ctx, frame, pc, INVALID)
+            return CALL_FAILED
+        end
+        local i = count
+        while i > 0ULL do
+            native.store64(
+                window,
+                native.index((base + i + 1ULL) * 8ULL),
+                native.load64(window, native.index((base + i) * 8ULL))
+            )
+            i = i - 1ULL
+        end
+        native.store64(window, native.index((base + 1ULL) * 8ULL), callee)
+        native.store64(window, native.index(base * 8ULL), handler)
+        callee = handler
+        receivers = receivers + 1ULL
+        count = nargs + receivers
+    end
+    -- A wrapped coroutine's closure as __call: its thread resumes with the
+    -- tables and the arguments, as a call of it would.
+    local wrapped = threads.wrapped(callee)
+    if wrapped ~= 0ULL then
+        local mode = threads.MODE_CALL
+        if protected == 1ULL then
+            mode = threads.MODE_PROTECTED
+        end
+        local args = guestscope.packValues(ctx, native.offset(window, native.index((base + 1ULL) * 8ULL)), count, 0ULL)
+        -- The frame roots the pack until the thread has it.
+        native.store64(window, native.index((base + 1ULL) * 8ULL), args)
+        local answer = threads.resume(ctx, frame, pc, wrapped, args, mode, (base + 1ULL) | (wanted << 32ULL))
+        if answer == threads.SWITCHED then
+            return CALL_STARTED
+        elseif protected == 1ULL and answer == threads.REFUSED then
+            return CALL_ANSWERED
+        elseif answer == threads.RAISED then
+            fail(ctx, frame, pc, context.GUEST_ERROR_STATUS)
+        else
+            fail(ctx, frame, pc, INVALID)
+        end
+        return CALL_FAILED
+    end
+    local child = metaPrepare(ctx, frame, pc, base, count, base + 1ULL)
+    if child == 0ULL then
+        return CALL_FAILED
+    end
+    local s = native.loadPointer(ctx, context.STATE)
+    local marked: uint64 = 1ULL
+    if wanted > 1ULL then
+        marked = frames.wantResults(s, native.pointer(child), wanted)
+    end
+    if marked == 1ULL and protected == 1ULL and wanted == 0ULL then
+        marked = frames.protectpack(s, native.pointer(child))
+    elseif marked == 1ULL and protected == 1ULL then
+        marked = frames.protect(s, native.pointer(child))
+    elseif marked == 1ULL and wanted == 0ULL then
+        marked = frames.packResults(s, native.pointer(child))
+    end
+    if marked ~= 1ULL or frames.publish(s, frame, native.pointer(child), resume(ctx, frame, pc)) ~= 1ULL then
+        failure(ctx, INVALID)
+        return CALL_FAILED
+    end
+
+    return CALL_STARTED
+end

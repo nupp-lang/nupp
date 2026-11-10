@@ -23,13 +23,13 @@ local function fixture()
     if held then
         return held
     end
-    local env = environment.new(ROOT, {config = {include = {"src", "native/core/src", "spike/native-lowering/src"}}})
+    local env = environment.new(ROOT, {config = {include = {"src"}}})
 
     local compile = require("nupp.tools.cli.compile")
     local loadImage = assert(rawget(_G, "__nupp_load_image"))
 
     local function sourceModule(short)
-        local path = ROOT .. "/native/core/src/nupp/core/" .. short .. ".nupp"
+        local path = ROOT .. "/src/nupp/core/" .. short .. ".nupp"
         local image = assert(compile.image(path, env, "nupp.core." .. short))
         return assert(loadImage(image))()
     end
@@ -45,18 +45,18 @@ local function fixture()
     local described = program.describe({{name = name, path = path, parsed = parsed, diagnostics = diagnostics}}, name)
     local code = executable.fromChecked(program.compile(described, tagged.forVersion(8)), 8)
     local requested = {}
-    for _, short in ipairs({"guestcatalog", "librarycalls", "storagelibrary", "loadlibrary", "corestorage", "coretables"}) do
+    for _, short in ipairs({"guestcatalog", "librarycalls", "storagelibrary", "loadlibrary", "debuglibrary", "corestorage", "coretables"}) do
         requested[
             #requested + 1
         ] = {
             moduleName = "nupp.runtime.core." .. short,
-            path = ROOT .. "/native/core/src/nupp/runtime/core/" .. short .. ".nupp"
+            path = ROOT .. "/src/nupp/runtime/core/" .. short .. ".nupp"
         }
     end
     requested[
         #requested + 1
     ] = {moduleName = "nupp.runtime.vm.values", path = ROOT .. "/src/nupp/runtime/vm/values.nupp"}
-    local session = unit.session(ROOT, requested, "aarch64-apple-darwin", {"src", "native/core/src"}, true)
+    local session = unit.session(ROOT, requested, "aarch64-apple-darwin", {"src"}, true)
     local scopes = {}
     for _, request in ipairs(requested) do
         scopes[request.moduleName] = session.module(request.moduleName)
@@ -126,8 +126,8 @@ end
 
 function M.generatedSubjectFilesMatchTheCanonicalTable()
     local f = fixture()
-    test.eq(f.generator.source(), read(ROOT .. "/native/core/src/nupp/runtime/core/librarycalls.nupp"))
-    test.eq(f.generator.subject("storage"), read(ROOT .. "/native/core/src/nupp/runtime/core/storagelibrary.nupp"))
+    test.eq(f.generator.source(), read(ROOT .. "/src/nupp/runtime/core/librarycalls.nupp"))
+    test.eq(f.generator.subject("storage"), read(ROOT .. "/src/nupp/runtime/core/storagelibrary.nupp"))
 end
 
 function M.issuedExecutableEncodesWithTheRealSplitCallScopes()
