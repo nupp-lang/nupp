@@ -93,6 +93,15 @@ local function need(ok: any, message: string): any
     return ok
 end
 
+-- Whether checked call `call` passes other than its declared function's
+-- arity, which a plain Lua chunk may: the call goes through the function's
+-- value (taggedcalls.invoke).
+local function differsInArity(call: any): boolean
+    local called = call.calleeType or call.signatureType
+
+    return called ~= nil and called.tag == "func" and not graphcalls.fitsArity(called, call)
+end
+
 local function initializerpositions(p: any, owner: integer, base: any, extension: any): (integer, integer)
     local baseIndex: integer = 0
     local extensionIndex: integer = 0
@@ -1364,6 +1373,8 @@ export function describe(modules: {any}, entryModule: string, options: any?): an
             and node.runtimeLoader == "require"
             and chunkGlobal(p, node.obj)
             and not opening[node]
+            and not node.chunkOpening
+            and not node.typeOnlyRequire
         then
             node.runtimeLoader = nil
             node.chunkRequire = true
@@ -2613,7 +2624,12 @@ export function verifyOwner(p: any, owner: any, g: any): nil
             local site = need(p.callByNode[contract.call], "invoke lacks checked callsite")
             need(site.owner == owner.id, "invoke callsite belongs to another owner")
             if contract.dynamic then
-                need(p.functionsByDefinition[site.definition] == nil, "dynamic invoke names a declaration")
+                -- One whose arity differs from its declaration's goes through
+                -- the declared function's value (taggedcalls.invoke).
+                need(
+                    p.functionsByDefinition[site.definition] == nil or differsInArity(contract.call),
+                    "dynamic invoke names a declaration"
+                )
             else
                 local target = contract.owner
                 need(

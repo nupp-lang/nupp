@@ -409,29 +409,3 @@ end
 export function audit(caseName: string, mode: string, capacityText: string, scenario: string): string
     return serialize(caseName, mode, capacityText, scenario)
 end
-
--- The raw profile issues the fixed loader and guest services in one checked
--- source session. Raw graph bytes are supplied only after this code is linked.
-export function compileRaw(mode: string): string
-    assert(mode == "normal" or mode == "spill")
-    local source = contract.buildGuest("raw")
-    local names, selected, metrics = {}, {}, {}
-    for name in pairs(source.resolved) do
-        names[#names + 1] = name
-    end
-    table.sort(names)
-    for _, name in ipairs(names) do
-        local item = source.resolved[name]
-        local result = sink.compilerGraph(item.graph, item.owner.name, item.owner, source.resolved, source.context)
-        local allocation = sink.selectAuthenticated(result, mode)
-        selected[name] = allocation.code
-        metrics[
-            #metrics + 1
-        ] = {name = name, spillSlots = allocation.spillSlots, frameBytes = allocation.code.frameBytes}
-    end
-    local output = shim.build(source, selected, 33554432, true)
-    output.metrics, output.mode = metrics, mode
-    output.scope = "Issued v2 raw graph service to retained guest entry: one initializer, scalar K/Nil/Move/Ret"
-
-    return json.encodevalue(output)
-end

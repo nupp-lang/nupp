@@ -96,7 +96,9 @@ export function program(p: any, profile: any): any
         owners = owners,
         keys = keys(p),
         -- By module name, its initializer's result kind once known.
-        results = {}
+        results = {},
+        -- By module index, what a started piece holds until it finishes.
+        started = {}
     }
 end
 
@@ -156,7 +158,8 @@ end
 -- The view a piece's graphs are verified and derived against: its semantic
 -- tables, its owners' records followed by a record for each symbol, and its
 -- own and required modules. A required module whose initializer result is
--- already known answers it; any other answers whatever it does at run time.
+-- already known answers it, and is what the piece observed of it; any other
+-- answers whatever it does at run time.
 local function view(state: any, unit: any, symbols: {any}, byModule: {[string]: integer}): (any, {[string]: string})
     local output = unit.output
     local catalog: {any} = {}
@@ -239,10 +242,11 @@ local function relocations(fn: any): {{integer}}
     return result
 end
 
--- The piece of the `index`th module of `state`'s program. Modules are built
--- in program order, so a module's piece knows the initializer results of the
--- modules before it.
-export function build(state: any, index: integer): any
+-- The first stage of the piece of the `index`th module of `state`'s program:
+-- its owners lowered and normalized, and its initializer's result kind, which
+-- reads only the modules before it, as a whole program's does. Modules start
+-- in program order; once each has started (or been adopted), they finish.
+export function start(state: any, index: integer): nil
     local p = state.catalog
     local module = p.modules[index]
     local owners = state.owners[index]
@@ -266,12 +270,25 @@ export function build(state: any, index: integer): any
         contracts.contract(unit, at, owner, graphs[at])
     end
     need(unit.foundRequires == expected, "checked require graph is incomplete")
-    local checked, observed = view(state, unit, symbols, byModule)
-    local kinds: {string} = {}
-    for at in ipairs(owners) do
+    local early = view(state, unit, symbols, byModule)
+    state.results[module.name] = contracts.settle(unit, 1, early)
+    state.started[index] = {unit = unit, symbols = symbols, byModule = byModule}
+end
+
+-- The `index`th module's piece, once every module has started: its functions'
+-- results and every graph verified with every initializer's result known, as
+-- a whole program verifies them, and its code derived.
+export function finish(state: any, index: integer): any
+    local module = state.catalog.modules[index]
+    local owners = state.owners[index]
+    local started = need(state.started[index], "module piece has not started")
+    state.started[index] = nil
+    local unit, symbols = started.unit, started.symbols
+    local checked, observed = view(state, unit, symbols, started.byModule)
+    local kinds: {string} = {semantic.resultKind(unit.output.graphs[1], {kind = "initializer", params = {}}, checked)}
+    for at = 2, #owners do
         kinds[at] = contracts.settle(unit, at, checked)
     end
-    state.results[module.name] = kinds[1]
     local measured = semantic.piece(checked, #owners, kinds)
     local functions: {any}, placed: {{{integer}}} = {}, {}
     local output = unit.output
@@ -313,12 +330,23 @@ export function build(state: any, index: integer): any
     }
 end
 
+-- Takes `piece`, kept from an earlier build, as the `index`th module's: what the
+-- modules after it read of it. It takes no part in starting or finishing.
+export function adopt(state: any, index: integer, piece: any): nil
+    local module = state.catalog.modules[index]
+    need(piece.module.name == module.name and piece.module.path == module.path, "kept piece is another module's")
+    state.results[module.name] = piece.signatures[piece.owners[1].signature + 1].result
+end
+
 -- Every module of checked catalog `p` as a piece, in program order.
 export function compile(p: any, profile: any): {any}
     local state = program(p, profile)
     local pieces: {any} = {}
     for index in ipairs(p.modules) do
-        pieces[index] = build(state, index)
+        start(state, index)
+    end
+    for index in ipairs(p.modules) do
+        pieces[index] = finish(state, index)
     end
 
     return pieces

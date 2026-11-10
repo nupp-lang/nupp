@@ -610,9 +610,13 @@ export function set(h: heap.Heap*, table: uint64, raw: uint64, value: uint64): u
     end
 end
 
+-- What nextKey answers for a key the table does not hold: a NaN, which no
+-- table holds as a key (`true` is one).
+export const ABSENT: uint64 = 0xffffffffffffffffULL
+
 -- The key after `key` in a traversal (nil starts one): the array part in
 -- order, then the hash part in insertion order, skipping removed entries.
--- Answers nil at the end, and TRUE (never a key) when `key` is not present.
+-- Answers nil at the end, and ABSENT when `key` is not present.
 export function nextKey(table: uint64, key: uint64): uint64
     strings.prepare(key)
     @unsafe do
@@ -647,12 +651,12 @@ export function nextKey(table: uint64, key: uint64): uint64
             if after == values.NIL then
                 return values.NIL
             end
-            return values.TRUE
+            return ABSENT
         end
         local next = hashes.corenext(t, after)
         if next == 0xffffffffffffffffULL then
             if after ~= values.NIL and hashes.coreposition(t, after) == 0xffffffffffffffffULL then
-                return values.TRUE
+                return ABSENT
             end
             return values.NIL
         end

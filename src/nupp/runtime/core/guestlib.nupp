@@ -46,7 +46,7 @@ local function nextStep(ctx: voidptr, stateValue: uint64): uint64
         -- A record instance's fields go by name (guestmeta.slotname).
         local after = guestmeta.slotkey(ctx, t, tables.get(state, values.TAG_INTEGER | librarylayouts.PAIRS_AFTER))
         local key = tables.nextKey(t, after)
-        if key == values.TRUE then
+        if key == tables.ABSENT then
             texts.libraryError(ctx, librarytexts.TEXT_NEXT_KEY)
         end
         if key == values.NIL then

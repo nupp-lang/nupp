@@ -195,4 +195,13 @@ function M.zeroStepRaisesEvenWhenTheInitialRangeIsEmpty()
     end
 end
 
+-- An integer initializer proves nothing about a local a compound assignment
+-- writes: `stored += f` may leave a float in it, so it is no integer slot.
+function M.compoundAccumulatorsKeepTheFloatsTheyAdd()
+    test.eq(run("local stored = 0\nstored += 0.5\nreturn stored"), 0.5)
+    test.eq(run("local stored = 0\nfor i = 1, 3 do stored += i / 2 end\nreturn stored"), 3.0)
+    test.eq(run("local count = 0\nfor _ = 1, 3 do count += 1 end\nreturn count"), 3)
+    test.eq(run("local stored = 0\nstored = stored + 0.5\nreturn stored"), 0.5)
+end
+
 return M

@@ -641,7 +641,6 @@ local guestUnits: any = {}
 
 local function assembleGuest(caseName: string, audited: boolean): any
     local fixtures = {
-        raw = "catalog-boolean",
         boolean = "catalog-boolean",
         nilValue = "catalog-nil",
         live = "catalog-live",
@@ -669,9 +668,7 @@ local function assembleGuest(caseName: string, audited: boolean): any
     local fixture = need(fixtures[caseName], "unknown fixed guest program")
     need(current == nil, "nested construction")
     local root = need(os.getenv("NUPP_COMPILER_ROOT"), "build source root required")
-    local directory = audited and "core-guest-audit"
-        or caseName == "raw" and "core-guest-raw-entry"
-        or "core-guest-programs"
+    local directory = audited and "core-guest-audit" or "core-guest-programs"
     local snapshotPath = root .. "/build/" .. directory .. "/snapshot.json"
     local snapshotText = read(snapshotPath)
     local snapshot = require("nupp.serde.internal.json.values").decode(snapshotText)
@@ -682,24 +679,6 @@ local function assembleGuest(caseName: string, audited: boolean): any
     end
     for _, name in ipairs({"instances", "guestcatalog", "guestentry", "guestops", "guesthandlers"}) do
         paths[#paths + 1] = {"nupp.runtime.core." .. name, "src/nupp/runtime/core/" .. name .. ".nupp"}
-    end
-    if caseName == "raw" then
-        for _, name in ipairs({
-            "rawwire",
-            "rawheader",
-            "rawroles",
-            "rawshape",
-            "rawcatalogpolicy",
-            "rawcatalog",
-            "rawbudgetpolicy",
-            "rawbudget",
-            "rawsemanticpolicy",
-            "rawsemantics",
-            "rawexecutablepolicy",
-            "rawexecutable"
-        }) do
-            paths[#paths + 1] = {"nupp.runtime.core." .. name, "src/nupp/runtime/core/" .. name .. ".nupp"}
-        end
     end
     local negativeModule = "nupp.runtime.core.guestnegatives"
     local auditModule = "nupp.runtime.core.guestaudit"

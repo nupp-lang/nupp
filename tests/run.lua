@@ -14,12 +14,6 @@
 -- run means one misbehaving suite turns the whole shard's report into "the shard
 -- wrote no report", which loses every other suite's result and reads like an
 -- infrastructure failure rather than the one test that broke.
--- Whether os.execute says its command succeeded: LuaJIT answers the status,
--- Lua 5.2 and later true and how it ended.
-local function shellSucceeded(result)
-    return result == 0 or result == true
-end
-
 -- Where a function was written, as debug.getinfo says; nil where the host
 -- has no debug library to say it (the native core).
 local getinfo = (rawget(_G, "debug") or {}).getinfo or function()
@@ -290,7 +284,7 @@ do
             processId = tonumber(hostpid.get())
             if package.config:sub(1, 1) ~= "\\" then
                 processAlive = function(pid)
-                    return shellSucceeded(os.execute(("kill -0 %d 2>/dev/null || ps -p %d >/dev/null 2>&1"):format(pid, pid)))
+                    return os.execute(("kill -0 %d 2>/dev/null || ps -p %d >/dev/null 2>&1"):format(pid, pid)) == 0
                 end
             end
             processSalt = tostring(processId) .. "-" .. stateSalt
@@ -1200,7 +1194,7 @@ do
                 local stamp = tostring(os.time()) .. (processId and " " .. processId or "")
                 local quoted = "'" .. path:gsub("'", "'\\''") .. "'"
 
-                return shellSucceeded(os.execute(("set -C; printf '%%s\\n' '%s' > %s 2>/dev/null"):format(stamp, quoted)))
+                return os.execute(("set -C; printf '%%s\\n' '%s' > %s 2>/dev/null"):format(stamp, quoted)) == 0
             end
             local clocked, clock = pcall(require, "nupp.vm.clock")
             if clocked then
@@ -2285,10 +2279,10 @@ local workerReports = {root = nil, next = 0}
 
 local function workerArtifacts()
     if not workerReports.root then
-        assert(shellSucceeded(os.execute("mkdir -p " .. shellQuote(shardCacheRoot))), "cannot create the worker report root")
+        assert(os.execute("mkdir -p " .. shellQuote(shardCacheRoot)) == 0, "cannot create the worker report root")
         local ticket = assert(os.tmpname():match("[^/\\]+$"))
         local directory = shardCacheRoot .. "/reports-" .. ticket
-        assert(shellSucceeded(os.execute("mkdir " .. shellQuote(directory))), "cannot reserve worker reports")
+        assert(os.execute("mkdir " .. shellQuote(directory)) == 0, "cannot reserve worker reports")
         workerReports.root = directory
     end
     workerReports.next = workerReports.next + 1
@@ -3533,12 +3527,12 @@ then
             )
             predictions[executionLane] = prediction
             if not madeShardRoot then
-                assert(shellSucceeded(os.execute("mkdir -p '" .. shardCacheRoot .. "'")), "cannot create the test queue root")
+                assert(os.execute("mkdir -p '" .. shardCacheRoot .. "'") == 0, "cannot create the test queue root")
                 madeShardRoot = true
             end
             local ticket = os.tmpname():match("[^/\\]+$") or tostring(#order)
             local queue = shardCacheRoot .. "/queue-" .. ticket
-            assert(shellSucceeded(os.execute("mkdir '" .. queue .. "'")), "cannot reserve a unique test queue")
+            assert(os.execute("mkdir '" .. queue .. "'") == 0, "cannot reserve a unique test queue")
             local listing = assert(io.open(queue .. "/order", "wb"))
             listing:write(table.concat(order, "\n") .. "\n")
             listing:close()

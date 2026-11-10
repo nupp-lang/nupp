@@ -346,7 +346,9 @@ export function readformats(s: Stream, position: integer, name: string, level: i
             local format: any = select(index, ...)
             local value: any = nil
             if type(format) == "number" then
-                local size = integerarg(format, position + index - 1, name, level + 1)
+                -- A count with a fraction reads its whole part, as main's does.
+                local whole = math.tointeger(format) or (format >= 0 and math.floor(format) or math.ceil(format))
+                local size = integerarg(whole, position + index - 1, name, level + 1)
                 if size == 0 then
                     if fill(s) then
                         value = ""

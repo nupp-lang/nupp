@@ -134,6 +134,7 @@ local CASES = {
     {"recordsMethods", 0x7FFF000AFDC52FB5},
     {"callsProtected", 0x7FFF00001E76EFC7},
     {"protectedpacks", 0x7FFF000000000001},
+    {"compoundfloat", 0x402F000000000000},
     {"callstables", 0x7FFF00000000FFFF},
     {"nonreturningbodies", 0x7FFF00000000001F},
     {"recordsInline", 0x7FFF0000000A1A00},
@@ -247,6 +248,8 @@ local CASES = {
     {"affineconstructors", 0x7FFF0000000000FF},
     {"absentffi", 0x7FFF000000000007},
     {"guestffi", 0x7FFF000000001FFF},
+    {"runnersmall", 0x7FFF00000000001F},
+    {"runnerchunks", 0x7FFF00000000007F},
     -- The packaged test runner over real suites, its loadfile and dofile
     -- served chunks compiled here (SOURCES).
     {"testrunner", 0},
@@ -294,6 +297,12 @@ local CASES = {
     -- request core-cdecl-record.lua records.
     {"corecdecl", 0x7FFF0000000007FF},
     {"loadbinary", 0x7FFF000000001FFF},
+    -- Binary chunks a program altered: truncated, corrupted, with operands,
+    -- branches, call sites, closures, relocations and entries out of place,
+    -- each refused as a bad format, and every byte inverted in turn; a copy
+    -- suspended in a coroutine meanwhile, while later loads move the
+    -- catalog into larger mappings, then finished.
+    {"loadhostile", 0x7FFF00001FFFFFFF},
     -- A record with an array part: fields and elements apart.
     {"recordsarray", 0x7FFF00000000000F},
     -- A function statement assigning a local declared before it.
@@ -308,7 +317,7 @@ local CASES = {
     {"compilerfront", 0x7FFF00000000000F},
     -- Lua's loaders over source text, compiled on the core by the compiler
     -- the program carries.
-    {"loadsource", 0x7FFF0000007FFFFF},
+    {"loadsource", 0x7FFF000000FFFFFF},
     -- The compiler's lexer alone on the core, over whole source files.
     {"compilerlexer", 0x7FFF00000000000F},
     -- A checked call spreading fewer or more results than it has parameters.
@@ -319,7 +328,7 @@ local CASES = {
     {"debuggetinfo", 0x7FFF00000001FFFF},
     -- Instances of a Nupp module compiled as a chunk: fresh state, requires
     -- through the instance's environment, core call modules swapped.
-    {"moduleinstances", 0x7FFF0000000000FF},
+    {"moduleinstances", 0x7FFF0000000001FF},
     -- A module instance's record taking a default from an interface in a
     -- module its chunk does not carry, through the instance's require.
     {"instancedefaults", 0x7FFF000000000003},
@@ -543,6 +552,7 @@ local STRESS = {
     filesystem = true,
     osremove = true,
     loadbinary = true,
+    loadhostile = true,
     osfilesystem = true,
     loadsource = true,
     debuggetinfo = true,
@@ -578,6 +588,9 @@ local SETUP = {
         "d=$(mktemp -d '%s/ffi.XXXXXX') && cc -dynamiclib -o \"$d/libnuppffiaggregates.dylib\" '%s' "
         .. "&& export DYLD_LIBRARY_PATH=\"$d\"; "
     ):format(OUT, TESTS .. "/ffi-aggregates.c"),
+    -- The runner-chunks case's chunk is kept by its path under the
+    -- checkout, as the runner's are.
+    runnerchunks = ("cd %s && export NUPP_CORE_CHUNKS=%s/build/core-guests/chunks; "):format(ROOT, ROOT),
     -- The runner reads tests/run.lua and the suites from the checkout. Its
     -- result cache digests the files the VM variables name, the runtime's
     -- hundreds of megabytes, which guest code takes most of an hour over;
@@ -594,6 +607,7 @@ local ROOTED = {testrunner = "tests/tools/test/runner", benchworkloads = "bench/
 -- compile text itself yet.
 local RUNNER_SUITES = {"iopathargumenttest", "iofileargumenttest", "corewarnlogtest", "typefactoriestest"}
 local SOURCES = {
+    runnerchunks = {"tests/core/runner-chunk-calls.lua", "src/nupp/gpu/limits.nupp", "src/io/net/init.nupp"},
     testrunner = {
         "tests/run.lua",
         "tests/groups.lua",
@@ -655,6 +669,7 @@ local NUMERIC = {
     recordsMethods = "catalog-records-methods",
     callsProtected = "catalog-calls-protected",
     protectedpacks = "catalog-protected-packs",
+    compoundfloat = "catalog-compound-float",
     recordsInline = "catalog-records-inline",
     errorsPositions = "catalog-errors-positions",
     tablesMeta = "catalog-tables-meta",
@@ -686,7 +701,6 @@ local NUMERIC = {
     errorsMethods = "catalog-errors-methods",
     recordsAffineReturns = "catalog-records-affine-returns",
     threadsbasic = "catalog-threads-basic",
-    coroutineinheritance = "catalog-coroutine-inheritance",
     threadscalls = "catalog-threads-calls",
     threadsclose = "catalog-threads-close",
     threadsiterate = "catalog-threads-iterate",
@@ -1276,9 +1290,13 @@ local function sourceChunk(path, display)
     local kept = OUT .. "/chunks/" .. (display and text and chunkfiles.textname(text) or chunkfiles.name(path))
     local held = read(kept)
     compiledBy = compiledBy or assert(sharedcache.treeDigest(ROOT, {"src"}))
+
+    local function heldas(header)
+        return held ~= nil and held:sub(1, #header) == header
+    end
+
     if text == nil
-        or held ~= nil
-        and held:sub(1, #chunkfiles.contents(text, "")) == chunkfiles.contents(text, "")
+        or (heldas(chunkfiles.contents(text, "")) or heldas(chunkfiles.refusedcontents(text, "")))
         and read(kept .. ".by") == compiledBy
     then
         return
@@ -1288,10 +1306,9 @@ local function sourceChunk(path, display)
     local began = os.time()
     local contents, problem = build.sourceChunk(path, display)
     print(("compiled %s in %ds%s"):format(path, os.time() - began, contents and "" or ": " .. tostring(problem)))
-    if contents then
-        write(kept, contents)
-        write(kept .. ".by", compiledBy)
-    end
+    -- A refusal is kept too, so the core does not compile the text again.
+    write(kept, contents or chunkfiles.refusedcontents(text, tostring(problem)))
+    write(kept .. ".by", compiledBy)
 end
 
 -- Runs the cases in NUPP_GUEST_SHARDS processes at once (default 4), each
