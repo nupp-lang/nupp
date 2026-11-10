@@ -439,6 +439,8 @@ local CASES: {[string]: {
     -- `nupp check` on the core through the CLI's real root, carrying what
     -- the CLI's image carries beside it.
     compilercheck = {fixture = "catalog-compiler-check", version = 8, follow = true, modules = cliextras()},
+    compilerwarmcheck = {fixture = "catalog-compiler-warm-check", version = 8, follow = true, modules = cliextras()},
+    plaincodec = {fixture = "catalog-plain-codec", version = 8, follow = true},
     -- The compiler's carried files listed where none are carried.
     bundledlist = {fixture = "catalog-bundled-list", version = 8, follow = true},
     -- The compiler's host layout key where the runtime describes the machine.
