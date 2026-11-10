@@ -10,6 +10,7 @@ local M = {}
 local root = assert(os.getenv("NUPP_COMPILER_ROOT"))
 local actualModules = {}
 local unitsEnvironment
+local coroutineProjection
 
 local function checked(source, path, name)
     if unitsEnvironment == nil then
@@ -47,8 +48,17 @@ local function fixture(body)
 end
 
 local function catalog(module)
+    -- Supply the unrelated builtin projection; the real scalar factory and
+    -- its checked source below remain authoritative.
+    coroutineProjection = coroutineProjection
+        or checked(
+            "module nupp.runtime.luacoroutine\nexport const value: table = {}",
+            "=scalar-coroutine-projection.nupp",
+            "nupp.runtime.luacoroutine"
+        )
+
     return program.describe(
-        {actualmodule("nupp.runtime.libraryvalues"), actualmodule(projection.MODULE), module},
+        {actualmodule("nupp.runtime.libraryvalues"), coroutineProjection, actualmodule(projection.MODULE), module},
         module.name
     )
 end
@@ -65,6 +75,13 @@ local function compile(module)
     end
 
     return described, {graphs = graphs}
+end
+
+local function validated(module)
+    local described = catalog(module)
+    local complete = program.compile(described, tagged.forVersion(8))
+    executable.validate(executable.fromChecked(complete, 8))
+    return described
 end
 
 local function refused(operation)
@@ -309,14 +326,14 @@ local struct Row
 end
 export function entry(): ctype<Row> return ffi.typeof<Row>() end]]
     }
-    local missing = "required checked module is missing: ffi"
+    local missing = "unresolved executable reference required checked module ffi (not carried)"
     local unresolved = "unresolved executable reference ffi at "
     local failures = {missing, missing, unresolved, unresolved, unresolved, missing}
     for index, body in ipairs(bodies) do
         local module = fixture(body)
         assert(#projection.imports(module.parsed.root) == 0)
         local problem = refused(function()
-            catalog(module)
+            validated(module)
         end)
         assert(problem:find(failures[index], 1, true), "control " .. index .. ": " .. problem)
     end
@@ -332,9 +349,10 @@ export function entry(): ctype<uint16> return ffi.typeof<uint16>() end]]
     for _, body in ipairs(bodies) do
         local module = fixture(body)
         assert(#projection.imports(module.parsed.root) == 0)
-        refused(function()
-            compile(module)
-        end)
+        local described = validated(module)
+        assert(next(described.scalartypes.witnesses) == nil)
+        assert(next(described.scalartypes.imports) == nil)
+        assert(next(described.scalartypes.definitions) == nil)
     end
 end
 
@@ -409,9 +427,10 @@ end
 function M.implicitTypeofKeepsCheckerSemanticsWithoutInventingAnImport()
     local module = fixture([[export function entry(): ctype<uint16> return ffi.typeof<uint16>() end]])
     assert(#projection.imports(module.parsed.root) == 0)
-    refused(function()
-        catalog(module)
+    local problem = refused(function()
+        validated(module)
     end)
+    assert(problem:find("unresolved executable reference ffi at ", 1, true))
 end
 
 return M
