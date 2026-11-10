@@ -381,6 +381,36 @@ function M.stubbedModulesKeepTheirPieces()
     )
 end
 
+function M.manualCatalogsDoNotRecordUnverifiableProjects()
+    local keptcatalog = require("nupp.core.keptcatalog")
+    local piecestore = require("nupp.core.piecestore")
+    local remember = piecestore.remember
+    piecestore.remember = function()
+        error("a manually checked catalog has no verified project to record")
+    end
+    local okay, problem = pcall(function()
+        for _, inputs in ipairs({
+            {{name = "pieces.main", text = "module pieces.main\nexport const result = 42\n"}},
+            sources()
+        }) do
+            local catalog = checkedProgram(inputs)
+            assert(catalog.checkedProject == nil)
+            local pieces = corepiece.compile(catalog, tagged.forVersion(8))
+            local keys = {}
+            for index in ipairs(pieces) do
+                keys[index] = tostring(index)
+            end
+            keptcatalog.remember(".", "manual", 8, catalog, {}, keys)
+            same(
+                corelink.link(pieces, inputs[#inputs].name),
+                executable.fromChecked(program.compile(catalog, tagged.forVersion(8)), 8)
+            )
+        end
+    end)
+    piecestore.remember = remember
+    assert(okay, problem)
+end
+
 -- Kept catalogs must preserve the cold result after a body edit, while
 -- changed semantic inputs and missing records force a fresh check.
 function M.keptCatalogChecksEditsAndRefusesChangedInputs()
