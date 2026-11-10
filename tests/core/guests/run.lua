@@ -392,6 +392,8 @@ OUTPUT.compilercheck = function(printed)
     return printed:find("compilercheck%-broken%.nupp:1:%d+: error: NUPP%d+") ~= nil
 end
 
+OUTPUT.compilerselfbuild = dofile(ROOT .. "/tests/core/guests/selfbuildoutput.lua").compilerselfbuild
+
 OUTPUT.benchworkloads = function(printed)
     local ok, record = pcall(json.decodevalue, printed)
     local case = ok and type(record) == "table" and type(record.cases) == "table" and record.cases[1]
