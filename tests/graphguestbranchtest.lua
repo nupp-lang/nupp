@@ -1057,7 +1057,7 @@ local function capabilityChunk(source)
 end
 
 local CAPABILITY_OPENING = [[module scalarcapability
-local array = require("nupp.array")
+local array = table.Array
 local simd = require("simd")
 ]]
 
