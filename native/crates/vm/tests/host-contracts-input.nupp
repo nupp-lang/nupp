@@ -58,7 +58,6 @@ function probe.run(): integer
         ] = {"platform", "architecture", "endianness", "pointerBits", "availableParallelism"},
         ["nupp.runtime.provider.nativeuuid"] = {"uuid4", "uuid7"},
         ["nupp.simd"] = {"horizontal", "reducer"},
-        ["nupp.tools.build.clockhost"] = {"now"},
         ["nupp.vm.clock"] = {"now", "wallTime", "sleep"},
         [
             "nupp.vm.compression"

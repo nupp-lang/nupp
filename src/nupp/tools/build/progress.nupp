@@ -105,7 +105,7 @@ export type Timing = {
 --- report stays something a reader takes in at a glance.
 export const SLOWEST = 5
 
-local clock = require("nupp.tools.build.clockhost")
+local clock = require("nupp.runtime.provider.wallclock")
 
 --- Milliseconds on a wall clock. Its zero is the epoch where the platform's clock was
 --- reachable and this process's own start where it was not, so only the difference

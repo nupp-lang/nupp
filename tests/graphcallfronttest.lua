@@ -647,6 +647,7 @@ end
 
 function M.coreClocksUseTheSharedTimerProvider()
     assert(graph.coremodule("nupp.vm.clock") == "nupp.runtime.provider.coreclock")
+    assert(graph.coremodule("nupp.runtime.provider.wallclock") == "nupp.runtime.provider.coreclock")
     assert(graph.coremodule("nupp.runtime.bindings.clock") == "nupp.runtime.provider.coretime")
     assert(graph.coremodule("nupp.runtime.bindings.suspension") == "nupp.runtime.provider.suspension")
     assert(graph.corecallmodule("nupp.runtime.clockcalls"))
@@ -670,6 +671,13 @@ function M.coreClocksUseTheSharedTimerProvider()
         end
     end
     assert(found)
+end
+
+function M.coreMarkdownUsesTheUnavailableRuntimeProvider()
+    assert(graph.coremodule("nupp.vm.markdown") == "nupp.runtime.provider.coremarkdown")
+    local provider = require("nupp.runtime.provider.coremarkdown")
+    local html, reason = provider.render("# Title")
+    assert(html == nil and reason == "Markdown rendering is not available on the core")
 end
 
 function M.coroutineValuesRetainCheckedPreludeAuthority()

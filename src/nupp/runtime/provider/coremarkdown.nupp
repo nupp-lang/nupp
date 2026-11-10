@@ -5,7 +5,7 @@ The core's answer to `nupp.vm.markdown`, the VM's Markdown renderer for
 `nupp doc`: the core has none, so rendering answers that, as the checkout's
 own renderer does where no host supplies one.
 ]]
-module nupp.tools.doc.coremarkdown
+module nupp.runtime.provider.coremarkdown
 
 --- No HTML, and why.
 export function render(_: string): (string?, string?)

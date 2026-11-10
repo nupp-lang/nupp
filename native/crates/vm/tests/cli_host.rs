@@ -16,8 +16,8 @@ fn cli_host_modules_are_available_before_loading_an_image() {
     let answer = vm.call_value(is_terminal, &[Value::num(1.0)]);
     assert_eq!(answer, vec![Value::boolean(std::io::stdout().is_terminal())]);
 
-    let clock = vm.require("nupp.tools.build.clockhost");
-    let now = vm.intern("now");
+    let clock = vm.require("nupp.vm.clock");
+    let now = vm.intern("wallTime");
     let now = vm.get_index(clock, now);
     let before = vm.call_value(now, &[])[0].as_num();
     let after = vm.call_value(now, &[])[0].as_num();

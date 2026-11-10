@@ -1161,8 +1161,6 @@ impl Interp {
         crate::simd::install(self);
         let terminal = table_of(self, &["terminal.isTerminal", "terminal.columns"]);
         self.loaded.insert("nupp.cli.internal.terminalhost".into(), terminal);
-        let clock = table_of(self, &["clock.now"]);
-        self.loaded.insert("nupp.tools.build.clockhost".into(), clock);
         let clock = self.new_table(); self.registered.push(clock);
         for (name, builtin) in [("now", "vm.clockNow"), ("wallTime", "vm.clockWall"), ("sleep", "vm.clockSleep")] {
             let key = self.intern(name);

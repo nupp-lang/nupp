@@ -501,7 +501,6 @@ for _, relative in ipairs({
     "nupp/runtime/provider/nativestorage.d.nupp",
     "nupp/runtime/provider/nativeuuid.d.nupp",
     "nupp/tasks.d.nupp",
-    "nupp/tools/build/clockhost.d.nupp",
     "nupp/tools/bytecodecache.d.nupp",
     "nupp/vm.d.nupp",
     "nupp/vm/clock.d.nupp",

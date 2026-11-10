@@ -7,6 +7,21 @@ local readAll = fixture.readAll
 
 local M = {}
 
+function M.theHostWallClockReportsEpochMilliseconds()
+    local wallclock = require("nupp.runtime.provider.wallclock")
+    local available, clock = pcall(require, "nupp.vm.clock")
+    if not available then
+        local before = wallclock.now()
+        assert(type(before) == "number" and before >= 0 and wallclock.now() >= before)
+        return
+    end
+    local before = clock.wallTime()
+    local measured = wallclock.now()
+    local reported = progress.now()
+    local after = clock.wallTime()
+    assert(before > 1.4e12 and before <= measured and measured <= reported and reported <= after)
+end
+
 function M.durationsReadAsMillisecondsThenSeconds()
     testAssert.eq(progress.duration(0), "0ms")
     testAssert.eq(progress.duration(12.4), "12ms")

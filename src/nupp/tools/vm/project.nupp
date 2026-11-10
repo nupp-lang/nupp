@@ -33,7 +33,6 @@ local HOST_MODULES: {
     ["nupp.vm.crc"] = true,
     ["nupp.vm.coroutine"] = true,
     ["nupp.cli.internal.terminalhost"] = true,
-    ["nupp.tools.build.clockhost"] = true,
     ["nupp.compiler.hostpid"] = true,
     ["nupp.compiler.nativehash"] = true,
     ["nupp.compiler.nativecdecl"] = true,

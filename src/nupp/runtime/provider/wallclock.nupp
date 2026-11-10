@@ -1,10 +1,14 @@
 @!internal
 
-module nupp.tools.build.clockhost
+module nupp.runtime.provider.wallclock
 
 -- Wall time includes waits on other processes and the disk. LuaJIT's fallback
 -- is CPU time when its FFI cannot provide a wall clock.
 local function makeClock(): function(): number
+    local available, host = pcall(require, "nupp.vm.clock")
+    if available then
+        return host.wallTime
+    end
     local coarse = function(): number
         return os.clock() * 1000
     end
