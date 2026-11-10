@@ -3507,9 +3507,13 @@ export function install(c: state.Checker): Ops
             end
         end
         c.own.retainConsumedLoans(node, consumedRoots, rets, consumedExclusive)
+        -- An open result pack can retain a scalar `any` summary beyond its
+        -- empty head. Keep that checked summary when the pack did not change;
+        -- substituted or computed packs use the newly derived results.
+        local signatureRets = retPack == declaredRetPack and calleeT.rets or rets
         node.signatureType = T.func(
             params,
-            rets,
+            signatureRets,
             calleeT.vararg,
             paramModes,
             calleeT.predicate,

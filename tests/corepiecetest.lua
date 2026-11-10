@@ -161,6 +161,24 @@ local function refuses(action, message)
     assert(tostring(problem):find(message, 1, true), tostring(problem))
 end
 
+function M.unannotatedImportedMethodsRetainTheirOpenResultSummary()
+    local alpha = ALPHA:gsub(
+        "    function bump",
+        [[
+    function touch(self, by: integer, optional: integer?)
+        self.value = self.value + by
+    end
+    function bump]],
+        1
+    )
+    local fixtures = sources(alpha)
+    fixtures[2].text = BETA:gsub("counter:bump%(1%)", "counter:touch(1)\n    counter:bump(0)")
+    local profile = tagged.forVersion(8)
+    local expected = executable.fromChecked(program.compile(checkedProgram(fixtures), profile), 8)
+    local linked = corelink.link(corepiece.compile(checkedProgram(fixtures), profile), "pieces.main")
+    same(linked, expected)
+end
+
 function M.linkedProgramMatchesItsWholeProgramBuild()
     local built = pieces()
     local linked = corelink.link(built, "pieces.main")
