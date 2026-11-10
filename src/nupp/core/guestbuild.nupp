@@ -371,6 +371,8 @@ local CASES: {[string]: {
     clihosts = {fixture = "catalog-cli-hosts", version = 8},
     -- Lua's loaders over a binary chunk installed into the running program.
     loadbinary = {fixture = "catalog-load-binary", version = 8, chunks = {"catalog-load-chunk"}},
+    -- Hostile binary chunks, each refused, while a loaded one waits suspended.
+    loadhostile = {fixture = "catalog-load-hostile", version = 8, chunks = {"catalog-load-chunk"}},
     recordsarray = {fixture = "catalog-records-array", version = 8},
     forwardfunctions = {fixture = "catalog-forward-functions", version = 8},
     closurecaptures = {fixture = "catalog-closure-captures", version = 8},
@@ -506,7 +508,8 @@ local RUNTIME = {
     "guesthandlers",
     "guestscope",
     "coretables",
-    "guestloader"
+    "guestloader",
+    "chunkadmission"
 }
 
 -- One runtime build and selection per mode for the process: every case
