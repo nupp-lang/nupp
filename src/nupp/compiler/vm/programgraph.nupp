@@ -1374,6 +1374,7 @@ export function describe(modules: {any}, entryModule: string, options: any?): an
             and chunkGlobal(p, node.obj)
             and not opening[node]
             and not node.chunkOpening
+            and not node.typeOnlyRequire
         then
             node.runtimeLoader = nil
             node.chunkRequire = true

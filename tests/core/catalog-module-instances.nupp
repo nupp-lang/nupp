@@ -114,5 +114,8 @@ local wall = own.now()
 if type(wall) == "number" and wall > 1000000000 then
     score = score + 128
 end
+if a.configured(nil) == false and b.configured({}) == true then
+    score = score + 256
+end
 
 export const result = score

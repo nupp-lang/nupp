@@ -36,3 +36,11 @@ end
 export function fail(): nil
     error("instance failure")
 end
+
+-- A type from a checkout module outside the staged fixture roots. The
+-- checker must read that module, while the instance must never require it.
+local {type Hooks} = require("nupp.runtime.temporaryhooks")
+
+export function configured(hooks: Hooks?): boolean
+    return hooks ~= nil
+end

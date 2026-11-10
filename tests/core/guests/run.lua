@@ -319,7 +319,7 @@ local CASES = {
     {"debuggetinfo", 0x7FFF00000001FFFF},
     -- Instances of a Nupp module compiled as a chunk: fresh state, requires
     -- through the instance's environment, core call modules swapped.
-    {"moduleinstances", 0x7FFF0000000000FF},
+    {"moduleinstances", 0x7FFF0000000001FF},
     -- A module instance's record taking a default from an interface in a
     -- module its chunk does not carry, through the instance's require.
     {"instancedefaults", 0x7FFF000000000003},
