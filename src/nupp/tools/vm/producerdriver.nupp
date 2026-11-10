@@ -2,42 +2,14 @@ module nupp.tools.vm.producerdriver
 
 -- The launcher checks a small record on the installed compiler before it
 -- starts the separately packaged guest producer.
-local json = require("serde.json")
 local fs = require("nupp.compiler.fs")
-local hash = require("nupp.compiler.hash")
 local process = require("nupp.compiler.process")
+local produceridentity = require("nupp.core.produceridentity")
 local imagemodules = require("nupp.compiler.imagemodules")
 
-local function digest(path: string): string?
-    local text = fs.readFile(path)
-    return text and hash.sha256(text) or nil
-end
+local digest = produceridentity.fileDigest
 
-export function inventory(root: string): string
-    local status, text = process.capture(
-        {
-            "git",
-            "ls-files",
-            "--cached",
-            "--others",
-            "--exclude-standard",
-            "-z",
-            "--",
-            "src",
-            "native/crates/vm/lib",
-            "native/crates/vm/decls"
-        },
-        {cwd = root}
-    )
-    assert(status == 0, "cannot list producer sources")
-    local paths: {string} = {}
-    for path in text:gmatch("[^%z]+") do
-        paths[#paths + 1] = path
-    end
-    table.sort(paths)
-
-    return hash.sha256(table.concat(paths, "\0"))
-end
+export const inventory = produceridentity.inventory
 
 -- The runtime describes only the image it started from, excluding modules
 -- loaded from source later. Unknown hosts conservatively carry nothing.
@@ -86,97 +58,8 @@ export function producerInputs(root: string, modules: {[string]: string}, carrie
     return inputs
 end
 
--- Every identity field, including the complete executable input list, is
--- sealed so damaged metadata cannot accidentally remove a dependency.
-export function identitySeal(identity: any): string?
-    local sealed = {
-        identity.format,
-        identity.root,
-        identity.base,
-        identity.baseImage,
-        identity.baseRuntime,
-        identity.inventory,
-        identity.extras
-    }
-    for _, input in ipairs(identity.inputs) do
-        if type(input) ~= "table" or type(input.path) ~= "string" or type(input.sha256) ~= "string" then
-            return nil
-        end
-        sealed[#sealed + 1], sealed[#sealed + 2] = input.path, input.sha256
-    end
-    for _, value in ipairs(sealed) do
-        if type(value) ~= "string" then
-            return nil
-        end
-    end
-    if #sealed ~= 7 + 2 * #identity.inputs then
-        return nil
-    end
-
-    return hash.sha256(table.concat(sealed, "\0"))
-end
-
--- A corrupt or missing record is a miss. Program source already carried by
--- the fixed compiler is data for that compiler; uncarried builder code is an
--- executable dependency and must still match.
-export function selected(root: string, base: string): string?
-    local okay, result = pcall(function(): string?
-        local packages = root .. "/.nupp/native-producer"
-        local generation = assert(fs.readFile(packages .. "/current")):match("^(%x+)%s*$")
-        if not generation or #generation ~= 64 then
-            return nil
-        end
-        local directory = packages .. "/" .. generation
-        local receipt: any = json.decodevalue(assert(fs.readFile(directory .. "/receipt.json")))
-        if type(receipt) ~= "table"
-            or receipt.format ~= "nupp-vm-cli-1"
-            or receipt.linked ~= true
-            or type(receipt.imageSha256) ~= "string"
-            or type(receipt.runtimeSha256) ~= "string"
-        then
-            return nil
-        end
-        local identity = receipt.privateProducer
-        if type(identity) ~= "table"
-            or identity.format ~= "nupp-native-producer/2"
-            or identity.root ~= root
-            or identity.base ~= base
-            or identity.inventory ~= inventory(root)
-        then
-            return nil
-        end
-        local original = root .. "/.nupp/vm-cli/" .. base
-        if digest(original .. "/compiler.image") ~= identity.baseImage
-            or digest(original .. "/runtime") ~= identity.baseRuntime
-        then
-            return nil
-        end
-        if type(identity.inputs) ~= "table" then
-            return nil
-        end
-        local seal = identitySeal(identity)
-        if seal == nil or seal ~= identity.seal then
-            return nil
-        end
-        for _, input in ipairs(identity.inputs) do
-            if digest(root .. "/" .. input.path) ~= input.sha256 then
-                return nil
-            end
-        end
-        if digest(directory .. "/compiler.image") ~= receipt.imageSha256
-            or digest(directory .. "/runtime") ~= receipt.runtimeSha256
-        then
-            return nil
-        end
-
-        return directory
-    end)
-    if okay then
-        return result
-    end
-
-    return nil
-end
+export const identitySeal = produceridentity.identitySeal
+export const selected = produceridentity.selected
 
 export function main(arguments: {string}): integer
     local root = assert(os.getenv("NUPP_COMPILER_ROOT"), "checkout root required")

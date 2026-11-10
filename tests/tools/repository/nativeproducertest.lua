@@ -1,7 +1,9 @@
 local ROOT = require("helpers.paths").absoluteTests .. "/.."
 local hash = require("nupp.compiler.hash")
 local json = require("serde.json")
-local driver = require("nupp.tools.vm.producerdriver")
+local driver = require("helpers.providerstate").instance({
+    ["nupp.tools.vm.producerdriver"] = true
+})("nupp.tools.vm.producerdriver")
 local M = {}
 
 function M.sharedInventoryMatchesTheInstalledImage()
@@ -88,6 +90,24 @@ function M.pieceProducerHashesSourceUnlessTheImageCarriesItsModule()
         local frozen = key(carried)
         assert(fs.writeFile(builder, "return 'source edit to frozen builder'\n"))
         assert(key(carried) == frozen, "an actually carried module keeps the same producer identity")
+        assert(fs.mkdir(root .. "/src/nupp/compiler"))
+        local computed = root .. "/src/nupp/compiler/computed.nupp"
+        assert(fs.writeFile(root .. "/src/nupp/core/guestbuild.nupp", 'return require("nupp.compiler." .. name)\n'))
+        assert(fs.writeFile(computed, 'return require("test.builder")\n'))
+        local uncarried = key(carried)
+        assert(fs.writeFile(computed, 'return require("test.builder") -- changed computed compiler body\n'))
+        assert(
+            key(carried) ~= uncarried,
+            "an uncarried computed compiler module changes ordinary piece producer identity"
+        )
+        local modules = require(
+            "nupp.core.producermodules"
+        ).reached(root, {"nupp.core.guestbuild"}, require("nupp.core.kernelcompiler").reachedModules)
+        local before = driver.sourceInputs(root, modules, {["nupp.core.guestbuild"] = true, ["test.builder"] = true})
+        assert(#before == 1 and before[1].path == "src/nupp/compiler/computed.nupp")
+        assert(fs.writeFile(computed, 'return require("test.builder") -- changed again\n'))
+        local after = driver.sourceInputs(root, modules, {["nupp.core.guestbuild"] = true, ["test.builder"] = true})
+        assert(after[1].sha256 ~= before[1].sha256, "the private producer validates the same uncarried computed source")
     end)
     os.remove(root, true)
     assert(okay, problem)
@@ -184,7 +204,7 @@ function M.frozenProducerKeepsProgramEditsAndRejectsBuilderChanges()
             carried
         )
         local identity = {
-            format = "nupp-native-producer/2",
+            format = "nupp-native-producer/3",
             root = root,
             base = base,
             baseImage = hash.sha256(baseImage),
@@ -238,6 +258,12 @@ function M.frozenProducerKeepsProgramEditsAndRejectsBuilderChanges()
         os.remove(root .. "/src/shadow.nupp")
         assert(valid(), "restoring the source inventory restores reuse")
         local receipt = read(root .. "/" .. producer .. "/receipt.json")
+        local legacy = json.decodevalue(receipt)
+        legacy.privateProducer.format = "nupp-native-producer/2"
+        legacy.privateProducer.seal = assert(driver.identitySeal(legacy.privateProducer))
+        write(producer .. "/receipt.json", json.encodevalue(legacy))
+        assert(not valid(), "older receipts do not prove the computed compiler dependency closure")
+        write(producer .. "/receipt.json", receipt)
         local changedReceipt = json.decodevalue(receipt)
         changedReceipt.privateProducer.inputs = {}
         write(producer .. "/receipt.json", json.encodevalue(changedReceipt))
@@ -278,6 +304,68 @@ function M.frozenProducerKeepsProgramEditsAndRejectsBuilderChanges()
         end)
         os.getenv, process.run = getenv, run
         assert(ran, issue)
+        local instances = require("helpers.providerstate")
+
+        local function running(describe, binary, identify)
+            local environment = setmetatable(
+                {
+                    getenv = function(name)
+                        if name == "NUPP_VM_CLI_IMAGE" then
+                            return root .. "/" .. producer .. "/compiler.image"
+                        end
+                        if name == "NUPP_VM_BINARY" then
+                            return binary or root .. "/" .. producer .. "/runtime"
+                        end
+
+                        return getenv(name)
+                    end
+                },
+                {__index = os}
+            )
+            local load = instances.instance(
+                {["nupp.core.produceridentity"] = true, ["nupp.compiler.imagemodules"] = true,},
+                nil,
+                nil,
+                {
+                    os = environment,
+                    __nupp_image_modules = describe or false,
+                    __nupp_image_identity = identify == nil and function()
+                        return hash.digest("complete producer image")
+                    end or identify,
+                }
+            )
+
+            return load("nupp.core.produceridentity").running(root)
+        end
+
+        local function inventory()
+            return {
+                digests = {
+                    ["nupp.compiler.project.incremental"] = "fixed checker",
+                    ["nupp.core.guestprogramproducer"] = "fixed producer",
+                }
+            }
+        end
+
+        assert(running(inventory), "the actual verified host image authorizes a fixed producer")
+        assert(running(inventory, nil, false) == nil, "missing actual image identity authorizes nothing")
+        assert(
+            running(inventory, nil, function()
+                return "another image"
+            end) == nil,
+            "matching module names cannot authorize a different running image"
+        )
+        assert(running(nil) == nil, "inherited producer paths without host inventory authorize nothing")
+        assert(
+            running(function()
+                error("inventory unavailable")
+            end) == nil,
+            "failed inventory authorizes nothing"
+        )
+        assert(
+            running(inventory, root .. "/" .. pair .. "/runtime") == nil,
+            "a different actual runtime pair authorizes nothing"
+        )
         write(pair .. "/runtime", "changed base runtime")
         assert(not valid(), "a different base runtime is never reused")
     end)

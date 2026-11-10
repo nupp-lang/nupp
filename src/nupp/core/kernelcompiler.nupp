@@ -11,6 +11,9 @@ module nupp.core.kernelcompiler
 -- there reuses every kernel; an edit to any other input invalidates them all.
 -- The units harness holds a kernel selection to never loading one of them.
 local fingerprint = require("nupp.compiler.project.fingerprint")
+local imagemodules = require("nupp.compiler.imagemodules")
+local produceridentity = require("nupp.core.produceridentity")
+local producermodules = require("nupp.core.producermodules")
 
 -- Cache keys use the build's content digest, which the CLI answers natively:
 -- SHA-256 in Nupp ran at about 75 KB/s here, and hashing the lowering's 2 MB
@@ -19,6 +22,7 @@ local contentDigest = fingerprint.contentDigest(true)
 
 -- Bumped when what the digest covers changes.
 const FORMAT = "kernel-compiler/2"
+const OBSERVED_FORMAT = "kernel-observed/1"
 -- The module the selection starts from: whatever it reaches is an input.
 const ROOT_MODULE = "nupp.core.unitrunner"
 -- The module the guest program's build starts from, and where the lowering
@@ -39,6 +43,7 @@ const SUFFIXES = {".nupp", ".d.nupp", "/init.nupp", ".lua", "/init.lua"}
 -- the owned backend (nupp.compiler.s0) whole among them, the VM's
 -- declarations, and the units project's configuration.
 const READ = "find src/nupp/compiler -name '*.nupp'; ls src/nupp/runtime/vm/*.d.nupp tests/core/units/nupp.lua"
+const DATA = "find src/nupp/compiler/decls src/nupp/runtime/vm native/crates/vm/decls -name '*.d.nupp' && ls tests/core/units/nupp.lua"
 
 local function readFile(path: string): string?
     local file = io.open(path, "rb")
@@ -156,14 +161,20 @@ export function excluded(root: string): {string}
     return sorted(result)
 end
 
+local function includeListing(files: {[string]: boolean}, takes listing: io.File): boolean
+    for path in listing:lines() do
+        files[path:gsub("^%./", "")] = true
+    end
+    local status = listing:close()
+
+    return status == true or status == 0
+end
+
 -- Every input of the kernels' compiler part under `root`, sorted.
 export function inputs(root: string): {string}
     local files = reached(root, {ROOT_MODULE})
     local listing = assert(io.popen("cd '" .. root .. "' && { " .. READ .. "; } 2>/dev/null"))
-    for path in listing:lines() do
-        files[path:gsub("^%./", "")] = true
-    end
-    listing:close()
+    includeListing(files, listing)
     for _, path in ipairs(excluded(root)) do
         files[path] = nil
     end
@@ -206,17 +217,51 @@ end
 -- the code the previous compiler selected, and a handler edit still misses by
 -- its own module. Batch gates and milestones leave it unset, so every key there
 -- follows the compiler exactly: its sources and the generation running them.
-export function keyed(root: string): string
+export function keyed(root: string, observe: (function(): string?)?): (string, boolean)
+    local requested = (os.getenv("NUPP_VM_CLI_IMAGE") or ""):find("/.nupp/native-producer/", 1, true) ~= nil
+        or (os.getenv("NUPP_VM_BINARY") or ""):find("/.nupp/native-producer/", 1, true) ~= nil
+    local made = (requested or observe ~= nil) and produceridentity.running(root) or nil
+    -- The outer selection store has no checked observations yet. Private
+    -- builds keep only the kernels whose detached inputs were validated.
+    local reusable = not requested or made ~= nil and observe ~= nil
     local pin = os.getenv("NUPP_UNIT_COMPILER_PIN")
     if pin == nil or pin == "" then
-        return contentDigest(digest(root) .. "\0" .. generation(root))
+        local observed: string? = nil
+        if made ~= nil and observe ~= nil then
+            local okay, observation = pcall(observe)
+            if okay and type(observation) == "string" and observation ~= "" then
+                observed = observation
+            else
+                reusable = false
+            end
+        end
+        if made ~= nil and observed ~= nil then
+            local carried = imagemodules.carriedModules()
+            local okay, modules = pcall(producermodules.reached, root, {ROOT_MODULE}, reachedModules)
+            if not okay then
+                return contentDigest(digest(root) .. "\0" .. generation(root)), false
+            end
+            local files = producermodules.uncarried(modules, carried)
+            local listing = io.popen("cd '" .. root .. "' && { " .. DATA .. "; } 2>/dev/null")
+            if listing then
+                if includeListing(files, listing) then
+                    return contentDigest(
+                        OBSERVED_FORMAT .. "\0" .. made .. "\0" .. (
+                            observed as string
+                        ) .. "\0" .. digestOf(root, sorted(files))
+                    ), true
+                end
+            end
+            reusable = false
+        end
+        return contentDigest(digest(root) .. "\0" .. generation(root)), reusable
     end
     local held = readFile(pin)
     if held ~= nil and held ~= "" then
-        return held
+        return held, reusable
     end
     local computed = digest(root)
     writeFile(pin, computed)
 
-    return computed
+    return computed, reusable
 end
