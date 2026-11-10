@@ -55,7 +55,9 @@ end
 local STRESSED = os.getenv("NUPP_GUEST_STRESS") ~= "0"
 -- Workloads that run for seconds: their result is checked in both modes,
 -- but the ABI guard, which runs the program again, is left to the others.
-local HEAVY = {workloadLoops = true}
+local HEAVY = {workloadLoops = true, compilerselfbuild = true}
+-- Compiler-sized workloads prepare a host baseline before explicit selection.
+local EXPLICIT = {compilerselfbuild = true}
 -- Results at BENCH_SCALE=2, run in normal mode only. Loops stays out: its 30
 -- million iterations take ten seconds at either scale.
 local SCALED = {
@@ -333,6 +335,7 @@ local CASES = {
     {"hostlayout", 0x7FFF000000000007},
     -- `nupp build` on the core: a library, then a VM binary that is run.
     {"compilerbuild", 0x7FFF00000000003F},
+    {"compilerselfbuild", 0x7FFF000000000007},
     -- Lua's debug.getinfo: sources, lines and names by level and of values.
     {"debuggetinfo", 0x7FFF00000001FFFF},
     -- Instances of a Nupp module compiled as a chunk: fresh state, requires
@@ -594,6 +597,9 @@ local SETUP = {
     compilerbuild = (
         "d=$(mktemp -d '%s/build.XXXXXX') && cd \"$d\" && export NUPP_COMPILER_ROOT='%s'; "
     ):format(OUT, ROOT),
+    compilerselfbuild = (
+        "cd '%s' && export NUPP_COMPILER_ROOT='%s' NUPP_CACHE_DIR='%s/build/self-build-core/cache'; "
+    ):format(ROOT, ROOT, ROOT),
     -- The getentropy that fails the entropy failure guard's request.
     entropyfailure = (
         "d=$(mktemp -d '%s/entropy.XXXXXX') && cc -dynamiclib -o \"$d/libnuppentropyfailure.dylib\" '%s' "
@@ -1421,7 +1427,9 @@ local function main()
     local selectedCases = {}
     if #arg == 0 then
         for _, case in ipairs(CASES) do
-            selectedCases[#selectedCases + 1] = case
+            if not EXPLICIT[case[1]] then
+                selectedCases[#selectedCases + 1] = case
+            end
         end
     end
     for _, name in ipairs(arg) do

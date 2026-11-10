@@ -449,6 +449,7 @@ local CASES: {[string]: {
     hostlayout = {fixture = "catalog-host-layout", version = 8, follow = true},
     -- `nupp build` on the core the same way: a library, then a VM binary.
     compilerbuild = {fixture = "catalog-compiler-build", version = 8, follow = true, modules = buildextras()},
+    compilerselfbuild = {fixture = "catalog-compiler-self-build", version = 8, follow = true, modules = buildextras()},
     -- The bench harness's own entry: the bench/vm workloads under debug.bench.
     benchworkloads = {
         fixture = "bench/vm/workloads.bench",

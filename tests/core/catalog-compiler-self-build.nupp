@@ -1,0 +1,44 @@
+module nupp.core.catalogcompilerselfbuild
+
+-- Run the repository's real compiler target on the core. The target stamps a
+-- VM executable; this compares the image compiled here with the host's build.
+const cli = require("nupp.tools.vm.root")
+const {readFile} = require("nupp.compiler.fs")
+
+@allow("unused-binding")
+const _DYNAMIC_REQUIRES = [[
+@requires-dynamically nupp.compiler.vm.corechunk
+]]
+
+const HOST_IMAGE = "build/self-build-host/.nupp-vm-program.image"
+const CORE_OUTPUT = "build/self-build-core"
+const CORE_IMAGE = CORE_OUTPUT .. "/.nupp-vm-program.image"
+
+local function mark(text: string): nil
+    io.stderr:write(("%.3f %s\n"):format(os.clock(), text))
+    io.stderr:flush()
+end
+
+-- Keep both output directories separate from the checkout's own compiler and
+-- test caches. Removing the prior core output forces this run to compile.
+os.execute("rm -rf " .. CORE_OUTPUT)
+mark("compiler target dist: start core build")
+local status = cli.main({"build", "--target", "dist", "--output", CORE_OUTPUT, "--json", "--progress", "always"})
+mark("compiler target dist: finished with status " .. tostring(status))
+local score = 0
+if status == 0 then
+    score = score + 1
+end
+local built = readFile(CORE_IMAGE)
+if built ~= nil then
+    score = score + 2
+end
+local reference = readFile(HOST_IMAGE)
+if built ~= nil and reference ~= nil and built == reference then
+    score = score + 4
+end
+if built ~= nil and reference ~= nil and built ~= reference then
+    io.stderr:write(("compiler image mismatch: core %d bytes, host %d bytes\n"):format(#built, #reference))
+end
+
+export const result = score
