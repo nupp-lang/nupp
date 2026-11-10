@@ -292,18 +292,25 @@ local function contents(path: string): (string?, string?)
     return text, nil
 end
 
--- The binary chunk of source `text` named `chunkname`, the file at `path`
--- when there is one: itself where it is one, else the chunk kept for it
--- (chunkfiles, by its path or its text), else what the compiler on the core
--- makes of it, as a module instance for `module`; or nil and why it does
--- not compile. A file's Unix exec line is skipped, as Lua skips it.
+-- The binary chunk of source `text` named `chunkname`, the file at `path` when there is
+-- one: itself where it is one, else the chunk kept for it (chunkfiles, by its path or
+-- its text), else the refusal the host kept for it, else what the compiler on the core
+-- makes of it, as a module instance for `module`; or nil and why it does not compile. A
+-- file's Unix exec line is skipped, as Lua skips it.
 local function compiled(text: string, chunkname: string, path: string?, module: boolean): (string?, string?)
     if text:byte(1) == BINARY then
         return text, nil
     end
-    local kept = chunkfiles.lookup(path and keptname(path), text)
+    local key = path and keptname(path)
+    local kept = chunkfiles.lookup(key, text)
     if kept ~= nil then
         return kept, nil
+    end
+    -- Where the host could not compile this text, the core would not either:
+    -- it says so at once rather than after checking it all again.
+    local refused = chunkfiles.refusal(key, text)
+    if refused ~= nil then
+        return nil, refused
     end
     local compile = textCompiler()
     if compile == nil then

@@ -248,7 +248,7 @@ local CASES = {
     {"absentffi", 0x7FFF000000000007},
     {"guestffi", 0x7FFF000000001FFF},
     {"runnersmall", 0x7FFF00000000001F},
-    {"runnerchunks", 0x7FFF00000000003F},
+    {"runnerchunks", 0x7FFF00000000007F},
     -- The packaged test runner over real suites, its loadfile and dofile
     -- served chunks compiled here (SOURCES).
     {"testrunner", 0},
@@ -596,7 +596,7 @@ local ROOTED = {testrunner = "tests/tools/test/runner", benchworkloads = "bench/
 -- compile text itself yet.
 local RUNNER_SUITES = {"iopathargumenttest", "iofileargumenttest", "corewarnlogtest", "typefactoriestest"}
 local SOURCES = {
-    runnerchunks = {"tests/core/runner-chunk-calls.lua", "src/nupp/gpu/limits.nupp"},
+    runnerchunks = {"tests/core/runner-chunk-calls.lua", "src/nupp/gpu/limits.nupp", "src/io/net/init.nupp"},
     testrunner = {
         "tests/run.lua",
         "tests/groups.lua",
@@ -1279,9 +1279,13 @@ local function sourceChunk(path, display)
     local kept = OUT .. "/chunks/" .. (display and text and chunkfiles.textname(text) or chunkfiles.name(path))
     local held = read(kept)
     compiledBy = compiledBy or assert(sharedcache.treeDigest(ROOT, {"src"}))
+
+    local function heldas(header)
+        return held ~= nil and held:sub(1, #header) == header
+    end
+
     if text == nil
-        or held ~= nil
-        and held:sub(1, #chunkfiles.contents(text, "")) == chunkfiles.contents(text, "")
+        or (heldas(chunkfiles.contents(text, "")) or heldas(chunkfiles.refusedcontents(text, "")))
         and read(kept .. ".by") == compiledBy
     then
         return
@@ -1291,10 +1295,9 @@ local function sourceChunk(path, display)
     local began = os.time()
     local contents, problem = build.sourceChunk(path, display)
     print(("compiled %s in %ds%s"):format(path, os.time() - began, contents and "" or ": " .. tostring(problem)))
-    if contents then
-        write(kept, contents)
-        write(kept .. ".by", compiledBy)
-    end
+    -- A refusal is kept too, so the core does not compile the text again.
+    write(kept, contents or chunkfiles.refusedcontents(text, tostring(problem)))
+    write(kept .. ".by", compiledBy)
 end
 
 -- Runs the cases in NUPP_GUEST_SHARDS processes at once (default 4), each

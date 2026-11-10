@@ -14,6 +14,8 @@ module nupp.runtime.chunkfiles
 -- The directory kept chunks are in.
 export const VARIABLE = "NUPP_CORE_CHUNKS"
 const MAGIC = "nupp-core-chunk"
+-- What a kept refusal's header starts with in place of MAGIC.
+const REFUSED = "nupp-core-refused"
 const SUFFIX = ".chunk"
 const TEXT_PREFIX = "text-"
 -- FNV-1a's 64-bit offset basis and prime.
@@ -57,10 +59,16 @@ export function contents(text: string, chunk: string): string
     return MAGIC .. " " .. digest(text) .. " " .. tostring(#text) .. "\n" .. chunk
 end
 
---- The chunk kept for source path `path` (or, when nil, for the text
---- itself) whose text is `text`, or nil when none is kept or the one kept
---- is of other text.
-export function lookup(path: string?, text: string): string?
+--- What a kept file holds where source `text` did not compile on the host,
+--- for `reason`: a compile on the core would refuse it too, slowly.
+export function refusedcontents(text: string, reason: string): string
+    return REFUSED .. " " .. digest(text) .. " " .. tostring(#text) .. "\n" .. reason
+end
+
+-- What is kept under `magic` for source path `path` (or, when nil, for the
+-- text itself) whose text is `text`, or nil when nothing is kept or what is
+-- kept is of other text.
+local function kept(magic: string, path: string?, text: string): string?
     local directory = os.getenv(VARIABLE)
     if directory == nil or directory == "" then
         return nil
@@ -69,12 +77,25 @@ export function lookup(path: string?, text: string): string?
     if file == nil then
         return nil
     end
-    local kept = file:read("a") or ""
+    local held = file:read("a") or ""
     file:close()
-    local header = kept:match("^[^\n]*") as string
-    if header ~= MAGIC .. " " .. digest(text) .. " " .. tostring(#text) then
+    local header = held:match("^[^\n]*") as string
+    if header ~= magic .. " " .. digest(text) .. " " .. tostring(#text) then
         return nil
     end
 
-    return kept:sub(#header + 2)
+    return held:sub(#header + 2)
+end
+
+--- The chunk kept for source path `path` (or, when nil, for the text
+--- itself) whose text is `text`, or nil when none is kept or the one kept
+--- is of other text.
+export function lookup(path: string?, text: string): string?
+    return kept(MAGIC, path, text)
+end
+
+--- Why the host refused to compile source `text` at `path` (or the text
+--- itself), where it kept that refusal; nil otherwise.
+export function refusal(path: string?, text: string): string?
+    return kept(REFUSED, path, text)
 end

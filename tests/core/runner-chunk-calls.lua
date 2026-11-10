@@ -48,4 +48,10 @@ local limits = require("nupp.gpu.limits")
 check(limits.PORTABLE_WORKGROUP_THREADS == 256)
 check(require("nupp.gpu.limits") == limits)
 
+-- One whose source the host could not compile: the refusal it kept is
+-- raised at once, where the core would only refuse it again, slowly.
+local net = "io" .. ".net"
+local loaded, why = pcall(require, net)
+check(not loaded and tostring(why):find("only checked static require", 1, true) ~= nil)
+
 return score
