@@ -23,6 +23,7 @@ local executable = require("nupp.compiler.vm.coregraphexecutable")
 local corepiece = require("nupp.compiler.vm.corepiece")
 local corelink = require("nupp.compiler.vm.corelink")
 local piecestore = require("nupp.core.piecestore")
+local keptcatalog = require("nupp.core.keptcatalog")
 local corelibrary = require("nupp.compiler.vm.corelibrary")
 local writer = require("nupp.core.guestartifact")
 require("nupp.compiler.hostservices")
@@ -988,7 +989,10 @@ local function checkedProject(root: string): any
         require("nupp.compiler.project.projectconfig")
         require("nupp.compiler.hash")
         sharedProject = incremental.new(root, {
-            cache = false,
+            -- The project index is built from the headers the shared store
+            -- keeps by content: reading them back is what keeps an unchanged
+            -- project from being parsed again by every build.
+            cache = true,
             nativeCompilerServices = false,
             -- Its output is not the build directory the staged sources sit
             -- in, which the project index would leave out, and a qualified
@@ -1005,7 +1009,7 @@ local function checkedProject(root: string): any
 end
 
 -- The checked program catalog for a case: its entry after every module it carries.
-local function programCatalog(caseName: string, fixture: string, version: integer): any
+local function programCatalog(caseName: string, fixture: string, version: integer, fresh: boolean?): any
     local root = assert(os.getenv("NUPP_COMPILER_ROOT"))
     local names = {fixture}
     -- A case's other modules come first, so the modules it requires precede it.
@@ -1090,138 +1094,171 @@ local function programCatalog(caseName: string, fixture: string, version: intege
     if #names > 1 or declared ~= nil and declared.follow == true then
         project = checkedProject(root)
     end
-    local modules = {}
-    local moduleName = ""
     local follow = declared ~= nil and declared.follow == true
-    local carried: {[string]: boolean} = {}
-    local entry: any = nil
-    local queue: {string} = {}
 
-    local function enqueue(name: string): nil
-        -- Synthetic and followed dependencies may spell the same source
-        -- absolutely or relative to the compiler root. Check it only once.
+    -- The module request `name` names, checked: its catalog input, and the
+    -- requests for the modules it carries, in the order it names them.
+    local function step(name: string): (any, {string})
+        local reached: {string} = {}
+
+        local function reach(request: string): nil
+            reached[#reached + 1] = request
+        end
+
         local path = modulePath(root, name)
-        if not carried[path] then
-            carried[path] = true
-            queue[#queue + 1] = name
+        local source = read(path)
+        local parsed = parser.parse(source, path)
+        assert(#parsed.errors == 0, "guest source parse failed: " .. name)
+        -- A library module may be named by its path alone.
+        local named = cst.declaredModule(parsed.root)
+        local rooted = name == fixture and declared ~= nil and declared.rooted == true
+        if named == nil and rooted then
+            named = assert(declared).module
+        elseif named == nil and libraryModule(name) then
+            named = (name:match("src/(.*)$") as string):gsub("%.lua$", ""):gsub("/init$", ""):gsub("/", ".")
         end
+        local declared = assert(named, "guest module declaration required: " .. name)
+        local diagnostics
+        if project then
+            -- A fixture is checked as its staged copy; a library module
+            -- the program carries, where it lives.
+            if not libraryModule(name) and not rooted then
+                path = staged .. "/" .. declared:gsub("%.", "/") .. ".nupp"
+                assert(read(path) == source, "staged guest source differs: " .. name)
+            end
+            local checking = os.clock()
+            local checked = project.checkFile(path)
+            timings["compile check"] = (timings["compile check"] or 0) + os.clock() - checking
+            parsed, diagnostics = assert(checked.result, "checked guest result required"), checked.diags
+        else
+            local env = environment.new(root, {memoryOnly = true, cache = false, nativeCompilerServices = false})
+            diagnostics = checker.check(parsed, path, env, {
+                moduleName = declared,
+                strict = false,
+                lints = {["unused-binding"] = "off"}
+            })
+        end
+        for _, diagnostic in ipairs(diagnostics) do
+            assert(diagnostic.severity ~= "error", path .. ":" .. tostring(diagnostic.line) .. ": " .. diagnostic.msg)
+        end
+        -- A plain Lua module is named by its path, as `require` finds it.
+        local named: any = parsed
+        if named.moduleName == nil and name:sub(-4) == ".lua" then
+            named.moduleName = declared
+        end
+        local module = {name = declared, path = path, parsed = parsed, diagnostics = diagnostics}
+        local unchecked: any = nil
+        do
+            -- Checked value dependencies are mandatory in every profile. Only
+            -- Carried libraries retain their declared and literal dynamic
+            -- dependencies. The case flag controls discovery in fixture code.
+            local required, dynamic = requiredmodules(parsed.root or parsed, source, follow or libraryModule(name))
+            for _, name in ipairs(required) do
+                local library = librarypath(root, name)
+                if library and (not dynamic[name] or portable(root, library)) then
+                    reach(library)
+                end
+            end
+            -- What it carries may take a library function as a value, read
+            -- from one unchecked tree.
+            unchecked = parser.parse(source, path).root
+            local values = root .. "/src/nupp/runtime/libraryvalues"
+            local graph: any = require("nupp.compiler.vm.graph")
+            if graph.mayTakeLibraryValue(unchecked, version >= 8) then
+                reach(values)
+            end
+            -- And it may read Lua's `io`, `os`, `warn` or loaders, which the
+            -- core carries as modules.
+            for _, carries in ipairs({
+                {graph.mayUseIo(unchecked), "src/nupp/runtime/luaio"},
+                {readsos(unchecked), "src/nupp/runtime/luaos"},
+                {readswarn(source), "src/nupp/runtime/luawarn"},
+                {readsload(unchecked), "src/nupp/runtime/luaload"}
+            }) do
+                if carries[1] then
+                    reach(carries[2] as string)
+                end
+            end
+        end
+
+        return module, reached
     end
 
-    for _, name in ipairs(names) do
-        enqueue(name)
-    end
-    local at: integer = 1
-    local forwarding = false
-    while at <= #queue or not forwarding do
-        if at > #queue then
-            -- A program a require cycle re-enters carries the factory of the
-            -- forwarders its cyclic modules publish, checked as the rest is.
-            forwarding = true
-            local present: {any} = {}
-            for _, module in ipairs(modules) do
-                present[#present + 1] = module
-            end
-            present[#present + 1] = assert(entry, "guest entry module missing")
-            if next(forwardedexports.cyclic(present)) ~= nil then
-                enqueue("src/" .. forwardedexports.MODULE:gsub("%.", "/"))
-            end
-        else
-            local name = queue[at]
-            at = at + 1
+    -- Every module the program carries, checked in the order requests reach
+    -- them with its entry last, and by module name the request that named it
+    -- and the requests it made.
+    local function discover(): ({any}, {[string]: any})
+        local modules: {any}, requests: {[string]: any}, carried: {[string]: boolean} = {}, {}, {}
+        local entry: any = nil
+        local queue: {string} = {}
+
+        local function enqueue(name: string): nil
+            -- Synthetic and followed dependencies may spell the same source
+            -- absolutely or relative to the compiler root. Check it only once.
             local path = modulePath(root, name)
-            local source = read(path)
-            local parsed = parser.parse(source, path)
-            assert(#parsed.errors == 0, "guest source parse failed: " .. name)
-            -- A library module may be named by its path alone.
-            local named = cst.declaredModule(parsed.root)
-            local rooted = name == fixture and declared ~= nil and declared.rooted == true
-            if named == nil and rooted then
-                named = assert(declared).module
-            elseif named == nil and libraryModule(name) then
-                named = (name:match("src/(.*)$") as string):gsub("%.lua$", ""):gsub("/init$", ""):gsub("/", ".")
-            end
-            local declared = assert(named, "guest module declaration required: " .. name)
-            local diagnostics
-            if project then
-                -- A fixture is checked as its staged copy; a library module
-                -- the program carries, where it lives.
-                if not libraryModule(name) and not rooted then
-                    path = staged .. "/" .. declared:gsub("%.", "/") .. ".nupp"
-                    assert(read(path) == source, "staged guest source differs: " .. name)
-                end
-                local checked = project.checkFile(path)
-                parsed, diagnostics = assert(checked.result, "checked guest result required"), checked.diags
-            else
-                local env = environment.new(root, {memoryOnly = true, cache = false, nativeCompilerServices = false})
-                diagnostics = checker.check(parsed, path, env, {
-                    moduleName = declared,
-                    strict = false,
-                    lints = {["unused-binding"] = "off"}
-                })
-            end
-            for _, diagnostic in ipairs(diagnostics) do
-                assert(
-                    diagnostic.severity ~= "error",
-                    path .. ":" .. tostring(diagnostic.line) .. ": " .. diagnostic.msg
-                )
-            end
-            -- A plain Lua module is named by its path, as `require` finds it.
-            local named: any = parsed
-            if named.moduleName == nil and name:sub(-4) == ".lua" then
-                named.moduleName = declared
-            end
-            local module = {name = declared, path = path, parsed = parsed, diagnostics = diagnostics}
-            if name == fixture then
-                entry = module
-            else
-                modules[#modules + 1] = module
-            end
-            do
-                -- Checked value dependencies are mandatory in every profile. Only
-                -- Carried libraries retain their declared and literal dynamic
-                -- dependencies. The case flag controls discovery in fixture code.
-                local required, dynamic = requiredmodules(parsed.root or parsed, source, follow or libraryModule(name))
-                for _, name in ipairs(required) do
-                    local library = librarypath(root, name)
-                    if library and (not dynamic[name] or portable(root, library)) then
-                        enqueue(library)
-                    end
-                end
-                -- What it carries may take a library function as a value, read
-                -- from one unchecked tree.
-                local unchecked = parser.parse(source, path).root
-                local values = root .. "/src/nupp/runtime/libraryvalues"
-                local graph: any = require("nupp.compiler.vm.graph")
-                if graph.mayTakeLibraryValue(unchecked, version >= 8) then
-                    enqueue(values)
-                end
-                -- And it may read Lua's `io` or `os`, which the core carries as
-                -- modules.
-                local luaio = "src/nupp/runtime/luaio"
-                if graph.mayUseIo(unchecked) then
-                    enqueue(luaio)
-                end
-                local luaos = "src/nupp/runtime/luaos"
-                if readsos(unchecked) then
-                    enqueue(luaos)
-                end
-                local luawarn = "src/nupp/runtime/luawarn"
-                if readswarn(source) then
-                    enqueue(luawarn)
-                end
-            end
-            local luaload = "src/nupp/runtime/luaload"
-            if readsload(parser.parse(source, path).root) then
-                enqueue(luaload)
+            if not carried[path] then
+                carried[path] = true
+                queue[#queue + 1] = name
             end
         end
+
+        for _, name in ipairs(names) do
+            enqueue(name)
+        end
+        local at: integer = 1
+        local forwarding = false
+        while at <= #queue or not forwarding do
+            if at > #queue then
+                -- A program a require cycle re-enters carries the factory of the
+                -- forwarders its cyclic modules publish, checked as the rest is.
+                forwarding = true
+                local present: {any} = {}
+                for _, module in ipairs(modules) do
+                    present[#present + 1] = module
+                end
+                present[#present + 1] = assert(entry, "guest entry module missing")
+                if next(forwardedexports.cyclic(present)) ~= nil then
+                    enqueue("src/" .. forwardedexports.MODULE:gsub("%.", "/"))
+                end
+            else
+                local name = queue[at]
+                at = at + 1
+                local module, reached = step(name)
+                requests[module.name] = {request = name, reached = reached}
+                if name == fixture then
+                    entry = module
+                else
+                    modules[#modules + 1] = module
+                end
+                for _, request in ipairs(reached) do
+                    enqueue(request)
+                end
+            end
+        end
+        -- The entry is last, after the modules it requires.
+        modules[#modules + 1] = assert(entry, "guest entry module missing")
+
+        return modules, requests
     end
-    -- The entry is last, after the modules it requires.
-    modules[#modules + 1] = assert(entry, "guest entry module missing")
-    moduleName = entry.name
-    local catalog = programgraph.describe(modules, moduleName)
+
+    local describing = os.clock()
+    local catalog: any = nil
+    if project ~= nil and version >= 8 and not fresh then
+        catalog = keptcatalog.reuse(root, caseName, version, project, names, step)
+    end
+    if catalog == nil then
+        local modules, requests = discover()
+        local described: any = programgraph.describe(modules, modules[#modules].name)
+        described.requests = requests
+        catalog = described
+    end
+    timings["compile describe"] = (timings["compile describe"] or 0) + os.clock() - describing
     -- What a kept piece is keyed by: what each module's check read.
     catalog.checkedProject = project
+    if project ~= nil then
+        project.persist()
+    end
+    catalog.openingRequests = names
     -- A fixture exports `result`, which is what its program answers.
     catalog.entryExport = "result"
 
@@ -1271,7 +1308,7 @@ local function pieceKeys(p: any): (any, {string?})
     local keys: {string?} = {}
     if store then
         for index in ipairs(p.modules) do
-            keys[index] = store.key(index)
+            keys[index] = p.kept and keptcatalog.keyOf(p, index) or store.key(index)
         end
     end
     timings["compile piece store"] = (timings["compile piece store"] or 0) + os.clock() - began
@@ -1282,8 +1319,8 @@ end
 -- A v8 program's pieces in program order, and how many were kept ones: each
 -- module's from `store` under its key in `keys` when it holds one (unless
 -- `fresh`), the rest compiled and kept. A kept piece that is not this module's
--- is a miss.
-local function piecesOf(catalog: any, profile: any, store: any, keys: {string?}, fresh: boolean): ({any}, integer)
+-- is a miss. Nil when a stub (nupp.compiler.vm.stubmodules) has no kept piece.
+local function piecesOf(catalog: any, profile: any, store: any, keys: {string?}, fresh: boolean): ({any}?, integer)
     local began = os.clock()
     local state = corepiece.program(catalog, profile)
     local pieces: {any} = {}
@@ -1296,6 +1333,8 @@ local function piecesOf(catalog: any, profile: any, store: any, keys: {string?},
         if kept ~= nil and pcall(corepiece.adopt, state, index, kept) then
             pieces[index] = kept
             reused += 1
+        elseif catalog.stubs[catalog.modules[index].name] then
+            return nil, reused
         else
             corepiece.start(state, index)
         end
@@ -1323,9 +1362,9 @@ end
 -- program is compiled a module at a time, reusing kept pieces, and linked;
 -- NUPP_GUEST_PIECES=compare also compiles it whole and requires the two to be
 -- the same.
-local function compileProgram(caseName: string, fixture: string, version: integer): any
+local function compileProgram(caseName: string, fixture: string, version: integer, fresh: boolean?): any
     local began = os.clock()
-    local catalog = programCatalog(caseName, fixture, version)
+    local catalog = programCatalog(caseName, fixture, version, fresh)
     local described = os.clock()
     timings["compile catalog"] = (timings["compile catalog"] or 0) + described - began
     local profile = profileFor(version)
@@ -1333,27 +1372,47 @@ local function compileProgram(caseName: string, fixture: string, version: intege
         return executable.fromChecked(programgraph.compile(catalog, profile), version)
     end
     local store, keys = pieceKeys(catalog)
-    local pieces, reused = piecesOf(catalog, profile, store, keys, false)
+    local pieces: {any}?, reused = nil, 0
+    if not catalog.kept or keptcatalog.unchanged(catalog, store) then
+        pieces, reused = piecesOf(catalog, profile, store, keys, false)
+    end
+    if pieces == nil then
+        -- What the kept catalog stands for changed, or a piece it needs is
+        -- gone: the whole program is checked and described again.
+        io.stderr:write("guest pieces: checking ", caseName, " afresh\n")
+        return compileProgram(caseName, fixture, version, true)
+    end
     io.stderr:write(("guest pieces: %s reused %d of %d\n"):format(caseName, reused, #pieces))
     local built = os.clock()
     local entry = catalog.modules[#catalog.modules].name
     local ok, result = pcall(corelink.link, pieces, entry)
-    if not ok and reused > 0 then
+    if not ok and catalog.kept then
+        io.stderr:write("guest pieces: checking ", caseName, " afresh: ", tostring(result), "\n")
+        return compileProgram(caseName, fixture, version, true)
+    elseif not ok and reused > 0 then
         -- A kept piece no longer links: what it read of another module, a
         -- callee's signature or an initializer's result, has changed. Every
         -- module is compiled again, so what is refused is what a fresh
         -- build refuses.
         io.stderr:write("guest pieces: compiling ", caseName, " afresh: ", tostring(result), "\n")
-        pieces = piecesOf(catalog, profile, store, keys, true)
-        result = corelink.link(pieces, entry)
+        result = corelink.link(assert(piecesOf(catalog, profile, store, keys, true)), entry)
     elseif not ok then
         error(result, 0)
     end
     local linked = result
     timings["compile link"] = (timings["compile link"] or 0) + os.clock() - built
+    if store then
+        local recording = os.clock()
+        keptcatalog.remember(assert(os.getenv("NUPP_COMPILER_ROOT")), caseName, version, catalog, store, keys)
+        timings["compile piece store"] = (timings["compile piece store"] or 0) + os.clock() - recording
+    end
     if os.getenv("NUPP_GUEST_PIECES") == "compare" then
         local linkedAt = os.clock()
-        local whole = executable.fromChecked(programgraph.compile(catalog, profile), version)
+        -- A catalog with stubs is compared with the whole program it stands for.
+        local whole = executable.fromChecked(
+            programgraph.compile(catalog.kept and programCatalog(caseName, fixture, version, true) or catalog, profile),
+            version
+        )
         timings["compile whole"] = (timings["compile whole"] or 0) + os.clock() - linkedAt
         local found = difference(linked, whole, "executable")
         assert(found == nil, "linked " .. caseName .. " differs from its whole-program build at " .. tostring(found))

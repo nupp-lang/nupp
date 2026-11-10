@@ -1,6 +1,7 @@
 module nupp.compiler.vm.ownedcallables
 
 local cst = require("nupp.compiler.syntax.cst")
+local stubmodules = require("nupp.compiler.vm.stubmodules")
 export const MODULE = "nupp.runtime.provider.corecallable"
 export const MEMBER = "create"
 
@@ -18,6 +19,7 @@ end
 --- The checked function `member` of `module` that the core calls as an
 --- implementation factory: two dynamic values in, one out, or `results` out.
 export function checkedFactory(p: any, module: string, member: string, results: integer?): any
+    stubmodules.demand(p, module)
     local count = results or 1
     local found: any = nil
     for _, owner in ipairs(p.owners) do

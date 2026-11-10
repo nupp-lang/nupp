@@ -117,8 +117,8 @@ local function reached(root: string, roots: {string}, modules: {[string]: string
     return files
 end
 
--- The paths of `set`, sorted.
-local function sorted(set: {[string]: boolean}): {string}
+-- The names in `set`, sorted.
+export function sorted(set: {[string]: boolean}): {string}
     local result: {string} = {}
     for path in pairs(set) do
         result[#result + 1] = path

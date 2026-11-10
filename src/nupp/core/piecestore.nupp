@@ -92,8 +92,8 @@ local function programOf(made: string, p: any): string
         names[#names + 1] = module.name .. "\1" .. module.path
     end
     local cyclic: {string} = {}
-    for chunk in pairs(p.forwards) do
-        cyclic[#cyclic + 1] = p.modules[(chunk as integer) + 1].name
+    for name in pairs(p.cyclic) do
+        cyclic[#cyclic + 1] = name
     end
     table.sort(cyclic)
 
@@ -104,8 +104,8 @@ end
 
 -- What the modules checked in `project` read of each other: by path, the
 -- interfaces of every module in the closure of what checking it read, as
--- one text.
-local function readsIn(project: any): function(string): string
+-- one text; and by module name, the digest of its interface.
+local function readsIn(project: any): (function(string): string, function(string): string)
     local projectPaths: {string} = {}
     for _, path in pairs(project.projectIndex().modules or {}) do
         projectPaths[#projectPaths + 1] = path
@@ -146,6 +146,13 @@ local function readsIn(project: any): function(string): string
         return encoded and contentDigest(interfacetext.text(image, path or name)) or "unencodable:" .. tostring({})
     end
 
+    local function digestOf(name: string): string
+        local digest = interfaces[name] or interfaceOf(name)
+        interfaces[name] = digest
+
+        return digest
+    end
+
     return function(path: string): string
         -- Each module reached, after its name, and the names reached.
         local found: {string}, reached: {[string]: boolean} = {}, {}
@@ -156,9 +163,7 @@ local function readsIn(project: any): function(string): string
             for _, name in ipairs(names) do
                 if not reached[name] then
                     reached[name] = true
-                    local digest = interfaces[name] or interfaceOf(name)
-                    interfaces[name] = digest
-                    found[#found + 1] = name .. "\1" .. digest
+                    found[#found + 1] = name .. "\1" .. digestOf(name)
                     local target = project.modulePath(name)
                     if target ~= nil then
                         visit(target)
@@ -171,6 +176,66 @@ local function readsIn(project: any): function(string): string
         table.sort(found)
 
         return table.concat(found, "\0")
+    end, digestOf
+end
+
+-- `value` as an entry kept under `key`: a header holding the format, the key
+-- and the body's digest, then the body.
+local function sealed(key: string, value: any): string?
+    local encoded, body = pcall(persist.saveData, value)
+    if not encoded then
+        io.stderr:write("guest piece store keeps nothing for ", key, ": ", tostring(body), "\n")
+        return nil
+    end
+    local header = persist.saveData({format = FORMAT, key = key, seal = contentDigest(body as string)})
+
+    return tostring(#header) .. "\n" .. header .. (body as string)
+end
+
+-- What entry `text`, kept under `key`, holds, or nil when it is not whole:
+-- another format, another key's, or a body its digest does not seal.
+local function unsealed(key: string, text: string?): any
+    local length = text and tonumber(text:match("^(%d+)\n"))
+    if not length then
+        return nil
+    end
+    local at = #tostring(length) + 2
+    local opened, envelope = pcall(persist.loadData, (text as string):sub(at, at + length - 1))
+    local body = (text as string):sub(at + length)
+    if not opened
+        or type(envelope) ~= "table"
+        or envelope.format ~= FORMAT
+        or envelope.key ~= key
+        or envelope.seal ~= contentDigest(body)
+    then
+        return nil
+    end
+    local decoded, value = pcall(persist.loadData, body)
+
+    return decoded and value or nil
+end
+
+-- The name a record called `name` is kept under by the producer under `root`,
+-- or nil when nothing may be kept.
+local function recordKey(root: string, name: string): string?
+    local made = producerOf(root)
+
+    return made and contentDigest((made as string) .. "\0" .. name) .. ".record" or nil
+end
+
+-- The record the producer under `root` kept as `name`, or nil.
+export function recall(root: string, name: string): any
+    local key = recordKey(root, name)
+
+    return key and unsealed(key as string, sharedcache.get(sharedcache.directory(KIND), key as string)) or nil
+end
+
+-- Keeps `value` as the producer under `root`'s record `name`.
+export function remember(root: string, name: string, value: any): nil
+    local key = recordKey(root, name)
+    local text = key and sealed(key as string, value)
+    if text then
+        sharedcache.put(sharedcache.directory(KIND), key as string, text as string)
     end
 end
 
@@ -178,7 +243,10 @@ end
 -- `project` or on their own.
 local function storeOf(made: string, p: any, project: any?): any
     local program = programOf(made, p)
-    local closure = project ~= nil and readsIn(project) or nil
+    local closure, interfaceOf = nil, nil
+    if project ~= nil then
+        closure, interfaceOf = readsIn(project)
+    end
     local store: any = {}
     -- The entries this build reused, marked used together when it closes.
     local used: {string} = {}
@@ -215,26 +283,15 @@ local function storeOf(made: string, p: any, project: any?): any
         return source and keyOf(module, source as string) or nil
     end
 
+    -- The digest of module `name`'s interface as checked in the project.
+    function store.interface(name: string): string
+        return (interfaceOf as function(string): string)(name)
+    end
+
     -- The piece kept under `key`, or nil.
     function store.lookup(key: string): any
-        local text = sharedcache.get(sharedcache.directory(KIND), key)
-        local length = text and tonumber(text:match("^(%d+)\n"))
-        if not length then
-            return nil
-        end
-        local at = #tostring(length) + 2
-        local opened, envelope = pcall(persist.loadData, (text as string):sub(at, at + length - 1))
-        local body = (text as string):sub(at + length)
-        if not opened
-            or type(envelope) ~= "table"
-            or envelope.format ~= FORMAT
-            or envelope.key ~= key
-            or envelope.seal ~= contentDigest(body)
-        then
-            return nil
-        end
-        local decoded, piece = pcall(persist.loadData, body)
-        if not decoded or type(piece) ~= "table" or piece.format ~= corepiece.FORMAT then
+        local piece = unsealed(key, sharedcache.get(sharedcache.directory(KIND), key))
+        if type(piece) ~= "table" or piece.format ~= corepiece.FORMAT then
             return nil
         end
         used[#used + 1] = key
@@ -251,18 +308,9 @@ local function storeOf(made: string, p: any, project: any?): any
 
     -- Keeps `piece` under `key`, sealed by its digest.
     function store.keep(key: string, piece: any): boolean
-        local encoded, body = pcall(persist.saveData, piece)
-        if not encoded then
-            io.stderr:write("guest piece not kept: ", tostring(body), "\n")
-            return false
-        end
-        local header = persist.saveData({format = FORMAT, key = key, seal = contentDigest(body as string)})
+        local text = sealed(key, piece)
 
-        return sharedcache.put(
-            sharedcache.directory(KIND),
-            key,
-            tostring(#header) .. "\n" .. header .. (body as string)
-        )
+        return text ~= nil and sharedcache.put(sharedcache.directory(KIND), key, text as string)
     end
 
     return store

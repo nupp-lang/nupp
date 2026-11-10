@@ -1,0 +1,326 @@
+module nupp.core.keptcatalog
+
+-- A guest program's catalog kept between builds, so an edit checks and
+-- describes only what it reaches (`nupp.compiler.vm.stubmodules`).
+--
+-- After a build, its record keeps for each module, in program order, what
+-- checking it found: the bytes its check read, the requests it made of the
+-- modules it carries, what a require cycle is found from, the modules its
+-- check read, the project answers and external inputs it observed, its
+-- interface digest and its piece's key; and the same of each module the
+-- program's checks read, transitively, that it does not carry.
+--
+-- The next build of the case by the same producer reuses it when its opening
+-- requests are the same and no module it does not carry changed. A module is
+-- dirty when its bytes, an external input or a project answer it observed
+-- changed. The dirty modules and the program modules their checks read,
+-- transitively, are checked; every other module is a stub. A dirty module
+-- must make the requests it made before, the program must find the same
+-- require cycles, and its interface and every callable fact another module
+-- observed of it must be unchanged (`unchanged`). Anything else falls back to
+-- checking the whole program, as does any record that is missing, stale or
+-- not whole.
+local piecestore = require("nupp.core.piecestore")
+local kernelcompiler = require("nupp.core.kernelcompiler")
+local programgraph = require("nupp.compiler.vm.programgraph")
+local stubmodules = require("nupp.compiler.vm.stubmodules")
+local forwardedexports = require("nupp.compiler.vm.forwardedexports")
+local fingerprint = require("nupp.compiler.project.fingerprint")
+
+-- Bumped when a record's shape or meaning changes.
+const FORMAT = "guest-catalog/1"
+-- The project answers that are another module's callable facts: they hold
+-- while that module is clean, and are read again once it is checked.
+const FACTS: {[string]: boolean} = {moduleCallGuarantees = true, moduleCallGuarantee = true, moduleCallableFact = true}
+
+-- NUPP_GUEST_PIECE_TRACE=1 says why a record is not reused.
+local tracing = os.getenv("NUPP_GUEST_PIECE_TRACE") == "1"
+local contentDigest = fingerprint.contentDigest(true)
+
+local function refuse(why: string): nil
+    if tracing then
+        io.stderr:write("guest catalog not reused: ", why, "\n")
+    end
+
+    return nil
+end
+
+local function same(left: {string}, right: {string}): boolean
+    if #left ~= #right then
+        return false
+    end
+    for index, item in ipairs(left) do
+        if right[index] ~= item then
+            return false
+        end
+    end
+
+    return true
+end
+
+-- What record `case` at profile `version` is kept as.
+local function recordName(case: string, version: integer): string
+    return FORMAT .. "\0" .. case .. "\0" .. tostring(version)
+end
+
+-- The digest of the text `project` checks `path` as, or nil.
+local function sourceOf(project: any, path: string): string?
+    local text = project.fileText(path)
+
+    return text and contentDigest(text as string) or nil
+end
+
+local sorted = kernelcompiler.sorted
+
+-- The module a callable-fact answer's key is about.
+local function factModule(key: any): string?
+    return type(key) == "string" and (key as string):match("^([^%z]+)") or nil
+end
+
+-- Whether recorded module `entry` may stand as it was, in `project`: its
+-- bytes, external inputs and project answers other than callable facts.
+local function clean(project: any, entry: any): boolean
+    if sourceOf(project, entry.path) ~= entry.source then
+        return false
+    end
+    for _, input in ipairs(entry.externals) do
+        if project.externalInputFingerprint(input.path) ~= input.fingerprint then
+            return false
+        end
+    end
+    for _, dependency in ipairs(entry.deps) do
+        if not FACTS[dependency.name]
+            and project.projectDependencyFingerprint(dependency.name, dependency.key) ~= dependency.fingerprint
+        then
+            return false
+        end
+    end
+
+    return true
+end
+
+-- The stub standing for recorded module `entry`.
+local function stub(entry: any): any
+    return {
+        name = entry.name,
+        path = entry.path,
+        stub = true,
+        loads = entry.loads,
+        exported = entry.exported,
+        parsed = {root = stubmodules.root(), symbols = {}, errors = {}, moduleName = entry.name},
+        diagnostics = {}
+    }
+end
+
+-- The catalog of `case` at profile `version`, checked in `project`, from the
+-- record its last build kept, or nil when it cannot be reused: `names` are the
+-- requests the program opens with and `step` checks one, answering its
+-- catalog input and the requests it makes.
+export function reuse(
+    root: string,
+    case: string,
+    version: integer,
+    project: any,
+    names: {string},
+    step: function(string): (any, {string})
+): any
+    local record = piecestore.recall(root, recordName(case, version))
+    if type(record) ~= "table" or record.format ~= FORMAT or type(record.modules) ~= "table" then
+        return refuse("no record")
+    elseif not same(record.names, names) then
+        return refuse("the program opens with other requests")
+    end
+    for name, entry in pairs(record.outside) do
+        if project.modulePath(name) ~= entry.path or not clean(project, entry) then
+            return refuse(name .. ", which the program does not carry, changed")
+        end
+    end
+    local byName: {[string]: any} = {}
+    local dirty: {[string]: boolean} = {}
+    for _, entry in ipairs(record.modules) do
+        byName[entry.name] = entry
+        if not clean(project, entry) then
+            dirty[entry.name] = true
+        end
+    end
+    -- What is checked: the dirty modules and the program modules their checks
+    -- read, closed under what those read, as recorded or as checked now.
+    local checked: {[string]: any}, wanted: {[string]: boolean} = {}, {}
+    local pending: {string} = sorted(dirty)
+    local requests: {[string]: any} = {}
+
+    local function settle(): any
+        while #pending > 0 do
+            local name = table.remove(pending) as string
+            if not wanted[name] then
+                wanted[name] = true
+                for _, read in ipairs(byName[name].reads) do
+                    if byName[read] ~= nil then
+                        pending[#pending + 1] = read
+                    end
+                end
+            end
+        end
+        for _, entry in ipairs(record.modules) do
+            if wanted[entry.name] and checked[entry.name] == nil then
+                local module, reached = step(entry.request)
+                if module.name ~= entry.name or dirty[entry.name] and not same(reached, entry.reached) then
+                    return refuse(entry.name .. " now carries other modules")
+                end
+                checked[entry.name] = module
+                requests[entry.name] = {request = entry.request, reached = reached}
+                for _, read in ipairs(project.moduleReads(module.path)) do
+                    if byName[read] ~= nil and not wanted[read] then
+                        pending[#pending + 1] = read
+                    end
+                end
+            end
+        end
+
+        return #pending == 0 or settle()
+    end
+
+    while true do
+        if settle() == nil then
+            return nil
+        end
+        local inputs: {any} = {}
+        for index, entry in ipairs(record.modules) do
+            inputs[index] = checked[entry.name] or stub(entry)
+            requests[entry.name] = requests[entry.name] or {request = entry.request, reached = entry.reached}
+        end
+        local ok, catalog = pcall(programgraph.describe, inputs, inputs[#inputs].name)
+        local needed = not ok and stubmodules.needed(catalog) or nil
+        if ok then
+            if not same(sorted(catalog.cyclic), record.cyclic) then
+                return refuse("the program's require cycles changed")
+            end
+            catalog.requests = requests
+            catalog.kept = {record = record, dirty = dirty}
+            if tracing then
+                local count = 0
+                for _ in pairs(checked) do
+                    count += 1
+                end
+                io.stderr:write("guest catalog reused: checked ", tostring(count), " of ", tostring(#inputs), "\n")
+            end
+
+            return catalog
+        elseif needed == nil or byName[needed] == nil or wanted[needed] then
+            return refuse("describing it refused: " .. tostring(catalog))
+        end
+        pending[#pending + 1] = needed
+    end
+end
+
+-- Whether what the dirty modules of reused catalog `p` answer now is what the
+-- record holds: each one's interface digest (from piece store `store`), and
+-- each callable fact of one that another module observed.
+export function unchanged(p: any, store: any): boolean
+    local kept = p.kept
+    local project = p.checkedProject
+    local observers: {any} = {}
+    for _, entry in ipairs(kept.record.modules) do
+        if kept.dirty[entry.name] and store.interface(entry.name) ~= entry.interface then
+            return refuse(entry.name .. "'s interface changed") ~= nil
+        end
+        observers[#observers + 1] = entry
+    end
+    for _, entry in pairs(kept.record.outside) do
+        observers[#observers + 1] = entry
+    end
+    for _, entry in ipairs(observers) do
+        for _, dependency in ipairs(entry.deps) do
+            local module = FACTS[dependency.name] and factModule(dependency.key)
+            if module
+                and kept.dirty[module as string]
+                and project.projectDependencyFingerprint(dependency.name, dependency.key) ~= dependency.fingerprint
+            then
+                return refuse("a callable fact of " .. (module as string) .. " changed") ~= nil
+            end
+        end
+    end
+
+    return true
+end
+
+-- The key reused catalog `p` keeps for its `index`th module's piece, or nil
+-- for a dirty module, whose key is made afresh.
+export function keyOf(p: any, index: integer): string?
+    local entry = p.kept.record.modules[index]
+
+    return not p.kept.dirty[entry.name] and entry.key or nil
+end
+
+-- Keeps the record of catalog `p` of `case` at `version`, built with piece
+-- store `store` under `keys`, for the next build.
+export function remember(root: string, case: string, version: integer, p: any, store: any, keys: {string?}): nil
+    local project = p.checkedProject
+    local kept = p.kept
+    local carried: {[string]: boolean} = {}
+    for _, module in ipairs(p.modules) do
+        carried[module.name] = true
+    end
+    local modules: {any} = {}
+    local outside: {[string]: any} = {}
+    for name, entry in pairs(kept and kept.record.outside or {}) do
+        outside[name] = entry
+    end
+    local pending: {string} = {}
+    for index, module in ipairs(p.modules) do
+        local entry: any = nil
+        if p.stubs[module.name] then
+            entry = kept.record.modules[index]
+        elseif keys[index] ~= nil then
+            local loads, exported = forwardedexports.summary(module)
+            local requested = p.requests[module.name]
+            entry = {
+                name = module.name,
+                path = module.path,
+                request = requested.request,
+                reached = requested.reached,
+                loads = loads,
+                exported = exported,
+                source = sourceOf(project, module.path),
+                reads = project.moduleReads(module.path),
+                deps = project.projectDependencies(module.path),
+                externals = project.externalInputs(module.path),
+                interface = store.interface(module.name),
+                key = keys[index]
+            }
+            for _, read in ipairs(entry.reads) do
+                pending[#pending + 1] = read
+            end
+        end
+        if entry == nil then
+            return
+        end
+        modules[index] = entry
+    end
+    -- What the program's checks read that it does not carry, transitively.
+    while #pending > 0 do
+        local read = table.remove(pending) as string
+        local path = not carried[read] and outside[read] == nil and project.modulePath(read) or nil
+        if path ~= nil then
+            outside[
+                read
+            ] = {
+                name = read,
+                path = path,
+                source = sourceOf(project, path as string),
+                deps = project.projectDependencies(path as string),
+                externals = project.externalInputs(path as string)
+            }
+            for _, further in ipairs(project.moduleReads(path as string)) do
+                pending[#pending + 1] = further
+            end
+        end
+    end
+    piecestore.remember(root, recordName(case, version), {
+        format = FORMAT,
+        names = p.openingRequests,
+        cyclic = sorted(p.cyclic),
+        outside = outside,
+        modules = modules
+    })
+end
