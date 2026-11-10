@@ -139,8 +139,13 @@ export function argumenterror(ctx: voidptr, position: uint64, fallback: uint64, 
             local row = native.pointer(rows + id * native.sizeOf<catalog.CallDiagnostic>())
             local forward = native.load64(row, native.fieldOffset<catalog.CallDiagnostic>("forward"))
             if forward == catalog.FORWARD_NONE then
-                method = native.load64(row, native.fieldOffset<catalog.CallDiagnostic>("method")) & catalog.CALL_METHOD
-                name = native.load64(row, native.fieldOffset<catalog.CallDiagnostic>("name"))
+                local flags = native.load64(row, native.fieldOffset<catalog.CallDiagnostic>("method"))
+                -- A Lua tail call supplies no caller name or receiver form.
+                -- Calls into a C library retain that caller's checked context.
+                if flags & catalog.CALL_TAIL == 0ULL or guesterrors.clibrary(ctx, frame) then
+                    method = flags & catalog.CALL_METHOD
+                    name = native.load64(row, native.fieldOffset<catalog.CallDiagnostic>("name"))
+                end
                 break
             end
             -- A receiver inserted by a wrapper is absent from its public arguments.

@@ -74,6 +74,37 @@ function M.protectedAndTailCallerNamesRemainTruthfulToHostCapability()
         return child:seek('bogus')
     end)
     assert(message:find(expected, 1, true), message)
+    ok, message = pcall(child.setvbuf, child, 'bogus', 128)
+    assert(not ok)
+    expected = capable and "bad argument #2 to '?'" or "bad argument #1 to 'setvbuf'"
+    assert(message:find(expected, 1, true), message)
+    message = failure(function()
+        return child:setvbuf('bogus', 128)
+    end)
+    assert(message:find(expected, 1, true), message)
+end
+
+function M.optionErrorsNameTheExactPublicCallerLine()
+    local line
+    for _, action in ipairs({
+        function()
+            line = debug.getinfo(1, 'l').currentline
+            local result = child:seek('bogus');
+            return result
+        end,
+        function()
+            line = debug.getinfo(1, 'l').currentline
+            local result = child:setvbuf('bogus', 128);
+            return result
+        end
+    }) do
+        line = nil
+        local message = failure(action)
+        if type(line) == 'number' and line > 0 then
+            local expected = 'iofileargumenttest.lua:' .. tostring(line + 1) .. ': '
+            assert(message:find(expected, 1, true), message)
+        end
+    end
 end
 
 return M
