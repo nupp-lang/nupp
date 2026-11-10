@@ -12,8 +12,11 @@ local corelibrary = require("nupp.compiler.vm.corelibrary")
 local writer = require("nupp.compiler.vm.coreartifact")
 const TARGET = "aarch64-apple-darwin"
 const WORD_BYTES = 8
--- The chunk loader, whose header and relocation words only a chunk needs.
+-- The chunk loader and its admission, whose header and relocation words
+-- only a chunk needs.
 const LOADER = "nupp.runtime.core.guestloader"
+const ADMISSION = "nupp.runtime.core.chunkadmission"
+const CHUNK_OWNERS: {[string]: boolean} = {[LOADER] = true, [ADMISSION] = true}
 
 -- Where each constant the writer emits by is declared.
 const CONSTANT_OWNERS: {
@@ -33,9 +36,9 @@ const CONSTANT_OWNERS: {
     DIAGNOSTIC_NAME_LIMIT = "nupp.runtime.core.guestcatalog",
     LINE_TRAILER = "nupp.runtime.core.guestcatalog",
     MAGIC = LOADER,
-    RELOCATE_FUNCTION = LOADER,
-    RELOCATE_MODULE = LOADER,
-    RELOCATION_SHIFT = LOADER
+    RELOCATE_FUNCTION = ADMISSION,
+    RELOCATE_MODULE = ADMISSION,
+    RELOCATION_SHIFT = ADMISSION
 }
 
 local function integer(scope: any, name: string, what: string): integer
@@ -98,7 +101,7 @@ local function validate(scopes: any, loader: boolean): nil
         end
     end
     for name, owner in pairs(CONSTANT_OWNERS) do
-        if loader or owner ~= LOADER then
+        if loader or not CHUNK_OWNERS[owner] then
             local declared = assert(scopes[owner], "guest scope " .. owner)
             assert(
                 integer(declared, name, "guest constant") == (writer.constants as {[string]: integer})[name],
