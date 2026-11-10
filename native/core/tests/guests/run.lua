@@ -248,7 +248,7 @@ local CASES = {
     {"absentffi", 0x7FFF000000000007},
     {"guestffi", 0x7FFF000000001FFF},
     {"runnersmall", 0x7FFF00000000001F},
-    {"runnerchunks", 0x7FFF00000000000F},
+    {"runnerchunks", 0x7FFF00000000003F},
     -- The packaged test runner over real suites, its loadfile and dofile
     -- served chunks compiled here (SOURCES).
     {"testrunner", 0},
@@ -308,7 +308,7 @@ local CASES = {
     {"compilerfront", 0x7FFF00000000000F},
     -- Lua's loaders over source text, compiled on the core by the compiler
     -- the program carries.
-    {"loadsource", 0x7FFF0000007FFFFF},
+    {"loadsource", 0x7FFF000000FFFFFF},
     -- The compiler's lexer alone on the core, over whole source files.
     {"compilerlexer", 0x7FFF00000000000F},
     -- A checked call spreading fewer or more results than it has parameters.
@@ -592,7 +592,7 @@ local ROOTED = {testrunner = "tests/tools/test/runner", benchworkloads = "bench/
 -- compile text itself yet.
 local RUNNER_SUITES = {"iopathargumenttest", "iofileargumenttest", "corewarnlogtest", "typefactoriestest"}
 local SOURCES = {
-    runnerchunks = {"native/core/tests/runner-chunk-calls.lua"},
+    runnerchunks = {"native/core/tests/runner-chunk-calls.lua", "src/nupp/gpu/limits.nupp"},
     testrunner = {
         "tests/run.lua",
         "tests/groups.lua",

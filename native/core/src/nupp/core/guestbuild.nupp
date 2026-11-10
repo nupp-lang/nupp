@@ -56,6 +56,8 @@ end
 -- The namespace of the VM's host modules, which the core answers only where
 -- `graph.coremodule` maps one.
 const VM_HOST_PREFIX = "nupp.vm."
+-- The suffix a Nupp source file has.
+const NUPP_SUFFIX = ".nupp"
 
 -- Whether `name` is a VM host module the core does not answer.
 local function unansweredhost(name: string): boolean
@@ -392,7 +394,16 @@ local CASES: {[string]: {
     loadsource = {fixture = "catalog-load-source", version = 8, modules = {"catalog-load-helper"}, follow = true},
     -- The packaged test runner (nupp.lua build.targets.testRunner): the
     -- delivery path runs it on the core.
-    testrunner = {fixture = "tests/tools/test/runner/main", version = 8, follow = true, rooted = true, module = "main"},
+    -- It carries the chunk compiler, which compiles on the core what its
+    -- image does not carry: Lua text, and a required module's source.
+    testrunner = {
+        fixture = "tests/tools/test/runner/main",
+        version = 8,
+        follow = true,
+        rooted = true,
+        module = "main",
+        modules = {"src/nupp/compiler/vm/corechunk"}
+    },
     -- The compiler CLI bin/nupp runs (`check`, `build`): its VM entry and the
     -- modules its image carries beside it. The delivery path runs it on the core.
     compilercli = {
@@ -1287,11 +1298,18 @@ end
 --- (nupp.compiler.vm.corechunk), as `loadfile` would compile it on the core,
 --- or with `display`, as `load` would compile the file's text named so; or
 --- nil and why it does not compile. Its source, as debug.getinfo answers it,
---- is "@" and the path for `loadfile`, and the name `load` was given.
+--- is "@" and the path for `loadfile`, and the name `load` was given. A Nupp
+--- module's source compiles as a module instance, as a require of a module
+--- the image does not carry would compile it on the core (nupp.runtime.luaload).
 export function sourceChunk(path: string, display: string?): (string?, string?)
     local corechunk: any = require("nupp.compiler.vm.corechunk")
     local chunkfiles: any = require("nupp.runtime.chunkfiles")
     local text = read(assert(os.getenv("NUPP_COMPILER_ROOT")) .. "/" .. path)
+    if display == nil and path:sub(-#NUPP_SUFFIX) == NUPP_SUFFIX then
+        local bytes, problem = corechunk.compileModule(text, path, "@" .. path)
+
+        return bytes and chunkfiles.contents(text, bytes as string), problem
+    end
     -- loadfile skips a Unix exec line; load does not.
     local compiled = display == nil and chunkfiles.execLineSkipped(text) or text
     local bytes, problem = corechunk.compile(compiled, display or path, display or "@" .. path)

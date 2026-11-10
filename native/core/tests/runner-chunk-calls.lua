@@ -42,4 +42,10 @@ else
     check(true)
 end
 
+-- A module the program does not carry: its source under the checkout,
+-- compiled on the host as a module instance and kept beside the chunk.
+local limits = require("nupp.gpu.limits")
+check(limits.PORTABLE_WORKGROUP_THREADS == 256)
+check(require("nupp.gpu.limits") == limits)
+
 return score

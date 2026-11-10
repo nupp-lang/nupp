@@ -221,4 +221,12 @@ if first.bump() == 1 and first.bump() == 2 and second.bump() == 1 and first.now(
     score = score + 4194304
 end
 
+-- A require of a module the program does not carry, and keeps no chunk
+-- for, compiles the module's source under the checkout on the core.
+local requireValue: function(string): any = require
+local limits: any = requireValue("nupp.gpu.limits")
+if limits.PORTABLE_WORKGROUP_THREADS == 256 and requireValue("nupp.gpu.limits") == limits then
+    score = score + 8388608
+end
+
 export const result = score
