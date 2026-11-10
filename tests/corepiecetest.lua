@@ -51,7 +51,7 @@ export const result = beta.sixfold(apply(alpha.double, 1))
 
 -- A program of `sources` ({name, text}), each checked in one environment that
 -- holds those before it, its last the entry.
-local function checkedProgram(sources)
+local function checkedProgram(sources, order)
     local env = environment.new(".", {memoryOnly = true, cache = false, nativeCompilerServices = false})
     local declared = env.ensureProjectIndex(env).declaredModules
     local modules = {}
@@ -72,7 +72,15 @@ local function checkedProgram(sources)
         modules[index] = {name = source.name, path = path, parsed = parsed, diagnostics = diagnostics}
     end
 
-    return program.describe(modules, sources[#sources].name)
+    local described = modules
+    if order then
+        described = {}
+        for index, at in ipairs(order) do
+            described[index] = modules[at]
+        end
+    end
+
+    return program.describe(described, sources[#sources].name)
 end
 
 local function sources(alpha)
@@ -207,6 +215,26 @@ function M.linkingHoldsWhatAPieceReadOfAnotherInitializer()
         {name = "pieces.flag", text = "return true"},
         {name = "pieces.reader", text = "local flag = require(\"pieces.flag\")\nreturn flag"}
     }), tagged.forVersion(8)), 8))
+end
+
+-- A module that reads one later in the program reads its initializer result
+-- as the whole program does: a function branching on a required number is
+-- refused either way.
+function M.piecesRefuseWhatTheWholeProgramRefuses()
+    local sources = {
+        {name = "pieces.flag", text = "return 1"},
+        {name = "pieces.reader", text = "local function truth(): boolean\n    local value = require(\"pieces.flag\")\n    if value then\n        return true\n    end\n    return false\nend\nreturn truth"},
+        {name = "pieces.main", text = "local truth = require(\"pieces.reader\")\nreturn truth()"}
+    }
+    local order = {2, 1, 3}
+    local ok, problem = pcall(function()
+        return executable.fromChecked(program.compile(checkedProgram(sources, order), tagged.forVersion(8)), 8)
+    end)
+    test.eq(ok, false)
+    assert(tostring(problem):find("unsupported branch value", 1, true), tostring(problem))
+    refuses(function()
+        return corelink.link(corepiece.compile(checkedProgram(sources, order), tagged.forVersion(8)), "pieces.main")
+    end, "unsupported branch value")
 end
 
 return M
