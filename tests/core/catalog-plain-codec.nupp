@@ -1,0 +1,29 @@
+module nupp.core.catalogplaincodec
+
+const codec = require("nupp.compiler.project.plaincodec")
+const stores = require("nupp.compiler.project.store")
+const scratch = assert(os.mktemp("plaincodec-", ".buf", os.getenv("NUPP_GUEST_TEMP") or "/tmp"))
+const path = scratch:tostring()
+local score = 0
+local shared = {answer = 42}
+local original: any = {first = shared, second = shared}
+original.self = original
+local restored = codec.decode(codec.encode(original))
+if restored.first == restored.second and restored.self == restored and restored.first.answer == 42 then
+    score = score + 1
+end
+local store = stores.open(path, "plain-codec-guest")
+store.put("answer", original)
+store.save()
+local reopened = stores.open(path, "plain-codec-guest")
+local value = reopened.get("answer")
+if value ~= nil and value.first.answer == 42 and value.first == value.second and value.self == value then
+    score = score + 2
+end
+if reopened.stats.hits == 1 then
+    score = score + 4
+end
+if rawget(_G, "__nupp_plain_codec") == nil then
+    score = score + 8
+end
+export const result = score

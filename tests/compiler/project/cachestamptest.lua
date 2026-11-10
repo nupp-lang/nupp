@@ -9,7 +9,7 @@ local cache = require("nupp.tools.build.cache")
 local envMod = require("nupp.compiler.project.env")
 local stable = require("nupp.compiler.stable")
 -- The codec the store writes with: the VM's plain codec where the host has one.
-local codec = rawget(_G, "__nupp_plain_codec") or require("nupp.serde.internal.binarycodec")
+local codec = require("helpers.plaincodec")
 
 local HERE = require("helpers.paths").absoluteTests
 local ROOT = assert(HERE:match("^(.*)/[^/]+$"), "tests directory has no parent")
@@ -101,7 +101,7 @@ function M.aStoreWhoseBodyWasDamagedAnswersNothing()
         -- The binary codec still decodes this, which is what the seal is for; the VM's
         -- plain codec checks its own payload and refuses it outright. Either way
         -- the store has to answer nothing.
-        assert(codec == rawget(_G, "__nupp_plain_codec") or pcall(codec.decode, text), "the damage still decodes")
+        assert(text:sub(1, 8) == "NUPPSAV1" or pcall(codec.decode, text), "the damage still decodes")
         file = assert(io.open(path, "wb"))
         file:write(text)
         file:close()

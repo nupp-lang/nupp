@@ -308,6 +308,8 @@ local CASES = {
     {"callsspreadshort", 0x7FFF00000000001F},
     -- `nupp check` on the core: a clean file and one with a type error.
     {"compilercheck", 0x7FFF000000000003},
+    {"compilerwarmcheck", 0x7FFF00000000000F},
+    {"plaincodec", 0x7FFF00000000000F},
     -- The compiler's carried files listed where none are carried.
     {"bundledlist", 0x7FFF000000000007},
     -- The compiler's host layout key from the runtime's own description.
