@@ -7,7 +7,9 @@ module nupp.core.cataloghashdigests
 -- nupp.compiler.hash.digest, which the build and the test runner take their
 -- content digests through, answering the core's. With NUPP_HASH_BENCH set to
 -- megabyte counts ("1,4,64"), each digest's throughput over each is written
--- to standard error. Each check is a bit of the score.
+-- to standard error, and with NUPP_HASH_FILES set to paths, the time each
+-- file takes to read whole and each digest's throughput over its bytes.
+-- Each check is a bit of the score.
 local corehash = require("nupp.compiler.corehash")
 local hash = require("nupp.compiler.hash")
 local sha256 = require("nupp.digest.internal.sha256")
@@ -49,21 +51,41 @@ local ok, message = pcall(corehash.digest, 7 as any)
 check(not ok and tostring(message):find("string", 1, true) ~= nil)
 
 const MEGABYTE = 1024 * 1024
-for setting in string.gmatch(os.getenv("NUPP_HASH_BENCH") or "", "%d+") do
-    local megabytes = math.tointeger(tonumber(setting)) as integer
-    local text = string.rep("abcdefgh", megabytes * MEGABYTE // 8)
 
-    local function measure(name: string, digest: function(string): string): nil
+-- Writes each digest's time and throughput over `text`, named `label`.
+local function measure(label: string, text: string): nil
+    local megabytes = #text / MEGABYTE
+    for _, entry in ipairs({{"hash.digest", hash.digest}, {"sha256", sha256.sha256}}) do
+        local name, digest = entry[1] as string, entry[2] as function(string): string
         local started = os.clock()
         local answer = digest(text)
         local seconds = os.clock() - started
         io.stderr:write(
-            string.format("%s %d MB %.4f s %.1f MB/s %s\n", name, megabytes, seconds, megabytes / seconds, answer)
+            string.format(
+                "%s %s %.1f MB %.4f s %.1f MB/s %s\n",
+                name,
+                label,
+                megabytes,
+                seconds,
+                megabytes / seconds,
+                answer
+            )
         )
     end
+end
 
-    measure("hash.digest", hash.digest)
-    measure("sha256", sha256.sha256)
+for setting in string.gmatch(os.getenv("NUPP_HASH_BENCH") or "", "%d+") do
+    local megabytes = math.tointeger(tonumber(setting)) as integer
+    measure("repeated", string.rep("abcdefgh", megabytes * MEGABYTE // 8))
+end
+
+for path in string.gmatch(os.getenv("NUPP_HASH_FILES") or "", "%S+") do
+    local started = os.clock()
+    local file = assert(io.open(path, "rb"))
+    local text = file:read("a") as string
+    file:close()
+    io.stderr:write(string.format("read %s %.1f MB %.4f s\n", path, #text / MEGABYTE, os.clock() - started))
+    measure(path, text)
 end
 
 export const result = score
