@@ -176,7 +176,9 @@ function suite.ordinaryCatalogVerifiesItsExactFactoryLoader()
     )
     local program = require("nupp.compiler.vm.programgraph")
     assert(program.verify(p))
-    assert(program.compile(p, require("nupp.compiler.vm.taggedprofile").forVersion(8)))
+    assert(p.modules[#p.modules].name == "recordcallableordinary", "entry initializer must remain last")
+    local compiled = program.compile(p, require("nupp.compiler.vm.taggedprofile").forVersion(8))
+    assert(require("nupp.compiler.vm.coregraphexecutable").fromChecked(compiled, 8))
     local plan
     for _, value in pairs(p.recordFactories) do
         plan = value

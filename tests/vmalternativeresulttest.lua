@@ -73,7 +73,7 @@ function M.finiteArmsKeepTheirIdentityAndActualReturnCounts()
         two = two or instruction[1] == "RetN" and instruction[3] == 2
     end
     assert(zero and one and two, "zero, nil and two values need distinct return transports")
-    local forwarded = program.select(p, p.modules[1].name, "forward")
+    local forwarded = program.select(p, p.modules[#p.modules].name, "forward")
     local open = false
     for _, block in ipairs(compiled.graphs[forwarded.id + 1].blocks) do
         open = open or block.term.kind == "invoke" and block.term.open == true
@@ -189,7 +189,7 @@ return 0
         anySelect = "many"
     }
     for name, method in pairs(expected) do
-        local owner = program.select(p, p.modules[1].name, name)
+        local owner = program.select(p, p.modules[#p.modules].name, name)
         local found = false
         for _, block in ipairs(compiled.graphs[owner.id + 1].blocks) do
             local term = block.term
@@ -204,7 +204,7 @@ return 0
         assert(found, "missing method invocation in " .. name)
     end
     for _, name in ipairs({"parentheses", "nonfinal", "single"}) do
-        local owner = program.select(p, p.modules[1].name, name)
+        local owner = program.select(p, p.modules[#p.modules].name, name)
         local found = false
         for _, block in ipairs(compiled.graphs[owner.id + 1].blocks) do
             local term = block.term
@@ -232,7 +232,7 @@ return 0
     local catalog = executable.fromChecked(compiled, 8)
     executable.validate(catalog)
     for _, name in ipairs({"target", "fixedbare", "openfalling", "openbare"}) do
-        local owner = program.select(p, p.modules[1].name, name)
+        local owner = program.select(p, p.modules[#p.modules].name, name)
         local found = false
         for _, instruction in ipairs(catalog.functions[owner.id + 1].instructions) do
             assert(instruction[1] ~= "Ret", name .. " fabricated one nil result")
@@ -243,7 +243,7 @@ return 0
         end
         assert(found, name .. " lost its empty result pack")
     end
-    local owner = program.select(p, p.modules[1].name, "onenil")
+    local owner = program.select(p, p.modules[#p.modules].name, "onenil")
     local found = false
     for _, instruction in ipairs(catalog.functions[owner.id + 1].instructions) do
         found = found or instruction[1] == "Ret"

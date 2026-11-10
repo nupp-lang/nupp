@@ -62,7 +62,7 @@ function M.inputs(inputs, beforeEntry)
 end
 
 function M.describe(inputs, entry, options)
-    return program.describe(M.inputs(inputs), entry, options)
+    return program.describe(M.inputs(inputs, entry), entry, options)
 end
 
 return M

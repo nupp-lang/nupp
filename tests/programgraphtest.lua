@@ -2197,7 +2197,7 @@ return Child()
         end
     end
     test.eq(#issued, 2)
-    test.eq(#operations(compiled.graphs[1], "Require"), 3)
+    test.eq(#operations(compiled.graphs[p.entry + 1], "Require"), 3)
     assert(require("nupp.compiler.syntax.cst").firstToken(issued[1].node))
     assert(issued[1].node ~= issued[2].node)
     assert(contracts.normalize(compiled, 8))
