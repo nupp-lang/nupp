@@ -23,7 +23,7 @@ end
 -- test caches. Removing the prior core output forces this run to compile.
 os.execute("rm -rf " .. CORE_OUTPUT)
 mark("compiler target dist: start core build")
-local status = cli.main({"build", "--target", "dist", "--output", CORE_OUTPUT, "--json", "--progress", "always"})
+local status = cli.main({"build", "--target", "dist", "--output", CORE_OUTPUT, "--json", "--progress=always"})
 mark("compiler target dist: finished with status " .. tostring(status))
 local score = 0
 if status == 0 then

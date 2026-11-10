@@ -8,6 +8,6 @@ export NUPP_COMPILER_ROOT="$ROOT" NUPP_VM_AUTO_REBUILD=0 NO_JIT=1
 rm -rf build/self-build-host
 mkdir -p build/self-build-host
 NUPP_CACHE_DIR="$ROOT/build/self-build-host/cache" \
-    ./bin/nupp build --target dist --output build/self-build-host --json --progress always \
+    ./bin/nupp build --target dist --output build/self-build-host --json --progress=always \
     > build/self-build-host/build.json
 ./scripts/native-producer compilerselfbuild
