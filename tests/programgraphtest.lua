@@ -2201,6 +2201,7 @@ return Child()
     assert(require("nupp.compiler.syntax.cst").firstToken(issued[1].node))
     assert(issued[1].node ~= issued[2].node)
     assert(contracts.normalize(compiled, 8))
+    assert(p.requireByNode[issued[1].node] == issued[1], "remove the registered checked require site")
     p.requireByNode[issued[1].node] = nil
     refuses(
         function()
@@ -2221,7 +2222,14 @@ return Child()
     )
     tokens[taken] = original
     local owner = issued[1].owner
-    issued[1].owner = p.modules[2].chunk
+    local foreignOwner
+    for _, module in ipairs(p.modules) do
+        if module.name == "defaultsource" then
+            foreignOwner = module.chunk
+        end
+    end
+    assert(foreignOwner ~= nil and foreignOwner ~= owner, "forge a different declaring-module owner")
+    issued[1].owner = foreignOwner
     refuses(
         function()
             program.verify(p)
