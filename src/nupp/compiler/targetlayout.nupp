@@ -186,6 +186,23 @@ function targetLayout.has(key: string?): boolean
     return key ~= nil and MODELS[key] ~= nil
 end
 
+-- The runtime's own description of the machine, for a host that publishes
+-- neither a layout key nor LuaJIT's `jit`, as the native core does. Loaded by
+-- name so a compiler without the runtime library carries none of it.
+local function describedKey(): string?
+    local systems: {
+        [string]: string
+    } = {macos = "apple-darwin", linux = "unknown-linux-gnu", windows = "pc-windows-msvc"}
+    local load: function(string): any = require
+    local found, system = pcall(load, "nupp.runtime.system")
+    if not found or type(system) ~= "table" then
+        return nil
+    end
+    local platform = systems[system.platform]
+
+    return platform and type(system.architecture) == "string" and system.architecture .. "-" .. platform or nil
+end
+
 --- The explicit target key for the VM running the compiler, when modeled.
 --- Cross-target callers pass their own key and never reach this function.
 function targetLayout.hostKey(): string?
@@ -199,6 +216,9 @@ function targetLayout.hostKey(): string?
     local architecture = host and architectures[host.arch] or nil
     local system = host and systems[host.os] or nil
     local key = architecture and system and architecture .. "-" .. system or nil
+    if key == nil and host == nil then
+        key = describedKey()
+    end
 
     return key and MODELS[key] and key or nil
 end

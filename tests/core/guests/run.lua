@@ -314,6 +314,12 @@ local CASES = {
     {"callsspreadshort", 0x7FFF00000000001F},
     -- `nupp check` on the core: a clean file and one with a type error.
     {"compilercheck", 0x7FFF000000000003},
+    -- The compiler's carried files listed where none are carried.
+    {"bundledlist", 0x7FFF000000000007},
+    -- The compiler's host layout key from the runtime's own description.
+    {"hostlayout", 0x7FFF000000000007},
+    -- `nupp build` on the core: a library, then a VM binary that is run.
+    {"compilerbuild", 0x7FFF00000000003F},
     -- Lua's debug.getinfo: sources, lines and names by level and of values.
     {"debuggetinfo", 0x7FFF00000001FFFF},
     -- Instances of a Nupp module compiled as a chunk: fresh state, requires
@@ -566,6 +572,11 @@ local SETUP = {
         .. "'%s/tests/core/core-cdecl-record.lua' \"$d/recorded\" > /dev/null "
         .. "&& export CDECL_DIFF=\"$d/recorded\"; "
     ):format(OUT, ROOT, ROOT),
+    -- `nupp build` builds the project it is run from: a fresh one each run,
+    -- the compiler checkout named for the VM runtime a binary is stamped onto.
+    compilerbuild = (
+        "d=$(mktemp -d '%s/build.XXXXXX') && cd \"$d\" && export NUPP_COMPILER_ROOT='%s'; "
+    ):format(OUT, ROOT),
     -- The getentropy that fails the entropy failure guard's request.
     entropyfailure = (
         "d=$(mktemp -d '%s/entropy.XXXXXX') && cc -dynamiclib -o \"$d/libnuppentropyfailure.dylib\" '%s' "
