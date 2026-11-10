@@ -337,6 +337,10 @@ export function invoke(
         -- From v8 a call through a function value is resolved when it runs.
         need(p.functionsByDefinition[site.definition] == nil, "dynamic call names a declaration")
         contract = graph.dynamicInvokeContract(node, count)
+    elseif target ~= nil and called ~= nil and called.tag == "func" and not graphcalls.fitsArity(called, node) then
+        -- A plain Lua chunk may pass a function more or fewer arguments than
+        -- its parameters, as Lua does: the call goes through its value.
+        contract = graph.dynamicInvokeContract(node, count)
     else
         need(target, "call requires a stable checked declaration")
         need(

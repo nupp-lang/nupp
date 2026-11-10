@@ -334,6 +334,8 @@ local CASES: {[string]: {
     guestffi = {fixture = "catalog-guest-ffi", version = 8},
     -- Library behaviors the test runner's suites lean on.
     runnersmall = {fixture = "catalog-runner-small", version = 8},
+    -- A plain Lua chunk the host compiles, as the runner's suites are.
+    runnerchunks = {fixture = "catalog-runner-chunks", version = 8, modules = {"catalog-runner-helper"}},
     ffiaggregates = {fixture = "catalog-ffi-aggregates", version = 8},
     -- C declarations through libclang (nupp.compiler.corecdecl).
     corecdecl = {fixture = "catalog-core-cdecl", version = 8},

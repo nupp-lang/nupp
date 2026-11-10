@@ -1,0 +1,7 @@
+module nupp.core.catalogrunnerhelper
+
+-- What catalog-runner-chunks' Lua chunk calls from this program: a typed
+-- function, declared here, not in the chunk.
+export function double(n: integer): integer
+    return n * 2
+end

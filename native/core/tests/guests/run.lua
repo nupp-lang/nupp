@@ -244,6 +244,7 @@ local CASES = {
     {"absentffi", 0x7FFF000000000007},
     {"guestffi", 0x7FFF000000001FFF},
     {"runnersmall", 0x7FFF00000000007F},
+    {"runnerchunks", 0x7FFF000000000003},
     -- The packaged test runner over real suites, its loadfile and dofile
     -- served chunks compiled here (SOURCES).
     {"testrunner", 0},
@@ -559,6 +560,9 @@ local SETUP = {
         "d=$(mktemp -d '%s/ffi.XXXXXX') && cc -dynamiclib -o \"$d/libnuppffiaggregates.dylib\" '%s' "
         .. "&& export DYLD_LIBRARY_PATH=\"$d\"; "
     ):format(OUT, TESTS .. "/ffi-aggregates.c"),
+    -- The runner-chunks case's chunk is kept by its path under the
+    -- checkout, as the runner's are.
+    runnerchunks = ("cd %s && export NUPP_CORE_CHUNKS=%s/build/core-guests/chunks; "):format(ROOT, ROOT),
     -- The runner reads tests/run.lua and the suites from the checkout. Its
     -- result cache digests the files the VM variables name, the runtime's
     -- hundreds of megabytes, which guest code takes most of an hour over;
@@ -575,6 +579,7 @@ local ROOTED = {testrunner = "tests/tools/test/runner", benchworkloads = "bench/
 -- compile text itself yet.
 local RUNNER_SUITES = {"iopathargumenttest", "iofileargumenttest", "corewarnlogtest", "typefactoriestest"}
 local SOURCES = {
+    runnerchunks = {"native/core/tests/runner-chunk-calls.lua"},
     testrunner = {
         "tests/run.lua",
         "tests/groups.lua",
