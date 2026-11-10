@@ -9124,6 +9124,29 @@ writer:writebytes(":"):writeuint8(33)
     )
 end
 
+function M.longScalarWriterChainsKeepTheirImmediateHolder()
+    assertClean(
+        [[
+local buffer = bytes.Buffer.create()
+local writer = buffer:writer():scalar()
+writer:writeuint32(1):writeuint32(2):writeuint32(3):writeuint32(4):writebytes(":")
+own.drop(writer)
+]]
+    )
+end
+
+function M.longScalarWriterChainsStillConflictWithAnotherWriter()
+    local got = codes(
+        [[
+local buffer = bytes.Buffer.create()
+local scalar = buffer:writer():scalar()
+local overlapping = buffer:writer()
+scalar:writeuint8(1):writeuint8(2):writeuint8(3)
+]]
+    )
+    assert(got:find("NUPP2607", 1, true), got)
+end
+
 function M.readintoConsumesTheLeaseAndReleasesTheBuffer()
     local prefix = [[
 local reader = io.Reader.of("abc")

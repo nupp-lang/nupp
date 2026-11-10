@@ -3449,6 +3449,11 @@ export function install(c: state.Checker): Ops
                     found = {sourceEntry}
                 elseif base then
                     found = {base}
+                elseif source and not sourceEntry and c.own.capabilityFacts(source, nil, false).roots then
+                    -- A fluent chain's temporary already names the owners it borrows,
+                    -- which are the intermediate owners above. Resolving them to their
+                    -- ultimate roots would make the next link conflict with them.
+                    found = {unpack(c.own.capabilityFacts(source, nil, false).roots)}
                 else
                     found = source and c.own.provenanceOwners(source) or {}
                 end
