@@ -11,6 +11,17 @@ module nupp.compiler.project.interfacetext
 -- Tables that are copies of a source token: their positions say where, not what.
 const POSITION_KEYS: {[string]: boolean} = {line = true, col = true, offset = true}
 
+-- Whether field `key` of encoded type `node` says a function type has partition
+-- results while it has none. `types.func` interns an empty partition table and
+-- none as one type, which is whichever a process made first, so the two spell
+-- the same here.
+local function emptyPartitions(node: any, key: any): boolean
+    return key == "hasPartitionResults"
+        and node.hasPartitionResults == true
+        and type(node.partitionResults) == "table"
+        and next(node.partitionResults) == nil
+end
+
 --- An interface image as text two checks agree on whenever a dependent's check could
 --- not tell their modules apart: positions dropped from the tokens it copies, and the
 --- offsets in identities this module declares (`path NUL offset NUL kind`, a binder's
@@ -120,6 +131,8 @@ export function text(image: any, path: string): string
                 local selfIdentity = key == "identity" and selfIdentities[value]
                 if selfIdentity and not ambiguous[selfIdentity] then
                     write(selfIdentity)
+                elseif emptyPartitions(value, key) then
+                    write(false)
                 else
                     write((value as table)[key])
                 end
