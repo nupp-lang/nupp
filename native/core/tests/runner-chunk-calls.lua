@@ -19,4 +19,9 @@ end
 check(sum(1, 2, 3) == 3)
 check(helper.double(4, "extra") == 8)
 
+-- A record another program declares, constructed by calling its class.
+local box = helper.Box(3, 4)
+check(box.width == 3)
+check(box.height == 4)
+
 return score

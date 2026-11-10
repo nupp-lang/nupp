@@ -449,7 +449,12 @@ export function construct(ctx: any, node: any, origin: any): any
     local p = catalog(ctx)
     local call = node.call
     local site = need(p.callByNode[call], "construction lacks its checked callsite")
-    need(site.construct and site.owner == ctx.fn.id, "construction callsite belongs to another owner")
+    need(site.owner == ctx.fn.id, "construction callsite belongs to another owner")
+    if not site.construct then
+        -- A record another program declares and constructs: its class is
+        -- called as the value it is, through its __call.
+        return invoke(ctx, call, true, true)
+    end
     local target = need(p.functionsByDefinition[site.definition], "construction lacks its constructor")
     local contract = graph.constructContract(target, call)
     local class = site.classExpr and ctx.expression(site.classExpr, "tagged")
