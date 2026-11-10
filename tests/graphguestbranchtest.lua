@@ -11,6 +11,7 @@ local tagged = require("nupp.compiler.vm.taggedprofile")
 local graph = require("nupp.compiler.vm.graph")
 local contracts = require("nupp.compiler.vm.coregraphcontracts")
 local semantic = require("nupp.compiler.vm.coregraphverify")
+local recordfactory = require("helpers.recordfactory")
 local M = {}
 
 local function compile(text, sourcePath, profile)
@@ -27,7 +28,10 @@ local function compile(text, sourcePath, profile)
     for _, diagnostic in ipairs(diagnostics) do
         assert(diagnostic.severity ~= "error", diagnostic.msg)
     end
-    local catalog = program.describe({{name = name, path = path, parsed = parsed, diagnostics = diagnostics}}, name)
+    local catalog = recordfactory.describe(
+        {{name = name, path = path, parsed = parsed, diagnostics = diagnostics}},
+        name
+    )
 
     return program.compile(catalog, profile or tagged)
 end

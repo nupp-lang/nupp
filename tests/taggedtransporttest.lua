@@ -8,6 +8,7 @@ local graph = require("nupp.compiler.vm.graph")
 local executable = require("nupp.compiler.vm.coregraphexecutable")
 local semantic = require("nupp.compiler.vm.coregraphverify")
 local schema = require("nupp.compiler.vm.coregraphschema")
+local recordfactory = require("helpers.recordfactory")
 local M = {}
 local root = assert(os.getenv("NUPP_COMPILER_ROOT"))
 
@@ -35,7 +36,7 @@ local function compile(source, path, observe)
             before(ctx.g)
         end
     end
-    local catalog = program.describe({{name = name, path = path, parsed = parsed, diagnostics = {}}}, name)
+    local catalog = recordfactory.describe({{name = name, path = path, parsed = parsed, diagnostics = {}}}, name)
 
     return program.compile(catalog, profile)
 end

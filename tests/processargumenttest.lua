@@ -5,6 +5,7 @@ local program = require("nupp.compiler.vm.programgraph")
 local tagged = require("nupp.compiler.vm.taggedprofile")
 local executable = require("nupp.compiler.vm.coregraphexecutable")
 local contracts = require("nupp.compiler.vm.coregraphcontracts")
+local recordfactory = require("helpers.recordfactory")
 local M = {}
 
 local function refuses(f, text)
@@ -53,7 +54,7 @@ end
     for _, d in ipairs(diagnostics) do
         assert(d.severity ~= 'error', d.msg)
     end
-    local p = program.describe(
+    local p = recordfactory.describe(
         {
             {name = fileName, path = filePath, parsed = file, diagnostics = ds},
             {name = moduleName, path = path, parsed = parsed, diagnostics = diagnostics}

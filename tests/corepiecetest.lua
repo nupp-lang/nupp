@@ -8,6 +8,7 @@ local executable = require("nupp.compiler.vm.coregraphexecutable")
 local corepiece = require("nupp.compiler.vm.corepiece")
 local corelink = require("nupp.compiler.vm.corelink")
 local writer = require("nupp.compiler.vm.coreartifact")
+local recordfactory = require("helpers.recordfactory")
 local M = {}
 
 local ALPHA = [[
@@ -80,7 +81,11 @@ local function checkedProgram(sources, order)
         end
     end
 
-    return program.describe(described, sources[#sources].name)
+    local entry = sources[#sources].name
+
+    -- Keep dependency indexes stable and the entry initializer last.
+
+    return program.describe(recordfactory.inputs(described, entry), entry)
 end
 
 local function sources(alpha)
@@ -101,7 +106,8 @@ end
 
 -- Module alpha alone, as `text` spells it, as a piece.
 local function alone(text)
-    return corepiece.compile(checkedProgram({{name = "pieces.alpha", text = text}}), tagged.forVersion(8))[1]
+    local built = corepiece.compile(checkedProgram({{name = "pieces.alpha", text = text}}), tagged.forVersion(8))
+    return built[#built]
 end
 
 -- Where `actual` first differs from `expected`, leaving out the semantic graphs
@@ -181,6 +187,8 @@ end
 
 function M.linkedProgramMatchesItsWholeProgramBuild()
     local built = pieces()
+    test.eq(built[3].module.name, "nupp.runtime.provider.corerecord")
+    test.eq(built[4].module.name, "pieces.main")
     local linked = corelink.link(built, "pieces.main")
     same(linked, whole())
     executable.validate(linked)
@@ -205,7 +213,7 @@ function M.unchangedPiecesRelinkAfterAnEarlyModuleGainsAFunction()
     local after = pieces(edited)
     -- The new function precedes every function of the later modules, so each
     -- of their owners moves; their pieces do not change.
-    local relinked = corelink.link({after[1], before[2], before[3]}, "pieces.main")
+    local relinked = corelink.link({after[1], before[2], before[3], before[4]}, "pieces.main")
     local expected = whole(edited)
     same(relinked, expected)
     same(corelink.link(after, "pieces.main"), expected)
@@ -223,7 +231,7 @@ function M.linkingHoldsSymbolsToTheirTargets()
 
     local function linked(first)
         return function()
-            return corelink.link({first, before[2], before[3]}, "pieces.main")
+            return corelink.link({first, before[2], before[3], before[4]}, "pieces.main")
         end
     end
 
@@ -231,19 +239,19 @@ function M.linkingHoldsSymbolsToTheirTargets()
     refuses(linked(retyped), "not the")
     refuses(
         function()
-            return corelink.link({before[2], before[3]}, "pieces.main")
+            return corelink.link({before[2], before[3], before[4]}, "pieces.main")
         end,
         "is not linked"
     )
     refuses(
         function()
-            return corelink.link({before[1], before[3], before[2]}, "pieces.main")
+            return corelink.link({before[1], before[3], before[4], before[2]}, "pieces.main")
         end,
         "entry module must initialize last"
     )
     refuses(
         function()
-            return corelink.link({before[1], before[1], before[3]}, "pieces.main")
+            return corelink.link({before[1], before[1], before[3], before[4]}, "pieces.main")
         end,
         "duplicate module"
     )
@@ -321,13 +329,13 @@ function M.keptPiecesLinkAsTheyWereBuilt()
     end
 
     local before = pieces()
-    same(corelink.link({kept(before[1]), kept(before[2]), kept(before[3])}, "pieces.main"), whole())
+    same(corelink.link({kept(before[1]), kept(before[2]), kept(before[3]), kept(before[4])}, "pieces.main"), whole())
     local edited = ALPHA:gsub(
         "^module pieces.alpha\n",
         "module pieces.alpha\nexport function zero(): integer return 0 end\n"
     )
     local after = pieces(edited)
-    same(corelink.link({after[1], kept(before[2]), kept(before[3])}, "pieces.main"), whole(edited))
+    same(corelink.link({after[1], kept(before[2]), kept(before[3]), kept(before[4])}, "pieces.main"), whole(edited))
 end
 
 -- A catalog holding a module as a stub (nupp.compiler.vm.stubmodules)
@@ -364,13 +372,14 @@ function M.stubbedModulesKeepTheirPieces()
 
     local full = checkedProgram(sources())
     local kept = corepiece.compile(full, tagged.forVersion(8))
-    local catalog = program.describe(inputs(full, {[3] = true}), "pieces.main")
+    local catalog = program.describe(inputs(full, {[4] = true}), "pieces.main")
     test.eq(catalog.stubs["pieces.main"], true)
     local state = corepiece.program(catalog, tagged.forVersion(8))
     corepiece.start(state, 1)
     corepiece.start(state, 2)
     corepiece.adopt(state, 3, kept[3])
-    local built = {corepiece.finish(state, 1), corepiece.finish(state, 2), kept[3]}
+    corepiece.adopt(state, 4, kept[4])
+    local built = {corepiece.finish(state, 1), corepiece.finish(state, 2), kept[3], kept[4]}
     same(corelink.link(built, "pieces.main"), whole())
     refuses(
         function()
@@ -428,11 +437,21 @@ function M.keptCatalogChecksEditsAndRefusesChangedInputs()
         local original = checkedProgram(sources())
         local pieces = corepiece.compile(original, tagged.forVersion(8))
         local texts, paths, reads, requests = {}, {}, {}, {}
-        for index, source in ipairs(sources()) do
-            local module = original.modules[index]
-            paths[source.name], texts[module.path] = module.path, source.text
-            reads[module.path] = index == 1 and {} or {"pieces.alpha"}
-            requests[source.name] = {request = source.name, reached = {}}
+        local sourceTexts = {}
+        for _, source in ipairs(sources()) do
+            sourceTexts[source.name] = source.text
+        end
+        for _, module in ipairs(original.modules) do
+            local text = sourceTexts[module.name]
+            if text == nil then
+                local file = assert(io.open(module.path, "rb"))
+                text = file:read("*a")
+                file:close()
+            end
+            paths[module.name], texts[module.path] = module.path, text
+            reads[module.path] = (module.name == "pieces.beta" or module.name == "pieces.main") and {"pieces.alpha"}
+                or {}
+            requests[module.name] = {request = module.name, reached = {}}
         end
         local project = {
             fileText = function(path)
@@ -459,8 +478,8 @@ function M.keptCatalogChecksEditsAndRefusesChangedInputs()
         }
         original.checkedProject, original.requests = project, requests
         original.openingRequests = {"pieces.main"}
-        keptcatalog.remember(".", "fixture", 8, original, store, {"alpha", "beta", "main"})
-        assert(record and #record.modules == 3, "kept record contains every module")
+        keptcatalog.remember(".", "fixture", 8, original, store, {"alpha", "beta", "record-factory", "main"})
+        assert(record and #record.modules == 4, "kept record contains every module")
         local changed = ALPHA:gsub("value %* 2", "value + value")
         texts[paths["pieces.alpha"]] = changed
         local cold = checkedProgram(sources(changed))
@@ -479,10 +498,12 @@ function M.keptCatalogChecksEditsAndRefusesChangedInputs()
 
         local reused = assert(keptcatalog.reuse(".", "fixture", 8, project, {"pieces.main"}, step), "reuse a body edit")
         reused.checkedProject = project
-        test.eq(#checked, 1, "check only the edited module")
+        test.eq(#checked, 2, "check only the edited module and its canonical factory")
         test.eq(checked[1], "pieces.alpha")
+        test.eq(checked[2], "nupp.runtime.provider.corerecord")
         test.eq(keptcatalog.keyOf(reused, 1), nil)
         test.eq(keptcatalog.keyOf(reused, 2), "beta")
+        test.eq(keptcatalog.keyOf(reused, 3), "record-factory")
         test.eq(keptcatalog.unchanged(reused, store), true)
         local state = corepiece.program(reused, tagged.forVersion(8))
         corepiece.start(state, 1)

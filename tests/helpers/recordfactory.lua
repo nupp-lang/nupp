@@ -23,7 +23,9 @@ local function provider()
     return factory
 end
 
-function M.describe(inputs, entry, options)
+-- Adds the checked factory without moving existing inputs. Piece fixtures
+-- can put it before their entry, whose initializer must remain last.
+function M.inputs(inputs, beforeEntry)
     local records, carried = false, false
 
     local function visit(node)
@@ -45,11 +47,22 @@ function M.describe(inputs, entry, options)
         for _, input in ipairs(inputs) do
             expanded[#expanded + 1] = input
         end
-        expanded[#expanded + 1] = provider()
+        local index = #expanded + 1
+        for at, input in ipairs(expanded) do
+            if input.name == beforeEntry then
+                index = at
+                break
+            end
+        end
+        table.insert(expanded, index, provider())
         inputs = expanded
     end
 
-    return program.describe(inputs, entry, options)
+    return inputs
+end
+
+function M.describe(inputs, entry, options)
+    return program.describe(M.inputs(inputs), entry, options)
 end
 
 return M

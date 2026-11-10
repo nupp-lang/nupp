@@ -5,6 +5,7 @@ local program = require("nupp.compiler.vm.programgraph")
 local tagged = require("nupp.compiler.vm.taggedprofile")
 local graph = require("nupp.compiler.vm.graph")
 local executable = require("nupp.compiler.vm.coregraphexecutable")
+local recordfactory = require("helpers.recordfactory")
 local M = {}
 local sequence = 0
 local env = environment.new(".", {memoryOnly = true, cache = false, nativeCompilerServices = false})
@@ -35,7 +36,7 @@ local function checked(source)
     for _, diagnostic in ipairs(diagnostics) do
         assert(diagnostic.severity ~= "error", diagnostic.code .. ": " .. diagnostic.msg)
     end
-    local p = program.describe({{name = name, path = path, parsed = parsed, diagnostics = diagnostics}}, name)
+    local p = recordfactory.describe({{name = name, path = path, parsed = parsed, diagnostics = diagnostics}}, name)
 
     return p, program.select(p, name, "target")
 end
