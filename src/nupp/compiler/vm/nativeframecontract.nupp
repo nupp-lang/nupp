@@ -61,10 +61,10 @@ local returnCases = {
 }
 
 local sharedPaths = {
-    {"nupp.runtime.core.arena", "native/core/src/nupp/runtime/core/arena.nupp"},
-    {"nupp.runtime.core.frames", "native/core/src/nupp/runtime/core/frames.nupp"},
-    {"nupp.runtime.core.context", "native/core/src/nupp/runtime/core/context.nupp"},
-    {"nupp.runtime.core.frameaccess", "native/core/src/nupp/runtime/core/frameaccess.nupp"},
+    {"nupp.runtime.core.arena", "src/nupp/runtime/core/arena.nupp"},
+    {"nupp.runtime.core.frames", "src/nupp/runtime/core/frames.nupp"},
+    {"nupp.runtime.core.context", "src/nupp/runtime/core/context.nupp"},
+    {"nupp.runtime.core.frameaccess", "src/nupp/runtime/core/frameaccess.nupp"},
     {"nupp.runtime.vm.values", "src/nupp/runtime/vm/values.nupp"}
 }
 
@@ -406,7 +406,7 @@ local function assemble(returns: boolean): any
     for index, entry in ipairs(sharedPaths) do
         paths[index] = entry
     end
-    paths[#paths + 1] = {moduleName, "native/core/tests/" .. sourceName .. ".nupp"}
+    paths[#paths + 1] = {moduleName, "tests/core/" .. sourceName .. ".nupp"}
     need(current == nil, "nested construction")
     local root = need(os.getenv("NUPP_COMPILER_ROOT"), "build source root required")
     local snapshotPath = root .. "/build/" .. directory .. "/snapshot.json"
@@ -429,7 +429,6 @@ local function assemble(returns: boolean): any
     end
     local unit = require("nupp.compiler.vm.nativeunit").session(root, requested, snapshot.target, {
         "src",
-        "native/core/src",
         "build/" .. directory .. "/source"
     })
     local state: any = {
@@ -682,7 +681,7 @@ local function assembleGuest(caseName: string, audited: boolean): any
         paths[index] = item
     end
     for _, name in ipairs({"instances", "guestcatalog", "guestentry", "guestops", "guesthandlers"}) do
-        paths[#paths + 1] = {"nupp.runtime.core." .. name, "native/core/src/nupp/runtime/core/" .. name .. ".nupp"}
+        paths[#paths + 1] = {"nupp.runtime.core." .. name, "src/nupp/runtime/core/" .. name .. ".nupp"}
     end
     if caseName == "raw" then
         for _, name in ipairs({
@@ -699,14 +698,14 @@ local function assembleGuest(caseName: string, audited: boolean): any
             "rawexecutablepolicy",
             "rawexecutable"
         }) do
-            paths[#paths + 1] = {"nupp.runtime.core." .. name, "native/core/src/nupp/runtime/core/" .. name .. ".nupp"}
+            paths[#paths + 1] = {"nupp.runtime.core." .. name, "src/nupp/runtime/core/" .. name .. ".nupp"}
         end
     end
     local negativeModule = "nupp.runtime.core.guestnegatives"
     local auditModule = "nupp.runtime.core.guestaudit"
-    paths[#paths + 1] = {negativeModule, "native/core/tests/guest-contract-negatives.nupp"}
+    paths[#paths + 1] = {negativeModule, "tests/core/guest-contract-negatives.nupp"}
     if audited then
-        paths[#paths + 1] = {auditModule, "native/core/tests/guest-lifecycle-audit.nupp"}
+        paths[#paths + 1] = {auditModule, "tests/core/guest-lifecycle-audit.nupp"}
     end
     local requested = {}
     for index, item in ipairs(paths) do
@@ -735,7 +734,6 @@ local function assembleGuest(caseName: string, audited: boolean): any
     local unit = cached and cached.unit
         or require("nupp.compiler.vm.nativeunit").session(root, requested, snapshot.target, {
             "src",
-            "native/core/src",
             "build/" .. directory .. "/source"
         })
     local state: any = cached and cached.state
@@ -864,7 +862,7 @@ local function assembleGuest(caseName: string, audited: boolean): any
     local modules = {}
     local moduleName: string = ""
     for _, name in ipairs(fixtureNames) do
-        local guestPath = "native/core/tests/" .. name .. ".nupp"
+        local guestPath = "tests/core/" .. name .. ".nupp"
         local source = read(root .. "/" .. guestPath)
         need(snapshot.sources[guestPath] == source, "checked guest source differs")
         local parsed = parser.parse(source, root .. "/" .. guestPath)

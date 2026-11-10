@@ -13,7 +13,7 @@ local unitsEnvironment
 
 local function checked(source, path, name)
     if unitsEnvironment == nil then
-        unitsEnvironment = environment.new(root .. "/native/core/tests/units")
+        unitsEnvironment = environment.new(root .. "/tests/core/units")
     end
     local parsed = parser.parse(source, path)
     assert(#parsed.errors == 0, parsed.errors[1] and parsed.errors[1].msg)

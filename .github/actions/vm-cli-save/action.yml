@@ -22,4 +22,5 @@ runs:
         key: >-
           nupp-vmcli-${{ runner.os }}-${{ runner.arch }}-${{
           hashFiles('src/**', 'native/crates/**/*.rs', 'native/crates/**/Cargo.toml', 'Cargo.lock',
-          'nupp.lua', 'scripts/vm-cli', 'scripts/toolchain.pins') }}
+          'nupp.lua', 'scripts/vm-cli', 'scripts/toolchain.pins',
+          '!src/nupp/runtime/core/**', '!src/nupp/core/**', '!native/crates/core-bridge/**') }}

@@ -14,7 +14,7 @@
 # kind of entry:
 #
 #   kernels/KEY.json     runtime kernel code (nupp.core.unitrunner)
-#   programs/KEY.bin     guest program selections (native/core/tests/guests/run.lua)
+#   programs/KEY.bin     guest program selections (tests/core/guests/run.lua)
 #   vm-cli/GEN/          compiler generations, named by their own content
 #   vm-cli-builds/KEY    the generation, and its receipt, a build of KEY produced
 #   build-steps/KEY.bin  a compiler build step's outputs (nupp.tools.vm.buildsteps)

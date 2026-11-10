@@ -7,7 +7,7 @@ local ROOT = fs.absolute(assert(debug.getinfo(1, "S").source:match("^@(.*)[/\\]"
 local M = {}
 
 local function owner()
-    local path = ROOT .. "/native/core/tests/catalog-optional-method-cleanups.nupp"
+    local path = ROOT .. "/tests/core/catalog-optional-method-cleanups.nupp"
     local file = assert(io.open(path, "rb"))
     local source = file:read("*a")
     file:close()

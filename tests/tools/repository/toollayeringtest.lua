@@ -208,17 +208,22 @@ end
 
 function M.noCoreModuleReachesFrozenLowering()
     local sources, found = 0, {}
-    for _, path in ipairs(fs.listFiles(ROOT .. "/native/core")) do
-        -- The guest programs the core runs (`tests/catalog-*`) are programs,
-        -- not the core: one may require a computed name on purpose.
-        local guest = path:match("native/core/tests/catalog%-[^/]*$") ~= nil
-        if not guest and (path:match("%.nupp$") or path:match("%.lua$")) then
-            sources = sources + 1
-            local file = assert(io.open(path, "rb"))
-            local text = file:read("*a")
-            file:close()
-            for _, line in ipairs(coreReaches(text, path)) do
-                found[#found + 1] = line
+    -- The core's runtime, its build tooling, and its tests and harnesses.
+    for _, tree in ipairs({"/src/nupp/runtime/core", "/src/nupp/core", "/tests/core"}) do
+        for _, path in ipairs(fs.listFiles(ROOT .. tree)) do
+            -- The guest programs the core runs (`tests/core/catalog-*`, and the
+            -- named ones under `tests/core/nupp/core`) are programs, not the
+            -- core: one may require a computed name on purpose.
+            local guest = path:match("tests/core/catalog%-[^/]*$") ~= nil
+                or path:match("tests/core/nupp/core/catalog[^/]*$") ~= nil
+            if not guest and (path:match("%.nupp$") or path:match("%.lua$")) then
+                sources = sources + 1
+                local file = assert(io.open(path, "rb"))
+                local text = file:read("*a")
+                file:close()
+                for _, line in ipairs(coreReaches(text, path)) do
+                    found[#found + 1] = line
+                end
             end
         end
     end
@@ -228,7 +233,7 @@ end
 
 function M.theCoreBoundaryReadingRejectsFrozenImportsAndEmitAliases()
     local function count(text)
-        return #coreReaches(text, "native/core/example.nupp")
+        return #coreReaches(text, "src/nupp/runtime/core/example.nupp")
     end
 
     for _, name in ipairs({
@@ -254,7 +259,7 @@ function M.theCoreBoundaryReadingRejectsFrozenImportsAndEmitAliases()
     assert(count('local emit = require("nupp.compiler.vm.lower").emit') > 0, "direct member import")
     assert(count(import .. 'return compiler.functionGraph(...)') == 0, "shared frontend")
     assert(count('const graph = require("nupp.compiler.vm.graph")') == 0, "shared graph")
-    assert(count('local arm = require("s0.arm64")') == 0, "owned backend")
+    assert(count('local arm = require("nupp.compiler.s0.arm64")') == 0, "owned backend")
     assert(count('-- require("nupp.compiler.vm.legacylower")') == 0, "comments are not imports")
 end
 

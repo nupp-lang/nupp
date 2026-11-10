@@ -1,0 +1,474 @@
+module nupp.core.unitrunner
+
+-- Builds a test unit: fixture functions written in Nupp against the runtime
+-- (heap, collector, arena), lowered through the service catalog and the owned
+-- backend, behind a small entry that dispatches on input word 0. The core's
+-- own code is tested, not proven (runtime plan, "Direction"), so nothing here
+-- authenticates graphs, code or links.
+local arm = require("nupp.compiler.s0.arm64")
+local allocate = require("nupp.compiler.s0.allocate")
+local selector = require("nupp.compiler.s0.select")
+local service = require("nupp.compiler.vm.nativeservice")
+local nativeunit = require("nupp.compiler.vm.nativeunit")
+local lower = require("nupp.compiler.vm.lower")
+local base = require("nupp.compiler.vm.nativegraph")
+local cleanup = require("nupp.compiler.vm.nativecleanup")
+local sink = require("nupp.compiler.s0.nativegraph")
+local linker = require("nupp.core.link")
+local sharedcache = require("nupp.core.sharedcache")
+local kernelcompiler = require("nupp.core.kernelcompiler")
+local fingerprint = require("nupp.compiler.project.fingerprint")
+local json = require("serde.json")
+local targetlayout = require("nupp.compiler.targetlayout")
+
+local function readFile(path: string): string?
+    local file = io.open(path, "rb")
+    if not file then
+        return nil
+    end
+    local text = file:read("*a")
+    file:close()
+
+    return text
+end
+
+-- Cache keys use the build's content digest, which the CLI answers natively:
+-- SHA-256 in Nupp ran at about 75 KB/s here, and hashing the lowering's 2 MB
+-- of sources took most of every cached selection.
+local contentDigest = fingerprint.contentDigest(true)
+
+local function digestOf(text: string): string
+    return contentDigest(text)
+end
+
+-- A module's source and, transitively, the sources of the modules it requires
+-- within the build. Unrelated edits (another fixture) leave the key unchanged.
+local function moduleDigests(paths: {[string]: string}): {[string]: string}
+    local sources, requires = {}, {}
+    for name, path in pairs(paths) do
+        sources[name] = readFile(path) or ""
+        local list = {}
+        for required in sources[name]:gmatch('require%("([%w%.]+)"%)') do
+            if paths[required] then
+                list[#list + 1] = required
+            end
+        end
+        requires[name] = list
+    end
+    local result = {}
+    for name in pairs(paths) do
+        local seen, order, pending = {[name] = true}, {name}, {name}
+        while #pending > 0 do
+            local current = table.remove(pending)
+            for _, required in ipairs(requires[current]) do
+                if not seen[required] then
+                    seen[required] = true
+                    order[#order + 1], pending[#pending + 1] = required, required
+                end
+            end
+        end
+        table.sort(order)
+        local parts = {}
+        for _, member in ipairs(order) do
+            parts[#parts + 1] = member .. "\0" .. sources[member]
+        end
+        result[name] = digestOf(table.concat(parts, "\0"))
+    end
+
+    return result
+end
+
+local function now(): number
+    return os.time()
+end
+
+-- Scratch layout: [0, 4096) entry slots and optional retained handoff state,
+-- [4096, 65536) the unit scope region,
+-- then spills. Output words: the fixture's result and its error code.
+local SLOTS: integer = 0
+local HANDOFF_STATE: integer = 32
+local HANDOFF_ERROR: integer = 24
+local HANDOFF_EVENT: integer = 48
+local HANDOFF_CLOSED: integer = 2
+local SCOPE: integer = 4096
+local SCOPE_BYTES: integer = 61440
+local SPILL: integer = 65536
+local SCRATCH: integer = 1048576
+
+local function selectCode(result: any, mode: string): any
+    local target = selector.target()
+    if mode == "spill" then
+        target.integerRegisters, target.floatRegisters = {}, {}
+    end
+    local allocation = allocate.run(result.machine, target)
+
+    local code: any = selector.run(result.machine, allocation)
+    -- What the register file held, for checks that spill mode spills everything.
+    code.allocation = {
+        spillSlots = allocation.spillSlots,
+        integerRegisters = #target.integerRegisters,
+        floatRegisters = #target.floatRegisters
+    }
+
+    return code
+end
+
+-- The literal raises (`error("...")`) in an owner's body, by the site its
+-- failure records: the ordinal of the call among the owner's occurrences.
+local function literalRaises(owner: any): {any}
+    local found = {}
+    for ordinal, node in ipairs(nativeunit.occurrences(owner)) do
+        if type(node) == "table" and node.kind == "call" then
+            local raising = nativeunit.literalRaise(owner, node)
+            if raising then
+                found[#found + 1] = {site = ordinal, literal = raising.literal}
+            end
+        end
+    end
+    table.sort(found, function(a: any, b: any): boolean
+        return a.site < b.site
+    end)
+
+    return found
+end
+
+-- Lowers and selects every function of a unit build through the
+-- content-addressed code cache. `handlers` names the owners lowered with the
+-- handler ABI; every other owner is a leaf. Answers each function's code and
+-- owner by qualified name.
+export function select(
+    build: any,
+    mode: string,
+    cacheDirectory: string?,
+    handlers: {[string]: boolean}?,
+    phase: function(string): nil,
+    context: any?
+): any
+    local root = assert(os.getenv("NUPP_COMPILER_ROOT"))
+    local scoped = cleanup.profile(base)
+    local resolved, owners = {}, service.owners(build.catalog)
+    local byName = {}
+    local paths = {}
+    -- A function that raises records its owner id (its place in the
+    -- catalog) in its code, so its key carries the id; `raises` lists every
+    -- raise by id and site, for the texts the guest reports.
+    local ids: {[string]: integer} = {}
+    local raises = {}
+    for id, owner in ipairs(owners) do
+        local name = owner.scope.name .. "." .. owner.name
+        for _, raising in ipairs(literalRaises(owner)) do
+            ids[name] = id
+            raises[#raises + 1] = {id = id, site = raising.site, literal = raising.literal}
+        end
+        byName[name] = owner
+        paths[owner.scope.name] = owner.scope.path
+        owner.nativeABI = handlers and handlers[name] and "handler" or "leaf"
+    end
+    local compiler = kernelcompiler.keyed(root)
+    -- Handlers read the dispatch table through the context layout.
+    if context then
+        compiler = digestOf(compiler .. "\0" .. (readFile(context.path) or ""))
+    end
+    local modules = moduleDigests(paths)
+    local codes, keys = {}, {}
+    if cacheDirectory then
+        os.execute("mkdir -p '" .. cacheDirectory .. "'")
+    end
+    local used: {string} = {}
+    for name, owner in pairs(byName) do
+        keys[
+            name
+        ] = digestOf(
+            "allocation\0" .. mode .. "\0" .. owner.nativeABI .. "\0" .. compiler .. "\0" .. (
+                modules[owner.scope.name] or ""
+            ) .. "\0" .. name .. (ids[name] and "\0owner " .. tostring(ids[name]) or "")
+        )
+        -- An entry that does not decode to code is a miss, as a missing one is.
+        local cached = cacheDirectory and sharedcache.get(cacheDirectory, keys[name] .. ".json")
+        if cached then
+            local ok, code = pcall(json.decodevalue, cached)
+            if ok and type(code) == "table" and type(code.allocation) == "table" then
+                codes[name] = code
+                used[#used + 1] = keys[name] .. ".json"
+            end
+        end
+    end
+    if cacheDirectory then
+        sharedcache.touch(cacheDirectory, used)
+    end
+    phase("cache")
+
+    local function lowered(name: string): any
+        if resolved[name] then
+            return resolved[name]
+        end
+        local owner = assert(byName[name], "unit callee outside the catalog: " .. name)
+        local options = service.options(build.catalog, owner)
+        local signature = service.signature(owner, options)
+        local profile = service.needsCleanup(signature) and scoped or base
+        local ok, g = pcall(lower.functionGraph, owner, options, profile)
+        if not ok then
+            error("unit lowering: " .. name .. ": " .. tostring(g), 0)
+        end
+        resolved[name] = {graph = g, owner = owner}
+
+        return resolved[name]
+    end
+
+    -- A miss lowers the function and its direct callees, whose graphs the
+    -- backend checks call signatures against; only the miss is selected.
+    local missing = {}
+    for name in pairs(byName) do
+        if not codes[name] then
+            missing[#missing + 1] = name
+        end
+    end
+    table.sort(missing)
+    for _, name in ipairs(missing) do
+        local item = lowered(name)
+        for _, block in ipairs(item.graph.blocks) do
+            for index, op in ipairs(block.op) do
+                if op == "NativeLeafCall" then
+                    local declaration = block.args[index][1]
+                    lowered(declaration.moduleName .. "." .. declaration.name)
+                end
+            end
+        end
+    end
+    phase("lowering")
+    for _, name in ipairs(missing) do
+        local item = resolved[name]
+        local bound = item.owner.nativeABI == "handler" and context or nil
+        local result = sink.compilerGraph(item.graph, item.owner.name, item.owner, resolved, bound)
+        codes[name] = selectCode(result, mode)
+        if cacheDirectory then
+            -- Written aside and renamed into place: processes sharing the
+            -- cache, in any checkout, never read a part-written entry.
+            sharedcache.put(cacheDirectory, keys[name] .. ".json", json.encodevalue(codes[name]))
+        end
+    end
+    phase("selection")
+
+    return {codes = codes, owners = byName, ownerCount = #owners, selected = #missing, raises = raises}
+end
+
+-- `fixtures` is a list of {moduleName, path, include}; `entries` lists the
+-- fixture functions in dispatch order as {moduleName, name, arity}.
+export function build(
+    fixtures: any,
+    entries: any,
+    mode: string,
+    cacheDirectory: string?,
+    observeLanding: boolean?,
+    sharedhandoff: boolean?,
+    observerEntry: string?
+): any
+    assert(not (observeLanding and sharedhandoff), "unit lifecycle modes are exclusive")
+    local started = now()
+    local timings = {}
+
+    local function phase(name: string): nil
+        timings[#timings + 1] = {name = name, seconds = now() - started}
+    end
+
+    assert(not observerEntry or observeLanding, "observer entry requires landing lifecycle")
+    local entryModule = observerEntry or (observeLanding and "nupp.core.builderentry" or "nupp.core.unitentry")
+    local roots = {{entryModule, "prepare"}, {entryModule, "finish"}}
+    for _, entry in ipairs(entries) do
+        roots[#roots + 1] = {entry[1], entry[2]}
+    end
+    if sharedhandoff then
+        assert(
+            #entries == 1
+            and entries[1][1] == "nupp.core.sharedbackingunits"
+            and entries[1][2] == "scopelifetime"
+            and entries[1][3] == 1,
+            "shared backing handoff requires its exact producer"
+        )
+        roots[#roots + 1] = {"nupp.core.sharedbackingunits", "afterscope"}
+    end
+    local build = service.buildUnits(fixtures, roots)
+
+    phase("session")
+    local chosen = select(build, mode, cacheDirectory, nil, phase)
+    if sharedhandoff then
+        local consumer = assert(chosen.owners["nupp.core.sharedbackingunits.afterscope"])
+        assert(
+            #consumer.paramKinds == 1 and consumer.paramKinds[1] == "voidptr" and consumer.resultKind == "uint64",
+            "shared backing consumer signature differs"
+        )
+        assert(
+            not service.needsCleanup(service.signature(consumer, service.options(build.catalog, consumer))),
+            "shared backing consumer must not reuse the closed service scope"
+        )
+    end
+    local codes = chosen.codes
+
+    local rootCodes, rootNames, functions = {}, {}, {}
+    for index, root in ipairs(roots) do
+        rootNames[index] = root[1] .. "." .. root[2]
+        rootCodes[index] = assert(codes[rootNames[index]], "unit root was not built: " .. rootNames[index])
+    end
+    local isRoot = {}
+    for _, name in ipairs(rootNames) do
+        isRoot[name] = true
+    end
+    for name, code in pairs(codes) do
+        if not isRoot[name] then
+            functions[name] = code
+        end
+    end
+    local words: {integer} = {}
+    local calls: {any} = {}
+
+    local function emit(word: integer): integer
+        words[#words + 1] = word
+        return #words
+    end
+
+    local function offset(dst: integer, from: integer, bytes: integer): nil
+        local high, low = bytes >> 12, bytes & 4095
+        if high ~= 0 then
+            emit(arm.add_imm(64, dst, from, high, 1))
+            from = dst
+        end
+        emit(arm.add_imm(64, dst, from, low, 0))
+    end
+
+    local function call(index: integer): nil
+        calls[#calls + 1] = {at = emit(arm.bl(0)), target = index}
+    end
+
+    -- C boundary: x0 packet, x1 output. Save callee-saved state.
+    emit(arm.sub_imm(64, 31, 31, 176, 0))
+    for reg = 19, 29, 2 do
+        emit(arm.stp(64, reg, reg + 1, 31, (reg - 19) * 8, 0))
+    end
+    for reg = 8, 14, 2 do
+        emit(arm.stp_fp(64, reg, reg + 1, 31, 96 + (reg - 8) * 8, 0))
+    end
+    emit(arm.str(8, 1, 31, 160))
+    emit(arm.ldr(8, 19, 0, 40)) -- scratch base
+    emit(arm.ldr(8, 22, 0, 56)) -- OS import table
+    emit(arm.ldr(8, 20, 0, 72)) -- input words
+    offset(23, 19, SPILL)
+    emit(arm.str(8, 20, 19, SLOTS + 8))
+    offset(0, 19, SCOPE)
+    emit(arm.movz(64, 1, SCOPE_BYTES, 0))
+    call(1)
+    emit(arm.str(8, 0, 19, SLOTS))
+    local refused = emit(arm.cbz(64, 0, 0))
+    local done: {integer} = {}
+    for index, entry in ipairs(entries) do
+        emit(arm.ldr(8, 20, 19, SLOTS + 8))
+        emit(arm.ldr(8, 16, 20, 0))
+        emit(arm.cmp_imm(64, 16, index - 1, 0))
+        local skip = emit(arm.b_cond(1, 0))
+        local arity: integer = entry[3]
+        for at = 1, arity do
+            if observeLanding and at == 1 then
+                -- The landing fixture borrows the prepared scope explicitly;
+                -- its heap deliberately outlives the failing native stack.
+                emit(arm.ldr(8, at - 1, 19, SLOTS))
+            elseif sharedhandoff then
+                -- [32,56) is disjoint retained bridge scratch.
+                offset(at - 1, 19, HANDOFF_STATE)
+            else
+                emit(arm.ldr(8, at - 1, 20, at * 8))
+            end
+        end
+        emit(arm.ldr(8, arity, 19, SLOTS))
+        call(index + 2)
+        done[#done + 1] = emit(arm.b(0))
+        words[skip] = arm.b_cond(1, (#words + 1 - skip) * 4)
+    end
+    -- Unknown index: result zero, error 2000.
+    emit(arm.movz(64, 0, 0, 0))
+    emit(arm.movz(64, 17, 2000, 0))
+    local unknown = emit(arm.b(0))
+    local after = #words + 1
+    for _, at in ipairs(done) do
+        words[at] = arm.b((after - at) * 4)
+    end
+    emit(arm.str(8, 0, 19, SLOTS + 16))
+    emit(arm.ldr(8, 0, 19, SLOTS))
+    if observeLanding then
+        emit(arm.mov_reg(64, 1, 0))
+    end
+    call(2)
+    if observeLanding then
+        -- Observe after native error cleanup, preserving a separate check for
+        -- errors raised by the observer itself rather than masking them.
+        local scopeType = build.session.module("nupp.runtime.core.servicescope").checkedExports.types.ServiceScope
+        local scopeLayout = assert(targetlayout.of(scopeType, "aarch64-apple-darwin"))
+        emit(arm.ldr(8, 16, 19, SLOTS))
+        emit(arm.ldr(8, 17, 16, scopeLayout.offsets.error))
+    elseif sharedhandoff then
+        emit(arm.str(8, 0, 19, HANDOFF_ERROR))
+        -- The actual producer scope finished above. Consumer is nonscoped.
+        emit(arm.movz(64, 16, HANDOFF_CLOSED, 0))
+        emit(arm.str(8, 16, 19, HANDOFF_EVENT))
+        offset(0, 19, HANDOFF_STATE)
+        call(#roots)
+        emit(arm.str(8, 0, 19, SLOTS + 16))
+        emit(arm.ldr(8, 17, 19, HANDOFF_ERROR))
+    else
+        emit(arm.mov_reg(64, 17, 0))
+    end
+    if not observeLanding then
+        emit(arm.ldr(8, 0, 19, SLOTS + 16))
+    end
+    local store = #words + 1
+    words[unknown] = arm.b((store - unknown) * 4)
+    emit(arm.ldr(8, 16, 31, 160))
+    emit(arm.str(8, 0, 16, 0))
+    emit(arm.str(8, 17, 16, 8))
+    emit(arm.movz(64, 0, 0, 0))
+    local finished = emit(arm.b(0))
+    words[refused] = arm.cbz(64, 0, (#words + 1 - refused) * 4)
+    emit(arm.movz(64, 0, 3, 0))
+    words[finished] = arm.b((#words + 1 - finished) * 4)
+    for reg = 8, 14, 2 do
+        emit(arm.ldp_fp(64, reg, reg + 1, 31, 96 + (reg - 8) * 8, 0))
+    end
+    for reg = 19, 29, 2 do
+        emit(arm.ldp(64, reg, reg + 1, 31, (reg - 19) * 8, 0))
+    end
+    emit(arm.add_imm(64, 31, 31, 176, 0))
+    emit(arm.ret(30))
+    local linked = linker.assembleTrusted(words, rootCodes, functions, SCRATCH - SPILL)
+    for _, site in ipairs(calls) do
+        local at: integer = site.at
+        linked.words[at] = arm.bl((linked.offsets[site.target] as integer) - (at - 1) * 4)
+    end
+    local bytes = {}
+    for index, word in ipairs(linked.words) do
+        bytes[index] = string.char(word & 255, (word >> 8) & 255, (word >> 16) & 255, (word >> 24) & 255)
+    end
+    local code = table.concat(bytes)
+
+    local function u64(value: integer): string
+        local out = {}
+        for at = 0, 7 do
+            out[at + 1] = string.char((value >> (at * 8)) & 255)
+        end
+
+        return table.concat(out)
+    end
+
+    local data = string.rep(string.char(0), 8)
+    local bundle = "NUPPCORE" .. u64(
+        1
+    ) .. u64(1) .. u64(0) .. u64(#code) .. u64(#data) .. u64(SCRATCH) .. u64(2) .. u64(0) .. code .. data
+
+    phase("link")
+
+    return {
+        bundle = bundle,
+        owners = chosen.ownerCount,
+        selected = chosen.selected,
+        words = #linked.words,
+        callBytes = linked.callBytes,
+        timings = timings
+    }
+end

@@ -4,7 +4,7 @@ module nupp.compiler.vm.coretexts
 -- once with the id the runtime names each by. Library function names
 -- (NAME_) and the other texts (TEXT_) share one space. nupp.core.librarytextsgen
 -- writes the runtime's constants and the code that appends each text
--- (native/core/src/nupp/runtime/core/librarytexts.nupp) from this table, which
+-- (src/nupp/runtime/core/librarytexts.nupp) from this table, which
 -- the native units harness holds to exactly what the generator writes; a core
 -- library call's `text` (corelibrary) names one of these.
 

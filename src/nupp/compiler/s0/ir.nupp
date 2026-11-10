@@ -1,0 +1,350 @@
+module nupp.compiler.s0.ir
+
+local ir = {}
+
+ir.I8, ir.I16, ir.I32, ir.I64, ir.F32, ir.F64 = 1, 2, 3, 4, 5, 6
+ir.INTERNAL, ir.C = 1, 2
+ir.kindNames = {"i8", "i16", "i32", "i64", "f32", "f64"}
+const ir.OP_ICONST = 1 as 1
+const ir.OP_FCONST = 2 as 2
+const ir.OP_IADD = 3 as 3
+const ir.OP_ISUB = 4 as 4
+const ir.OP_IMUL = 5 as 5
+const ir.OP_UDIV = 6 as 6
+const ir.OP_SDIV = 7 as 7
+const ir.OP_UREM = 8 as 8
+const ir.OP_SREM = 9 as 9
+const ir.OP_UMULHI = 10 as 10
+const ir.OP_SMULHI = 11 as 11
+const ir.OP_BAND = 12 as 12
+const ir.OP_BOR = 13 as 13
+const ir.OP_BXOR = 14 as 14
+const ir.OP_BNOT = 15 as 15
+const ir.OP_ISHL = 16 as 16
+const ir.OP_USHR = 17 as 17
+const ir.OP_SSHR = 18 as 18
+const ir.OP_POPCNT = 19 as 19
+const ir.OP_ICMP = 20 as 20
+const ir.OP_FCMP = 21 as 21
+const ir.OP_SELECT = 22 as 22
+const ir.OP_LOAD = 23 as 23
+const ir.OP_SLOAD = 24 as 24
+const ir.OP_STORE = 25 as 25
+const ir.OP_IREDUCE = 26 as 26
+const ir.OP_UEXTEND = 27 as 27
+const ir.OP_SEXTEND = 28 as 28
+const ir.OP_BITCAST = 29 as 29
+const ir.OP_FPROMOTE = 30 as 30
+const ir.OP_FDEMOTE = 31 as 31
+const ir.OP_FADD = 32 as 32
+const ir.OP_FSUB = 33 as 33
+const ir.OP_FMUL = 34 as 34
+const ir.OP_FDIV = 35 as 35
+const ir.OP_FNEG = 36 as 36
+const ir.OP_FABS = 37 as 37
+const ir.OP_SQRT = 38 as 38
+const ir.OP_FLOOR = 39 as 39
+const ir.OP_CEIL = 40 as 40
+const ir.OP_FMA = 41 as 41
+const ir.OP_FCVT_FROM_SINT = 42 as 42
+const ir.OP_FCVT_FROM_UINT = 43 as 43
+const ir.OP_FCVT_TO_SINT_SAT = 44 as 44
+const ir.OP_FCVT_TO_UINT_SAT = 45 as 45
+const ir.OP_STACK_ADDR = 46 as 46
+const ir.OP_CALL = 47 as 47
+const ir.OP_CALL_INDIRECT = 48 as 48
+const ir.OP_RETURN_CALL = 49 as 49
+const ir.OP_RETURN_CALL_INDIRECT = 50 as 50
+const ir.OP_JUMP = 51 as 51
+const ir.OP_BRIF = 52 as 52
+const ir.OP_RETURN = 53 as 53
+const ir.OP_TRAP = 54 as 54
+ir.opNames = {
+    [ir.OP_ICONST] = "iconst",
+    [ir.OP_FCONST] = "fconst",
+    [ir.OP_IADD] = "iadd",
+    [ir.OP_ISUB] = "isub",
+    [ir.OP_IMUL] = "imul",
+    [ir.OP_UDIV] = "udiv",
+    [ir.OP_SDIV] = "sdiv",
+    [ir.OP_UREM] = "urem",
+    [ir.OP_SREM] = "srem",
+    [ir.OP_UMULHI] = "umulhi",
+    [ir.OP_SMULHI] = "smulhi",
+    [ir.OP_BAND] = "band",
+    [ir.OP_BOR] = "bor",
+    [ir.OP_BXOR] = "bxor",
+    [ir.OP_BNOT] = "bnot",
+    [ir.OP_ISHL] = "ishl",
+    [ir.OP_USHR] = "ushr",
+    [ir.OP_SSHR] = "sshr",
+    [ir.OP_POPCNT] = "popcnt",
+    [ir.OP_ICMP] = "icmp",
+    [ir.OP_FCMP] = "fcmp",
+    [ir.OP_SELECT] = "select",
+    [ir.OP_LOAD] = "load",
+    [ir.OP_SLOAD] = "sload",
+    [ir.OP_STORE] = "store",
+    [ir.OP_IREDUCE] = "ireduce",
+    [ir.OP_UEXTEND] = "uextend",
+    [ir.OP_SEXTEND] = "sextend",
+    [ir.OP_BITCAST] = "bitcast",
+    [ir.OP_FPROMOTE] = "fpromote",
+    [ir.OP_FDEMOTE] = "fdemote",
+    [ir.OP_FADD] = "fadd",
+    [ir.OP_FSUB] = "fsub",
+    [ir.OP_FMUL] = "fmul",
+    [ir.OP_FDIV] = "fdiv",
+    [ir.OP_FNEG] = "fneg",
+    [ir.OP_FABS] = "fabs",
+    [ir.OP_SQRT] = "sqrt",
+    [ir.OP_FLOOR] = "floor",
+    [ir.OP_CEIL] = "ceil",
+    [ir.OP_FMA] = "fma",
+    [ir.OP_FCVT_FROM_SINT] = "fcvt_from_sint",
+    [ir.OP_FCVT_FROM_UINT] = "fcvt_from_uint",
+    [ir.OP_FCVT_TO_SINT_SAT] = "fcvt_to_sint_sat",
+    [ir.OP_FCVT_TO_UINT_SAT] = "fcvt_to_uint_sat",
+    [ir.OP_STACK_ADDR] = "stack_addr",
+    [ir.OP_CALL] = "call",
+    [ir.OP_CALL_INDIRECT] = "call_indirect",
+    [ir.OP_RETURN_CALL] = "return_call",
+    [ir.OP_RETURN_CALL_INDIRECT] = "return_call_indirect",
+    [ir.OP_JUMP] = "jump",
+    [ir.OP_BRIF] = "brif",
+    [ir.OP_RETURN] = "return",
+    [ir.OP_TRAP] = "trap"
+}
+ir.conditionNames = {
+    "eq",
+    "ne",
+    "slt",
+    "sle",
+    "sgt",
+    "sge",
+    "ult",
+    "ule",
+    "ugt",
+    "uge",
+    "ord",
+    "uno",
+    "lt",
+    "le",
+    "gt",
+    "ge",
+    "ueq",
+    "one",
+    "un",
+    "ltgt"
+}
+
+local opByName: {[string]: integer} = {}
+local kindByName: {[string]: integer} = {}
+local conditionByName: {[string]: integer} = {}
+for id, name in ipairs(ir.opNames) do
+    opByName[name] = id
+end
+for id, name in ipairs(ir.kindNames) do
+    kindByName[name] = id
+end
+for id, name in ipairs(ir.conditionNames) do
+    conditionByName[name] = id
+end
+
+record ir.Signature
+    params: {integer}
+    results: {integer}
+    convention: integer
+    -- A variadic C function's declared parameters; its later arguments
+    -- are the variadic ones. Nil when it is not variadic.
+    fixed: integer?
+end
+
+record ir.Function
+    name: string
+    signature: ir.Signature
+    signatures: {ir.Signature}
+    importNames: {string}
+    importSignatures: {integer}
+    stackBytes: {integer}
+    stackAlign: {integer}
+    -- Flat instruction columns. Zero means no result, argument or edge.
+    op: {integer}
+    result: {integer}
+    result2: {integer}
+    kind: {integer}
+    kind2: {integer}
+    firstArg: {integer}
+    nargs: {integer}
+    args: {integer}
+    imm: {integer}
+    aux: {integer}
+    firstEdge: {integer}
+    nedges: {integer}
+    -- Values keep their SSA identity; a negative definition names a block.
+    valueKinds: {integer}
+    definitions: {integer}
+    blockStart: {integer}
+    blockEnd: {integer}
+    firstParam: {integer}
+    nparams: {integer}
+    params: {integer}
+    -- Edges retain simultaneous block-argument assignment.
+    edgeFrom: {integer}
+    edgeTarget: {integer}
+    edgeFirstArg: {integer}
+    edgeNargs: {integer}
+    edgeArgs: {integer}
+end
+
+function ir.opcode(name: string): integer
+    return (assert(opByName[name], "S0: unsupported operation " .. name))
+end
+
+function ir.kind(name: string): integer
+    return (assert(kindByName[name], "S0: unsupported type " .. name))
+end
+
+function ir.condition(name: string): integer
+    return (assert(conditionByName[name], "S0: unsupported condition " .. name))
+end
+
+function ir.new(name: string, signature: ir.Signature): ir.Function
+    return ir.Function(
+        name = name,
+        signature = signature,
+        signatures = {},
+        importNames = {},
+        importSignatures = {},
+        stackBytes = {},
+        stackAlign = {},
+        op = {},
+        result = {},
+        result2 = {},
+        kind = {},
+        kind2 = {},
+        firstArg = {},
+        nargs = {},
+        args = {},
+        imm = {},
+        aux = {},
+        firstEdge = {},
+        nedges = {},
+        valueKinds = {},
+        definitions = {},
+        blockStart = {},
+        blockEnd = {},
+        firstParam = {},
+        nparams = {},
+        params = {},
+        edgeFrom = {},
+        edgeTarget = {},
+        edgeFirstArg = {},
+        edgeNargs = {},
+        edgeArgs = {}
+    )
+end
+
+function ir.value(f: ir.Function, id: integer, kind: integer, definition: integer): nil
+    assert(id > 0 and id <= 1000000, "S0: value limit")
+    while #f.valueKinds < id do
+        f.valueKinds[#f.valueKinds + 1] = 0
+        f.definitions[#f.definitions + 1] = 0
+    end
+    assert(f.valueKinds[id] == 0, "S0: duplicate value definition")
+    assert(kind >= ir.I8 and kind <= ir.F64, "S0: invalid value kind")
+    f.valueKinds[id], f.definitions[id] = kind, definition
+end
+
+function ir.instruction(
+    f: ir.Function,
+    op: integer,
+    result: integer,
+    kind: integer,
+    args: {integer},
+    imm: integer,
+    aux: integer
+): integer
+    local at = #f.op + 1
+    assert(at <= 1000000 and ir.opNames[op] ~= nil, "S0: instruction limit or opcode")
+    f.op[at], f.result[at], f.kind[at] = op, result, kind
+    f.result2[at], f.kind2[at] = 0, 0
+    f.firstArg[at], f.nargs[at] = #f.args + 1, #args
+    f.imm[at], f.aux[at] = imm, aux
+    f.firstEdge[at], f.nedges[at] = #f.edgeTarget + 1, 0
+    for _, value in ipairs(args) do
+        f.args[#f.args + 1] = value
+    end
+    if result ~= 0 then
+        ir.value(f, result, kind, at)
+    end
+
+    return at
+end
+
+local emptyArguments: {integer} = {}
+
+function ir.instructionRange(
+    f: ir.Function,
+    op: integer,
+    result: integer,
+    kind: integer,
+    first: integer?,
+    second: integer?,
+    args: {integer}?,
+    start: integer,
+    count: integer,
+    imm: integer,
+    aux: integer
+): integer
+    assert(start >= 1 and count >= 0 and start + count <= (args and #args or 0) + 1, "S0: argument range")
+    if args then
+        for index = start, start + count - 1 do
+            assert(rawget(args, index) ~= nil, "S0: sparse argument range")
+        end
+    end
+    if result ~= 0 then
+        assert(result > 0 and result <= 1000000, "S0: value limit")
+        assert((f.valueKinds[result] or 0) == 0, "S0: duplicate value definition")
+        assert(kind >= ir.I8 and kind <= ir.F64, "S0: invalid value kind")
+    end
+    local at = ir.instruction(f, op, result, kind, emptyArguments, imm, aux)
+    if first ~= nil then
+        f.args[#f.args + 1] = first
+    end
+    if args then
+        for index = start, start + count - 1 do
+            f.args[#f.args + 1] = args[index]
+        end
+    end
+    if second ~= nil then
+        f.args[#f.args + 1] = second
+    end
+    f.nargs[at] = count + (first ~= nil and 1 or 0) + (second ~= nil and 1 or 0)
+
+    return at
+end
+
+function ir.secondResult(f: ir.Function, at: integer, result: integer, kind: integer): nil
+    assert(at == #f.op and f.result[at] ~= 0 and f.result2[at] == 0, "S0: second result placement")
+    assert(f.op[at] == ir.opcode("call") or f.op[at] == ir.opcode("call_indirect"), "S0: second result requires call")
+    f.result2[at], f.kind2[at] = result, kind
+    ir.value(f, result, kind, at)
+end
+
+function ir.edge(f: ir.Function, at: integer, target: integer, args: {integer}): nil
+    assert(at == #f.op, "S0: edges must follow their instruction")
+    local edge = #f.edgeTarget + 1
+    f.edgeFrom[edge], f.edgeTarget[edge] = at, target
+    f.edgeFirstArg[edge], f.edgeNargs[edge] = #f.edgeArgs + 1, #args
+    for _, value in ipairs(args) do
+        f.edgeArgs[#f.edgeArgs + 1] = value
+    end
+    f.nedges[at] = f.nedges[at] + 1
+end
+
+function ir.isFloat(kind: integer): boolean
+    return kind == ir.F32 or kind == ir.F64
+end
+
+export = ir
