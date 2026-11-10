@@ -1,0 +1,105 @@
+module nupp.tools.vm.runtimebuild
+
+local fs = require("nupp.compiler.fs")
+const {sha256} = require("nupp.compiler.hash")
+local json = require("serde.json")
+local process = require("nupp.compiler.process")
+local lower = require("nupp.compiler.clif.lower")
+local steps = require("nupp.tools.vm.buildsteps")
+local sharedcache = require("nupp.core.sharedcache")
+
+const INPUTS = {
+    "src",
+    "templates",
+    "native",
+    "runtime",
+    "scripts",
+    "bin",
+    "nupp.lua",
+    "Cargo.toml",
+    "Cargo.lock",
+    "rust-toolchain.toml",
+    ".cargo"
+}
+const ARTIFACTS = {"runtime.clif", "runtime.o", "runtime.o.rs"}
+
+local function read(path: string): string
+    return (assert(fs.readFile(path), "cannot read " .. path))
+end
+
+local function digest(path: string): string
+    return sha256(read(path))
+end
+
+-- The launcher pins this immutable pair before any build starts. A source edit
+-- can change what is lowered, but cannot silently replace its execution host.
+local function compilerInputs(): {string}
+    local runtime = assert(os.getenv("NUPP_VM_BINARY"), "compiler runtime required")
+    local image = assert(os.getenv("NUPP_VM_CLI_IMAGE"), "compiler image required")
+    local receipt = json.decodevalue(read(fs.dirname(image) .. "/receipt.json"))
+    local runtimeHash, imageHash = digest(runtime), digest(image)
+    assert(
+        receipt.format == "nupp-vm-cli-1"
+        and receipt.linked
+        and runtimeHash == receipt.runtimeSha256
+        and imageHash == receipt.imageSha256,
+        "verified linked compiler pair required"
+    )
+
+    return {"runtime " .. runtimeHash, "image " .. imageHash}
+end
+
+export function main(arguments: {string}): integer
+    local root = assert(os.getenv("NUPP_COMPILER_ROOT"), "compiler root required")
+    local objectTool = assert(arguments[1], "native object tool required")
+    local source = assert(sharedcache.treeDigest(root, INPUTS), "runtime source inventory unavailable")
+    local inputs = compilerInputs()
+    local objectToolHash = digest(objectTool)
+    inputs[#inputs + 1] = "source " .. source
+    inputs[#inputs + 1] = "object tool " .. objectToolHash
+    local key = sha256(table.concat(inputs, "\0"))
+    local output = root .. "/build/native-runtime/" .. key
+    assert(fs.mkdir(output))
+    local kept = steps.kept("program native core", inputs)
+    local complete = kept ~= nil
+    if kept then
+        for _, name in ipairs(ARTIFACTS) do
+            if not (kept as {[string]: string})[name] then
+                complete = false
+            end
+        end
+    end
+    if not complete then
+        io.stderr:write("native-runtime: compile object\n")
+        local staging = output .. "/stage-" .. fs.stagingSuffix()
+        assert(fs.mkdir(staging))
+        local layouts = staging .. "/layouts.json"
+        assert(process.run({objectTool, "native", "layouts", layouts}, {cwd = root}) == 0, "native layouts failed")
+        assert(fs.writeFile(staging .. "/runtime.clif", lower.compileRuntime(root, layouts)))
+        assert(
+            process.run({objectTool, "native", "object", staging .. "/runtime.clif", staging .. "/runtime.o"}, {
+                cwd = root
+            }) == 0,
+            "native object generation failed"
+        )
+        kept = {}
+        for _, name in ipairs(ARTIFACTS) do
+            kept[name] = read(staging .. "/" .. name)
+        end
+        assert(sharedcache.treeDigest(root, INPUTS) == source, "sources changed while lowering the native core")
+        local finished = compilerInputs()
+        assert(
+            finished[1] == inputs[1] and finished[2] == inputs[2] and digest(objectTool) == objectToolHash,
+            "compiler or object writer changed while lowering the native core"
+        )
+        steps.keep("program native core", inputs, kept)
+    else
+        io.stderr:write("native-runtime: reuse verified object\n")
+    end
+    for _, name in ipairs(ARTIFACTS) do
+        assert(fs.writeFileIfChanged(output .. "/" .. name, assert((kept as {[string]: string})[name])))
+    end
+    print(output .. "/runtime.o")
+
+    return 0
+end
