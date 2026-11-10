@@ -117,7 +117,11 @@ print(body())
         name
     )
     test.eq(okay, false)
-    assert(tostring(problem):find("checked consuming callable factory is missing", 1, true), tostring(problem))
+    assert(
+        tostring(problem)
+            :find("owned callable: checked factory is missing: nupp.runtime.provider.corecallable.create", 1, true),
+        tostring(problem)
+    )
 end
 
 return M
