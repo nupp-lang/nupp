@@ -22,6 +22,7 @@ local tagged = require("nupp.compiler.vm.taggedprofile")
 local executable = require("nupp.compiler.vm.coregraphexecutable")
 local corepiece = require("nupp.compiler.vm.corepiece")
 local corelink = require("nupp.compiler.vm.corelink")
+local piecestore = require("nupp.core.piecestore")
 local corelibrary = require("nupp.compiler.vm.corelibrary")
 local writer = require("nupp.core.guestartifact")
 require("nupp.compiler.hostservices")
@@ -1180,6 +1181,8 @@ local function programCatalog(caseName: string, fixture: string, version: intege
     modules[#modules + 1] = assert(entry, "guest entry module missing")
     moduleName = entry.name
     local catalog = programgraph.describe(modules, moduleName)
+    -- What a kept piece is keyed by: what each module's check read.
+    catalog.checkedProject = project
     -- A fixture exports `result`, which is what its program answers.
     catalog.entryExport = "result"
 
@@ -1219,25 +1222,99 @@ local function difference(actual: any, expected: any, path: string): string?
     return nil
 end
 
+-- The piece store of checked catalog `p` and each module's key in it, or nil.
+-- Keys are read from the checked program before anything lowers it: lowering
+-- fills in facts of the types it reads (a function type's partition results),
+-- which the interfaces a key covers would then spell differently.
+local function pieceKeys(p: any): (any, {string?})
+    local began = os.clock()
+    local store = piecestore.open(assert(os.getenv("NUPP_COMPILER_ROOT")), p, p.checkedProject)
+    local keys: {string?} = {}
+    if store then
+        for index in ipairs(p.modules) do
+            keys[index] = store.key(index)
+        end
+    end
+    timings["compile piece store"] = (timings["compile piece store"] or 0) + os.clock() - began
+
+    return store, keys
+end
+
+-- A v8 program's pieces in program order, and how many were kept ones: each
+-- module's from `store` under its key in `keys` when it holds one (unless
+-- `fresh`), the rest compiled and kept. A kept piece that is not this module's
+-- is a miss.
+local function piecesOf(catalog: any, profile: any, store: any, keys: {string?}, fresh: boolean): ({any}, integer)
+    local began = os.clock()
+    local state = corepiece.program(catalog, profile)
+    local pieces: {any} = {}
+    local reused: integer = 0
+    local stored: number = 0.0
+    for index in ipairs(catalog.modules) do
+        local looked = os.clock()
+        local kept = not fresh and keys[index] ~= nil and store.lookup(keys[index]) or nil
+        stored += os.clock() - looked
+        if kept ~= nil and pcall(corepiece.adopt, state, index, kept) then
+            pieces[index] = kept
+            reused += 1
+        else
+            corepiece.start(state, index)
+        end
+    end
+    for index in ipairs(catalog.modules) do
+        if pieces[index] == nil then
+            pieces[index] = corepiece.finish(state, index)
+            if keys[index] ~= nil then
+                local keeping = os.clock()
+                store.keep(keys[index], pieces[index])
+                stored += os.clock() - keeping
+            end
+        end
+    end
+    if store then
+        store.close()
+    end
+    timings["compile piece store"] = (timings["compile piece store"] or 0) + stored
+    timings["compile pieces"] = (timings["compile pieces"] or 0) + os.clock() - began - stored
+
+    return pieces, reused
+end
+
 -- The checked program for a case, compiled to the core executable. A v8
--- program is compiled a module at a time and linked; NUPP_GUEST_PIECES=compare
--- also compiles it whole and requires the two to be the same.
+-- program is compiled a module at a time, reusing kept pieces, and linked;
+-- NUPP_GUEST_PIECES=compare also compiles it whole and requires the two to be
+-- the same.
 local function compileProgram(caseName: string, fixture: string, version: integer): any
     local began = os.clock()
     local catalog = programCatalog(caseName, fixture, version)
     local described = os.clock()
     timings["compile catalog"] = (timings["compile catalog"] or 0) + described - began
+    local profile = profileFor(version)
     if version ~= corepiece.VERSION then
-        return executable.fromChecked(programgraph.compile(catalog, profileFor(version)), version)
+        return executable.fromChecked(programgraph.compile(catalog, profile), version)
     end
-    local pieces = corepiece.compile(catalog, profileFor(version))
+    local store, keys = pieceKeys(catalog)
+    local pieces, reused = piecesOf(catalog, profile, store, keys, false)
+    io.stderr:write(("guest pieces: %s reused %d of %d\n"):format(caseName, reused, #pieces))
     local built = os.clock()
-    local linked = corelink.link(pieces, catalog.modules[#catalog.modules].name)
-    timings["compile pieces"] = (timings["compile pieces"] or 0) + built - described
+    local entry = catalog.modules[#catalog.modules].name
+    local ok, result = pcall(corelink.link, pieces, entry)
+    if not ok and reused > 0 then
+        -- A kept piece no longer links: what it read of another module, a
+        -- callee's signature or an initializer's result, has changed. Every
+        -- module is compiled again, so what is refused is what a fresh
+        -- build refuses.
+        io.stderr:write("guest pieces: compiling ", caseName, " afresh: ", tostring(result), "\n")
+        pieces = piecesOf(catalog, profile, store, keys, true)
+        result = corelink.link(pieces, entry)
+    elseif not ok then
+        error(result, 0)
+    end
+    local linked = result
     timings["compile link"] = (timings["compile link"] or 0) + os.clock() - built
     if os.getenv("NUPP_GUEST_PIECES") == "compare" then
         local linkedAt = os.clock()
-        local whole = executable.fromChecked(programgraph.compile(catalog, profileFor(version)), version)
+        local whole = executable.fromChecked(programgraph.compile(catalog, profile), version)
         timings["compile whole"] = (timings["compile whole"] or 0) + os.clock() - linkedAt
         local found = difference(linked, whole, "executable")
         assert(found == nil, "linked " .. caseName .. " differs from its whole-program build at " .. tostring(found))
