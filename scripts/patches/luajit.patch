@@ -85,3 +85,83 @@ Create and unlink the temporary file without changing signals.
  #else
    iof->fp = tmpfile();
  #endif
+
+On Windows, ffi.load(name, true) discarded its global flag, and ffi.C
+searched only the executable, lua51, the C runtime, kernel32, user32 and
+gdi32. A library loaded globally exported nothing to ffi.C, so a bare
+`cdef function` binding one of its symbols failed where POSIX succeeds.
+ffi.C now searches globally loaded modules after the defaults.
+
+--- a/src/lj_clib.c
++++ b/src/lj_clib.c
+@@ -171,6 +171,19 @@
+ 
+ static void *clib_def_handle[CLIB_HANDLE_MAX];
+ 
++#if !LJ_TARGET_UWP
++/* Modules loaded with ffi.load(name, true). ffi.C searches them after the
++** default libraries, in load order, the way RTLD_GLOBAL adds a library to
++** the namespace a POSIX ffi.C searches. Each entry holds its own module
++** reference, so collecting the namespace ffi.load returned leaves it loaded.
++** Process-wide like clib_def_handle: a slot is claimed atomically and filled
++** afterwards, so a reader skips one it sees still empty.
++*/
++#define CLIB_GLOBAL_MAX	64
++static void *volatile clib_global_handle[CLIB_GLOBAL_MAX];
++static volatile LONG clib_global_count;
++#endif
++
+ LJ_NORET LJ_NOINLINE static void clib_error(lua_State *L, const char *fmt,
+ 					    const char *name)
+ {
+@@ -213,8 +226,33 @@
+   DWORD oldwerr = GetLastError();
+   void *h = LJ_WIN_LOADLIBA(clib_extname(L, name));
+   if (!h) clib_error(L, "cannot load module " LUA_QS ": %s", name);
+-  SetLastError(oldwerr);
++#if !LJ_TARGET_UWP
++  if (global) {
++    LONG i, n = clib_global_count;
++    for (i = 0; i < n && i < CLIB_GLOBAL_MAX; i++)
++      if (clib_global_handle[i] == h) break;
++    if (i == n || i == CLIB_GLOBAL_MAX) {
++      HMODULE ref;
++      LONG slot = InterlockedIncrement(&clib_global_count) - 1;
++      if (slot >= CLIB_GLOBAL_MAX) {
++	InterlockedDecrement(&clib_global_count);
++	FreeLibrary((HINSTANCE)h);
++	lj_err_callermsg(L, lj_strfmt_pushf(L,
++	  "cannot load module " LUA_QS " globally: more than %d global modules",
++	  name, CLIB_GLOBAL_MAX));
++      }
++      /* The handle's address lies inside the module, so this takes a second
++      ** reference to the same module rather than loading anything. */
++      if (!GetModuleHandleExA(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS,
++			      (const char *)h, &ref))
++	ref = (HMODULE)h;
++      clib_global_handle[slot] = (void *)ref;
++    }
++  }
++#else
+   UNUSED(global);
++#endif
++  SetLastError(oldwerr);
+   return h;
+ }
+ 
+@@ -272,6 +310,15 @@
+       p = (void *)GetProcAddress(h, name);
+       if (p) break;
+     }
++#if !LJ_TARGET_UWP
++    if (!p) {  /* Then the modules loaded with ffi.load(name, true). */
++      LONG n = clib_global_count;
++      for (i = 0; i < (MSize)n && i < CLIB_GLOBAL_MAX; i++) {
++	HINSTANCE g = (HINSTANCE)clib_global_handle[i];
++	if (g && (p = (void *)GetProcAddress(g, name)) != NULL) break;
++      }
++    }
++#endif
+   } else {
+     p = (void *)GetProcAddress((HINSTANCE)cl->handle, name);
+   }

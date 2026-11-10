@@ -1290,6 +1290,20 @@ function M.luaJitBuildPatchesOnlyItsPrivateSourceCopy()
         .. "#if LJ_TARGET_PS3 || LJ_TARGET_PS4 || LJ_TARGET_PS5 || LJ_TARGET_PSVITA || LJ_TARGET_NX\n"
         .. "  iof->fp = NULL; errno = ENOSYS;\n#else\n  iof->fp = tmpfile();\n#endif\n"
     write(source .. "/src/lib_io.c", ioSource)
+    -- The Windows global-load hunks start at lines 171, 213 and 272.
+    local clibSource = string.rep("\n", 171)
+        .. "static void *clib_def_handle[CLIB_HANDLE_MAX];\n\n"
+        .. "LJ_NORET LJ_NOINLINE static void clib_error(lua_State *L, const char *fmt,\n"
+        .. "\t\t\t\t\t    const char *name)\n{\n"
+        .. string.rep("\n", 36)
+        .. "  DWORD oldwerr = GetLastError();\n"
+        .. "  void *h = LJ_WIN_LOADLIBA(clib_extname(L, name));\n"
+        .. '  if (!h) clib_error(L, "cannot load module " LUA_QS ": %s", name);\n'
+        .. "  SetLastError(oldwerr);\n  UNUSED(global);\n  return h;\n}\n\n"
+        .. string.rep("\n", 51)
+        .. "      p = (void *)GetProcAddress(h, name);\n      if (p) break;\n    }\n"
+        .. "  } else {\n    p = (void *)GetProcAddress((HINSTANCE)cl->handle, name);\n  }\n"
+    write(source .. "/src/lj_clib.c", clibSource)
     local make = directory .. "/fake-make"
     write(
         make,
@@ -1309,6 +1323,8 @@ grep -F 'lj_ir_type_size[irt_type((t))]' "$tree/src/lj_ir.h" >/dev/null
 grep -F '|  mov PC, RC' "$tree/src/vm_arm64.dasc" >/dev/null
 grep -F 'static FILE *io_tmpfile_open(void)' "$tree/src/lib_io.c" >/dev/null
 grep -F 'iof->fp = io_tmpfile_open();' "$tree/src/lib_io.c" >/dev/null
+grep -F 'clib_global_handle[slot] = (void *)ref;' "$tree/src/lj_clib.c" >/dev/null
+grep -F 'Then the modules loaded with ffi.load(name, true).' "$tree/src/lj_clib.c" >/dev/null
 printf 'private\n' > "$tree/private-build-marker"
 if [ "$mode" = build ]; then
     : > "$tree/src/libluajit.a"
@@ -1339,6 +1355,7 @@ fi
     assert(read(source .. "/src/lj_ir.h") == header, "the shared verified source was patched")
     assert(read(source .. "/src/vm_arm64.dasc") == vm, "the shared verified VM source was patched")
     assert(read(source .. "/src/lib_io.c") == ioSource, "the shared verified I/O source was patched")
+    assert(read(source .. "/src/lj_clib.c") == clibSource, "the shared verified C library source was patched")
     assert(not io.open(source .. "/private-build-marker", "rb"), "make wrote into the shared verified source")
 end
 
