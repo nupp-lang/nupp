@@ -78,6 +78,26 @@ export function sourceInputs(root: string, modules: {[string]: string}, carried:
     return inputs
 end
 
+-- Packaging also reads these files as data, even when a module's executable
+-- implementation is frozen in the base image. ROOT_EXTRAS comes from project.
+export function producerInputs(root: string, modules: {[string]: string}, carried: {[string]: boolean}): {any}
+    local inputs = sourceInputs(root, modules, carried)
+    for _, path in ipairs({
+        "nupp.lua",
+        "scripts/native-producer",
+        "scripts/native-producer-build.lua",
+        "scripts/native-producer-driver.lua",
+        "scripts/toolchain",
+        "scripts/toolchain.pins",
+        "scripts/sccache-wrapper",
+        "src/nupp/tools/vm/project.nupp"
+    }) do
+        table.insert(inputs, {path = path, sha256 = assert(digest(root .. "/" .. path))})
+    end
+
+    return inputs
+end
+
 -- Every identity field, including the complete executable input list, is
 -- sealed so damaged metadata cannot accidentally remove a dependency.
 export function identitySeal(identity: any): string?
