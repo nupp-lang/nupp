@@ -964,14 +964,17 @@ end
 
 -- A probe run as a program in a child process, with every compiler module the
 -- launcher itself loaded forgotten first, so what the probe requires is all that
--- is loaded.
+-- is loaded. The runtime's own native providers stay: they are not the
+-- launcher's, and their bindings read them from `package.loaded` directly.
 local function probeOutput(probe)
     local script = os.tmpname() .. ".lua"
     local file = assert(io.open(script, "wb"))
     -- Only Lua children inherit the generated module path of the test harness.
     file:write(
         "for name in pairs(package.loaded) do\n"
-        .. "   if name:match('^nupp%.') then package.loaded[name] = nil end\n"
+        .. "   if name:match('^nupp%.') and not name:match('^nupp%.runtime%.provider%.native') then\n"
+        .. "      package.loaded[name] = nil\n"
+        .. "   end\n"
         .. "end\n"
         .. (
             "if not rawget(_G, \"__nupp_load_image\") then\n" .. "   package.path = %q\n" .. "end\n"
