@@ -1,0 +1,7 @@
+module nupp.runtime.provider.scalarvectors
+
+-- The scalar target's existing vectors fallback, shared with the public
+-- namespace and the core's module provider.
+export function vectors(_element: any, _lanes: any): nil
+    return nil
+end

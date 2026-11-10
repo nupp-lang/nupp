@@ -17,6 +17,7 @@ const hostcalls = require("nupp.runtime.hostcalls")
 const libraryvalues = require("nupp.runtime.libraryvalues")
 const chunkfiles = require("nupp.runtime.chunkfiles")
 const corecallvalues = require("nupp.runtime.corecallvalues")
+const scalarSimd = require("nupp.runtime.provider.coresimd")
 
 -- The environment (Lua's _ENV) `load` was given for the chunk now starting.
 local pending: table? = nil
@@ -524,4 +525,7 @@ end
 -- require answers what package.loaded holds.
 for name, value in pairs(corecallvalues.modules) do
     libraryvalues.functions.package.loaded[name] = value
+end
+if libraryvalues.functions.package.loaded.simd == nil then
+    libraryvalues.functions.package.loaded.simd = scalarSimd
 end

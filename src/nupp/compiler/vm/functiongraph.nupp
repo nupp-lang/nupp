@@ -1707,9 +1707,10 @@ local function compileOwner(fn: any, options: any, profile: any, site: any): any
                     need(not clause.binding or profile.bindingCondition, "unsupported checked binding clause")
                     local conditionDepth = #cleanups
                     local bound, condition = nil, nil
+                    local absent = clause.binding and profile.absentBinding and invoke("absentBinding", clause)
                     if clause.binding then
                         bound = expression(clause.cond, profile.localKind(clause.binding, fn))
-                        if block then
+                        if block and not absent then
                             condition = invoke("bindingCondition", clause, bound)
                         end
                     else
@@ -1722,32 +1723,34 @@ local function compileOwner(fn: any, options: any, profile: any, site: any): any
                         not cleanupEnabled or #cleanups == conditionDepth,
                         "owning temporaries in a condition require conditional cleanup"
                     )
-                    local parent = block
-                    -- The bound value belongs only to the true arm. Its leading
-                    -- result parameter uses the same transport as a call result.
-                    local yes = branch(bound and profile.valueKind(g, bound))
-                    local no = branch()
-                    if bound then
-                        table.insert(yes.edge.args, 1, bound)
+                    if not absent then
+                        local parent = block
+                        -- The bound value belongs only to the true arm. Its leading
+                        -- result parameter uses the same transport as a call result.
+                        local yes = branch(bound and profile.valueKind(g, bound))
+                        local no = branch()
+                        if bound then
+                            table.insert(yes.edge.args, 1, bound)
+                        end
+                        parent.term = {
+                            kind = "branch",
+                            value = condition,
+                            edges = {yes.edge, no.edge},
+                            pos = position(clause)
+                        }
+                        resume(yes)
+                        if clause.binding then
+                            local key = clause.binding.definition or clause.binding
+                            ctx.bind(key, initializeBinding(clause, key, yes.result))
+                        end
+                        local depth = #cleanups
+                        statements(clause.body.stats)
+                        if cleanupEnabled then
+                            finishScope(depth, clause)
+                        end
+                        continuation()
+                        resume(no)
                     end
-                    parent.term = {
-                        kind = "branch",
-                        value = condition,
-                        edges = {yes.edge, no.edge},
-                        pos = position(clause)
-                    }
-                    resume(yes)
-                    if clause.binding then
-                        local key = clause.binding.definition or clause.binding
-                        ctx.bind(key, initializeBinding(clause, key, yes.result))
-                    end
-                    local depth = #cleanups
-                    statements(clause.body.stats)
-                    if cleanupEnabled then
-                        finishScope(depth, clause)
-                    end
-                    continuation()
-                    resume(no)
                 end
                 if stat.elseClause and block then
                     local depth = #cleanups

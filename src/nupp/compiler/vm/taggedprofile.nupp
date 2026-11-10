@@ -18,6 +18,7 @@ local taggedstructs = require("nupp.compiler.vm.taggedstructs")
 local exportforwarders = require("nupp.compiler.vm.exportforwarders")
 local derivedmembers = require("nupp.compiler.vm.derivedmembers")
 local recordcallables = require("nupp.compiler.vm.recordcallables")
+local scalarcapabilities = require("nupp.compiler.vm.scalarcapabilities")
 export const booleanKind = "tagged"
 local binding = taggedvalues.binding
 local catalog = taggedvalues.catalog
@@ -605,6 +606,7 @@ export function forVersion(version: integer): any
     end
     -- v8 tables: empty constructors, keyed reads and writes, and length.
     if version >= 8 then
+        profile.scalarVectorFallback = true
         profile.initialize = function(fn: any, options: any): any
             return setup(fn, options, true)
         end
@@ -613,6 +615,21 @@ export function forVersion(version: integer): any
             local none = ctx.emit(clause, "Nil", {}, "tagged")
             local absent = ctx.emit(clause, "Eq", {value, none}, "tagged")
             return ctx.emit(clause, "Not", {absent}, "tagged") as integer
+        end
+        profile.absentBinding = function(ctx: any, clause: any): boolean
+            local facts = catalog(ctx).absentBindings
+            local fact = facts and facts[clause]
+            if fact ~= nil then
+                need(
+                    scalarcapabilities.absentBinding(clause)
+                    and fact.owner == ctx.fn.id
+                    and fact.call == clause.cond
+                    and fact.body == clause.body,
+                    "scalar capability binding differs"
+                )
+            end
+
+            return fact ~= nil
         end
         profile.tableConstructor = function(ctx: any, node: any, expected: string?): integer
             need(expected == nil or expected == "tagged", "table requires tagged destination")

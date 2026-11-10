@@ -1046,4 +1046,132 @@ function M.checkedLoopsBreakContinueAndRepeat()
     )
 end
 
+local function capabilityChunk(source)
+    local chunk = require("nupp.compiler.vm.corechunk")
+    local catalog, problem = chunk.describeModule(source, "scalar-capability.nupp")
+    assert(catalog, problem)
+    local complete = program.compile(catalog, tagged.forVersion(8))
+    executable.fromChecked(complete, 8)
+
+    return catalog, complete
+end
+
+local CAPABILITY_OPENING = [[module scalarcapability
+local array = require("nupp.array")
+local simd = require("simd")
+]]
+
+function M.scalarVectorCapabilityKeepsAliasesArgumentsAndBindingScopes()
+    for _, call in ipairs({"simd.vectors", "vectors"}) do
+        local catalog, complete = capabilityChunk(
+            CAPABILITY_OPENING
+            .. [[
+local vectors = simd.vectors
+local calls: integer = 0
+local function lanes(): 4
+    calls = calls + 1
+    return 4
+end
+local function guarded(first: boolean): integer
+    if first then
+        return 11
+    elseif species = ]]
+            .. call
+            .. [[(array.uint8, lanes()) then
+        local function absent(): integer return 7 end
+        local block = species:splat(123)
+        if (block == 123):any() then return absent() end
+    else
+        local species = 3
+        assert(species == 3)
+        return calls
+    end
+    return 0
+end
+export const result = guarded(false)
+]]
+        )
+        local clause, fact = next(catalog.absentBindings)
+        assert(clause and next(catalog.absentBindings, clause) == nil)
+        assert(catalog.callByNode[fact.call])
+        assert(catalog.byDefinition[clause.binding.definition], "the condition keeps its checked declaration")
+        local absent, block = clause.body.stats[1], clause.body.stats[2]
+        assert(catalog.byBody[absent.body] == nil, "an absent arm must not issue a function owner")
+        assert(catalog.byDefinition[block.names[1].definition] == nil, "an absent arm must not issue a local binding")
+        refuses(
+            function()
+                program.compile(catalog, tagged.forVersion(7))
+            end,
+            "profile does not support scalar capability bindings"
+        )
+        local unsupported = program.inventory(catalog, tagged.forVersion(7))
+        assert(#unsupported.owners > 0)
+        assert(unsupported.owners[1].problem:find("profile does not support scalar capability bindings", 1, true))
+        local g = ownerGraph(complete, "guarded")
+        local evaluated = false
+        for _, item in ipairs(terms(g, "invoke")) do
+            local site = item.term.contract.call
+            evaluated = evaluated or site.obj.kind == "name" and site.obj.token.text == "lanes"
+        end
+        assert(evaluated, "the capability call must evaluate its argument")
+        local oldBody = fact.body
+        fact.body = {}
+        refuses(
+            function()
+                program.verify(catalog)
+            end,
+            "scalar capability binding differs"
+        )
+        fact.body = oldBody
+        assert(program.verify(catalog))
+        local callee = fact.call.obj
+        local definition = callee.token and callee.token.definition
+        local identity = callee.exactCallExport or definition and definition.exactCallExport
+        local oldModule = identity.module
+        identity.module = "shadow"
+        refuses(
+            function()
+                program.verify(catalog)
+            end,
+            "scalar capability binding differs"
+        )
+        identity.module = oldModule
+        assert(program.verify(catalog))
+    end
+end
+
+function M.scalarVectorCapabilityDoesNotPruneShadowedCallsOrRequiredVectors()
+    local catalog, complete = capabilityChunk(
+        [[module scalarcapability
+local calls: integer = 0
+local simd = {vectors = function(): {answer: integer}
+    calls = calls + 1
+    return {answer = 6}
+end}
+local function guarded(): integer
+    if species = simd.vectors() then
+        assert(species.answer == 6 and calls == 1)
+        return 7
+    end
+    return 3
+end
+export const result = guarded()
+]]
+    )
+    assert(next(catalog.absentBindings) == nil)
+    assert(#terms(ownerGraph(complete, "guarded"), "branch") > 0)
+    local chunk = require("nupp.compiler.vm.corechunk")
+    local bytes, problem = chunk.compileModule(
+        CAPABILITY_OPENING
+        .. [[
+local species = assert(simd.vectors(array.uint8))
+local block = species:splat(123)
+export const result = (block == 123):any()
+]],
+        "required-vector.nupp"
+    )
+    test.eq(bytes, nil)
+    assert(tostring(problem):find("boolean result required", 1, true), tostring(problem))
+end
+
 return M

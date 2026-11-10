@@ -1,0 +1,25 @@
+module nupp.compiler.vm.scalarcapabilities
+
+local apiidentity = require("nupp.compiler.apiidentity")
+
+-- The checked identity used by the ordinary VM's SIMD lowering. A local
+-- table with a vectors field has no authority to select this capability.
+export function vectors(call: any): boolean
+    if call == nil or call.kind ~= "call" or call.calleeType == nil or call.inferredType == nil then
+        return false
+    end
+    local callee = call.obj
+    local definition = callee and callee.token and callee.token.definition
+    local identity = callee and (callee.exactCallExport or definition and definition.exactCallExport)
+
+    return identity ~= nil and apiidentity.canonical(identity.module) == "simd" and identity.member == "vectors"
+end
+
+-- A scalar core keeps the call and its arguments, but cannot enter the
+-- binding arm of its known-nil vectors result.
+export function absentBinding(clause: any): boolean
+    return clause ~= nil
+        and (clause.kind == "ifClause" or clause.kind == "elseifClause")
+        and clause.binding ~= nil
+        and vectors(clause.cond)
+end

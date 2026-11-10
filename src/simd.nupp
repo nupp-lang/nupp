@@ -49,6 +49,7 @@ const {type Span, type WriteSpan} = require("nupp.mem.span")
 
 const storageWitnesses = require("nupp.array")
 const {type Scalar as StorageWitness} = require("nupp.array")
+local scalarCapabilities = require("nupp.runtime.provider.scalarvectors")
 
 local simd = {}
 
@@ -3534,9 +3535,7 @@ end) as(
 --- that assert is refused at compile time rather than left to fail at run
 --- time; `simd.species` is the form that needs no assert.
 --- @export
-simd.vectors = (function(_element: any, _lanes: any): nil
-    return nil
-end) as(
+simd.vectors = scalarCapabilities.vectors as(
     function<T>(element: StorageWitness<T>): simd.Species<T, simd.Preferred>?
     & function<T, const N: integer>(element: StorageWitness<T>, lanes: N): simd.Species<T, simd.Fixed<N>>?
 )

@@ -1,0 +1,9 @@
+module nupp.runtime.provider.coresimd
+
+local capabilities = require("nupp.runtime.provider.scalarvectors")
+
+export const vectors = capabilities.vectors
+
+export function species(...: any): any
+    error("SIMD species is not available on the scalar core", 2)
+end

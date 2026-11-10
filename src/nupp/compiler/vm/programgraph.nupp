@@ -22,6 +22,7 @@ local indexedaccess = require("nupp.compiler.vm.indexedaccess")
 local namedarguments = require("nupp.compiler.vm.namedarguments")
 local aliasdowncast = require("nupp.compiler.vm.aliasdowncast")
 local stubmodules = require("nupp.compiler.vm.stubmodules")
+local scalarcapabilities = require("nupp.compiler.vm.scalarcapabilities")
 
 local typeSyntax = {
     tconst = true,
@@ -583,6 +584,7 @@ export function describe(modules: {any}, entryModule: string, options: any?): an
         qualifiedLoads = {},
         calls = {},
         callByNode = {},
+        absentBindings = {},
         indexedByNode = {},
         -- Per cleanup site (a local's statement), the record
         -- declaration whose destructor it runs, mapped to a synthetic
@@ -716,6 +718,19 @@ export function describe(modules: {any}, entryModule: string, options: any?): an
     local inlineRecords: {[any]: any} = {}
     -- The declarations of comptime helpers, which the program never sees.
     local erasedDefinitions: {[any]: boolean} = {}
+
+    local function forget(item: any): nil
+        if cst.isToken(item) then
+            if item.definition then
+                erasedDefinitions[item.definition] = true
+            end
+            return
+        end
+        for _, child in ipairs(item) do
+            forget(child)
+        end
+    end
+
     local discover: function(any, any): nil
     discover = function(node: any, owner: any): nil
         if cst.isToken(node) then
@@ -724,20 +739,24 @@ export function describe(modules: {any}, entryModule: string, options: any?): an
         end
         if graph.erased(node) then
             -- What it declares exists only while compiling.
-            local function forget(item: any): nil
-                if cst.isToken(item) then
-                    if item.definition then
-                        erasedDefinitions[item.definition] = true
-                    end
-                    return
-                end
-                for _, child in ipairs(item) do
-                    forget(child)
-                end
-            end
-
             forget(node)
             return
+        end
+        if scalarcapabilities.absentBinding(node) then
+            p.absentBindings[
+                node
+            ] = {
+                owner = owner.id,
+                call = node.cond,
+                body = node.body,
+                binding = node.binding,
+                calleeType = node.cond.calleeType
+            }
+            -- Only this checked scalar-target arm is absent. Its declarations
+            -- do not become executable owners or bindings in the catalog.
+            forget(node.body)
+            discover(node.binding, owner)
+            return discover(node.cond, owner)
         end
         if node.kind == "recordDecl" then
             p.recordDecls[node] = true
@@ -1186,6 +1205,9 @@ export function describe(modules: {any}, entryModule: string, options: any?): an
         -- only the statement it annotates.
         if node.kind == "annotationArg" then
             return
+        end
+        if p.absentBindings[node] ~= nil then
+            return collect(node.cond, owner)
         end
         -- A call with named arguments passes the positional list the checker
         -- bound them to; each skipped slot is a `nil` literal of its own.
@@ -2005,6 +2027,19 @@ end
 export function verify(p: any): boolean
     need(p.owners and p.modules and p.bindings and p.constants, "catalog required")
     need(p.entry ~= nil and p.owners[p.entry + 1] and p.owners[p.entry + 1].kind == "module", "invalid module entry")
+    for clause, fact in pairs(p.absentBindings or {}) do
+        need(
+            scalarcapabilities.absentBinding(clause)
+            and fact.call == clause.cond
+            and fact.body == clause.body
+            and fact.binding == clause.binding
+            and fact.calleeType == fact.call.calleeType
+            and p.callByNode[fact.call] ~= nil
+            and p.callByNode[fact.call].owner == fact.owner
+            and p.owners[fact.owner + 1] ~= nil,
+            "scalar capability binding differs"
+        )
+    end
     local modules = {}
     for _, module in ipairs(p.modules) do
         local owner = need(p.owners[module.chunk + 1], "invalid initializer reference")
@@ -2638,6 +2673,11 @@ export function ownerGraph(p: any, owner: any, profile: any): any
     graph.checking(owner.scope and owner.scope.path)
     -- A profile may give a function that acquires cleanups its own variant.
     local chosen = profile.forOwner and profile.forOwner(p, owner) or profile
+    need(
+        next(p.absentBindings or {}) == nil
+        or chosen.scalarVectorFallback == true and type(chosen.absentBinding) == "function",
+        "profile does not support scalar capability bindings"
+    )
     local g = lower.functionGraph(owner, {program = p}, chosen)
     g.name, g.module, g.path, g.programOwner = owner.name, owner.scope.name, owner.scope.path, owner.id
 
