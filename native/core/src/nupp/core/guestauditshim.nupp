@@ -1,8 +1,8 @@
 module nupp.core.guestauditshim
 
-local arm = require("s0.arm64")
+local arm = require("nupp.compiler.s0.arm64")
 local linker = require("nupp.core.link")
-local literal = require("s0.literal")
+local literal = require("nupp.compiler.s0.literal")
 
 local function align(value: integer): integer
     return (value + 15) & -16

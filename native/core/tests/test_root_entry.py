@@ -51,9 +51,7 @@ def main():
     required = ("src/main.rs", "src/platform.rs", "tests/support/abi.rs",
                 "tests/support/abi-aarch64.S", "tests/support/scratch.rs")
     assert all(str(ROOT / "native/core/bridge" / name) in guard_sources for name in required)
-    directories = [ROOT / "src", ROOT / "native/core/src",
-                   ROOT / "spike/native-lowering/src",
-                   ROOT / "spike/native-lowering/nativegraph/src"]
+    directories = [ROOT / "src", ROOT / "native/core/src"]
     files = [p for directory in directories for p in sorted(directory.rglob("*"))
              if p.is_file() and p.suffix in (".nupp", ".lua")]
     fixtures = [ROOT / "native/core/tests" / name for name in

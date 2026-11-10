@@ -16,8 +16,9 @@ export function taking(node: any): boolean
 end
 
 --- The checked function `member` of `module` that the core calls as an
---- implementation factory: two dynamic values in, one out.
-export function checkedFactory(p: any, module: string, member: string): any
+--- implementation factory: two dynamic values in, one out, or `results` out.
+export function checkedFactory(p: any, module: string, member: string, results: integer?): any
+    local count = results or 1
     local found: any = nil
     for _, owner in ipairs(p.owners) do
         if owner.kind == "function" and owner.scope.name == module and owner.name == member then
@@ -31,12 +32,14 @@ export function checkedFactory(p: any, module: string, member: string): any
         #signature.params == 2
         and signature.params[1].tag == "any"
         and signature.params[2].tag == "any"
-        and #signature.rets == 1
-        and signature.rets[1].tag == "any"
+        and #signature.rets == count
         and not signature.paramPack.tail
         and not signature.retPack.tail,
         "checked factory signature differs"
     )
+    for _, result in ipairs(signature.rets) do
+        need(result.tag == "any", "checked factory signature differs")
+    end
 
     return found
 end

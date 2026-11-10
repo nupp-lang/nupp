@@ -1,0 +1,325 @@
+module nupp.compiler.vm.corepiece
+
+-- A module piece: one module of a checked v8 program, lowered, normalized,
+-- verified and derived to executable code on its own, numbered locally. Its
+-- owners are its initializer and then its functions in discovery order. What
+-- it names outside itself it names by symbols: another module's function by
+-- that module and the function's definition key, with the signature it
+-- calls it by, and a module by its name. A link joins pieces into the program
+-- executable (nupp.compiler.vm.corelink), placing every local owner, symbol,
+-- signature and contract at its program id.
+--
+-- Every id an instruction, call record or graph of a piece holds is local: an
+-- owner's id is its local one and a symbol's id follows the owners'. Its
+-- contracts are numbered by owner, its signatures by first use.
+local programgraph = require("nupp.compiler.vm.programgraph")
+local semantic = require("nupp.compiler.vm.coregraphverify")
+local contracts = require("nupp.compiler.vm.coregraphcontracts")
+local executable = require("nupp.compiler.vm.coregraphexecutable")
+local opcodes = require("nupp.compiler.vm.opcodes")
+local bytecode = require("nupp.compiler.vm.corebytecode")
+
+-- Bumped when a piece's shape or meaning changes.
+export const FORMAT = "core-piece/1"
+-- The profile pieces are compiled at: the one whose modules load lazily.
+export const VERSION = 8
+-- What an anonymous function's key is spelled from: its owner's name holds a
+-- program id, which a key must not.
+const ANONYMOUS = "<function>"
+-- The prefix programgraph names an anonymous function by.
+const ANONYMOUS_PREFIX = "<function "
+
+local function need(ok: any, message: string): any
+    if not ok then
+        error("core piece: " .. message, 0)
+    end
+    return ok
+end
+
+-- Each owner's definition key: its name, its record's for a method, under its
+-- lexical parent's key, and an ordinal when names repeat within the module.
+-- A key names a function across builds without the ids discovery gives it.
+local function keys(p: any): {[any]: string}
+    local result: {[any]: string} = {}
+    -- How many owners of a module had each key so far, by module and key.
+    local seen: {[string]: integer} = {}
+    for _, owner in ipairs(p.owners) do
+        if owner.kind == "module" then
+            result[owner] = ""
+        else
+            local name = owner.name as string
+            if name:sub(1, #ANONYMOUS_PREFIX) == ANONYMOUS_PREFIX then
+                name = ANONYMOUS
+            end
+            local record = p.recordMembers[owner.node]
+            if record ~= nil then
+                name = tostring(record.name) .. ":" .. name
+            end
+            local parent = p.owners[owner.parent + 1]
+            local key = parent.kind == "module" and name or (result[parent] as string) .. "/" .. name
+            local scoped = (owner.scope.name as string) .. "\0" .. key
+            local count = (seen[scoped] or 0) + 1
+            seen[scoped] = count
+            if count > 1 then
+                key = key .. "#" .. tostring(count)
+            end
+            result[owner] = key
+        end
+    end
+
+    return result
+end
+
+-- What building any piece of checked catalog `p` reads: its admission, each
+-- module's owners and every owner's key. The modules' initializer result
+-- kinds are filled in as their pieces are built, in module order.
+export function program(p: any, profile: any): any
+    programgraph.admit(p)
+    local owners: {{any}} = {}
+    local byScope: {[any]: integer} = {}
+    for index, module in ipairs(p.modules) do
+        local chunk = need(p.owners[module.chunk + 1], "module initializer is missing")
+        need(chunk.kind == "module" and module.chunk == index - 1, "module initializer binding differs")
+        owners[index], byScope[chunk.scope] = {chunk}, index
+    end
+    for _, owner in ipairs(p.owners) do
+        if owner.kind == "function" then
+            local list = owners[need(byScope[owner.scope], "function outside the program's modules")]
+            list[#list + 1] = owner
+        end
+    end
+
+    return {
+        catalog = p,
+        profile = profile,
+        admission = contracts.admit(p, VERSION, #p.modules),
+        owners = owners,
+        keys = keys(p),
+        -- By module name, its initializer's result kind once known.
+        results = {}
+    }
+end
+
+-- The local frame of a piece of `module` whose owners are `owners`: its
+-- owners' local ids, and the symbols it names outside them as they are met.
+local function frame(state: any, module: any, owners: {any}): (any, {any}, {[string]: integer})
+    local locals: {[integer]: integer} = {}
+    for index, owner in ipairs(owners) do
+        locals[owner.id] = index - 1
+    end
+    local symbols: {any} = {}
+    local byFunction: {[any]: integer} = {}
+    local byModule: {[string]: integer} = {[module.name] = 0}
+
+    local function add(symbol: any): integer
+        symbols[#symbols + 1] = symbol
+        return #owners + #symbols - 1
+    end
+
+    local relocated = {
+        id = function(id: integer): integer?
+            return locals[id]
+        end,
+        callsite = function(_: any): integer?
+            return nil
+        end,
+        foreign = function(owner: any, signature: integer): integer
+            local id = byFunction[owner]
+            if id == nil then
+                id = add({kind = "function", module = owner.scope.name, key = state.keys[owner], signature = signature})
+                byFunction[owner] = id
+            end
+
+            return id
+        end,
+        module = function(name: string): nil
+            if byModule[name] == nil then
+                byModule[name] = add({kind = "module", module = name})
+            end
+        end,
+        relocate = function(g: any): nil
+            g.programOwner = need(locals[g.programOwner], "graph owner outside its module")
+            for _, block in ipairs(g.blocks) do
+                for at, op in ipairs(block.op) do
+                    if op == "Closure" then
+                        local args = block.args[at]
+                        args[1] = need(locals[args[1]], "closure outside its module")
+                    end
+                end
+            end
+        end
+    }
+
+    return relocated, symbols, byModule
+end
+
+-- The view a piece's graphs are verified and derived against: its semantic
+-- tables, its owners' records followed by a record for each symbol, and its
+-- own and required modules. A required module whose initializer result is
+-- already known answers it; any other answers whatever it does at run time.
+local function view(state: any, unit: any, symbols: {any}, byModule: {[string]: integer}): (any, {[string]: string})
+    local output = unit.output
+    local catalog: {any} = {}
+    for index, record in ipairs(output.catalog) do
+        catalog[index] = record
+    end
+    local observed: {[string]: string} = {}
+    for index, symbol in ipairs(symbols) do
+        local id = #output.catalog + index - 1
+        if symbol.kind == "function" then
+            catalog[id + 1] = {id = id, kind = "function", signature = symbol.signature}
+        else
+            local known = state.results[symbol.module]
+            local stub: any = {id = id, kind = "module"}
+            if known ~= nil then
+                observed[symbol.module] = known
+                stub.signature = contracts.sign(unit, {kind = "initializer", params = {}, result = known})
+            end
+            catalog[id + 1] = stub
+        end
+    end
+    local modules: {any} = {output.modules[1]}
+    for name, id in pairs(byModule) do
+        if id ~= 0 then
+            modules[#modules + 1] = {name = name, chunk = id}
+        end
+    end
+    table.sort(modules, function(a: any, b: any): boolean
+        return a.chunk < b.chunk
+    end)
+
+    return {
+        schema = output.schema,
+        modules = modules,
+        catalog = catalog,
+        signatures = output.signatures,
+        graphs = output.graphs,
+        contracts = output.contracts
+    }, observed
+end
+
+-- By opcode name, the position after the name of the operand an instruction
+-- names a function or a module in: the operand a loader relocates
+-- (`corebytecode.functionOperands`).
+local function relocatedOperands(): {[string]: integer}
+    local names: {[integer]: string} = {}
+    for index, name in ipairs(opcodes.names()) do
+        names[index - 1] = name
+    end
+    for name, id in pairs(bytecode.coreOnly()) do
+        names[id] = name
+    end
+    local result: {[string]: integer} = {}
+    for id, operand in pairs(bytecode.functionOperands()) do
+        local name = need(names[id], "unnamed relocated opcode")
+        for index, field in ipairs(bytecode.describe(name).fields) do
+            if field.offset == operand.offset and field.bytes == operand.bytes then
+                result[name] = index + 1
+            end
+        end
+        need(result[name] ~= nil, "relocated operand of " .. name .. " is missing")
+    end
+
+    return result
+end
+
+local operands = relocatedOperands()
+
+-- Each instruction of `fn` that names a function or a module, as its pc and
+-- operand: what a link places.
+local function relocations(fn: any): {{integer}}
+    local result: {{integer}} = {}
+    for pc, instruction in ipairs(fn.instructions) do
+        local operand = operands[instruction[1]]
+        if operand ~= nil then
+            result[#result + 1] = {pc, operand}
+        end
+    end
+
+    return result
+end
+
+-- The piece of the `index`th module of `state`'s program. Modules are built
+-- in program order, so a module's piece knows the initializer results of the
+-- modules before it.
+export function build(state: any, index: integer): any
+    local p = state.catalog
+    local module = p.modules[index]
+    local owners = state.owners[index]
+    local relocated, symbols, byModule = frame(state, module, owners)
+    local unit = contracts.open(state.admission, relocated)
+    local own = {name = module.name, path = module.path, chunk = 0}
+    unit.output.modules[1], unit.modulesByOwner[module.chunk] = own, own
+    unit.output.entry = 0
+    local graphs: {any} = {}
+    for at, owner in ipairs(owners) do
+        graphs[at] = programgraph.ownerGraph(p, owner, state.profile)
+        contracts.enter(unit, owner, graphs[at])
+    end
+    -- This is the authoritative source-side gate, as `normalize` holds it.
+    local expected = 0
+    for at, owner in ipairs(owners) do
+        programgraph.verifyOwner(p, owner, graphs[at])
+        expected += #(state.admission.sitesByOwner[owner.id] or {})
+    end
+    for at, owner in ipairs(owners) do
+        contracts.contract(unit, at, owner, graphs[at])
+    end
+    need(unit.foundRequires == expected, "checked require graph is incomplete")
+    local checked, observed = view(state, unit, symbols, byModule)
+    local kinds: {string} = {}
+    for at in ipairs(owners) do
+        kinds[at] = contracts.settle(unit, at, checked)
+    end
+    state.results[module.name] = kinds[1]
+    local measured = semantic.piece(checked, #owners, kinds)
+    local functions: {any}, placed: {{{integer}}} = {}, {}
+    local output = unit.output
+    for at, g in ipairs(output.graphs) do
+        local fn = executable.derive(g, checked)
+        if fn.chunk ~= nil then
+            fn.defined, fn.source = executable.definition(owners[at])
+        end
+        functions[at], placed[at] = fn, relocations(fn)
+    end
+    local described: {any} = {}
+    for at, record in ipairs(output.catalog) do
+        described[
+            at
+        ] = {
+            kind = record.kind,
+            parent = record.parent,
+            signature = record.signature,
+            effect = record.effect,
+            key = state.keys[owners[at]]
+        }
+    end
+
+    return {
+        format = FORMAT,
+        version = VERSION,
+        module = {name = module.name, path = module.path},
+        owners = described,
+        signatures = output.signatures,
+        symbols = symbols,
+        contracts = output.contracts,
+        graphs = output.graphs,
+        functions = functions,
+        relocations = placed,
+        diagnostics = unit.diagnostics,
+        diagnosed = executable.diagnosed(unit.diagnostics, output.graphs),
+        observed = observed,
+        measured = measured
+    }
+end
+
+-- Every module of checked catalog `p` as a piece, in program order.
+export function compile(p: any, profile: any): {any}
+    local state = program(p, profile)
+    local pieces: {any} = {}
+    for index in ipairs(p.modules) do
+        pieces[index] = build(state, index)
+    end
+
+    return pieces
+end

@@ -2,6 +2,7 @@ module nupp.runtime.core.pagemappings
 
 const native = require("nupp.runtime.vm.intrinsics")
 const os = require("nupp.runtime.vm.os")
+const hostpages = require("nupp.runtime.core.hostpages")
 
 -- Explicit mapped metadata, retained outside every mapping owned here and
 -- outside logical frames/helper spill storage. Exclusive, no suspend/callback.
@@ -89,7 +90,7 @@ local function sharedvalid(block: voidptr): boolean
     end
     local mapped = native.load64(block, native.fieldOffset<SharedBacking>("mapped"))
     local capacity = native.load64(block, native.fieldOffset<SharedBacking>("capacity"))
-    local page = os.pageSize()
+    local page = hostpages.pageSize()
     if page == 0ULL
         or page > LIMIT
         or (page & (page - 1ULL)) ~= 0ULL
@@ -128,7 +129,7 @@ end
 -- Zero refuses geometry; page slack and the independent prefix are included.
 export function sharedextent(capacity: uint64): uint64
     local prefix = native.sizeOf<SharedBacking>()
-    local page = os.pageSize()
+    local page = hostpages.pageSize()
     if page == 0ULL
         or page > LIMIT
         or (page & (page - 1ULL)) ~= 0ULL
@@ -149,10 +150,11 @@ export function acquireshared(capacity: uint64): voidptr?
     if mapped == 0ULL then
         return nil
     end
-    local block = os.mapPages(mapped)
-    if block == nil then
+    local address = hostpages.mapPages(mapped)
+    if address == 0ULL then
         return nil
     end
+    local block = native.pointer(address)
     native.store64(block, native.fieldOffset<SharedBacking>("base"), native.address(block))
     native.store64(block, native.fieldOffset<SharedBacking>("mapped"), mapped)
     native.store64(block, native.fieldOffset<SharedBacking>("capacity"), capacity)
@@ -214,8 +216,7 @@ export function releaseshared(statusScope: voidptr, block: voidptr): uint64
     ) ~= SHARED_LIVE then
         return 0ULL
     end
-    native.store64(statusScope, native.fieldOffset<Scope>("status"), MAXIMUM)
-    os.unmapPages(block, mapped)
+    native.store64(statusScope, native.fieldOffset<Scope>("status"), hostpages.unmapPages(block, mapped))
     if native.load64(statusScope, native.fieldOffset<Scope>("status")) ~= 0ULL then
         native.store64(block, native.fieldOffset<SharedBacking>("phase"), SHARED_FAILED)
         return 0ULL
@@ -273,8 +274,8 @@ export function acquireEntry(bytes: uint64): voidptr?
     if bytes < native.sizeOf<EntryBacking>() or bytes > 67108864ULL then
         return nil
     end
-    local mapped = os.mapPages(bytes)
-    if mapped == nil then
+    local mapped = native.pointer(hostpages.mapPages(bytes))
+    if native.address(mapped) == 0ULL then
         return nil
     end
     native.store64(mapped, native.fieldOffset<EntryBacking>("base"), native.address(mapped))
@@ -307,8 +308,7 @@ export function releaseEntry(statusScope: voidptr, base: voidptr, bytes: uint64)
     -- Consume before the attempt. A failed release retains the mapping and
     -- never permits reset/retry or use by a newly initialized service scope.
     native.store64(base, native.fieldOffset<EntryBacking>("phase"), 2ULL)
-    native.store64(statusScope, native.fieldOffset<Scope>("status"), MAXIMUM)
-    os.unmapPages(base, bytes)
+    native.store64(statusScope, native.fieldOffset<Scope>("status"), hostpages.unmapPages(base, bytes))
     if native.load64(statusScope, native.fieldOffset<Scope>("status")) ~= 0ULL then
         return 0ULL
     end
@@ -391,8 +391,7 @@ export function unmapOwned(scope: voidptr, token: uint64): uint64
     if base == 0ULL or bytes == 0ULL then
         return 0ULL
     end
-    native.store64(scope, native.fieldOffset<Scope>("status"), MAXIMUM)
-    os.unmapPages(native.pointer(base), bytes)
+    native.store64(scope, native.fieldOffset<Scope>("status"), hostpages.unmapPages(native.pointer(base), bytes))
     if native.load64(scope, native.fieldOffset<Scope>("status")) ~= 0ULL then
         native.store64(scope, native.fieldOffset<Scope>("cleanupFailed"), 1ULL)
         return 0ULL
@@ -411,7 +410,7 @@ end
 -- Mapping failure is a normal optional result, never a fabricated success or
 -- managed error allocation. Record capacity is reserved before the OS call.
 export function map(scope: voidptr, bytes: uint64): voidptr?
-    local page = os.pageSize()
+    local page = hostpages.pageSize()
     if page == 0ULL
         or (page & (page - 1ULL)) ~= 0ULL
         or bytes == 0ULL
@@ -427,12 +426,12 @@ export function map(scope: voidptr, bytes: uint64): voidptr?
         return nil
     end
     local record = entry(scope, (token & 65535ULL) - 1ULL)
-    local mapped = os.mapPages(rounded)
-    if mapped == nil then
+    local address = hostpages.mapPages(rounded)
+    if address == 0ULL then
         native.store64(record, native.fieldOffset<Mapping>("state"), 0ULL)
         return nil
     end
-    local base = native.address(mapped)
+    local base = address
     native.store64(record, native.fieldOffset<Mapping>("base"), base)
     native.store64(record, native.fieldOffset<Mapping>("state"), 2ULL)
     native.store64(
@@ -445,7 +444,7 @@ export function map(scope: voidptr, bytes: uint64): voidptr?
         return nil
     end
 
-    return mapped
+    return native.pointer(base)
 end
 
 -- Adapts existing source unmap(base,bytes) calls only after a caller explicitly
@@ -454,7 +453,7 @@ export function unmap(scope: voidptr, base: voidptr, bytes: uint64): uint64
     if not valid(scope) then
         return 0ULL
     end
-    local page = os.pageSize()
+    local page = hostpages.pageSize()
     if page == 0ULL
         or page > LIMIT
         or (page & (page - 1ULL)) ~= 0ULL

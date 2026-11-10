@@ -3,30 +3,28 @@ module nupp.compiler.vm.nativeos
 local unit = require("nupp.compiler.vm.nativeunit")
 local physical = require("nupp.compiler.vm.nativephysical")
 local effects = require("nupp.compiler.vm.helpercontract")
-local layout = require("nupp.compiler.targetlayout")
 local issued: any = setmetatable({}, {__mode = "k"})
 local definitions = {
-    mapPages = {slot = 0, params = {"uint64"}, result = "voidptr", cResult = "uint64"},
-    unmapPages = {slot = 1, params = {"voidptr", "uint64"}, result = "nil", cResult = "uint64"},
-    pageSize = {slot = 2, params = {}, result = "uint64", cResult = "uint64"},
-    argument = {slot = 3, params = {"uint64", "voidptr", "uint64"}, result = "int64", cResult = "int64"},
-    poolStart = {slot = 4, params = {"uint64"}, result = "int64", cResult = "int64"},
-    poolSubmit = {slot = 5, params = {"uint64", "uint64", "voidptr", "uint64"}, result = "int64", cResult = "int64"},
-    poolTake = {slot = 6, params = {}, result = "int64", cResult = "int64"},
-    poolFinish = {slot = 7, params = {"uint64", "voidptr", "uint64"}, result = "int64", cResult = "int64"},
-    poolCancel = {slot = 8, params = {"uint64"}, result = "int64", cResult = "int64"},
-    securefill = {slot = 9, params = {"voidptr", "uint64"}, result = "int64", cResult = "int64"},
-    poolsettle = {slot = 10, params = {"uint64"}, result = "int64", cResult = "int64"},
-    dlopen = {slot = 11, params = {"voidptr", "int64"}, result = "voidptr", cResult = "voidptr"},
-    dlsym = {slot = 12, params = {"voidptr", "voidptr"}, result = "voidptr", cResult = "voidptr"},
-    dlclose = {slot = 13, params = {"voidptr"}, result = "int64", cResult = "int64", narrow = "int32"},
+    -- The bridge's imports: the blocking-work pool (the workers' owner's),
+    -- and the dynamic loader. Pages, entropy and the program's arguments
+    -- are the C library's, called from Nupp (hostpages, hostentropy,
+    -- hostarguments).
+    poolStart = {slot = 0, params = {"uint64"}, result = "int64", cResult = "int64"},
+    poolSubmit = {slot = 1, params = {"uint64", "uint64", "voidptr", "uint64"}, result = "int64", cResult = "int64"},
+    poolTake = {slot = 2, params = {}, result = "int64", cResult = "int64"},
+    poolFinish = {slot = 3, params = {"uint64", "voidptr", "uint64"}, result = "int64", cResult = "int64"},
+    poolCancel = {slot = 4, params = {"uint64"}, result = "int64", cResult = "int64"},
+    poolsettle = {slot = 5, params = {"uint64"}, result = "int64", cResult = "int64"},
+    dlopen = {slot = 6, params = {"voidptr", "int64"}, result = "voidptr", cResult = "voidptr"},
+    dlsym = {slot = 7, params = {"voidptr", "voidptr"}, result = "voidptr", cResult = "voidptr"},
+    dlclose = {slot = 8, params = {"voidptr"}, result = "int64", cResult = "int64", narrow = "int32"},
     -- Not a function: the table foreign calls cache their resolved symbols
     -- in, foreignSlots words the bridge zeroes.
-    foreignTable = {slot = 14, table = true},
+    foreignTable = {slot = 9, table = true},
     -- Not imports: routines the selector writes where they are called
-    -- (s0.select). The generic foreign call takes a block of words and
-    -- answers x0; the next answers the address of the table above, and the
-    -- collector the address of a C visitor the selector writes.
+    -- (nupp.compiler.s0.select). The generic foreign call takes a block of
+    -- words and answers x0; the next answers the address of the table above,
+    -- and the collector the address of a C visitor the selector writes.
     foreignCall = {routine = "call", params = {"voidptr"}, result = "uint64", cResult = "uint64"},
     foreignCells = {routine = "cells", params = {}, result = "voidptr", cResult = "voidptr"},
     foreignCollector = {routine = "collector", params = {}, result = "voidptr", cResult = "voidptr"},
@@ -199,39 +197,6 @@ local function shape(bound: any): any
     return spec
 end
 
-local function pageOwner(owner: any, name: string): boolean
-    if owner.scope.name ~= "nupp.runtime.core.pagemappings" then
-        return false
-    end
-    return unit.ownerModule(owner, "nupp.runtime.core.pagemappings").exports[name] == owner
-end
-
-local function statusOutput(bound: any): any
-    if bound.name ~= "unmapPages" then
-        return nil
-    end
-    local owner = bound.owner
-    -- The exact wrappers keep the real C status in a separately retained
-    -- explicit Scope. A nil OS result never silently discards that status.
-    need(
-        (pageOwner(owner, "unmapOwned") or pageOwner(owner, "releaseEntry") or pageOwner(owner, "releaseshared"))
-        and owner.paramKinds[1] == "voidptr",
-        "unmap requires explicit owned wrapper scope"
-    )
-    local scope = need(
-        unit.ownerModule(owner, "nupp.runtime.core.pagemappings").checkedExports.types.Scope,
-        "checked page Scope required"
-    )
-    local target = need(layout.of(scope, bound.context.target), "page Scope layout required")
-    local status = need(target.offsets.status, "page Scope status field")
-    need(
-        scope.byname.status.tag == "uint64" and status % 8 == 0 and status <= target.size - 8,
-        "page Scope status layout"
-    )
-
-    return {parameter = 1, offset = status, bytes = target.size, type = scope}
-end
-
 export function call(owner: any, call: any): any
     local bound = unit.osDeclaration(owner, call)
     local spec = shape(bound)
@@ -240,9 +205,8 @@ export function call(owner: any, call: any): any
     for index, kind in ipairs(spec.params) do
         params[index], snapshot[index] = kind, kind
     end
-    local out = statusOutput(bound)
     local effect = {mayCollect = false, mayPark = false, mayRaise = false, pure = false}
-    local machineResult = bound.name == "mapPages" and "voidptr" or spec.cResult
+    local machineResult = spec.cResult
     local declaration = {
         moduleName = "nupp.runtime.vm.os",
         name = bound.name,
@@ -250,7 +214,6 @@ export function call(owner: any, call: any): any
         result = machineResult,
         effects = effect
     }
-    local result = bound.name == "mapPages" and physical.describe(bound.context, bound.signature.rets[1]) or nil
     issued[
         declaration
     ] = {
@@ -259,8 +222,6 @@ export function call(owner: any, call: any): any
         routine = spec.routine,
         params = snapshot,
         effect = effect,
-        result = result,
-        out = out,
         narrow = spec.narrow,
         fields = {
             moduleName = declaration.moduleName,
@@ -276,9 +237,9 @@ end
 
 -- A call of a `cdef function` its sealed unit declares: a direct C call
 -- through the symbol the first call resolves and the bridge's table keeps
--- (s0.select). Arguments past a variadic function's declared ones take the
--- kinds the caller gives them. A 32-bit C result reads as int64 where the
--- caller expects one or names no kind, since the call extends it.
+-- (nupp.compiler.s0.select). Arguments past a variadic function's declared
+-- ones take the kinds the caller gives them. A 32-bit C result reads as int64
+-- where the caller expects one or names no kind, since the call extends it.
 export function foreign(owner: any, site: any, expected: string?): any
     local identity = need(cdefOf(site), "foreign site requires a cdef function")
     local definition = site.obj.token.definition
@@ -380,9 +341,9 @@ export function routine(declaration: any): string?
     return name and "routine\0" .. name or nil
 end
 
--- The generic foreign call's block (s0.select's `CALL_` words, and
--- guestforeign's): the function, x0-x7, d0-d7, the C stack's first words,
--- and the address x8 passes; in bytes.
+-- The generic foreign call's block (nupp.compiler.s0.select's `CALL_`
+-- words, and guestforeign's): the function, x0-x7, d0-d7, the C stack's
+-- first words, and the address x8 passes; in bytes.
 const BLOCK_FUNCTION = 0
 const BLOCK_INTEGERS = 8
 const BLOCK_FLOATS = 72
@@ -504,50 +465,13 @@ export function validate(declaration: any, owner: any?): any
         "OS checked source changed"
     )
     need(shape(bound).slot == held.slot, "OS slot changed")
-    local out = statusOutput(bound)
-    if out then
-        need(held.out ~= nil, "OS status output missing")
-        same(out, held.out)
-    else
-        need(held.out == nil, "OS status output invented")
-    end
-    if held.result then
-        physical.validate(held.result)
-    end
 
     return true
-end
-
-export function result(declaration: any): any
-    validate(declaration)
-    return issued[declaration].result
-end
-
-export function status(declaration: any): any
-    validate(declaration)
-    local out = issued[declaration].out
-    return out and {parameter = out.parameter, offset = out.offset, bytes = out.bytes} or nil
 end
 
 export function slot(declaration: any, owner: any?): integer
     validate(declaration, owner)
     return issued[declaration].slot
-end
-
--- Runtime heap images may not expose unjournaled C mappings. Generic checked
--- graph inspection can describe mapPages, but authenticated publication admits
--- it only through the fixed ledger wrapper or the entry metadata bootstrap
--- in the same retained unit. Bootstrap storage has its own terminal owner.
-export function ownedSlot(declaration: any, owner: any): integer
-    local index = slot(declaration, owner)
-    if index == 0 then
-        need(
-            pageOwner(owner, "map") or pageOwner(owner, "acquireEntry") or pageOwner(owner, "acquireshared"),
-            "published map requires owned ledger wrapper"
-        )
-    end
-
-    return index
 end
 
 export function graph(declaration: any, g: any, args: any, dst: integer): nil
@@ -561,44 +485,4 @@ export function graph(declaration: any, g: any, args: any, dst: integer): nil
         and g.source.name == owner.name,
         "OS graph source differs"
     )
-    if held.result then
-        need(
-            g.nativePhysical
-            and g.nativePhysical.context == held.bound.context
-            and g.nativePhysical.values[dst] == held.result,
-            "OS optional result origin differs"
-        )
-    end
-    if held.out then
-        need(g.exactTypes[held.out.parameter] == "voidptr", "OS status output is not the explicit wrapper scope")
-    end
-end
-
--- Raw status is a visible SSA value and its scope write is a normal graph store.
--- No machine-only mutation is hidden behind the source's nil result.
-export function verifyStores(g: any): nil
-    for _, block in ipairs(g.blocks) do
-        for index, op in ipairs(block.op) do
-            local declaration = op == "NativeHelperCall" and block.args[index][1] or nil
-            local held = declaration and issued[declaration]
-            if held and held.out then
-                validate(declaration)
-                need(
-                    block.op[index + 1] == "NativeConstant"
-                    and block.args[index + 1][1] == tostring(held.out.offset)
-                    and g.exactTypes[block.dst[index + 1]] == "int64"
-                    and block.op[index + 2] == "NativeStore",
-                    "unmap status capture is incomplete"
-                )
-                local stored = block.args[index + 2]
-                need(
-                    stored[1] == held.out.parameter
-                    and stored[2] == block.dst[index + 1]
-                    and stored[3] == block.dst[index],
-                    "unmap status output differs"
-                )
-                same(stored[4], {source = "borrowed", kind = "uint64", width = 8, signed = false, write = true})
-            end
-        end
-    end
 end

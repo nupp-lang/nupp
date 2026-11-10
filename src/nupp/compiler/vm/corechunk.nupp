@@ -35,8 +35,13 @@ const ENVIRONMENT = "__nupp_env"
 -- And the library functions as the program started, which a call through
 -- a global calls the core for directly while the environment holds them.
 const BUILTINS = "__nupp_builtins"
-const OPENING = "local __nupp_env, __nupp_builtins = require(\"nupp.runtime.\" .. \"luaload\").environment() "
-    .. "return function(...) "
+const ENVIRONMENT_OPENING = "local __nupp_env, __nupp_builtins = require(\"nupp.runtime.\" .. \"luaload\").environment() "
+const OPENING = ENVIRONMENT_OPENING .. "return function(...) "
+-- A Nupp module's chunk is the module itself, its environment declared on
+-- its module line: its value is the module's, made afresh each time the
+-- chunk starts (a module instance), and its requires go through its
+-- environment's `require`.
+const NUPP_SUFFIX = ".nupp"
 const CLOSING = "\nend\n"
 
 -- Calls `visit` with each call's argument list in the tree under `node`.
@@ -112,34 +117,76 @@ local function checkingEnvironment(): any
     return held
 end
 
+-- Marks the opening's own require, which finds the environment the rest
+-- of the chunk reads: it is the running program's, whatever the
+-- environment holds.
+local function markOpening(root: any): nil
+    local found = false
+
+    local function visit(node: any): nil
+        if found or type(node) ~= "table" or cst.isToken(node) then
+            return
+        end
+        if node.kind == "call" and node.obj and node.obj.kind == "name" and node.obj.token.text == "require" then
+            node.chunkOpening, found = true, true
+            return
+        end
+        for _, child in ipairs(node) do
+            visit(child)
+        end
+    end
+
+    visit(root)
+end
+
+-- A message about chunk `display` at `line`, as Lua positions one.
+local function positioned(display: string, line: integer?, message: any): string
+    return display .. ":" .. tostring(line or 0) .. ": " .. tostring(message)
+end
+
+-- `text` parsed as the chunk at `path`, or nil and its first syntax error.
+local function parsed(text: string, path: string, display: string): (any, string?)
+    local tree: any = parser.parse(text, path)
+    if #tree.errors > 0 then
+        local problem = tree.errors[1]
+        return nil, positioned(display, problem.line, problem.msg or problem.message)
+    end
+    markOpening(tree.root)
+
+    return tree, nil
+end
+
+-- What checking a chunk's tree as module `name` finds.
+local function checked(tree: any, path: string, name: string): {any}
+    return checker.check(tree, path, checkingEnvironment(), {
+        moduleName = name,
+        strict = false,
+        lints = {["unused-binding"] = "off"}
+    })
+end
+
 -- The program catalog of Lua source `text` as a chunk, or nil and a message
 -- for text that does not parse. What the checker finds does not refuse it:
 -- Lua's loaders refuse only syntax, and a chunk's values are dynamic where
 -- its checking found them wanting. Its Lua source (debug.getinfo's) is
 -- `source`, the name the loader was given, or "=" and `display`.
 export function describe(text: string, display: string, source: string?): (any, string?)
-    local source = OPENING .. text .. CLOSING
     local path = display .. LUA_SUFFIX
-    local parsed: any = parser.parse(source, path)
-    if #parsed.errors > 0 then
-        local problem = parsed.errors[1]
-        return nil, display .. ":" .. tostring(problem.line or 0) .. ": " .. tostring(problem.msg or problem.message)
+    local tree, problem = parsed(OPENING .. text .. CLOSING, path, display)
+    if tree == nil then
+        return nil, problem
     end
-    eachArguments(parsed.root, positional)
-    local diagnostics = checker.check(parsed, path, checkingEnvironment(), {
-        moduleName = MODULE,
-        strict = false,
-        lints = {["unused-binding"] = "off"}
-    })
-    parsed.moduleName = parsed.moduleName or MODULE
-    eachArguments(parsed.root, untyped)
+    eachArguments(tree.root, positional)
+    local diagnostics = checked(tree, path, MODULE)
+    tree.moduleName = tree.moduleName or MODULE
+    eachArguments(tree.root, untyped)
     local catalog = program.describe(
         {
             {
                 name = MODULE,
                 path = display,
                 chunkname = source or "=" .. display,
-                parsed = parsed,
+                parsed = tree,
                 diagnostics = diagnostics
             }
         },
@@ -150,10 +197,103 @@ export function describe(text: string, display: string, source: string?): (any, 
     return catalog, nil
 end
 
+-- A module instance's requires go through its environment's `require`,
+-- which may answer another module or a fixture's stand-in for one: each
+-- require (but the opening's) is a call of the global `require`, the local
+-- it binds an ordinary local, and a path through that local (`log.warner`,
+-- `gccalls.install(f)`) a read of what it holds, by name. Only the checker's
+-- record of which module each names goes; its types stay.
+local function requiresThroughEnvironment(root: any, path: string): nil
+    local function visit(node: any): nil
+        if type(node) ~= "table" then
+            return
+        end
+        if cst.isToken(node) then
+            local definition = node.definition
+            if definition ~= nil and definition.filename == path and definition.requiredModule ~= nil then
+                definition.requiredModule = nil
+            end
+            return
+        end
+        -- The opening's require, and a require of types alone, which loads
+        -- nothing, stay as they are.
+        if node.kind == "call" and node.runtimeLoader == "require" then
+            if node.chunkOpening or node.typeOnlyRequire then
+                return
+            end
+            -- What the environment's require answers is any value.
+            node.runtimeLoader = nil
+            node.inferredType = node.inferredType or types.any
+            if node.args ~= nil then
+                untyped(node.args)
+            end
+        end
+        node.qualifiedModule = nil
+        node.requiredModule = nil
+        for _, child in ipairs(node) do
+            visit(child)
+        end
+    end
+
+    visit(root)
+end
+
+-- The program catalog of Nupp module source `text` as a chunk, its checked
+-- types honored, or nil and a message where it does not parse or check:
+-- its value is the module's, and its requires and globals go through its
+-- environment. `display` names it in errors and `source` is its Lua source,
+-- "@" and `display` without it.
+export function describeModule(text: string, display: string, source: string?): (any, string?)
+    local path = string.sub(display, -#NUPP_SUFFIX) == NUPP_SUFFIX and display or display .. NUPP_SUFFIX
+    -- The environment is declared where the module statement ends, on its
+    -- line, so every line keeps its number.
+    local plain, problem = parsed(text, path, display)
+    if plain == nil then
+        return nil, problem
+    end
+    local name, statement = cst.declaredModule(plain.root)
+    local last = statement and cst.lastToken(statement)
+    if name == nil or last == nil then
+        return nil, positioned(display, 0, "a module instance needs a module declaration")
+    end
+    local at = last.offset + #last.text - 1
+    local tree, wrappedProblem = parsed(
+        string.sub(text, 1, at) .. " " .. ENVIRONMENT_OPENING .. string.sub(text, at + 1),
+        path,
+        display
+    )
+    if tree == nil then
+        return nil, wrappedProblem
+    end
+    local diagnostics = checked(tree, path, name as string)
+    for _, diagnostic in ipairs(diagnostics) do
+        if diagnostic.severity == "error" then
+            return nil, positioned(display, diagnostic.line, diagnostic.msg)
+        end
+    end
+    requiresThroughEnvironment(tree.root, path)
+    local catalog = program.describe(
+        {{name = name, path = path, chunkname = source or "@" .. display, parsed = tree, diagnostics = diagnostics}},
+        name,
+        {chunk = true, module = true, environment = ENVIRONMENT, builtins = BUILTINS}
+    )
+
+    return catalog, nil
+end
+
+-- A describer of chunk source: `describe` or `describeModule`.
+local type Describer = function(string, string, string?): (any, string?)
+
 -- What `use` makes of the chunk `text` describes, or nil and why it does not
 -- parse.
-local function described(text: string, display: string, source: string?, use: function(any): any): (any, string?)
-    local catalog, refused = describe(text, display, source)
+local function described(
+    describer: Describer,
+    text: string,
+    display: string,
+    source: string?,
+    use: function(any): any
+): (any, string?)
+    local catalog, refused = describer(text, display, source)
     if catalog == nil then
         return nil, refused
     end
@@ -161,14 +301,10 @@ local function described(text: string, display: string, source: string?, use: fu
     return use(catalog), nil
 end
 
---- Compile Lua source `text` to a binary chunk. `display` is the name its
---- errors cite (Lua's chunkid of the chunk's name) and `source` that name
---- itself, which debug.getinfo answers ("@" and a file for `loadfile`);
---- without it, "=" and `display`. Answers the chunk, or nil and a message as
---- Lua's loaders do.
-export function compile(text: string, display: string, source: string?): (string?, string?)
+-- The binary chunk of the source `describer` reads, or nil and a message.
+local function compiled(describer: Describer, text: string, display: string, source: string?): (string?, string?)
     local ok, result, problem = pcall(function(): (string?, string?)
-        return described(text, display, source, function(catalog: any): any
+        return described(describer, text, display, source, function(catalog: any): any
             return writer.chunk(executable.fromChecked(program.compile(catalog, tagged.forVersion(VERSION)), VERSION))
         end)
     end)
@@ -179,10 +315,27 @@ export function compile(text: string, display: string, source: string?): (string
     return result, problem
 end
 
+--- Compile Lua source `text` to a binary chunk. `display` is the name its
+--- errors cite (Lua's chunkid of the chunk's name) and `source` that name
+--- itself, which debug.getinfo answers ("@" and a file for `loadfile`);
+--- without it, "=" and `display`. Answers the chunk, or nil and a message as
+--- Lua's loaders do.
+export function compile(text: string, display: string, source: string?): (string?, string?)
+    return compiled(describe, text, display, source)
+end
+
+--- Compile Nupp module source `text` to a binary chunk whose start makes an
+--- instance of the module (describeModule): `display` names it in errors and
+--- `source` is its Lua source, "@" and `display` without it. Answers the
+--- chunk, or nil and a message.
+export function compileModule(text: string, display: string, source: string?): (string?, string?)
+    return compiled(describeModule, text, display, source)
+end
+
 --- Everything that keeps Lua source `text` from compiling as a chunk, across
 --- all of it (program.inventory), or nil and a message where it does not parse.
 export function inventory(text: string, display: string): (any, string?)
-    return described(text, display, nil, function(catalog: any): any
+    return described(describe, text, display, nil, function(catalog: any): any
         return program.inventory(catalog, tagged.forVersion(VERSION))
     end)
 end

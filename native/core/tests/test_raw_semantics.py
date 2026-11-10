@@ -42,8 +42,7 @@ def main():
     assert all(str(ROOT / 'native/core/bridge' / name) in guard_sources for name in (
         'src/main.rs', 'src/platform.rs', 'tests/support/abi.rs',
         'tests/support/abi-aarch64.S', 'tests/support/scratch.rs'))
-    roots = ('src', 'native/core/src', 'spike/native-lowering/src',
-             'spike/native-lowering/nativegraph/src')
+    roots = ('src', 'native/core/src')
     sources = [p for root in (ROOT, args.baseline_root.resolve()) for name in roots
                for p in sorted((root / name).rglob('*'))
                if p.is_file() and p.suffix in ('.nupp', '.lua')]

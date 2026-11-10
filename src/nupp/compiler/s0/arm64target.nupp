@@ -1,0 +1,52 @@
+module nupp.compiler.s0.arm64target
+
+local target = {}
+
+local function bank(ranges: {integer}): {integer}
+    local registers: {integer} = {}
+    for pair = 1, #ranges, 2 do
+        for physical = ranges[pair], ranges[pair + 1] do
+            registers[#registers + 1] = physical
+        end
+    end
+
+    return registers
+end
+
+target.SP, target.ZR, target.FP, target.LR = 31, 31, 29, 30
+target.CONTEXT, target.FRAME, target.DISPATCH = 19, 20, 21
+target.IMAGE, target.SPILL = 22, 23
+target.SCRATCH, target.SCRATCH2, target.FPSCRATCH = 16, 17, 31
+target.PLATFORM = 18
+target.EQ, target.NE, target.HS, target.LO = 0, 1, 2, 3
+target.MI, target.PL, target.VS, target.VC = 4, 5, 6, 7
+target.HI, target.LS, target.GE, target.LT = 8, 9, 10, 11
+target.GT, target.LE, target.AL, target.NV = 12, 13, 14, 15
+
+-- Allocator IDs distinguish banks: integer N+1 and float N+65.
+target.integerRegisters = {1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 25, 26, 27, 28, 29}
+target.floatRegisters = bank({65, 95})
+target.reserved = {17, 18, 19, 20, 21, 22, 23, 24, 30, 31, 32, 96}
+target.cIntegerArguments = {1, 2, 3, 4, 5, 6, 7, 8}
+target.cFloatArguments = {65, 66, 67, 68, 69, 70, 71, 72}
+target.cIntegerPreserved = {20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30}
+-- AAPCS64 and Apple preserve only the low 64 bits of v8..v15.
+target.cFloatPreserved = {73, 74, 75, 76, 77, 78, 79, 80}
+target.cIntegerClobbered = {1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 31}
+target.cFloatClobbered = bank({65, 72, 81, 96})
+target.cIntegerResult, target.cFloatResult = 1, 65
+target.cAllocatableIntegerPreserved = {25, 26, 27, 28, 29}
+target.internalIntegerPreserved = {}
+target.internalFloatPreserved = {}
+target.stackAlignment = 16
+
+function target.register(physical: integer): integer
+    if physical >= 1 and physical <= 32 then
+        return physical - 1
+    end
+    assert(physical >= 65 and physical <= 96, "ARM64: invalid physical register ID")
+
+    return physical - 65
+end
+
+export = target
