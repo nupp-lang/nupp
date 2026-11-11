@@ -1,0 +1,48 @@
+module nupp.core.catalograndomvalues
+
+-- The public seed API follows main: one seed, ignored extras, no results.
+-- The Lua55 sequence oracle remains in catalog-numbers-random.
+local namespace: any = math
+local stored: any = math.randomseed
+local direct = function(...: any): ...any
+    return (math.randomseed as any)(...)
+end
+local throughNamespace = function(...: any): ...any
+    return namespace.randomseed(...)
+end
+local forms = {direct, stored, throughNamespace}
+
+local function refusal(call: any, value: any, detail: string): nil
+    local ok, problem = pcall(call, value)
+    assert(not ok)
+    local message = tostring(problem)
+    assert(string.sub(message, -#detail) == detail)
+end
+
+for _, seed in ipairs(forms) do
+    assert(select("#", seed(813)) == 0)
+    local expected = math.random(1, 100000)
+    assert(select("#", seed(813, 99)) == 0)
+    assert(math.random(1, 100000) == expected)
+    assert(select("#", seed(813, false, {})) == 0)
+    assert(math.random(1, 100000) == expected)
+    seed(-902.0)
+    local negative = math.random()
+    seed(-902)
+    assert(math.random() == negative)
+    refusal(seed, false, "expected an integer")
+    refusal(seed, {}, "expected an integer")
+    refusal(seed, "813", "expected an integer")
+    refusal(seed, 0.5, "expected an exact integer")
+    refusal(seed, -0.5, "expected an exact integer")
+    refusal(seed, 0 / 0, "expected an exact integer")
+    refusal(seed, math.huge, "expected an exact integer")
+    refusal(seed, 18446744073709551616.0, "integer out of range")
+    refusal(seed, nil, "expected an integer")
+    local ok, problem = pcall(seed)
+    assert(not ok and string.sub(tostring(problem), -#"expected an integer") == "expected an integer")
+    seed(813)
+    assert(math.random(1, 100000) == expected)
+end
+
+export const result = 1

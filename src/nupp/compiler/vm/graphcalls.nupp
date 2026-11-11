@@ -718,6 +718,7 @@ local coreLibrary: {[string]: boolean} = {
     ["math.fmod"] = true,
     ["math.random"] = true,
     ["math.randomseed"] = true,
+    ["hostcalls.seedrandom"] = true,
     rawget = true,
     rawset = true,
     ["table.concat"] = true,
@@ -807,6 +808,8 @@ local libraryValues: {[string]: boolean} = {
     -- LuaJIT's `setfenv`, which Lua 5.5 does not have: it reads nil too, so a
     -- call of it raises as Lua's does.
     setfenv = true,
+    ["math.random"] = true,
+    ["math.randomseed"] = true,
     ["math.type"] = true,
     ["math.max"] = true,
     ["math.min"] = true,
@@ -1321,7 +1324,7 @@ export function coreLibraryCall(call: any): string?
     if name == "unpack" then
         name = "table.unpack"
     end
-    if not rawConstructor and (name == "coroutine.create" or name == "coroutine.wrap") then
+    if name == "math.randomseed" or not rawConstructor and (name == "coroutine.create" or name == "coroutine.wrap") then
         return nil
     end
 

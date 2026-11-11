@@ -208,7 +208,14 @@ local subjectrows: {Subject} = {
             {name = "MATH_FMOD", id = 65, text = "NAME_FMOD", call = "math.fmod", min = 2, max = 2},
             -- math.random and math.randomseed with arguments, and with none.
             {name = "MATH_RANDOM", id = 69, text = "NAME_RANDOM"},
-            {name = "MATH_RANDOMSEED", id = 70, text = "NAME_RANDOMSEED"},
+            {
+                name = "MATH_RANDOMSEED",
+                id = 70,
+                text = "NAME_RANDOMSEED",
+                call = "hostcalls.seedrandom",
+                min = 1,
+                max = 1
+            },
             {name = "MATH_RANDOM_FLOAT", id = 71, text = "NAME_RANDOM"},
             {name = "MATH_RANDOMSEED_HOST", id = 72, text = "NAME_RANDOMSEED"}
         }

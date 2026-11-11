@@ -1746,29 +1746,15 @@ export function forVersion(version: integer): any
                 return libraryCall(ctx, node, corelibrary.id("STRING_FORMAT"), node.args.exprs or {})
             elseif library == "print" then
                 return printValues(ctx, node)
-            elseif library == "math.random" or library == "math.randomseed" then
-                -- Without arguments a placeholder nil is the call's one value.
+            elseif library == "math.random" then
+                -- Without arguments a placeholder nil selects a floating draw.
                 local args = node.args.exprs or {}
-                local random = library == "math.random"
-                need(#args <= 2, tostring(library) .. " takes at most two arguments")
+                need(#args <= 2, "math.random takes at most two arguments")
                 if #args == 0 then
                     local none = ctx.emit(node, "Nil", {}, "tagged")
-                    return ctx.emit(
-                        node,
-                        "LibCall",
-                        {
-                            random and corelibrary.id("MATH_RANDOM_FLOAT") or corelibrary.id("MATH_RANDOMSEED_HOST"),
-                            none
-                        },
-                        "tagged"
-                    ) as integer
+                    return ctx.emit(node, "LibCall", {corelibrary.id("MATH_RANDOM_FLOAT"), none}, "tagged") as integer
                 end
-                return libraryCall(
-                    ctx,
-                    node,
-                    random and corelibrary.id("MATH_RANDOM") or corelibrary.id("MATH_RANDOMSEED"),
-                    args
-                )
+                return libraryCall(ctx, node, corelibrary.id("MATH_RANDOM"), args)
             elseif library == "table.sort" then
                 -- Without a comparator the sort step compares with `<` itself.
                 local count = #(node.args.exprs or {})

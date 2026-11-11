@@ -348,6 +348,29 @@ export const functions: {[string]: any} = {
             table.insert(t, position as integer, value)
         end
     end,
+    ["math.random"] = function(...: any): number
+        local count = select("#", ...)
+        if count == 0 then
+            return math.random()
+        elseif count == 1 then
+            return math.random((select(1, ...) as integer))
+        elseif count == 2 then
+            return math.random((select(1, ...) as integer), (select(2, ...) as integer))
+        end
+        error("wrong number of arguments to 'random'", 2)
+    end,
+    ["math.randomseed"] = function(seed: any, ...: any): nil
+        if type(seed) ~= "number" then
+            error("expected an integer", 2)
+        end
+        if seed ~= seed or seed == math.huge or seed == -math.huge or seed % 1 ~= 0 then
+            error("expected an exact integer", 2)
+        end
+        if seed < math.mininteger or seed > math.maxinteger then
+            error("integer out of range", 2)
+        end
+        hostcalls.seedrandom(seed)
+    end,
     ["math.type"] = function(x: any): string?
         return math.type(x)
     end,

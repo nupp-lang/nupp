@@ -157,6 +157,7 @@ local CASES: {[string]: {
     stringgmatchvalues = {fixture = "catalog-string-gmatch-values", version = 8},
     scalarmath = {fixture = "catalog-scalar-math", version = 8, follow = true},
     scalarrandom = {fixture = "catalog-scalar-random", version = 8, follow = true},
+    randomvalues = {fixture = "catalog-random-values", version = 8, follow = true},
     scalarmutation = {fixture = "catalog-scalar-mutation", version = 8, follow = true},
     boolean = {fixture = "catalog-boolean", version = 2},
     nilValue = {fixture = "catalog-nil", version = 2},
