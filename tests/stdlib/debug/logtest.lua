@@ -620,11 +620,36 @@ end
 
 function M.theLoggingViewLandsOnlyInModulesThatLog()
     local without = compile("local m = {}\nreturn m", "amb")
-    assert(without:find('require("debug.log")', 1, true), "startup initializes the warning function")
+    testAssert.eq(without:find('require("debug.log")', 1, true), nil, "a module that never warns loads no logging")
     assert(not without:find('.formodule(', 1, true), "a module that never logs needs no logging view")
+
+    local warns = compile("warn('m')", "amb")
+    assert(warns:find('require("debug.log")', 1, true) ~= nil, "a module that names warn initializes it")
+    local member = compile("local t = {warn = 1}\nprint(t.warn)", "amb")
+    testAssert.eq(member:find('require("debug.log")', 1, true), nil, "a field named warn is not the global")
 
     local with = compile("debug.log.warn('m')", "amb")
     assert(with:find('require("debug.log")', 1, true) ~= nil, "and a module that logs requires it once")
+end
+
+-- The global exists before anything loads `debug.log`, and its first call loads
+-- the module and hands over to the real function.
+function M.theWarnStubLoadsLoggingOnItsFirstCall()
+    local saved = {warn = rawget(_G, "warn"), stub = rawget(_G, "__nuppWarnStub"), log = package.loaded["debug.log"]}
+    local managed = require("nupp.runtime.managed")
+    rawset(_G, "__nuppWarnStub", nil)
+    package.loaded["debug.log"] = nil
+    managed.install({}, _G)
+    local stub = rawget(_G, "warn")
+    assert(stub ~= nil and stub == rawget(_G, "__nuppWarnStub"), "startup publishes the warning function")
+    testAssert.eq(package.loaded["debug.log"], nil, "and does not load logging to do it")
+    warn("@off")
+    assert(package.loaded["debug.log"] ~= nil, "the first warning loads logging")
+    assert(rawget(_G, "warn") ~= stub, "and logging replaces the stub")
+    warn("@on")
+    rawset(_G, "warn", saved.warn)
+    rawset(_G, "__nuppWarnStub", saved.stub)
+    package.loaded["debug.log"] = saved.log
 end
 
 -- Every call written through the `log` path runs from a generated module rather
