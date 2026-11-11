@@ -231,7 +231,7 @@ taking the instance first: `initializer(storage, ...)` fills storage the caller
 already holds and returns it. Calling the declaration allocates an instance and
 calls the same body. The
 generated runtime protocol records this hidden member in the declaration's derive
-metadata. A field-list initializer applies a field default where its argument is
+metadata, and `types.reflect.initializer(T)` returns it. A field-list initializer applies a field default where its argument is
 nil, which is the one place that can, since a positional call never passes
 through the checker's default filling.
 
@@ -239,6 +239,35 @@ The compiler refuses the request on a declaration whose body could notice the
 reuse: several constructors, a constructor that lets `self` escape or moves a
 `takes` parameter into a field, an affine field, or a generic owner, each
 reported as `NUPP2810` on the application.
+
+### Runtime data
+
+`data` carries what a provider decided about a declaration to the package's
+runtime code. Each key of the table is stored with the declaration as given; a
+provider names its own key, so data from several providers on one owner stays
+apart. `types.reflect.derived(T, key)` reads one declaration's value, and
+`types.reflect.declarations(key)` iterates every loaded declaration that has
+one:
+
+```nupp:fragment
+@comptime
+function M.Component(info: types.derive.Info): types.derive.Result<M.Value>
+    return types.derive.implement {data = {component = {name = info.qualifiedname}}}
+end
+
+function M.find(name: string): Type<unknown>?
+    for declaration, data in types.reflect.declarations("component") do
+        if data.name == name then
+            return declaration
+        end
+    end
+
+    return nil
+end
+```
+
+A declaration registers when its module loads, so `declarations` covers the
+modules loaded when the iteration starts, in no particular order.
 
 ### Filesystem inputs
 

@@ -1,0 +1,43 @@
+local provider = require("tests.fixtures.ecsderiveprovider")
+local tablemodule = require("tests.fixtures.ecsderivetable")
+
+@derive(provider.Component)
+local struct Position
+    x: number = 7
+end
+
+@derive(provider.Component)
+local record Label
+    text: string = "label"
+end
+
+local record Plain
+    value: integer
+end
+
+assert(types.reflect.derived(Position, "ecs").name == "tests.fixtures.derivereflect_consumer.Position")
+assert(types.reflect.derived(tablemodule.Position, "ecs").name == "tests.fixtures.ecsderivetable.Position")
+assert(types.reflect.derived(Label, "other") == nil)
+assert(types.reflect.derived(Plain, "ecs") == nil)
+
+local value = Position()
+value.x = 0
+assert(types.reflect.initializer(Position))(value)
+assert(value.x == 7)
+local label = Label()
+assert(assert(types.reflect.initializer(Label))(label, "forwarded") == label)
+assert(label.text == "forwarded")
+assert(types.reflect.initializer(Plain) == nil)
+
+local seen: {[string]: boolean} = {}
+for declaration, data in types.reflect.declarations("ecs") do
+    assert(types.reflect.derived(declaration, "ecs") == data)
+    seen[data.name] = true
+end
+assert(seen["tests.fixtures.derivereflect_consumer.Position"])
+assert(seen["tests.fixtures.derivereflect_consumer.Label"])
+assert(seen["tests.fixtures.ecsderivetable.Position"])
+for _ in types.reflect.declarations("absent") do
+    error("no declaration carries data under absent")
+end
+print("reflected derive data")

@@ -1534,6 +1534,38 @@ record types.reflect
     --- constructor parameters. An unresolved forward declaration returns nil.
     runtimetype: function(info: Info, index: integer): Type<unknown>?
 
+    --- Reads the data a derive provider attached to a declaration.
+    ---
+    --- A provider's `types.derive.implement{data = {[key] = value}}` stores `value`
+    --- on each declaration it derives. The value is the provider's own and is
+    --- returned as stored.
+    ---
+    --- @param typeobject the declaration witness
+    --- @param key the key the provider stored its data under
+    --- @return the stored value, or nil when the declaration has none under `key`
+    derived: function<T>(typeobject: Type<T>, key: string): any
+
+    --- A declaration's minted initializer: `initializer(instance, ...)` runs the
+    --- declaration's constructor body on storage the caller already holds and
+    --- returns that storage.
+    type Initializer = function(instance: any, ...: any): any
+
+    --- Reads the initializer a derive provider requested with `initializer = true`.
+    ---
+    --- @param typeobject the declaration witness
+    --- @return the initializer, or nil when no provider requested one
+    initializer: function<T>(typeobject: Type<T>): Initializer?
+
+    --- Iterates the declarations whose derive data has `key`, with that data.
+    ---
+    --- A declaration registers when its module loads, so the iteration covers the
+    --- modules loaded when it starts, in no particular order. A module loaded
+    --- during the iteration is not added to it.
+    ---
+    --- @param key the key the provider stored its data under
+    --- @return an iterator of each declaration witness and its data under `key`
+    declarations: function(key: string): function(): (Type<unknown>?, any)
+
     --- Reflects a concrete type for use inside a `comptime` block.
     ---
     --- ```nupp
