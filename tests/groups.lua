@@ -601,7 +601,7 @@ compiler/comptime/derive/providers/public
 compiler/comptime/derive/runtime
 compiler/lua
 compiler/project
-compiler/project/contracts/build
+compiler/project/contracts/builds
 compiler/project/contracts/check
 compiler/project/contracts/cross/aggregate
 compiler/project/contracts/cross/contracts
