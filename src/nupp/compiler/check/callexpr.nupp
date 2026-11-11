@@ -915,7 +915,11 @@ function callexpr.install(c: state.Checker): state.ExprHandlers
                 c.markTemporaryConsumed(args[1])
                 local entry = args[1] and c.ownershipEntry(args[1]) or nil
                 local capability = c.capabilityOf(valueT, entry)
+                -- A borrow recorded on the value rather than in its type, such as a
+                -- writer that `borrows (self)` of a buffer, would not travel with the
+                -- cell.
                 local selfContained = #args == 1
+                    and #c.own.rootsOf(args[1]) == 0
                     and capability
                     and T.capabilityHasMovable(capability)
                     and not T.capabilityTransferOnly(capability)

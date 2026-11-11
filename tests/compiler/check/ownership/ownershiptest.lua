@@ -1511,6 +1511,19 @@ function M.managedCellsRejectCapabilitiesTheyCannotDischarge()
     )
 end
 
+function M.managedCellsRejectBorrowedWriters()
+    for _, expression in ipairs({"buffer:writer()", "debug.log.writersink(buffer:writer())",}) do
+        local source = "local function install(): nil\n"
+            .. "    local buffer = bytes.Buffer.create()\n"
+            .. "    local cell = own.manage("
+            .. expression
+            .. ")\n"
+            .. "    cell:close()\n"
+            .. "end"
+        testAssert.eq(codes(source), "NUPP2612", expression)
+    end
+end
+
 function M.dynamicErasureAndBorrowEscapesHaveDedicatedDiagnostics()
     testAssert.eq(codes(table.concat({RESOURCE, "local value: any = resource_new()",}, "\n")), "NUPP2611")
 
