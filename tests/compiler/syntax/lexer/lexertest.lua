@@ -397,8 +397,8 @@ function M.longBracketsNumeralsAndWhitespaceEdges()
     testAssert.eq(errorsOf("a\vb\fc"), "")
 end
 
--- `stringValue` decodes escapes itself; it must agree with Lua, whose syntax
--- they are, on every literal Lua accepts, and answer nil on every one it refuses.
+-- `stringValue` decodes escapes itself. Compare the shared string syntax with
+-- Lua; the language's Unicode limit is tested separately below.
 function M.stringValueAgreesWithLua()
     local literals = {
         [["plain"]],
@@ -416,7 +416,6 @@ function M.stringValueAgreesWithLua()
         [["\a\b\f\r\v"]],
         [["\256"]],
         [["\xZZ"]],
-        [["\u{110000}"]],
         [["\u{}"]],
         [["\q"]],
         [["unterminated]],
@@ -446,6 +445,12 @@ newline"]],
         end
         testAssert.eq(lexer.stringValue(literal), want, "value of " .. literal)
     end
+end
+
+function M.unicodeEscapesRespectTheLanguageLimit()
+    testAssert.eq(lexer.stringValue([["\u{10FFFF}"]]), "\244\143\191\191")
+    testAssert.eq(lexer.stringValue([["\u{110000}"]]), nil)
+    testAssert.eq(lexer.stringValue([["\u{7FFFFFFF}"]]), nil)
 end
 
 return M
