@@ -46,7 +46,17 @@ export type DecodeOptions = {
     arenas: {[string]: {any}}?,
 
     --- Where each mounted type came from, so encoding can reference it.
-    origins: {[any]: any}?
+    origins: {[any]: any}?,
+
+    --- The reader's own declaration for a key its environment declares itself, such
+    --- as a carried library module's: loads that module first if it has not been.
+    --- Returns nil when the key is not one the reader declares, and nil and why when
+    --- it is but the reader cannot produce it. An image describes a declaration it
+    --- does not own as fully as one it does, so without this a reader that had not
+    --- yet loaded the library would allocate a second copy under the same key, and
+    --- its own check of that library would later meet the copy instead of declaring
+    --- the type.
+    carried: (function(string): (any?, string?))?
 }
 
 local PRIMITIVES: {
@@ -697,6 +707,7 @@ export function decode(image: any, options: DecodeOptions?): (any?, string?)
     local nominalMap = options and options.nominals or {}
     local arenaMap = options and options.arenas or {}
     local origins = options and options.origins or nil
+    local carried = options and options.carried or nil
     local declarations: {integer} = {}
     local reserved: {any} = {}
 
@@ -719,7 +730,17 @@ export function decode(image: any, options: DecodeOptions?): (any?, string?)
         elseif node.nominal then
             local key = type(node.declarationKey) == "string" and node.declarationKey
                 or namespace .. "nominal\0" .. tostring(index)
-            local nominal = nominalMap[key]
+            local owned: any? = nil
+            if carried ~= nil and not node.external and type(node.declarationKey) == "string" then
+                local problem: string? = nil
+                owned, problem = carried(key)
+                if problem ~= nil then
+                    return nil, "the module interface references carried declaration " .. tostring(
+                        node.name
+                    ) .. ": " .. tostring(problem)
+                end
+            end
+            local nominal = owned or nominalMap[key]
             if node.external and (nominal == nil or nominal.selfType == nil) then
                 return nil, "the module interface references unavailable declaration " .. tostring(
                     node.name
@@ -730,7 +751,9 @@ export function decode(image: any, options: DecodeOptions?): (any?, string?)
                 nominalMap[key] = nominal
             end
             built[index] = nominal
-            if not node.external then
+            -- The reader's own declaration already has the surface its own check gave
+            -- it, so only a declaration this image allocated is filled from the image.
+            if not node.external and owned == nil then
                 declarations[#declarations + 1] = index
             end
         elseif node.kind == "typevar" then

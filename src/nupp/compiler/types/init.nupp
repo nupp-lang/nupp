@@ -3810,6 +3810,12 @@ function types.nominal(name: string, declKind: string, declarationKey: string?):
     return t
 end
 
+--- The nominal this process already allocated for `declarationKey`, or nil when it
+--- has none. Only a worker keeps keyed declarations, so outside one this is nil.
+function types.declaredNominal(declarationKey: string): types.Nominal?
+    return declaredNominals[declarationKey]
+end
+
 --- The declaration key of a record declared inside `owner`'s body, at `offset` in
 --- the owner's source, or nil when the owner has no key to extend.
 function types.nestedDeclarationKey(owner: types.Nominal, offset: integer?): string?
