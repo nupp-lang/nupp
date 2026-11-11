@@ -5876,6 +5876,14 @@ export function generate(
                 if slot then
                     e(slot .. "=__p; ")
                 end
+                -- An owner moved in, as in `frame = a`, is the target's from here
+                -- on. Clear the source's flag too, or its region closes the value
+                -- the target now holds.
+                local source = ownershipMoveOf(x)
+                local sourceActive = source and activeFlag(source) or nil
+                if sourceActive and sourceActive ~= active then
+                    e(sourceActive .. "=false; ")
+                end
                 e(active .. (spreads and "=true; return __p, ... end)(" or "=true; return __p end)("))
                 emit(x)
                 e(")")

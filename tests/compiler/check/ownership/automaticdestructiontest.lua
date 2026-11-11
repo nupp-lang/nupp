@@ -578,6 +578,36 @@ function M.partialFieldMovesAndReinitializationKeepExactObligations()
     testAssert.eq(chunk(), "abc")
 end
 
+function M.anOwnerMovedIntoAReinitializedOwnerClosesOnce()
+    local chunk = compile(
+        PRELUDE .. table.concat(
+            {
+                "",
+                "local function pair(name: string): (affine(Resource, close_resource), integer)",
+                "   return open_resource(name), #name",
+                "end",
+                "local function run(): string",
+                "   local held = open_resource('a')",
+                "   own.drop(held)",
+                "   do",
+                "      local moved = open_resource('b')",
+                "      held = moved",
+                "   end",
+                "   local closedInside = calls",
+                "   local size: integer",
+                "   own.drop(held)",
+                "   held, size = pair('cc')",
+                "   own.drop(held)",
+                "   return closedInside .. tostring(size)",
+                "end",
+                "return run() .. ':' .. calls",
+            },
+            "\n"
+        )
+    )
+    testAssert.eq(chunk(), "a2:abcc")
+end
+
 function M.structuredExitsRunCleanup()
     local chunk = compile(
         PRELUDE .. table.concat(
