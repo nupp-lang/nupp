@@ -86,7 +86,13 @@ local function coreLoad(result, name, path)
         return nil, "fragments run on the VM or the native core"
     end
     local display = path or (name or "main") .. ".nupp"
-    local compiled, bytes, problem = pcall(corechunk.compileProgram, result.source, display, "@" .. display, name or "main")
+    local compiled, bytes, problem = pcall(
+        corechunk.compileProgram,
+        result.source,
+        display,
+        "@" .. display,
+        name or "main"
+    )
     if not compiled then
         return nil, tostring(bytes)
     elseif not bytes then
@@ -98,6 +104,39 @@ local function coreLoad(result, name, path)
         if failure ~= nil then
             error(failure, 0)
         end
+
+        return value
+    end
+end
+
+local function checkedCoreImage(result, name, path)
+    local checked = assert(result.fragmentCheck, "checked fragment diagnostics are unavailable")
+    assert(checked.root == result.root and checked.symbols == result.symbols, "fragment was checked again")
+    assert(checked.moduleName == name and result.moduleName == name, "checked fragment module identity differs")
+    assert(result.declaredModuleName == name, "a checked fragment function entry is not yet available on the core")
+    assert(path == checked.path, "checked fragment path differs")
+    local catalog = require(
+        "helpers.recordfactory"
+    ).describe({{name = name, path = path, parsed = result, diagnostics = checked.diagnostics,}}, name)
+    local version = 8
+    local lowered = require(
+        "nupp.compiler.vm.programgraph"
+    ).compile(catalog, require("nupp.compiler.vm.taggedprofile").forVersion(version))
+    local executable = require("nupp.compiler.vm.coregraphexecutable").fromChecked(lowered, version)
+
+    return require("nupp.compiler.vm.coreartifact").chunk(executable)
+end
+
+local function coreModule(result, name, path)
+    local bytes = checkedCoreImage(result, name, path)
+
+    -- Loading a module chunk starts its initializer. Defer that work until
+    -- the caller runs the fragment, as the VM's image loader does.
+    return function(...)
+        assert(select("#", ...) == 0, "checked module fragments do not accept arguments on the core")
+        local value, problem = load(bytes, "@" .. path, "b")
+        assert(problem == nil, problem)
+
         return value
     end
 end
@@ -107,6 +146,12 @@ end
 function program.load(result, name, path)
     local loadImage = rawget(_G, "__nupp_load_image")
     if not loadImage then
+        local checked = result.fragmentCheck
+        local module = name or "main"
+        if checked and result.declaredModuleName == module then
+            local ok, chunk = pcall(coreModule, result, module, path or checked.path)
+            return ok and chunk or nil, not ok and tostring(chunk) or nil
+        end
         return coreLoad(result, name, path)
     end
     installSourceModules(loadImage)
