@@ -1,9 +1,70 @@
 @!internal
 module nupp.runtime.managed
 
+-- The name below is built at run time so the build does not count `debug.log`
+-- as a dependency of every module: a program that never warns does not ship it.
+const _DYNAMIC_REQUIRES = "@requires-dynamically nothing"
+
+-- `warn` exists from startup, as `debug.log` documents, but the logging module
+-- loads on the first warning rather than in every module's prologue. A module
+-- that names `warn` still loads it eagerly and carries it in its closure; this
+-- covers callers the compiler cannot see, such as plain Lua. Without `debug.log`
+-- in the program, a warning goes to stderr the way stock Lua writes one.
+local function installWarn(runtime: any): nil
+    local logModule = "debug" .. "." .. "log"
+    if package.loaded[logModule] ~= nil or rawget(runtime, "__nuppWarnStub") ~= nil then
+        return
+    end
+    local enabled = true
+    local stub: any = nil
+
+    local function fallback(...: any): nil
+        local count = select("#", ...)
+        local message = ""
+        for index = 1, count do
+            local part = select(index, ...)
+            if type(part) ~= "string" and type(part) ~= "number" then
+                error(("bad argument #%d to 'warn' (string expected, got %s)"):format(index, type(part)), 3)
+            end
+            message = message .. tostring(part)
+        end
+        if count == 1 and message:sub(1, 1) == "@" then
+            if message == "@on" then
+                enabled = true
+            elseif message == "@off" then
+                enabled = false
+            end
+            return
+        end
+        local hostio = rawget(runtime, "io")
+        local stderr = hostio and hostio.stderr
+        if enabled and stderr then
+            stderr:write("Lua warning: ", message, "\n")
+        end
+    end
+
+    stub = function(...: any): nil
+        local ok, problem = pcall(require, logModule)
+        if not ok and not tostring(problem):find("module '" .. logModule .. "' not found", 1, true) then
+            error(problem, 0)
+        end
+        local installed = rawget(runtime, "warn")
+        if ok and installed ~= stub then
+            return installed(...)
+        end
+
+        -- Missing from the program, or warned from inside its own initialization.
+
+        return fallback(...)
+    end
+    rawset(runtime, "__nuppWarnStub", stub)
+    rawset(runtime, "warn", stub)
+end
+
 -- Reuse one ownership runtime across module initialization.
 export function install(__nupp: any, runtime: any): nil
     if not rawget(__nupp, "__managedRuntimeReady") then
+        installWarn(runtime)
         local __nuppManagedBrand = runtime.__nuppManagedBrand
         if not __nuppManagedBrand then
             __nuppManagedBrand = {};

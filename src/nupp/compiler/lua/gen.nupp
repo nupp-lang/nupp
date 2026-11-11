@@ -10331,8 +10331,24 @@ export function generate(
     if not installingManaged then
         pluck.needRuntimeEffect("runtime.managed")
     end
+    -- `nupp.runtime.managed` publishes a `warn` that loads `debug.log` on its first
+    -- call, so only a module that names the global pays for loading it at startup
+    -- and carries it in its closure. A field or method spelled `warn` is not the
+    -- global; nor is a key or an assignment target. A local that shadows it costs
+    -- one eager load and nothing more.
     if not installingManaged and (result.declaredModuleName or result.moduleName) ~= "debug.log" then
-        pluck.needRuntimeEffect("runtime.warn")
+        local tokens = result.tokens or {}
+        for index, tok in ipairs(tokens) do
+            local previous, following = tokens[index - 1], tokens[index + 1]
+            if tok.kind == "name"
+                and tok.text == "warn"
+                and not (previous and (previous.text == "." or previous.text == ":" or previous.text == "?."))
+                and not (following and following.text == "=")
+            then
+                pluck.needRuntimeEffect("runtime.warn")
+                break
+            end
+        end
     end
     local runtimeEffects = emittedFeatureEffects
     local canSuspend = native.expand(runtimeEffects)["runtime.suspension"] == true
