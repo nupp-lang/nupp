@@ -137,6 +137,7 @@ local function checkBatch(request: any): any
             nominals = context.nominals,
             arenas = context.interfaceArenas,
             origins = context.interfaceOrigins,
+            carried = session.inc.env.carriedDeclaration,
         })
         if semantics == nil then
             return {ok = false, problem = "import bundle: " .. tostring(decodeProblem)}

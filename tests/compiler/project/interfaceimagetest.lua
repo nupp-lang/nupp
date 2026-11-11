@@ -442,6 +442,67 @@ function M.referencesAnotherFilesIndexedDeclarationByKey()
     end
 end
 
+-- A carried library declaration is described in full, because the writer owns no
+-- file a reader indexes. A reader that declares the key itself uses its own and
+-- leaves it as its own check made it, rather than allocating a copy under that key
+-- for its later check of the library to meet.
+function M.usesTheReadersOwnCarriedDeclaration()
+    local key = "bytes\0" .. "120\0record"
+    local library = T.nominal("Buffer", "record", key)
+    library.fieldOrder = {"size"}
+    library.fieldDefs, library.writeFieldDefs = {}, {}
+    library.staticFieldDefs, library.staticWriteFieldDefs = {}, {}
+    library.byname = {size = T.integer}
+    local image = assert(encode({consumer = semantic("consumer", library)}))
+    local described = false
+    for _, node in ipairs(image.descriptor.types) do
+        if node.nominal and node.declarationKey == key then
+            assert(not node.external, "a carried declaration is not a project-index reference")
+            described = true
+        end
+    end
+    assert(described, "the image describes the carried declaration")
+
+    local own = T.nominal("Buffer", "record", key)
+    own.byname = {length = T.integer}
+    local asked = {}
+    local loaded = assert(
+        interfaceimage.decode(image, {
+            nominals = {},
+            carried = function(wanted)
+                asked[#asked + 1] = wanted
+                if wanted == key then
+                    return own
+                end
+
+                return nil
+            end,
+        })
+    )
+    testAssert.eq(loaded.consumer.exports.types.Value, own, "the reader's own declaration")
+    testAssert.eq(own.byname.size, nil, "the image's members are not written over the reader's")
+    testAssert.eq(own.byname.length, T.integer, "the reader's own members stay")
+    assert(#asked > 0, "the reader was asked for the carried key")
+
+    local decoded, problem = interfaceimage.decode(image, {
+        nominals = {},
+        carried = function(wanted)
+            if wanted == key then
+                return nil, "carried module bytes does not check"
+            end
+            return nil
+        end,
+    })
+    testAssert.eq(decoded, nil, "a reader that cannot produce its own declaration")
+    assert(problem:find("does not check", 1, true), problem)
+
+    -- With no environment to ask, the image's description is all there is.
+    local alone = assert(interfaceimage.decode(image, {nominals = {}}))
+    local copy = alone.consumer.exports.types.Value
+    assert(copy ~= own and copy ~= library, "a reader with no environment allocates the declaration")
+    testAssert.eq(copy.byname.size, T.integer, "from the image's members")
+end
+
 function M.givesEveryNominalItsOwnIdWhateverItsKey()
     local first = T.nominal("Twin", "record", "/project/sample.nupp\0" .. "1\0record")
     local second = T.nominal("Twin", "record", "/project/sample.nupp\0" .. "1\0record")
