@@ -139,14 +139,24 @@ export function firstByte(region: bytes.SharedBytes): integer
     return region:view(0, 1)[1]
 end
 
-const heap = table.Array
-
-export function stamp(takes frame: affine(table.Array<uint8>, table.Array.destroy), value: integer): affine(table.Array<uint8>, heap.destroy)
+export function stamp(takes frame: affine(table.Array<uint8>, table.Array.destroy), value: integer): affine(table.Array<uint8>, table.Array.destroy)
     local writable = frame:write()
     writable[1] = value % 256
     own.drop(writable)
 
     return frame
+end
+
+export function restamp(
+    takes frame: affine(table.Array<uint8>, table.Array.destroy),
+    value: integer
+): (affine(table.Array<uint8>, table.Array.destroy), integer)
+    local writable = frame:write()
+    local previous: integer = writable[1]
+    writable[1] = value % 256
+    own.drop(writable)
+
+    return frame, previous
 end
 
 export function total(takes values: affine(table.Array<int32>, table.Array.destroy)): integer
@@ -346,6 +356,14 @@ do
     local readable = frame:read()
     print(frame.count, readable[1])
 end
+local previous: integer
+do local scope = tasks.scope() ;
+    frame, previous = scope:work(frame, 7, jobs.restamp):await()
+end
+do
+    local readable = frame:read()
+    print(previous, readable[1])
+end
 own.drop(frame)
 
 local counts = heap.alloc(ffi.typeof<int32>(), 5)
@@ -418,7 +436,7 @@ end
     local executable = package.config:sub(1, 1) == "\\" and "build/app.exe" or "./build/app"
     local output, ranOk = run(dir, executable)
     assert(ranOk, "the native worker binary runs: " .. output)
-    local expected = "36\t36\t49\t10\tdone\t16\t18\ttrue\tkept\t1\t6\tnative string\t9\tschema\ttrue\ttrue\tdynamic\ttrue\t11\ttrue\tspare\ttrue\t13\ttrue\ttrue\theld\t112\tregion:17:99:true\tregion\n84\ntrue\ttrue\nfalse\ttrue\nfalse\ttrue\n64\t200\n45\nhi!\ntrue\ttrue\ntrue\n"
+    local expected = "36\t36\t49\t10\tdone\t16\t18\ttrue\tkept\t1\t6\tnative string\t9\tschema\ttrue\ttrue\tdynamic\ttrue\t11\ttrue\tspare\ttrue\t13\ttrue\ttrue\theld\t112\tregion:17:99:true\tregion\n84\ntrue\ttrue\nfalse\ttrue\nfalse\ttrue\n64\t200\n200\t7\n45\nhi!\ntrue\ttrue\ntrue\n"
     assert(output == expected, "results, records, captures, and failures cross structured cleanup: " .. output)
     local rustExecutable = stampRustHost(dir, dir .. "/build/app.payload.lua")
     local rustOutput, rustRanOk = run(dir, rustExecutable .. " check-stack")

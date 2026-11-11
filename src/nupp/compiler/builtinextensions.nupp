@@ -322,10 +322,26 @@ function extensions.definition(c: any, node: any, name: string): any
     return exports and exports.valueDefs and exports.valueDefs[name] or nil
 end
 
+local function projectedMembers(root: string): {string}
+    return ROOTS[root].direct and {} or {"value"}
+end
+
+-- What a read of the root lowers to: the module implementing it and the members
+-- read from that module. Code naming a builtin member by its written path, with
+-- no expression node to project, lowers through the same pair.
+function extensions.projection(env: any, root: string): (string?, {string}?)
+    local module = extensions.implementation(env, root)
+    if not module then
+        return nil, nil
+    end
+
+    return module, projectedMembers(root)
+end
+
 local function project(node: any, root: string): nil
     node.standardRoot = root
     node.qualifiedModule = ROOTS[root].module
-    node.qualifiedMembers = ROOTS[root].direct and {} or {"value"}
+    node.qualifiedMembers = projectedMembers(root)
     if ROOTS[root].direct then
         node.requiredModule = root
     end

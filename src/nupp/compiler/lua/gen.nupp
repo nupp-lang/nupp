@@ -2810,12 +2810,22 @@ export function generate(
 
     -- Publishes cleanup terminals to the registry under their declaration identity.
     -- `after` selects the registrations written: nil for all of them, and true or
-    -- false for the ones marked to follow the statement or to precede it.
+    -- false for the ones marked to follow the statement or to precede it. A
+    -- terminal written through a builtin root reads the root's implementing module,
+    -- as any other read of that root does.
     function pluck.emitRegistrations(list, line, after: boolean?, declarationName: string?)
         for _, registration in ipairs(list or {}) do
             if after == nil or (registration.after and true or false) == after then
                 local cleanup = registration.cleanup
-                e(("%s[%q]=%s;"):format(cleanupRegistry(), cleanup.key, declarationName or cleanup.name), line)
+                local terminal = declarationName or cleanup.name
+                local lowering = registration.lowering
+                if not declarationName and lowering then
+                    terminal = compilerModuleName(lowering.module)
+                    for _, member in ipairs(lowering.members) do
+                        terminal = terminal .. "." .. member
+                    end
+                end
+                e(("%s[%q]=%s;"):format(cleanupRegistry(), cleanup.key, terminal), line)
             end
         end
     end
@@ -5854,11 +5864,19 @@ export function generate(
                 local reinit = x.automaticOwnerReinit
                 local slot = not reinit.field and automaticSlot(reinit) or nil
                 x.automaticOwnerReinit = nil
-                pluck.loweredFunction("(function(__p) ", sourceLine(x), pluck.reasons.reinit)
+                -- A call can stand last in an assignment list, where Lua spreads
+                -- its results over the remaining targets. Pass them through, or
+                -- `owner, count = f()` reinitializes the owner and drops the count.
+                local spreads = kind == "call" or kind == "methodCall"
+                pluck.loweredFunction(
+                    spreads and "(function(__p, ...) " or "(function(__p) ",
+                    sourceLine(x),
+                    pluck.reasons.reinit
+                )
                 if slot then
                     e(slot .. "=__p; ")
                 end
-                e(active .. "=true; return __p end)(")
+                e(active .. (spreads and "=true; return __p, ... end)(" or "=true; return __p end)("))
                 emit(x)
                 e(")")
                 x.automaticOwnerReinit = reinit

@@ -245,7 +245,7 @@ export function install(c: state.Checker): Ops
     -- Cleanups
     ---------------------------------------------------------------------
 
-    local function addRegistration(node, cleanup, after)
+    local function addRegistration(node, cleanup, after, lowering)
         if not node or cleanup.kind ~= "function" then
             return
         end
@@ -256,7 +256,37 @@ export function install(c: state.Checker): Ops
                 return
             end
         end
-        registrations[#registrations + 1] = {cleanup = cleanup, after = after}
+        registrations[#registrations + 1] = {cleanup = cleanup, after = after, lowering = lowering}
+    end
+
+    -- A terminal written through a builtin root, such as `table.Array.destroy`,
+    -- names a member of the root's implementing module rather than of the host
+    -- global: a fresh Lua state has a `table` with no `Array`. Gen has only the
+    -- written path to publish, so the projection an ordinary read would take is
+    -- recorded beside it. A lexical binding of the root's name is not a builtin.
+    local function builtinLowering(name: string): any
+        local root = name:match("^[^.]+")
+        if not root or root == name or not builtinExtensions.has(root) then
+            return nil
+        end
+        local entry = c.lookupEntry(root)
+        local builtin = c.env and c.env.globals and c.env.globals[root]
+        if not entry or not builtin or entry.definition ~= builtin.definition then
+            return nil
+        end
+        local module, members = builtinExtensions.projection(c.env, root)
+        if not module then
+            return nil
+        end
+        local path = {}
+        for _, member in ipairs(members or {}) do
+            path[#path + 1] = member
+        end
+        for part in name:sub(#root + 2):gmatch("[^.]+") do
+            path[#path + 1] = part
+        end
+
+        return {module = module, members = path}
     end
 
     -- One key per cleanup declaration, and the same key every run. It names the
@@ -488,7 +518,7 @@ export function install(c: state.Checker): Ops
         )
         local key = cleanupKey(origin, entry and entry.canonicalName or name, definition)
         local cleanup = T.functionCleanup(key, name, knownType or entry and entry.t or nil)
-        addRegistration(registrationNode, cleanup, after == true)
+        addRegistration(registrationNode, cleanup, after == true, builtinLowering(name))
 
         return cleanup
     end
@@ -502,7 +532,12 @@ export function install(c: state.Checker): Ops
                     resolved[j] = resolvedFunctionCleanup(cleanup.name, at, registrationNode, false)
                 else
                     resolved[j] = cleanup
-                    addRegistration(registrationNode, cleanup, false)
+                    addRegistration(
+                        registrationNode,
+                        cleanup,
+                        false,
+                        cleanup.kind == "function" and builtinLowering(cleanup.name) or nil
+                    )
                 end
             else
                 resolved[j] = resolvedFunctionCleanup(cleanup, at, registrationNode, false)
