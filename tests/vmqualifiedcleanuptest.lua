@@ -68,4 +68,32 @@ function M.genericMethodRearmsAQualifiedExportTerminal()
     )
 end
 
+function M.loadedCheckedModuleDoesNotNeedItsSource()
+    local name = "checkedfixture"
+    local path = name .. ".nupp"
+    local result = parser.parse(
+        [[
+module checkedfixture
+
+local calls: integer = 0
+export function next(): integer
+    calls += 1
+
+    return calls
+end
+]],
+        path
+    )
+    local env = envMod.new(".", {cache = false})
+    local diagnostics = check.check(result, path, env, {moduleName = name})
+    testAssert.eq(#diagnostics, 0, diagnostics[1] and diagnostics[1].msg or "check")
+    result.source = nil
+
+    local load = assert(program.load(result, name, path))
+    local first, second = load(), load()
+    testAssert.eq(first.next(), 1)
+    testAssert.eq(first.next(), 2)
+    testAssert.eq(second.next(), 1)
+end
+
 return M

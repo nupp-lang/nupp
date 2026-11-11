@@ -19,11 +19,7 @@
 
 local check = require("nupp.compiler.check")
 
-local FRAGMENT_LINTS = {
-    ["unused-binding"] = "off",
-    ["discarded-result"] = "off",
-    ["inline-module-path"] = "off",
-}
+local FRAGMENT_LINTS = {["unused-binding"] = "off", ["discarded-result"] = "off", ["inline-module-path"] = "off",}
 
 local fragment = {}
 
@@ -32,23 +28,35 @@ for key, value in pairs(check) do
 end
 
 function fragment.check(result, filename, env, opts)
-    if opts and opts.lints then
-        return check.check(result, filename, env, opts)
-    end
     local merged = {}
     for key, value in pairs(opts or {}) do
         merged[key] = value
     end
-    local lints = {}
-    for name, level in pairs(FRAGMENT_LINTS) do
-        lints[name] = level
+    if opts and opts.lints then
+        merged.lints = opts.lints
+    else
+        local lints = {}
+        for name, level in pairs(FRAGMENT_LINTS) do
+            lints[name] = level
+        end
+        for name, level in pairs(env and env.config and env.config.lints or {}) do
+            lints[name] = level
+        end
+        merged.lints = lints
     end
-    for name, level in pairs(env and env.config and env.config.lints or {}) do
-        lints[name] = level
+    local diagnostics, moduleType, exports = check.check(result, filename, env, merged)
+    if result.declaredModuleName ~= nil and result.declaredModuleName == result.moduleName then
+        -- The checked module and the diagnostics its native lowering needs.
+        result.fragmentCheck = {
+            root = result.root,
+            symbols = result.symbols,
+            path = filename,
+            moduleName = result.moduleName,
+            diagnostics = diagnostics,
+        }
     end
-    merged.lints = lints
 
-    return check.check(result, filename, env, merged)
+    return diagnostics, moduleType, exports
 end
 
 return fragment
