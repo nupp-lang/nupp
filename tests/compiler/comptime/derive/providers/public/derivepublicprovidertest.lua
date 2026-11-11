@@ -11,4 +11,10 @@ function M.runsAProviderThatDeclaresItsOwnMember()
     assert(output == "<User>\n", output)
 end
 
+function M.aPackageReadsItsDeriveDataThroughReflection()
+    checksStrictly(STRICT.reflected, "the reflected derive data consumer checks strictly")
+    local output = ran(STRICT.reflected, "the reflected derive data consumer runs")
+    assert(output == "reflected derive data\n", output)
+end
+
 return M
