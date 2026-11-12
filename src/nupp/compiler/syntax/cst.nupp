@@ -1471,6 +1471,9 @@ record cst.CdefFunc is cst.Hints
     --- The library named by a `from` clause.
     fromLib: lexer.Token?
 
+    --- The loaded library a `from` clause names by a binding instead.
+    fromHandle: cst.NameExpr?
+
     --- Checked logical counted-pointer wrapper and its original physical C signature.
     countedAbi: any
 

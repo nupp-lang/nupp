@@ -637,6 +637,8 @@ local function cdefSignature(stat, publishedAs)
     end
     if stat.fromLib then
         result = result .. " from " .. stat.fromLib.text
+    elseif stat.fromHandle and stat.fromHandle.token then
+        result = result .. " from " .. stat.fromHandle.token.text
     end
 
     return result

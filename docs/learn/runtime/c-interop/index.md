@@ -52,6 +52,27 @@ pcall(ffi.cdef, "double point_length(struct nativePoint *);")
 const point_length = ffi.load("mini").point_length
 ```
 
+A program that finds its library itself, for example by searching beside its
+install for a file the platform loader would not find, names the loaded library
+instead of a string. The declaration reads the binding once, when it binds the
+symbol:
+
+```nupp:fragment
+const mini = ffi.load(findMiniLibrary())
+
+cdef function point_length(borrows point: nativePoint*): number from mini
+```
+
+```lua [Generated Lua]
+pcall(ffi.cdef, "double point_length(struct nativePoint *);")
+const point_length = mini.point_length
+```
+
+Keep the handle in a binding that lives as long as the functions do: a function
+pointer copied out of a library does not keep that library loaded. Use this
+form rather than `ffi.load(path, true)` and a bare declaration, because the
+default namespace on Windows does not include libraries loaded later.
+
 `cdef` bindings are always file-local. Export them through a declared module,
 as `import-c` does when it collects its declarations into one `export =`
 boundary. See [modules.md](../../language/modules.md) for how that boundary is declared.

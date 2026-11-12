@@ -3027,10 +3027,14 @@ export function parse(source: string, filename: string?): ParseResult
                 annotationColon(n, "before cdef return type")
                 n.ret = add(n, parseType())
             end
-            -- optional library clause [CS-10]: cdef function f(...) from "z"
+            -- optional library clause [CS-10]: cdef function f(...) from "z", or
+            -- from a name holding a library the program already loaded
             if cur().kind == "name" and cur().text == "from" and tokens[i + 1] and tokens[i + 1].kind == "string" then
                 add(n, advance())
                 n.fromLib = add(n, advance())
+            elseif cur().kind == "name" and cur().text == "from" and tokens[i + 1] and tokens[i + 1].kind == "name" then
+                add(n, advance())
+                n.fromHandle = add(n, parsePrimaryexp()) as cst.NameExpr
             end
             return n
         end

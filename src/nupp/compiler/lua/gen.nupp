@@ -6971,6 +6971,20 @@ export function generate(
                 local mapped = authored and pluck.hotLibraries[authored] or nil
                 ns = mapped and ("__nuppLib(%q)"):format(mapped) or ("__nuppLib(%s)"):format(x.fromLib.text)
             end
+
+            -- A handle the program loaded is an expression of its own, emitted where
+            -- the symbol is read so it names whatever the binding is called in the
+            -- output.
+            local function emitSymbol(target: string): nil
+                if x.fromHandle then
+                    e(target .. " = ")
+                    emit(x.fromHandle)
+                    e("." .. name)
+                else
+                    e(("%s = %s.%s"):format(target, ns, name))
+                end
+            end
+
             local storage = "const "
             if emitDepth.spill and emitDepth.spill.decls[x] then
                 storage = ""
@@ -6981,7 +6995,8 @@ export function generate(
                 if storage == "" then
                     emitDepth.spill.name(rawName)
                 end
-                e(('_G.pcall(__nuppFfi.cdef, %q) %s%s = %s.%s'):format(sig, storage, rawName, ns, name), line)
+                e(('_G.pcall(__nuppFfi.cdef, %q) '):format(sig), line)
+                emitSymbol(storage .. rawName)
                 e((" %s%s=function(%s) "):format(storage, name, table.concat(x.countedAbi.logicalNames or {}, ",")))
                 local groups: {[integer]: {any}} = {}
                 for _, mapping in ipairs(x.countedAbi.mappings or {}) do
@@ -7032,7 +7047,8 @@ export function generate(
                 end
                 e(") end")
             else
-                e(('_G.pcall(__nuppFfi.cdef, %q) %s%s = %s.%s'):format(sig, storage, name, ns, name), line)
+                e(('_G.pcall(__nuppFfi.cdef, %q) '):format(sig), line)
+                emitSymbol(storage .. name)
             end
             pluck.emitRegistrations(x.name.cleanupRegistrations, line, nil, x.name.text)
             return
