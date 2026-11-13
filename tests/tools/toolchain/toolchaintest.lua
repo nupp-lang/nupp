@@ -1076,6 +1076,14 @@ function M.networkAndTlsAreRustOnlyToolchainFeatures()
         driver:find('host_cargo_features="$host_cargo_features,native-compression"', 1, true),
         "a compression host does not select the Rust compression crate"
     )
+    assert(
+        driver:find("native%-uuid|uuid%)%s+host_cargo_features=\"%$host_cargo_features,native%-uuid\""),
+        "a UUID host does not select the Rust UUID provider"
+    )
+    assert(
+        read(ROOT .. "/native/crates/host/Cargo.toml"):find('native-uuid = ["nupp-native/uuid"]', 1, true),
+        "the UUID host feature does not enable the Rust UUID provider"
+    )
     for _, obsolete in ipairs({"libuv", "mbedtls"}) do
         assert(not driver:lower():find(obsolete, 1, true), "the toolchain still provisions " .. obsolete)
     end

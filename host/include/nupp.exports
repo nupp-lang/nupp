@@ -338,6 +338,10 @@ nuppNativeProcessStreamWrite
 nuppNativeProcessStreamRelease
 nuppNativeProcessWait
 
+[native-uuid]
+nuppNativeUuid4
+nuppNativeUuid7
+
 [native-gpu]
 nuppNativeGpuCostsOutput
 nuppNativeGpuCostsEnabled

@@ -39,7 +39,7 @@ GPU-free program does not acquire WGPU.
 | clocks and timer suspension | `base` | base host |
 | paths | `filesystem` | `native-files` |
 | asynchronous files | `files` | `native-files` |
-| UUID | `uuid` | provider archive |
+| UUID | `uuid` | provider archive, or `native-uuid` in an embedding SDK |
 | URI | `uri` | provider archive |
 | HTTP client | `http` | provider archive |
 | TCP, UDP, DNS, and Unix path sockets | `net` | `native-net` |
