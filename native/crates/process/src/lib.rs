@@ -385,6 +385,46 @@ impl From<io::Error> for SpawnError {
     }
 }
 
+/// The standard library searches `PATH` for a bare program name itself on
+/// Windows and reports a miss as `NotFound` with no error number. The number
+/// here is `ERROR_FILE_NOT_FOUND`, which `CreateProcessW` reports for a named
+/// path that does not exist.
+fn spawn_failure(error: io::Error) -> SpawnError {
+    #[cfg(windows)]
+    if error.raw_os_error().is_none() && error.kind() == io::ErrorKind::NotFound {
+        const ERROR_FILE_NOT_FOUND: i32 = 2;
+        return SpawnError {
+            message: error.to_string(),
+            os_code: Some(ERROR_FILE_NOT_FOUND),
+        };
+    }
+    error.into()
+}
+
+/// Returns the argument text for `<cmd> /d /s /c <line>`, the vector a shell
+/// string becomes on Windows. `cmd.exe` reads everything after `/s /c` as one
+/// command line, strips its outer quotes, and does not undo the C runtime
+/// escaping `Command::args` applies, so a quote in the line would reach the
+/// command as `\"`.
+#[cfg(windows)]
+fn shell_line(args: &[OsString]) -> Option<OsString> {
+    let [program, quiet, strip, run, line] = args else {
+        return None;
+    };
+    let stem = std::path::Path::new(program).file_stem()?;
+    if !stem.eq_ignore_ascii_case("cmd")
+        || !quiet.eq_ignore_ascii_case("/d")
+        || !strip.eq_ignore_ascii_case("/s")
+        || !run.eq_ignore_ascii_case("/c")
+    {
+        return None;
+    }
+    let mut text = OsString::from("/d /s /c \"");
+    text.push(line);
+    text.push("\"");
+    Some(text)
+}
+
 pub fn spawn(options: SpawnOptions) -> Result<Spawned, String> {
     spawn_with_error(options).map_err(|error| error.message)
 }
@@ -408,6 +448,16 @@ pub fn spawn_with_error(options: SpawnOptions) -> Result<Spawned, SpawnError> {
     }
     let runtime = nupp_native_runtime::executor().map_err(str::to_owned)?;
     let mut command = Command::new(&options.args[0]);
+    #[cfg(windows)]
+    match shell_line(&options.args) {
+        Some(text) => {
+            command.raw_arg(text);
+        }
+        None => {
+            command.args(&options.args[1..]);
+        }
+    }
+    #[cfg(not(windows))]
     command.args(&options.args[1..]);
     if options.clear_env {
         command.env_clear();
@@ -434,7 +484,7 @@ pub fn spawn_with_error(options: SpawnOptions) -> Result<Spawned, SpawnError> {
     // Entering the shared runtime supplies Tokio's process driver while spawn
     // performs the operating-system creation synchronously.
     let _guard = runtime.enter();
-    let mut child = command.spawn().map_err(SpawnError::from)?;
+    let mut child = command.spawn().map_err(spawn_failure)?;
     let pid = child
         .id()
         .ok_or_else(|| "the child has no process identifier".to_owned())?;
@@ -1090,6 +1140,45 @@ mod tests {
         assert!(!error.message.is_empty());
         #[cfg(unix)]
         assert_eq!(error.os_code, Some(libc::ENOENT));
+    }
+
+    #[test]
+    fn a_missing_bare_program_reports_an_os_error_number() {
+        let result = spawn_with_error(SpawnOptions {
+            args: vec![OsString::from("nupp-no-such-executable-8d368ef7")],
+            env: Vec::new(),
+            clear_env: false,
+            cwd: None,
+            modes: [StdioMode::Null, StdioMode::Null, StdioMode::Null],
+        });
+        let error = result.err().expect("a nonexistent executable cannot start");
+        assert!(!error.message.is_empty());
+        #[cfg(unix)]
+        assert_eq!(error.os_code, Some(libc::ENOENT));
+        #[cfg(windows)]
+        assert_eq!(error.os_code, Some(2));
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn a_shell_line_reaches_cmd_with_its_quotes() {
+        let _guard = child_test_guard();
+        let spawned = spawn(SpawnOptions {
+            args: vec![
+                OsString::from("cmd.exe"),
+                OsString::from("/d"),
+                OsString::from("/s"),
+                OsString::from("/c"),
+                OsString::from(r#""%COMSPEC%" /d /c exit 7"#),
+            ],
+            env: Vec::new(),
+            clear_env: false,
+            cwd: None,
+            modes: [StdioMode::Null, StdioMode::Null, StdioMode::Null],
+        })
+        .unwrap();
+        assert_eq!(wait_for_exit(&spawned.child).code, 7);
+        spawned.child.reap().unwrap();
     }
 
     #[test]
