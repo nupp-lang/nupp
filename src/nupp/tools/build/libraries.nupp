@@ -1,0 +1,252 @@
+module nupp.tools.build.libraries
+
+local fs = require("nupp.compiler.fs")
+local cst = require("nupp.compiler.syntax.cst")
+local stable = require("nupp.compiler.stable")
+const {type Binding} = require("nupp.compiler.project.libraries")
+
+local libraries = {}
+
+export type Sidecar = {
+    name: string,
+    path: string,
+    relative: string,
+    fingerprint: string,
+    caseInsensitive: boolean?
+}
+
+function libraries.collect(root: any, emitted: boolean): {string}
+    local found: {[string]: boolean} = {}
+
+    local function walk(node: any): nil
+        if node == nil or cst.isToken(node) then
+            return
+        end
+        if node.kind == "cdefFunc" and node.nativeLibraryName ~= nil and (not emitted or node.nativeLibraryEmitted) then
+            found[node.nativeLibraryName] = true
+        end
+        for _, child in ipairs(node) do
+            walk(child)
+        end
+    end
+
+    walk(root)
+    local names: {string} = {}
+    for name in pairs(found) do
+        names[#names + 1] = name
+    end
+    table.sort(names)
+
+    return names
+end
+
+function libraries.names(records: {[string]: any}): {string}
+    local found: {[string]: boolean} = {}
+    for _, record in pairs(records) do
+        if not record.external then
+            for _, name in ipairs(record.nativeLibraries or {}) do
+                found[name] = true
+            end
+        end
+    end
+    local names: {string} = {}
+    for name in pairs(found) do
+        names[#names + 1] = name
+    end
+    table.sort(names)
+
+    return names
+end
+
+local function closure(bindings: {[string]: Binding}, names: {string}): {string}
+    local seen: {[string]: boolean} = {}
+
+    local function visit(name: string): nil
+        if seen[name] then
+            return
+        end
+        seen[name] = true
+        local binding = bindings[name]
+        for _, dependency in ipairs(binding and binding.dependencies or {}) do
+            visit(dependency)
+        end
+    end
+
+    for _, name in ipairs(names) do
+        visit(name)
+    end
+    local ordered: {string} = {}
+    for name in pairs(seen) do
+        ordered[#ordered + 1] = name
+    end
+    table.sort(ordered)
+
+    return ordered
+end
+
+-- A test artifact may skip the module build, so its proof also reads every
+-- native file that the previous build actually used, including companions.
+function libraries.input(bindings: {[string]: Binding}, names: {string}, digest: function(string): string): string
+    local parts: {string} = {}
+    local contents: {[string]: string} = {}
+    for _, name in ipairs(closure(bindings, names)) do
+        local binding = bindings[name]
+        if binding == nil then
+            parts[#parts + 1] = name .. "\0<undeclared>"
+        else
+            local content = "<no-file>"
+            if binding.path ~= nil then
+                content = contents[binding.path]
+                if content == nil then
+                    local bytes = fs.readFile(binding.path)
+                    content = bytes ~= nil and digest(bytes) or "<missing>"
+                    contents[binding.path] = content
+                end
+            end
+            parts[#parts + 1] = name .. "\0" .. stable(binding) .. "\0" .. content
+        end
+    end
+
+    return digest(table.concat(parts, "\0"))
+end
+
+local function pathKey(path: string, caseInsensitive: boolean?): string
+    path = fs.absolute(path)
+    return (caseInsensitive or package.config:sub(1, 1) == "\\") and path:lower() or path
+end
+
+local function copy(
+    name: string,
+    source: string,
+    destination: string,
+    reserved: {[string]: boolean},
+    claimed: {[string]: string},
+    digest: function(string): string,
+    caseInsensitive: boolean?
+): boolean?, string?
+    local bytes, readError = fs.readFile(source)
+    if bytes == nil then
+        return nil, ("cannot read native library %q at %s: %s"):format(name, source, tostring(readError))
+    end
+    local key = pathKey(destination, caseInsensitive)
+    local sameFile = pathKey(destination) == pathKey(source)
+    local fingerprint = digest(bytes)
+    if claimed[key] ~= nil and claimed[key] ~= fingerprint then
+        return nil, ("native libraries with different contents map to %s (including %q)"):format(destination, name)
+    end
+    for path in pairs(reserved) do
+        if pathKey(path, caseInsensitive) == key and not sameFile then
+            local existing = fs.readFile(path)
+            if existing ~= nil and digest(existing) ~= fingerprint then
+                return nil, ("native library %q conflicts with another target output at %s"):format(name, destination)
+            end
+        end
+    end
+    claimed[key] = fingerprint
+    if not sameFile then
+        local existing = fs.readFile(destination)
+        if existing ~= bytes then
+            local copied, problem = fs.writeFile(destination, bytes)
+            if not copied then
+                return nil, ("cannot stage native library %q at %s: %s"):format(name, destination, tostring(problem))
+            end
+        end
+    end
+
+    return true
+end
+
+function libraries.stage(
+    root: string,
+    outDir: string,
+    bindings: {[string]: Binding},
+    names: {string},
+    reserved: {[string]: boolean},
+    digest: function(string): string,
+    standalone: boolean?,
+    target: string?
+): ({[string]: boolean}?, {Sidecar}?, string?)
+    local outputs: {[string]: boolean} = {}
+    local sidecars: {Sidecar} = {}
+    local claimed: {[string]: string} = {}
+    local staged: {[string]: boolean} = {}
+    local caseInsensitive = target ~= nil and target:find("windows", 1, true) ~= nil
+    for _, name in ipairs(closure(bindings, names)) do
+        local binding = bindings[name]
+        if binding == nil then
+            return nil, nil, ("native library %q is not declared"):format(name)
+        elseif binding.error ~= nil then
+            return nil, nil, binding.error
+        elseif binding.reference == "<default>" then
+            goto continue
+        end
+        local relative = binding.reference:match("^@(.+)$")
+        if relative ~= nil then
+            if standalone then
+                return nil, nil, (
+                    "standalone binary cannot carry shared native library %q; use static linkage"
+                ):format(name)
+            elseif binding.path == nil then
+                return nil, nil, ("native library %q has no resolved file"):format(name)
+            elseif not relative:match("^lib/[^/\\]+$") then
+                return nil, nil, ("native library %q has an invalid packaged path %s"):format(name, relative)
+            end
+            local destination = fs.join(root, fs.join(outDir, relative))
+            local copied, problem = copy(name, binding.path, destination, reserved, claimed, digest, caseInsensitive)
+            if not copied then
+                return nil, nil, problem
+            end
+            outputs[destination] = true
+            local key = pathKey(destination, caseInsensitive)
+            if not staged[key] then
+                sidecars[
+                    #sidecars + 1
+                ] = {
+                    name = name,
+                    path = destination,
+                    relative = relative,
+                    fingerprint = assert(claimed[key]),
+                    caseInsensitive = caseInsensitive
+                }
+                staged[key] = true
+            end
+        end
+        ::continue::
+    end
+
+    return outputs, sidecars
+end
+
+function libraries.beside(
+    artifact: string,
+    sidecars: {Sidecar},
+    reserved: {[string]: boolean},
+    digest: function(string): string
+): ({[string]: boolean}?, string?)
+    local outputs: {[string]: boolean} = {}
+    local claimed: {[string]: string} = {}
+    for _, sidecar in ipairs(sidecars) do
+        local staged = fs.readFile(sidecar.path)
+        if staged == nil or digest(staged) ~= sidecar.fingerprint then
+            return nil, ("staged native library %q changed before packaging at %s"):format(sidecar.name, sidecar.path)
+        end
+        local destination = fs.join(fs.dirname(artifact), sidecar.relative)
+        local copied, problem = copy(
+            sidecar.name,
+            sidecar.path,
+            destination,
+            reserved,
+            claimed,
+            digest,
+            sidecar.caseInsensitive
+        )
+        if not copied then
+            return nil, problem
+        end
+        outputs[destination] = true
+    end
+
+    return outputs
+end
+
+export = libraries
