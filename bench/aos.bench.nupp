@@ -14,8 +14,11 @@ local struct Particle
     vz: float
 end
 
-local N: integer = 200000
-local STEPS: integer = 60
+-- Sized for the packaged CLI, which interprets (`bin/nupp` sets NO_JIT): the
+-- LuaJIT-era 200000 x 60 kept the first arm short of its samples for the 45
+-- minutes a hosted runner gives the job.
+local N: integer = 10000
+local STEPS: integer = 10
 local DT = 1 / 60
 
 local function structs(_: any, _: Invocation): number
