@@ -13,8 +13,8 @@ export function verifyWasmInventory(execution, family, element, requested) {
   for (const key of symbols) {
     let match;
     if (family === 'primitives') {
-      match = key.match(new RegExp(`^simd_(primitives|memory|transpose|conversions|integeredges|bitpatterns|bitmemory|masks|maps)_${element}_[0-9]+\\.(probe|fields|interleaved|indexed|transpose|convert|edges|bits|memorybits|masks|mapmath)_([0-9]+|preferred)$`));
-      const names = { primitives: ['probe'], memory: ['fields', 'interleaved', 'indexed'], transpose: ['transpose'], conversions: ['convert'], integeredges: ['edges'], bitpatterns: ['bits'], bitmemory: ['memorybits'], masks: ['masks'], maps: ['mapmath'] };
+      match = key.match(new RegExp(`^simd_(primitives|memory|transpose|conversions|integeredges|bitpatterns|bitmemory|masks|maps|widen)_${element}_[0-9]+\\.(probe|fields|interleaved|indexed|transpose|convert|edges|bits|memorybits|masks|mapmath|widen|narrow)_([0-9]+|preferred)$`));
+      const names = { primitives: ['probe'], memory: ['fields', 'interleaved', 'indexed'], transpose: ['transpose'], conversions: ['convert'], integeredges: ['edges'], bitpatterns: ['bits'], bitmemory: ['memorybits'], masks: ['masks'], maps: ['mapmath'], widen: ['widen', 'narrow'] };
       if (!match || !names[match[1]].includes(match[2])) throw new Error(`Unexpected primitive probe: ${key}`);
       add(match[2], match[3]);
     } else if (family === 'reducers') {
@@ -30,6 +30,9 @@ export function verifyWasmInventory(execution, family, element, requested) {
     ? { probe: [lanes, 1], fields: [lanes, 1], interleaved: [lanes, 1],
         indexed: [lanes.filter((lane) => lane !== 'preferred' || !['int8', 'uint8', 'int16', 'uint16'].includes(element)), 1],
         convert: [lanes, 1], masks: [lanes, 1],
+        // A species widens to the next element of its ladder and narrows to the previous one.
+        ...(['number', 'int64', 'uint64'].includes(element) ? {} : { widen: [lanes, 1] }),
+        ...(['float', 'int8', 'uint8'].includes(element) ? {} : { narrow: [lanes, 1] }),
         transpose: [lanes.filter((lane) => lane !== 'preferred'), 1],
         ...(!['float', 'number'].includes(element) ? { edges: [lanes, 1] } : { bits: [lanes, 1], memorybits: [lanes, 1], mapmath: [lanes, 1] }) }
     : { horizontal: [lanes, 1],
