@@ -827,6 +827,10 @@ system.
 
 ## C dependencies
 
+Project source can bind a dependency through its logical name, without a
+generated binding. See [c-interop.md](../runtime/c-interop/index.md#logical-libraries)
+for project-owned libraries, runtime dependencies, and relocation.
+
 `kind = "c"` supports local sources, `pkgConfig`, compiler and linker flags,
 include directories, exact-revision Git sources, and shared or static linkage:
 

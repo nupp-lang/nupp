@@ -1767,6 +1767,21 @@ ENTRIES[
 ENTRIES[
     #ENTRIES + 1
 ] = {
+    code = "NUPP2912",
+    summary = "A project native library cannot be resolved",
+    rule = "A `from` string matching a project's `libraries` table or native dependency "
+    .. "uses that library's resolved file. Executable generation refuses a missing file "
+    .. "and names the library and the locations searched. A nonempty environment "
+    .. "override selects one exact file and does not fall back. Build the dependency, "
+    .. "correct its search directories, or correct the override before running or building. "
+    .. "Checking the C declaration alone does not require the native file.",
+    related = {"NUPP2904"},
+    docs = "docs/learn/runtime/c-interop/index.md#logical-libraries",
+}
+
+ENTRIES[
+    #ENTRIES + 1
+] = {
     code = "NUPP2909",
     summary = "A file given to AOT compilation has no `@aot` function",
     rule = "`nupp aot` inspects what the `@aot` functions in one file compile to, so "

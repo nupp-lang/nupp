@@ -6,6 +6,8 @@ local write = fixture.write
 local read = fixture.read
 local tempProject = fixture.tempProject
 local remove = fixture.remove
+local libraries = require("nupp.compiler.project.libraries")
+local fs = require("nupp.compiler.fs")
 
 local M = {}
 
@@ -573,6 +575,195 @@ return {build = {kind = "component", entries = {"main"}, reload = true, aot = "r
     testAssert.eq(config, nil, "a patched Lua body is not a rebuilt kernel")
     assert(err:find("reload cannot be combined with aot", 1, true), err)
     remove(compiled)
+end
+
+function M.libraryFilenamesFollowTheSelectedTarget()
+    testAssert.eq(libraries.filename("tecs-physics", "x86_64-pc-windows-gnu"), "tecs-physics.dll")
+    testAssert.eq(libraries.filename("tecs-physics", "aarch64-apple-darwin"), "libtecs-physics.dylib")
+    testAssert.eq(libraries.filename("tecs-physics", "aarch64-unknown-linux-gnu"), "libtecs-physics.so")
+end
+
+function M.searchesAreManifestRelativeAndNeverUseAnOldStagedCopy()
+    local file = libraries.filename("physics")
+    local root = fixture.tempProject({
+        ["nupp.lua"] = "return {}",
+        ["target/release/" .. file] = "fresh",
+        ["target/debug/" .. file] = "debug",
+        ["build/lib/" .. file] = "old staged copy",
+    })
+    local binding = libraries.resolve(root, {libraries = {physics = {search = {"target/release", "target/debug"}},}}, {
+        packaged = true
+    }).bindings.physics
+    testAssert.eq(binding.path, fs.absolute(root .. "/target/release/" .. file))
+    testAssert.eq(binding.reference, "@lib/" .. file)
+    testAssert.eq(binding.error, nil)
+    local project = libraries.resolve(root, {libraries = {physics = {search = {"target/debug"}}}}).bindings.physics
+    testAssert.eq(project.reference, fs.absolute(root .. "/target/debug/" .. file))
+    fixture.remove(root)
+end
+
+function M.exactOverridesDoNotSilentlyFallBack()
+    local file = libraries.filename("physics")
+    local root = fixture.tempProject({
+        ["nupp.lua"] = "return {}",
+        ["selected/custom.dll"] = "override",
+        ["native/" .. file] = "fallback",
+    })
+    local config = {libraries = {physics = {env = "PHYSICS_LIBRARY", search = {"native"}}}}
+    local selected = libraries.resolve(root, config, {
+        getenv = function()
+            return "selected/custom.dll"
+        end
+    }).bindings.physics
+    testAssert.eq(selected.path, fs.absolute(root .. "/selected/custom.dll"))
+    local missing = libraries.resolve(root, config, {
+        getenv = function()
+            return "missing.dll"
+        end
+    }).bindings.physics
+    testAssert.eq(missing.path, nil)
+    assert(missing.error:find("PHYSICS_LIBRARY=", 1, true), missing.error)
+    assert(missing.error:find(fs.absolute(root .. "/missing.dll"), 1, true), missing.error)
+    local empty = libraries.resolve(root, config, {
+        getenv = function()
+            return ""
+        end
+    }).bindings.physics
+    testAssert.eq(empty.path, fs.absolute(root .. "/native/" .. file))
+    fixture.remove(root)
+end
+
+function M.producerRecordsKeepTheirActualNamesAndSharedChildren()
+    local root = fixture.tempProject({
+        ["nupp.lua"] = "return {}",
+        ["native/custom-name.dylib"] = "parent",
+        ["native/child.dylib"] = "child",
+        ["native/static.a"] = "archive",
+    })
+    local config = {
+        dependencies = {
+            physics = {kind = "cargo", library = "different", dependencies = {"child", "static"}},
+            child = {kind = "c"},
+            static = {kind = "c"},
+        }
+    }
+    local records = {
+        physics = {usage = "target", output = root .. "/native/custom-name.dylib"},
+        child = {usage = "target", runtimeOutput = root .. "/native/child.dylib"},
+        static = {usage = "target", output = root .. "/native/static.a", staticOutput = root .. "/native/static.a"},
+    }
+    local bindings = libraries.resolve(root, config, {dependencies = records, packaged = true}).bindings
+    testAssert.eq(bindings.physics.reference, "@lib/custom-name.dylib")
+    testAssert.eq(table.concat(bindings.physics.dependencies, ","), "child")
+    assert(bindings.static.error:find("only static linkage", 1, true), bindings.static.error)
+    testAssert.eq(
+        libraries.resolve(root, config, {
+            dependencies = records,
+            standalone = true
+        }).bindings.static.reference,
+        "<default>"
+    )
+    records.physics.reference = "system_physics"
+    testAssert.eq(
+        libraries.resolve(root, config, {
+            dependencies = records
+        }).bindings.physics.reference,
+        "system_physics"
+    )
+    local host = require("nupp.compiler.targetlayout").hostKey()
+    if host then
+        local foreign = host:find("windows", 1, true) and "aarch64-apple-darwin" or "x86_64-pc-windows-gnu"
+        records.physics.reference = nil
+        local mismatch = libraries.resolve(root, config, {dependencies = records, target = foreign}).bindings.physics
+        assert(mismatch.error:find("target explicitly", 1, true), mismatch.error)
+        config.dependencies.physics.target = foreign
+        testAssert.eq(
+            libraries.resolve(root, config, {
+                dependencies = records,
+                target = foreign
+            }).bindings.physics.error,
+            nil
+        )
+    end
+    fixture.remove(root)
+end
+
+function M.projectResolutionReadsCompletedNativeDependencyRecords()
+    local root = fixture.tempProject({["nupp.lua"] = "return {}", ["native/custom.so"] = "library",})
+    fixture.write(
+        root .. "/build/.nupp-state.json",
+        require("serde.json").encodevalue({
+            dependencies = {physics = {usage = "target", output = fs.absolute(root .. "/native/custom.so")},}
+        })
+    )
+    local binding = libraries.resolve(root, {dependencies = {physics = {kind = "cargo"}}}).bindings.physics
+    testAssert.eq(binding.reference, fs.absolute(root .. "/native/custom.so"))
+    fixture.remove(root)
+end
+
+function M.missingUnusedLibrariesRemainDeclarative()
+    local root = fixture.tempProject({["nupp.lua"] = "return {}"})
+    local plan = libraries.resolve(root, {libraries = {unused = {search = {"not-built"}}}})
+    assert(plan.bindings.unused.error:find("not-built", 1, true), plan.bindings.unused.error)
+    testAssert.eq(plan.bindings.z, nil)
+    fixture.write(root .. "/native/" .. libraries.filename("parent"), "parent")
+    local parent = libraries.resolve(root, {
+        libraries = {
+            parent = {search = {"native"}, dependencies = {"missing"}},
+            missing = {search = {"not-built"}, dependencies = {"parent"}},
+        }
+    }).bindings.parent
+    assert(parent.error:find('requires "missing"', 1, true), parent.error)
+    fixture.remove(root)
+end
+
+function M.checkedCdefIdentityUsesTheResolvedLibrary()
+    local parser = require("nupp.compiler.syntax.parser")
+    local env = require("nupp.compiler.project.env")
+    local root = fixture.tempProject({["nupp.lua"] = "return {}"})
+    local configured = env.new(root, {
+        cache = false,
+        config = {
+            _nativeLibraryBindings = {physics = {name = "physics", reference = "@lib/physical.so", dependencies = {}},}
+        }
+    })
+    local result = parser.parse([[cdef function step(): int32 from '\112hysics'
+return step]], "main.nupp")
+    local diagnostics = require("helpers.fragment").check(result, "main.nupp", configured)
+    testAssert.eq(#diagnostics, 0, diagnostics[1] and diagnostics[1].msg)
+    local declaration = result.root[1][1]
+    testAssert.eq(declaration.nativeLibraryName, "physics")
+    testAssert.eq(declaration.resolvedLibrary, "@lib/physical.so")
+    testAssert.eq(declaration.cdefIdentity, "function\0@lib/physical.so\0step")
+    fixture.remove(root)
+end
+
+function M.manifestsValidateLogicalLibraryNamesAndCompanions()
+    local good = fixture.tempProject({
+        [
+            "nupp.lua"
+        ] = [[return {libraries = {
+        physics = {name = "tecs-physics", env = "PHYSICS_LIBRARY", search = {"target/release"}, dependencies = {"support"}},
+        support = {search = {"target/release"}, dependencies = {"physics"}},
+    }}]]
+    })
+    local config, problem = fixture.project.loadManifest(good)
+    assert(config, problem)
+    fixture.remove(good)
+    for _, bad in ipairs({
+        [[return {libraries = {["bad-name"] = {}}}]],
+        [[return {libraries = {physics = {serach = {"native"}}}}]],
+        [[return {libraries = {physics = {name = "../physics"}}}]],
+        [[return {libraries = {physics = {env = "BAD=VARIABLE"}}}]],
+        [[return {libraries = {physics = {dependencies = {"missing"}}}}]],
+        [[return {libraries = {physics = {}}, dependencies = {physics = {kind = "c"}}}]],
+    }) do
+        local root = fixture.tempProject({["nupp.lua"] = bad})
+        local value, invalid = fixture.project.loadManifest(root)
+        testAssert.eq(value, nil, bad)
+        assert(type(invalid) == "string", bad)
+        fixture.remove(root)
+    end
 end
 
 return M
