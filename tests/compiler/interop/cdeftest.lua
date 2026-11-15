@@ -16,13 +16,16 @@ local HERE = require("helpers.paths").tests
 -- checker suites do.
 local sharedEnv = envMod.new(HERE .. "/..")
 
-local function compile(src)
+local function compile(src, configure)
     local result = parser.parse(src, "test.nupp")
     testAssert.eq(#result.errors, 0, "syntax errors" .. (result.errors[1] and (": " .. result.errors[1].msg) or ""))
     local diags = check.check(result, "test.nupp", sharedEnv)
+    if configure then
+        configure(result)
+    end
     local code, genDiags = gen.generate(result, "test")
 
-    return code, diags, genDiags
+    return code, diags, genDiags, result
 end
 
 local function diagsOf(src)
@@ -62,6 +65,276 @@ local function run(src)
 end
 
 local M = {}
+
+local function checkedLibrary(result, path, problem)
+    local function visit(node)
+        if type(node) ~= "table" then
+            return
+        end
+        if node.kind == "cdefFunc" then
+            node.resolvedLibrary = path
+            node.nativeLibraryName = "physics"
+            node.nativeLibraryProblem = problem
+        end
+        for _, child in ipairs(node) do
+            visit(child)
+        end
+    end
+
+    visit(result.root)
+end
+
+local function libraryLoader(options)
+    options = options or {}
+    local code = compile("cdef function nupp_loader_probe(): int32 from 'physics'", function(result)
+        checkedLibrary(result, options.path or "C:/project/lib/physics.dll")
+    end)
+    local helper = assert(code:match("(const __nuppLibCache = {}.-end;)"), "library loader missing")
+    local state = {loads = {}, preloads = {}, freed = {}, handle = {}, library = {}, globals = {}}
+    local fake = {os = options.os or "Windows", C = {}}
+    function fake.cdef(source)
+        require("ffi").cdef(source)
+        state.declared = true
+    end
+
+    function fake.new()
+        return {}
+    end
+
+    function fake.string(buffer, length)
+        return buffer.value:sub(1, length)
+    end
+
+    function fake.load(path)
+        state.loads[#state.loads + 1] = path
+        if options.failLoad then
+            error("ffi loader refused the file", 0)
+        end
+
+        return state.library
+    end
+
+    function fake.C.GetLastError()
+        return 126
+    end
+
+    function fake.C.SetLastError(value)
+        state.restoredError = value
+    end
+
+    function fake.C.MultiByteToWideChar(codepage, flags, path, count, buffer)
+        assert(codepage == 65001 and flags == 8 and count == -1)
+        if buffer then
+            buffer.value = path
+        end
+
+        return #path + 1
+    end
+
+    function fake.C.GetFullPathNameW(wide, capacity, buffer)
+        state.widePath = wide.value
+        local absolute = options.absolute or [[C:\project\lib\physics.dll]]
+        if buffer then
+            buffer.value = absolute;
+            return #absolute
+        end
+
+        return #absolute + 1
+    end
+
+    function fake.C.LoadLibraryExW(absolute, reserved, flags)
+        assert(reserved == nil and flags == 8, "dependent DLLs require the altered search path")
+        state.preloads[#state.preloads + 1] = absolute.value
+        return not options.failPreload and state.handle or nil
+    end
+
+    function fake.C.FormatMessageA(flags, source, number, language, buffer)
+        assert(flags == 0x1200 and number == 126)
+        buffer.value = "Windows loader could not find a dependent DLL"
+        return #buffer.value
+    end
+
+    function fake.C.FreeLibrary(handle)
+        state.freed[#state.freed + 1] = handle
+        return 1
+    end
+
+    local chunk = assert(loadstring(helper .. " return __nuppLib", "@loader-probe"))
+    setfenv(
+        chunk,
+        setmetatable(
+            {
+                __nuppFfi = fake,
+                _G = state.globals,
+                debug = {
+                    getinfo = function()
+                        return {source = options.chunk or "@C:/artifact/modules/binding.lua"}
+                    end
+                },
+                io = {
+                    open = function(path)
+                        if options.existing and options.existing[path] then
+                            return {
+                                close = function()
+                                end
+                            }
+                        end
+                    end
+                },
+            },
+            {__index = _G}
+        )
+    )
+
+    return chunk(), state
+end
+
+function M.checkedLibraryPathsDriveOrdinaryAndCountedBindings()
+    for _, source in ipairs({
+        "cdef function nupp_loader_probe(): int32 from 'physics'",
+        "cdef function nupp_loader_probe(borrows values: const int32* countedBy(count), count: uint64): int32 from 'physics'",
+    }) do
+        local code, diagnostics, generated, result = compile(source, function(parsed)
+            checkedLibrary(parsed, "/resolved/libphysics.so")
+        end)
+        testAssert.eq(#diagnostics, 0)
+        testAssert.eq(#generated, 0)
+        assert(code:find('__nuppLib("/resolved/libphysics.so", "physics").nupp_loader_probe', 1, true), code)
+        assert(result.root.blocks[1].stats[1].nativeLibraryEmitted)
+        local default = compile(source, function(parsed)
+            checkedLibrary(parsed, "<default>")
+        end)
+        assert(default:find("__nuppFfi.C.nupp_loader_probe", 1, true), default)
+        assert(not default:find("const function __nuppLib", 1, true), default)
+    end
+end
+
+function M.missingLogicalLibrariesFailOnlyWhenTheirBindingsAreEmitted()
+    local source = "cdef function nupp_loader_probe(): int32 from 'physics'"
+    local code, diagnostics, generated, result = compile(source, function(parsed)
+        checkedLibrary(parsed, nil, "native library physics was not found at /looked/libphysics.so")
+    end)
+    testAssert.eq(#diagnostics, 0)
+    testAssert.eq(#generated, 1)
+    testAssert.eq(generated[1].code, "NUPP2912")
+    assert(generated[1].msg:find("/looked/libphysics.so", 1, true))
+    assert(not code:find("nupp_loader_probe", 1, true), code)
+    assert(not result.root.blocks[1].stats[1].nativeLibraryEmitted)
+    local erased, _, erasedDiagnostics = compile("if false then\n" .. source .. "\nend", function(parsed)
+        checkedLibrary(parsed, nil, "native library physics is missing")
+        require("nupp.compiler.lua.optimize").run(parsed, {level = 2})
+    end)
+    testAssert.eq(#erasedDiagnostics, 0)
+    assert(not erased:find("const function __nuppLib", 1, true), erased)
+    local _, _, _, retained = compile(source, function(parsed)
+        checkedLibrary(parsed, "/present/physics.so")
+    end)
+    local declaration = retained.root.blocks[1].stats[1]
+    assert(declaration.nativeLibraryEmitted)
+    declaration.nativeLibraryProblem = "now missing"
+    gen.generate(retained, "second-generation")
+    assert(not declaration.nativeLibraryEmitted, "a prior generation's retained marker survived a failure")
+end
+
+function M.windowsLibraryPathsPreloadTheirExactAbsoluteFileAndStayRooted()
+    local load, state = libraryLoader()
+    testAssert.eq(load("C:/project/lib/physics.dll", "physics"), state.library)
+    testAssert.eq(state.preloads[1], [[C:\project\lib\physics.dll]])
+    testAssert.eq(state.loads[1], "C:/project/lib/physics.dll", "ffi.load must keep the exact file identity")
+    assert(state.globals.__nuppLibraryRoots[state.handle], "the Windows loader handle must outlive the module")
+    assert(state.globals.__nuppLibraryRoots[state.library], "the FFI namespace must outlive its functions")
+    testAssert.eq(state.restoredError, 126)
+    testAssert.eq(load("C:/project/lib/physics.dll", "physics"), state.library)
+    testAssert.eq(#state.preloads, 1)
+    testAssert.eq(#state.loads, 1)
+    local relative = "C:/artifact/modules/../lib/physics.dll"
+    local shipped, shippedState = libraryLoader({
+        existing = {[relative] = true},
+        absolute = [[C:\artifact\lib\physics.dll]],
+    })
+    shipped("@lib/physics.dll", "physics")
+    testAssert.eq(shippedState.widePath, relative)
+    testAssert.eq(shippedState.preloads[1], [[C:\artifact\lib\physics.dll]])
+    testAssert.eq(shippedState.loads[1], relative)
+    local system, systemState = libraryLoader()
+    system("kernel32")
+    testAssert.eq(systemState.loads[1], "kernel32")
+    testAssert.eq(#systemState.preloads, 0, "ordinary platform library names must keep their loader behavior")
+    assert(not systemState.declared)
+end
+
+function M.nativeLibraryFailuresKeepLogicalNamesPathsAndLoaderReasons()
+    for _, options in ipairs({{failPreload = true}, {failLoad = true}, {os = "Linux", failLoad = true}}) do
+        local load, state = libraryLoader(options)
+        local ok, why = pcall(load, "C:/project/lib/physics.dll", "physics")
+        assert(not ok)
+        assert(why:find("native library physics", 1, true), why)
+        assert(why:find("C:/project/lib/physics.dll", 1, true), why)
+        assert(why:find(options.failPreload and "dependent DLL" or "ffi loader refused the file", 1, true), why)
+        if options.failPreload then
+            testAssert.eq(#state.loads, 0)
+        elseif options.os ~= "Linux" then
+            testAssert.eq(state.freed[1], state.handle, "a failed FFI load must release its unused preload")
+            assert(not state.globals.__nuppLibraryRoots[state.handle])
+        end
+    end
+    local load = libraryLoader()
+    local ok, why = pcall(load, "@lib/missing.dll", "physics")
+    assert(not ok and why:find("native library physics", 1, true), tostring(why))
+    assert(why:find("@lib/missing.dll", 1, true) and why:find("cannot find", 1, true), why)
+end
+
+function M.windowsLibrariesFindAnAdjacentDllAfterRelocation()
+    if not windows then
+        return testAssert.suite.skip("requires the Windows DLL loader")
+    end
+    local fixture = require("helpers.projectfixture")
+    local process = require("nupp.compiler.process")
+    local fs = require("nupp.compiler.fs")
+    local layout = require("nupp.compiler.targetlayout")
+    local pack, packError = require("nupp.compiler.compilerpacks").resolve(layout.hostKey())
+    assert(not packError, packError)
+    local dir = fixture.tempProject({
+        ["child.c"] = "__declspec(dllexport) int nupp_loader_adjacent_child(void) { return 42; }\n",
+        [
+            "parent.c"
+        ] = "__declspec(dllimport) int nupp_loader_adjacent_child(void); __declspec(dllexport) int nupp_loader_adjacent_parent(void) { return nupp_loader_adjacent_child(); }\n",
+    })
+
+    local function build(source, output, extra)
+        local args = {pack and pack.cc or "cc", "-shared"}
+        for _, flag in ipairs(pack and pack.compileFlags or {}) do
+            args[#args + 1] = flag
+        end
+        args[#args + 1] = source
+        for _, flag in ipairs(pack and pack.linkFlags or {}) do
+            args[#args + 1] = flag
+        end
+        for _, flag in ipairs(extra or {}) do
+            args[#args + 1] = flag
+        end
+        args[#args + 1] = "-o"
+        args[#args + 1] = output
+        testAssert.eq(process.run(args, {cwd = dir}), 0, "build adjacent DLL fixture")
+    end
+
+    local child = dir .. "/nupp_loader_adjacent_child.dll"
+    local parent = dir .. "/nupp_loader_adjacent_parent.dll"
+    local archive = dir .. "/child.dll.a"
+    build(dir .. "/child.c", child, {"-Wl,--out-implib," .. archive})
+    build(dir .. "/parent.c", parent, {archive})
+    assert(fs.mkdir(dir .. "/moved"))
+    assert(os.rename(child, dir .. "/moved/nupp_loader_adjacent_child.dll"))
+    local moved = dir .. "/moved/nupp_loader_adjacent_parent.dll"
+    assert(os.rename(parent, moved))
+    local callable = run(
+        ("cdef function nupp_loader_adjacent_parent(): int32 from %q\nreturn nupp_loader_adjacent_parent"):format(moved)
+    )
+    collectgarbage()
+    collectgarbage()
+    testAssert.eq(tonumber(callable()), 42, "the moved DLL resolves its sibling and survives its module's collection")
+    fixture.remove(dir)
+end
 
 function M.cdefFunctionTyping()
     assertClean("cdef function strlen(s: cstring): uint64\nstrlen('hi')")
