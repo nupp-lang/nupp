@@ -538,6 +538,28 @@ end
 -- Opening a session
 ----------------------------------------------------------------------------
 
+local function projectLibraries(config: any, rootDir: string): {[string]: any}
+    config = config or {}
+    if config._nativeLibraryBindings ~= nil then
+        return config._nativeLibraryBindings
+    end
+    local declared = config.libraries ~= nil
+    for _, dependency in pairs(config.dependencies or {}) do
+        if dependency.kind == "c" or dependency.kind == "cargo" then
+            declared = true
+        end
+    end
+    if not declared then
+        return {}
+    end
+    local target = config._target or require("nupp.compiler.project.projectconfig").targetConfig(config)
+
+    return require("nupp.compiler.project.libraries").resolve(rootDir, config, {
+        target = target and target.layoutTarget,
+        outDir = target and target.outDir,
+    }).bindings
+end
+
 --- The native libraries a project pins for reload, canonical and as configured.
 ---
 --- Read here rather than in the session alone, because a component built for reload
@@ -560,6 +582,13 @@ function hotSession.libraries(config: any, rootDir: string): {[string]: string},
     end
     local canonical: {[string]: string} = {}
     local spelled: {[string]: string} = {}
+    for name, binding in pairs(projectLibraries(config, rootDir)) do
+        if binding.path ~= nil and binding.reference ~= "<default>" and binding.error == nil then
+            local path = fs.absolute(binding.path)
+            spelled[name] = path
+            canonical[name] = fs.canonical(path)
+        end
+    end
     for name, path in pairs(libraries or {}) do
         if type(name) ~= "string" or name == "" or type(path) ~= "string" or path == "" then
             error("hotreload.libraries must map non-empty string names to non-empty paths", 2)
@@ -584,7 +613,14 @@ function hotSession.new(root: string?, opts: table?): hotSession.Session
     self.observedInputs = {}
     self.libraryPaths = {}
     self.libraryConfiguredPaths = {}
-    self.libraryPaths, self.libraryConfiguredPaths = hotSession.libraries(self.inc.env.config, self.inc.env.rootDir)
+    local config = {}
+    for key, value in pairs(self.inc.env.config or {}) do
+        config[key] = value
+    end
+    if self.inc.env.nativeLibraryBindings ~= nil then
+        config._nativeLibraryBindings = self.inc.env.nativeLibraryBindings
+    end
+    self.libraryPaths, self.libraryConfiguredPaths = hotSession.libraries(config, self.inc.env.rootDir)
 
     return self
 end
@@ -593,16 +629,22 @@ local function stringLiteral(text)
     if type(text) ~= "string" then
         return nil
     end
-    return text:match('^"(.*)"$') or text:match("^'(.*)'$") or text:match("^%[=+%[(.*)%]=+%]$")
+    local literal = loadstring("return " .. text)
+    if not literal then
+        return nil
+    end
+    local ok, value = pcall(literal)
+
+    return ok and type(value) == "string" and value or nil
 end
 
 local function nativeUses(parsed)
     local uses = {}
 
-    local function add(name, dynamic, node)
+    local function add(name, dynamic, node, resolved)
         local first = node and node[1]
         local line = first and cst.isToken(first) and first.line or 1
-        uses[#uses + 1] = {name = name, dynamic = dynamic, line = line}
+        uses[#uses + 1] = {name = name, dynamic = dynamic, line = line, resolved = resolved}
     end
 
     local function visit(node)
@@ -610,7 +652,14 @@ local function nativeUses(parsed)
             return
         end
         if (node.kind == "cdefFunc" or node.kind == "cdefStruct") and node.fromLib then
-            add(stringLiteral(node.fromLib.text), false, node)
+            if not (node.nativeLibraryName and node.resolvedLibrary == "<default>") then
+                add(
+                    node.nativeLibraryName or stringLiteral(node.fromLib.text) or node.resolvedLibrary,
+                    false,
+                    node,
+                    node.resolvedLibrary
+                )
+            end
         elseif node.cheaderLib then
             add(node.cheaderLib, false, node)
         elseif node.ffiLoadLib then
@@ -672,11 +721,32 @@ function Session:semanticSnapshot(path, checked, module)
         for _, input in ipairs(result.result and result.result.externalInputs or {}) do
             addInput(snapshot, input, currentModule)
         end
-        for _, use in ipairs(nativeUses(result.result)) do
+        local uses = nativeUses(result.result)
+        local bindings = self.inc.env.nativeLibraryBindings
+            or projectLibraries(self.inc.env.config, self.inc.env.rootDir)
+        local included = {}
+        for _, use in ipairs(uses) do
+            if use.name then
+                included[use.name] = true
+            end
+        end
+        for _, use in ipairs(uses) do
             local name = use.name
-            local mapped = name and self.libraryPaths[name] or nil
+            local binding = name and bindings[name] or nil
+            for _, child in ipairs(binding and binding.dependencies or {}) do
+                local dependency = bindings[child]
+                if not included[child] and dependency and dependency.reference ~= "<default>" then
+                    included[child] = true
+                    uses[#uses + 1] = {name = child, line = use.line, resolved = dependency.reference}
+                end
+            end
+            local mapName = name
+            if not (mapName and self.libraryPaths[mapName]) and use.resolved and self.libraryPaths[use.resolved] then
+                mapName = use.resolved
+            end
+            local mapped = mapName and self.libraryPaths[mapName] or nil
             if mapped then
-                local configuredPath = self.libraryConfiguredPaths[name]
+                local configuredPath = self.libraryConfiguredPaths[mapName]
                 local resolved = fs.canonical(configuredPath)
                 local bytes = self.inc.externalFile(configuredPath)
                 if resolved ~= configuredPath then

@@ -228,4 +228,35 @@ pub extern "C" fn tiny_double(value: i32) -> i32 { value * 2 }
     remove(dir)
 end
 
+function M.aLogicalCargoDependencyUsesItsActualCrateLibrary()
+    requireCargo()
+    local dir = tempProject({
+        [
+            "nupp.lua"
+        ] = [[return {include={"src"},dependencies={rustMath={kind="cargo",
+manifest="native/Cargo.toml",library="tiny_rust",locked=false}},
+build={outDir="out",entries={"main"},dependencies={"rustMath"}}}]],
+        ["src/main.nupp"] = [[cdef function tiny_double(value: uint32): uint32 from "rustMath"
+return tiny_double(23)
+]],
+        [
+            "native/Cargo.toml"
+        ] = [[
+[package]
+name = "tiny_rust"
+version = "0.0.0"
+edition = "2021"
+[lib]
+crate-type = ["cdylib"]
+]],
+        ["native/src/lib.rs"] = [[#[no_mangle]
+pub extern "C" fn tiny_double(value: u32) -> u32 { value * 2 }
+]],
+    })
+    testAssert.eq(project.build(dir), 0)
+    assert(read(dir .. "/out/main.lua"):find("@lib/" .. libraryName("tiny_rust"), 1, true))
+    testAssert.eq(answerFrom(dir .. "/out", dir), "46")
+    remove(dir)
+end
+
 return M

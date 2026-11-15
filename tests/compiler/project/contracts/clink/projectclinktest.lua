@@ -13,6 +13,49 @@ local callingProject = fixture.callingProject
 
 local M = {}
 
+local function nativeProject(body, build, extra)
+    return tempProject({
+        [
+            "nupp.lua"
+        ] = [[return {
+include = {"src"},
+dependencies = {tiny = {kind = "c", sources = {"native/tiny.c"}}},
+build = ]]
+        .. (
+            build or '{outDir="out", entries={"main"}, dependencies={"tiny"}}'
+        ) .. "}\n",
+        ["src/main.nupp"] = body or "return true\n",
+        ["native/tiny.c"] = "int tiny_add(int a, int b) { return a + b + " .. tostring(extra or 0) .. "; }\n",
+    })
+end
+
+local LOGICAL_CALL = [[cdef function tiny_add(a: int32, b: int32): int32 from "tiny"
+return tiny_add(20, 21)
+]]
+
+local RELOAD_CALL = [[module main
+cdef function tiny_add(a: int32, b: int32): int32 from "tiny"
+local M = {}
+function M.answer(): int32
+    return tiny_add(20, 21)
+end
+export = M
+]]
+
+local function reloadAnswer(dir)
+    local away = elsewhere()
+    fixture.write(
+        away .. "/run.lua",
+        (
+            '_G.__nuppHost={hostAbi=1,hostFeatures={}}\npackage.path,package.cpath="",""\nlocal d=assert(loadfile(%q))()\nlocal c=d.install()\nprint("RELOAD " .. tostring(c.exports["main.answer"]()))\n'
+        ):format(dir .. "/dist/app.nuppc")
+    )
+    local code, text = process.capture({"luajit", away .. "/run.lua"}, {cwd = away})
+    remove(away)
+    testAssert.eq(code, 0, text)
+    assert(text:find("RELOAD 41", 1, true), text)
+end
+
 function M.cDependencyLinksAStaticClosureIntoItsSharedLibrary()
     local dir = tempProject({
         [
@@ -253,6 +296,259 @@ return {
     })
     assert(project.build(dir) ~= 0, "a requested macro with the wrong arity must fail the dependency build")
     assert(not exists(dir .. "/out/generated/tiny.nupp"), "an invalid recipe is not installed as a partial binding")
+    remove(dir)
+end
+
+function M.aLogicalCDependencyNeedsNoGeneratedBinding()
+    local dir = nativeProject(LOGICAL_CALL)
+    testAssert.eq(project.build(dir), 0)
+    assert(read(dir .. "/out/main.lua"):find("@lib/" .. libraryName("tiny"), 1, true))
+    assert(not exists(dir .. "/out/generated/tiny.nupp"), "handwritten declarations need no generated binding")
+    testAssert.eq(answerFrom(dir .. "/out", dir), "41")
+    local moved = dir .. "/moved"
+    assert(fixture.fs.mkdir(moved))
+    assert(fixture.fs.copyFile(dir .. "/out/main.lua", moved .. "/main.lua"))
+    assert(fixture.fs.copyFile(dir .. "/out/lib/" .. libraryName("tiny"), moved .. "/lib/" .. libraryName("tiny")))
+    local away = elsewhere()
+    testAssert.eq(answerFrom(moved, away), "41", "a copied output tree resolves its logical library")
+    remove(away)
+    remove(dir)
+end
+
+function M.logicalLibrariesStageTheirUsedClosureAndRefreshChangedFiles()
+    local first, second = nativeProject(), nativeProject(nil, nil, 1)
+    testAssert.eq(project.build(first), 0)
+    testAssert.eq(project.build(second), 0)
+    local filename = libraryName("tiny")
+    local helper = libraryName("helper")
+    assert(fixture.fs.copyFile(first .. "/out/lib/" .. filename, first .. "/vendor/" .. filename))
+    assert(fixture.fs.copyFile(first .. "/out/lib/" .. filename, first .. "/vendor/" .. helper))
+    fixture.write(
+        first .. "/nupp.lua",
+        [[return {
+include={"src"},
+libraries={physics={name="tiny", search={"vendor"}, dependencies={"helper"}},
+helper={name="helper", search={"vendor"}, dependencies={"physics"}},
+unused={name="absent", search={"not-built"}}},
+build={kind="modules",outDir="out",entries={"main"}}
+}]]
+    )
+    fixture.write(first .. "/src/main.nupp", LOGICAL_CALL:gsub('from "tiny"', 'from "physics"'))
+    testAssert.eq(project.build(first), 0)
+    assert(exists(first .. "/out/lib/" .. helper), "a used companion is staged through a cyclic dependency closure")
+    assert(not exists(first .. "/out/lib/" .. libraryName("absent")), "an unused unresolved library is not staged")
+    testAssert.eq(answerFrom(first .. "/out", first), "41")
+
+    local function build()
+        local produced = {}
+        testAssert.eq(project.build(first, {testBuild = true, produced = produced}), 0)
+        return produced
+    end
+
+    build()
+    assert(build().testBuildReused, "an unchanged native input reuses its completed test build")
+    assert(fixture.fs.copyFile(second .. "/out/lib/" .. filename, first .. "/vendor/" .. filename))
+    assert(not build().testBuildReused, "changed native bytes invalidate a completed test artifact")
+    testAssert.eq(answerFrom(first .. "/out", first), "42", "the staged copy does not shadow its updated source")
+    assert(build().testBuildReused)
+    remove(second)
+    remove(first)
+end
+
+function M.logicalLibrariesTravelBesideBundlesAndComponents()
+    for _, kind in ipairs({"bundle", "component"}) do
+        local artifact = kind == "bundle" and "app.lua" or "app.nuppc"
+        local build = (
+            '{kind=%q,outDir="out",output=%q,entries={"main"},dependencies={"tiny"}}'
+        ):format(kind, "dist/" .. artifact)
+        local source = LOGICAL_CALL:gsub("return tiny_add%(20, 21%)", 'print("VALUE " .. tostring(tiny_add(20, 21)))')
+        local dir = nativeProject(source, build)
+        testAssert.eq(project.build(dir), 0)
+        assert(
+            exists(dir .. "/dist/lib/" .. libraryName("tiny")),
+            kind .. " carries a library without a generated binding"
+        )
+        local away = elsewhere()
+        assert(fixture.fs.copyFile(dir .. "/dist/" .. artifact, away .. "/" .. artifact))
+        assert(fixture.fs.copyFile(dir .. "/dist/lib/" .. libraryName("tiny"), away .. "/lib/" .. libraryName("tiny")))
+        local command = {"luajit", away .. "/" .. artifact}
+        if kind == "component" then
+            fixture.write(
+                away .. "/run.lua",
+                (
+                    '_G.__nuppHost={hostAbi=1,hostFeatures={}}\nlocal d=assert(loadfile(%q))()\nlocal c=d.install()\nc.start()\n'
+                ):format(away .. "/" .. artifact)
+            )
+            command = {"luajit", away .. "/run.lua"}
+        end
+        local code, text = process.capture(command, {cwd = away})
+        testAssert.eq(code, 0, text)
+        assert(text:find("VALUE 41", 1, true), text)
+        remove(away)
+        remove(dir)
+    end
+end
+
+function M.logicalLibraryDestinationCollisionsAreRefused()
+    local filename = libraryName("tiny")
+    local dir = tempProject({
+        [
+            "nupp.lua"
+        ] = [[return {include={"src"},libraries={
+first={name="tiny",search={"one"}},second={name="tiny",search={"two"}}},
+build={outDir="out",entries={"main"}}}]],
+        [
+            "src/main.nupp"
+        ] = [[cdef function first_value(): int32 from "first"
+cdef function second_value(): int32 from "second"
+return true
+]],
+        ["one/" .. filename] = "first library",
+        ["two/" .. filename] = "second library",
+    })
+    local diagnostics = {}
+    testAssert.eq(project.build(dir, {diagnostics = diagnostics}), 1)
+    assert(fixture.json.encode(diagnostics):find("different contents", 1, true), fixture.json.encode(diagnostics))
+    remove(dir)
+end
+
+function M.standaloneLogicalLibrariesUseStaticDependencies()
+    local build = '{kind="binary",stub="nupp",standalone=true,outDir="out",output="out/app",entries={"main"},dependencies={"tiny"}}'
+    local source = LOGICAL_CALL:gsub("return tiny_add%(20, 21%)", "print(tiny_add(20, 21))")
+    local dir = nativeProject(source, build)
+    testAssert.eq(project.build(dir), 0)
+    assert(not exists(dir .. "/out/lib/" .. libraryName("tiny")))
+    local code, text = process.capture({fixture.executableName(dir .. "/out/app")})
+    testAssert.eq(code, 0, text)
+    testAssert.eq(text:match("[^\r\n]+"), "41")
+    remove(dir)
+end
+
+function M.logicalLibraryCollisionsFollowTheTargetFileSystem()
+    local dir = tempProject({
+        [
+            "nupp.lua"
+        ] = [[return {include={"src"},libraries={
+upper={name="Tiny",search={"one"}},lower={name="tiny",search={"two"}}},
+build={outDir="out",entries={"main"},layoutTarget="x86_64-pc-windows-msvc"}}]],
+        [
+            "src/main.nupp"
+        ] = [[cdef function upper_value(): int32 from "upper"
+cdef function lower_value(): int32 from "lower"
+return true
+]],
+        ["one/Tiny.dll"] = "upper library",
+        ["two/tiny.dll"] = "lower library",
+    })
+    local diagnostics = {}
+    testAssert.eq(project.build(dir, {diagnostics = diagnostics}), 1)
+    assert(fixture.json.encode(diagnostics):find("different contents", 1, true), fixture.json.encode(diagnostics))
+    remove(dir)
+end
+
+function M.standaloneLogicalLibrariesRefuseSharedSidecars()
+    local dir = tempProject({
+        [
+            "nupp.lua"
+        ] = [[return {include={"src"},libraries={physics={name="tiny",search={"vendor"}}},
+build={kind="binary",stub="nupp",standalone=true,outDir="out",output="out/app",entries={"main"}}}]],
+        ["src/main.nupp"] = [[cdef function tiny_value(): int32 from "physics"
+return true
+]],
+        ["vendor/" .. libraryName("tiny")] = "shared library",
+    })
+    local diagnostics = {}
+    testAssert.eq(project.build(dir, {diagnostics = diagnostics}), 1)
+    assert(fixture.json.encode(diagnostics):find("standalone", 1, true), fixture.json.encode(diagnostics))
+    assert(not exists(dir .. "/out/lib/" .. libraryName("tiny")), "a standalone target never stages the sidecar")
+    remove(dir)
+end
+
+function M.removingACaseAliasKeepsTheLibraryTheTargetStillOwns()
+    local upper, lower = libraryName("Tiny"), libraryName("tiny")
+    local dir = tempProject({
+        [
+            "nupp.lua"
+        ] = [[return {include={"src"},libraries={
+upper={name="Tiny",search={"one"}},lower={name="tiny",search={"two"}}},
+build={outDir="out",entries={"main"}}}]],
+        [
+            "src/main.nupp"
+        ] = [[cdef function upper_value(): int32 from "upper"
+cdef function lower_value(): int32 from "lower"
+return true
+]],
+        ["one/" .. upper] = "same library",
+        ["two/" .. lower] = "same library",
+    })
+    testAssert.eq(project.build(dir), 0)
+    local kept = dir .. "/out/lib/" .. lower
+    local configured, removeFile = package.config, os.remove
+    -- A Windows deletion through either case names the same file. Model that
+    -- one filesystem operation so the actual output-pruning path runs on POSIX.
+    package.config = "\\" .. configured:sub(2)
+    os.remove = function(path)
+        if fixture.fs.absolute(path):lower() == fixture.fs.absolute(kept):lower() then
+            return removeFile(kept)
+        end
+        return removeFile(path)
+    end
+    local ok, problem = pcall(function()
+        fixture.write(
+            dir .. "/nupp.lua",
+            [[return {include={"src"},
+libraries={lower={name="tiny",search={"two"}}},build={outDir="out",entries={"main"}}}]]
+        )
+        fixture.write(dir .. "/src/main.nupp", [[cdef function lower_value(): int32 from "lower"
+return true
+]])
+        testAssert.eq(project.build(dir), 0)
+        assert(exists(kept), "removing an alias deleted the library the target still owns")
+    end)
+    package.config, os.remove = configured, removeFile
+    remove(dir)
+    assert(ok, problem)
+end
+
+function M.reloadComponentsStageTheirConfiguredLogicalLibrary()
+    local dir = nativeProject()
+    testAssert.eq(project.build(dir), 0)
+    local filename = libraryName("tiny")
+    local selected = dir .. "/vendor/" .. filename
+    assert(fixture.fs.copyFile(dir .. "/out/lib/" .. filename, selected))
+    fixture.write(
+        dir .. "/nupp.lua",
+        [[return {include={"src"},
+libraries={physics={name="tiny",search={"vendor"}}},
+build={kind="component",reload=true,outDir="out",output="dist/app.nuppc",
+entries={"main"},exports={"main.answer"}}}]]
+    )
+    fixture.write(dir .. "/src/main.nupp", RELOAD_CALL:gsub('from "tiny"', 'from "physics"'))
+    testAssert.eq(project.build(dir), 0)
+    testAssert.eq(
+        read(dir .. "/dist/lib/" .. filename),
+        read(selected),
+        "the reload component carries its selected library"
+    )
+    reloadAnswer(dir)
+    remove(dir)
+end
+
+function M.reloadComponentsPinFreshNativeProducers()
+    local dir = nativeProject(
+        RELOAD_CALL,
+        '{kind="component",reload=true,outDir="out",output="dist/app.nuppc",entries={"main"},exports={"main.answer"},dependencies={"tiny"}}'
+    )
+    local selected = dir .. "/out/lib/" .. libraryName("tiny")
+    assert(not exists(selected), "the producer has not built yet")
+    testAssert.eq(project.build(dir), 0)
+    local pinned = ("%q"):format(fixture.fs.canonical(selected))
+    assert(
+        read(dir .. "/out/main.lua"):find(pinned, 1, true),
+        "the first reload generation pins its newly built producer"
+    )
+    testAssert.eq(read(dir .. "/dist/lib/" .. libraryName("tiny")), read(selected))
+    reloadAnswer(dir)
     remove(dir)
 end
 

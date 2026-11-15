@@ -56,6 +56,78 @@ const point_length = ffi.load("mini").point_length
 as `import-c` does when it collects its declarations into one `export =`
 boundary. See [modules.md](../../language/modules.md) for how that boundary is declared.
 
+### Logical libraries
+
+A project can give a native library one name across platforms. Declare the name
+in `nupp.lua` and use it in the `from` clause:
+
+```lua
+return {
+   libraries = {
+      physics = {
+         name = "tecs_physics",
+         env = "TECS_PHYSICS_LIBRARY",
+         search = { "target/release", "target/debug" },
+      },
+   },
+}
+```
+
+```nupp
+cdef function tecsPhysicsStep(world: voidptr?): uint32 from "physics"
+```
+
+`name` is the library's base name. The target platform supplies `lib` and
+`.so` or `.dylib`, or just `.dll` on Windows. Search directories are relative
+to the manifest, regardless of the command's working directory.
+
+A nonempty override variable selects an exact file. A relative override is
+also relative to the manifest; a missing override is an error rather than a
+request to continue searching. An unset or empty variable leaves the ordered
+search directories in charge.
+
+`nupp check` can check the declarations before the library is built. A run or
+build that uses an unresolved library reports its name, expected filename, and
+the paths searched. A configured library that the target does not use needs
+no file.
+
+#### Build outputs
+
+Runs and tests use the resolved absolute path. Builds without `reload` copy used
+libraries to `outDir/lib` and bind them relative to the compiled module or
+packaged artifact, so the output can move to another directory. The deployed
+program does not read the build machine's override variable. A reload component
+uses its development session's pinned paths; see
+[hot-reload.md](../../projects/hot-reload.md).
+
+A C or Cargo dependency also declares a logical library under its dependency
+name. It uses the artifact the build actually produced, including a custom
+output filename, and needs no generated binding. A standalone binary uses a
+selected static dependency through the linked process namespace and refuses
+shared-library sidecars. Set a Cargo dependency's `target` explicitly when
+building its logical library for another target.
+
+#### Runtime dependencies
+
+For a library that imports another library, name its runtime dependencies:
+
+```lua
+libraries = {
+   physics = { search = { "native" }, dependencies = { "support" } },
+   support = { search = { "native" } },
+}
+```
+
+The build copies the dependency closure beside the artifact. On Windows,
+project libraries search their own directory for imported DLLs. On other
+platforms, build the library with the platform's relative runtime search path.
+Nupp does not discover undeclared native dependencies.
+
+A string that names no configured library keeps its platform-loader meaning.
+Existing system names and `@` paths retain their behavior. The runtime roots
+loaded libraries for the process lifetime; program code holds no library
+handle.
+
 ### Type mapping
 
 Every `cdef` field and parameter has to render as literal C, which these

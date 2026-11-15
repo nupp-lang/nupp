@@ -540,7 +540,17 @@ export function install(
         -- declaration rather than at a call, because the declaration is what
         -- asks for the loader: the default namespace is still reachable, so
         -- dropping the clause and linking the code in is the fix.
-        if stat.fromLib ~= nil then
+        local authoredLibrary = stringLiteral(stat.fromLib)
+        stat.resolvedLibrary = authoredLibrary
+        stat.nativeLibraryName, stat.nativeLibraryProblem = nil, nil
+        local libraries = c.env and c.env.nativeLibraryBindings
+        local libraryBinding = authoredLibrary and libraries and libraries[authoredLibrary]
+        if libraryBinding then
+            stat.resolvedLibrary = libraryBinding.reference
+            stat.nativeLibraryName = authoredLibrary
+            stat.nativeLibraryProblem = libraryBinding.error
+        end
+        if stat.fromLib ~= nil and not (libraryBinding and stat.resolvedLibrary == "<default>") then
             local profile = c.env and c.env.targetProfile or nil
             if profile ~= nil and not (profile as any).dynamicLoader then
                 c.diag(
@@ -562,7 +572,7 @@ export function install(
         c.bindVar(cdefName.text, cdefType, true, cdefName, "function")
         if cdefName.definition then
             cdefName.definition.cdef = true
-            local library = stringLiteral(stat.fromLib) or "<default>"
+            local library = stat.resolvedLibrary or "<default>"
             stat.cdefIdentity = table.concat({"function", library, cdefName.text}, "\0")
             stat.cdefSemantic = table.concat(
                 {
