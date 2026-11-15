@@ -155,10 +155,11 @@ function M.theNextCommandReadsWhatThisOneWrote()
     sample:write("local n = ('abc'):len()\nreturn n\n")
     sample:close()
 
+    -- Through process.capture, which quotes for the platform's shell: cmd.exe
+    -- reads the single quotes a POSIX command line uses as part of the path.
+    local process = require("nupp.compiler.process")
     local function run()
-        local pipe = assert(io.popen(("cd '%s' && '%s/bin/nupp' check --json sample.nupp 2>&1"):format(dir, ROOT)))
-        local out = pipe:read("*a")
-        pipe:close()
+        local _, out = process.capture({ROOT .. "/bin/nupp", "check", "--json", "sample.nupp"}, {cwd = dir})
         return out
     end
 
