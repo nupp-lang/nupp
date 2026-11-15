@@ -231,6 +231,25 @@ function classifier.classify(paths)
     return {surfaces = surfaces, jobs = jobs, reasons = reasons}
 end
 
+-- The jobs that provision a macOS or Windows runner.
+classifier.nonLinuxJobs = {"macos-integration", "windows-integration", "gpu-windows"}
+
+--- Drop the macOS and Windows jobs from a selection, in place.
+---
+--- They are dropped here rather than skipped in the workflow so that the
+--- selection `required-ci` reads agrees with what ran: a job that is not
+--- selected may be skipped, and a selected one may not.
+function classifier.linuxOnly(selection)
+    for _, name in ipairs(classifier.nonLinuxJobs) do
+        if selection.jobs[name] then
+            selection.jobs[name] = nil
+            selection.reasons[name] = "NUPP_LINUX_ONLY leaves out macOS and Windows"
+        end
+    end
+
+    return selection
+end
+
 --- The selection as one JSON object, hand-encoded because this runs before any
 --- rock tree exists. Only booleans and short identifier-shaped strings are
 --- emitted, so the escaping this omits cannot arise.
@@ -271,6 +290,9 @@ if invokedDirectly then
     end
 
     local selection = classifier.classify(paths)
+    if os.getenv("NUPP_CI_LINUX_ONLY") == "true" then
+        classifier.linuxOnly(selection)
+    end
     io.stdout:write(classifier.encode(selection), "\n")
     for _, name in ipairs(classifier.jobs) do
         local chosen = selection.jobs[name] and "true" or "false"
