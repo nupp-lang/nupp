@@ -166,6 +166,37 @@ return M
     os.execute("rm -rf " .. string.format("%q", dir))
 end
 
+-- A suite that requires a carried library by a name the checker cannot see is
+-- the first thing to load it. The runtime loader hands the compile step the
+-- module's name and carried source, which `nupp run` compiles and the runner
+-- once read as a path to a file named after the module.
+function M.aNuppSuiteLoadsACarriedLibraryAtRunTime()
+    local dir = os.tmpname()
+    os.remove(dir)
+    local fs = require("nupp.compiler.fs")
+    assert(fs.mkdir(dir .. "/tests"))
+    assert(fs.mkdir(dir .. "/src"))
+    write(dir .. "/nupp.lua", 'return {include = {"src"}, build = {entries = {"main"}}}\n')
+    write(dir .. "/src/main.nupp", "return true\n")
+    write(
+        dir .. "/tests/carriedtest.nupp",
+        [[
+local M = {}
+function M.loadsEvents(): nil
+    local name = "ev" .. "ents"
+    local loaded = require(name) as any
+    assert(loaded.MessageBus ~= nil, "events has no MessageBus")
+end
+return M
+]]
+    )
+    local output, invocation = capturedRun(("cd %q && %q test --json 2>/dev/null"):format(dir, NUPP))
+    test.eq(invocation.status, 0, "the carried library did not load" .. evidence(invocation))
+    local report = require("testjson").decode(output)
+    test.eq(report.passed, 1, output)
+    os.execute("rm -rf " .. string.format("%q", dir))
+end
+
 function M.rejectsDuplicateSuiteBasenamesAcrossDirectoriesAndLanguages()
     local dir = os.tmpname()
     os.remove(dir)

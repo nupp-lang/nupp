@@ -1396,8 +1396,10 @@ local function loadSuite(suite)
     if not code then
         error("cannot compile Nupp test suite " .. path .. ": " .. tostring(compileErr), 0)
     end
-    local removeLoader = require("nupp.compiler.runtime").install(env, function(modulePath, e)
-        return compile.module(modulePath, e, settings)
+    -- A carried module arrives with its name and source, and its path is only its
+    -- name: compiling that path as a file looked for a file called `events`.
+    local removeLoader = require("nupp.compiler.runtime").install(env, function(modulePath, e, moduleName, source)
+        return compile.module(modulePath, e, settings, moduleName, source, false)
     end)
     local chunk, loadErr = loadstring(code, "@" .. path)
     if not chunk then
