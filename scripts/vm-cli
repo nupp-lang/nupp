@@ -194,7 +194,11 @@ def install(args):
         ):
             result = subprocess.run(command, cwd=ROOT, env=env, capture_output=True, text=True, timeout=300)
             if result.returncode:
-                raise ValueError("package validation failed: " + result.stderr[-8000:])
+                # A Windows loader failure exits with an NTSTATUS and no output,
+                # so the status and stdout are all there is to go on.
+                raise ValueError("package validation failed: %s exited %d (0x%08X)\n%s%s" % (
+                    command[1], result.returncode, result.returncode & 0xFFFFFFFF,
+                    result.stdout[-4000:], result.stderr[-8000:]))
             if command[1] == "exec" and "Usage:" not in result.stdout:
                 raise ValueError("root CLI help did not produce its usage text")
         material = json.dumps({key: receipt[key] for key in ("format", "runtimeSha256", "imageSha256")},
