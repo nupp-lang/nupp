@@ -2359,6 +2359,85 @@ function M.windowsShellUsesArgumentVectorsForNativePipes()
     end
 end
 
+-- Compiled Nupp drops the owned result of `io.popen` when its scope ends, so a
+-- suite's pipe through the test shell answers `_drop` whether or not the suite
+-- closed it first.
+function M.windowsShellPipesAnswerDrop()
+    local source = read(ROOT .. "/tests/run.lua")
+    local first = assert(source:find("-- The suites predate Windows support", 1, true))
+    first = assert(source:find('if package.config:sub(1, 1)', first, true))
+    local last = assert(source:find("local caseDefinitions", first, true))
+    local setup = source:sub(first, last - 1)
+    for _, native in ipairs({true, false}) do
+        local closes, drops, path = 0, 0, nil
+
+        local function popen()
+            local pipe = {
+                close = function()
+                    closes = closes + 1;
+                    return true
+                end,
+            }
+            if native then
+                pipe._drop = function()
+                    drops = drops + 1
+                end
+            end
+
+            return pipe
+        end
+
+        local environment = setmetatable(
+            {
+                package = {
+                    config = "\\",
+                    loaded = {
+                        ["nupp.runtime.standardio"] = {
+                            popen = native and popen or function()
+                            end
+                        }
+                    }
+                },
+                io = {open = io.open, popen = popen},
+                os = {
+                    execute = function()
+                    end,
+                    getenv = function(name)
+                        if name == "NUPP_TEST_BASH" then
+                            return "C:/Program Files/Git/bin/bash.exe"
+                        end
+                    end,
+                    tmpname = function()
+                        path = os.tmpname() .. ".sh";
+                        return path:sub(1, -4)
+                    end,
+                    remove = os.remove,
+                },
+            },
+            {__index = _G}
+        )
+        environment._G = environment
+        assert(setfenv(assert(loadstring(setup, "@nupp:test-runner")), environment))()
+
+        local closedFirst = environment.io.popen("printf closed", "r")
+        test.eq(closedFirst:close(), true)
+        closedFirst:_drop()
+        test.eq(closes, 1, "a drop after close does not close again")
+        test.eq(drops, 0, "a drop after close does not drop the pipe")
+
+        environment.io.popen("printf dropped", "r"):_drop()
+        if native then
+            test.eq(drops, 1, "an unclosed native process is dropped")
+            test.eq(closes, 1)
+        else
+            test.eq(closes, 2, "an unclosed CRT pipe is closed")
+        end
+        test.eq(io.open(path, "rb"), nil, "dropping the pipe removes its script")
+
+        environment.io.popen("pwd", "r"):_drop()
+    end
+end
+
 -- A worker that has not loaded the standard I/O module yet loads it before the
 -- wrapper goes over it, so a suite's string commands reach Bash for the whole
 -- run. A suite that installs `io.popen` again while it runs, as the process

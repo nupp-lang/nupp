@@ -413,6 +413,8 @@ if package.config:sub(1, 1) == "\\" then
                 close = function()
                     return true
                 end,
+                _drop = function()
+                end,
             }
         end
         local path = script(command)
@@ -421,6 +423,7 @@ if package.config:sub(1, 1) == "\\" then
         -- A copied runner on plain LuaJIT still uses the CRT string interface.
         local pipe = assert(rawPopen(nativePopen and {bash, path} or invocation(path), mode))
         local proxy = {}
+        local closed = false
         function proxy:read(...)
             return pipe:read(...)
         end
@@ -430,9 +433,25 @@ if package.config:sub(1, 1) == "\\" then
         end
 
         function proxy:close()
+            closed = true
             local result = {pipe:close()}
             os.remove(path)
             return unpack(result)
+        end
+
+        -- Compiled Nupp owns what `io.popen` returns and drops it when its
+        -- scope ends, after an explicit close as well as instead of one.
+        function proxy:_drop()
+            if closed then
+                return
+            end
+            closed = true
+            if pipe._drop then
+                pipe:_drop()
+            else
+                pipe:close()
+            end
+            os.remove(path)
         end
 
         return proxy
