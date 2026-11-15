@@ -302,6 +302,13 @@ def run_step(command, env=None, what=""):
 
 def cargo(features, target, extra_env=None, default_features=True):
     env = dict(os.environ, CARGO_TARGET_DIR=str(target), **(extra_env or {}))
+    # Rustup's own default on Windows is MSVC, but the execution seed, the
+    # native objects and the providers are GNU (scripts/toolchain); a runtime
+    # linked for MSVC around them exits 0xC0000005 when it runs the image.
+    if os.name == "nt" and "RUSTUP_TOOLCHAIN" not in env:
+        channel = re.search(r'^channel = "([^"]*)"$', (ROOT / "rust-toolchain.toml").read_text(), re.M).group(1)
+        abi = env.get("NUPP_RUST_WINDOWS_ABI") or "gnu"
+        env["RUSTUP_TOOLCHAIN"] = f"{channel}-x86_64-pc-windows-{abi}"
     # Share compiled dependencies across worktrees when sccache is installed.
     if "RUSTC_WRAPPER" not in env and shutil.which("sccache"):
         env["RUSTC_WRAPPER"] = str(ROOT / "scripts/sccache-wrapper") if sys.platform == "darwin" else "sccache"
