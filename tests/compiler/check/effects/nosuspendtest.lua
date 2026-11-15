@@ -359,6 +359,30 @@ function M.nestsAndEnds()
     testAssert.eq(#diagnose(src), 0, "the region ends where it closes")
 end
 
+function M.typedCallsDoNotHideUnknownCleanupOperations()
+    for _, expression in ipairs({"`${value.value}`", "value.value .. '!'"}) do
+        local refusals = diagnose(
+            table.concat(
+                {
+                    "local record Resource value: any end",
+                    "local function settle(takes value: Resource): nil",
+                    "    local _ = math.floor(0)",
+                    "    local text = " .. expression,
+                    "end",
+                    "local function open(): affine(Resource, settle)",
+                    "    return Resource(value = 1)",
+                    "end",
+                    "@nosuspend do",
+                    "    local resource = open()",
+                    "end",
+                },
+                "\n"
+            )
+        )
+        testAssert.eq(#refusals, 1, "the terminal may suspend through " .. expression)
+    end
+end
+
 function M.erasesToAPlainBlock()
     local src = QUIET .. "@nosuspend do\n    quiet()\nend\n"
     local _, _, result = diagnose(src)

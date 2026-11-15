@@ -456,8 +456,7 @@ end
 -- Whether a declaration provably cannot suspend. Anything short of an answer leaves the
 -- callable may-yield, the guarantee being a positive one.
 --
--- A contract outranks inference. `external` and `top` mean *inference* learned nothing,
--- which is why they disqualify an inferred summary -- but an author who wrote
+-- A contract outranks inference. An author who wrote
 -- `@effects(external = true, suspends = false)` has stated the fact that inference
 -- could not reach, and NUPP2112 already holds a visible body to what its contract
 -- claims. Treating a declared negative as unknown would make the contract unable to say
@@ -471,55 +470,11 @@ local function provenNonYielding(node: cst.Node?, body: cst.Node?): boolean
     if not summary then
         return false
     end
-    if summary.yields == true then
-        return false
-    end
-    if summary.top == true or summary.external == true then
-        -- Effect inference widens at external calls, but an exact callable type can
-        -- still promise that the call does not suspend. This is the same proof cleanup
-        -- contracts use: every reached call is either ownership syntax or carries the
-        -- public `@nosuspend` guarantee. Nested functions are separate definitions.
-        local visited: {[cst.Node]: boolean} = {}
+    -- Widening through a typed non-suspending call leaves suspension known.
+    -- Interpolation, metamethod operations and unknown calls set `topYields`;
+    -- a walk of call nodes alone would lose those non-call suspension paths.
 
-        local function callsAreNonYielding(current: cst.Node?): boolean
-            if not current or cst.isToken(current) then
-                return true
-            end
-            if visited[current] then
-                return true
-            end
-            visited[current] = true
-            local kind = current.kind
-            if current ~= body
-                and (kind == "funcExpr" or kind == "shortfn" or kind == "localFuncStmt" or kind == "funcStmt")
-            then
-                return true
-            end
-            if kind == "call" or kind == "safeCall" or kind == "methodCall" then
-                local call = current as cst.Call
-                local target = call.calleeType or call.signatureType
-                if not call.ownershipIntrinsic and (not target or target.tag ~= "func" or not target.noYield) then
-                    return false
-                end
-            end
-            for _, child in ipairs((current as any).stats or {}) do
-                if not callsAreNonYielding(child) then
-                    return false
-                end
-            end
-            for _, child in ipairs(current) do
-                if not callsAreNonYielding(child as cst.Node) then
-                    return false
-                end
-            end
-
-            return true
-        end
-
-        return callsAreNonYielding(body)
-    end
-
-    return true
+    return summary.yields ~= true and summary.topYields ~= true and summary.external ~= true
 end
 
 ----------------------------------------------------------------------------

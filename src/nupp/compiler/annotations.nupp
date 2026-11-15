@@ -32,10 +32,10 @@ type annotations.TypeAPI = {
     string: table,
     boolean: table,
     integer: table,
-    array: function(element: table): table,
-    map: function(key: table, value: table): table,
-    union: function(values: {table}): table,
-    literal: function(value: string | number | boolean, base: table?): table
+    @readonly array: function(element: table): table,
+    @readonly map: function(key: table, value: table): table,
+    @readonly union: function(values: {table}): table,
+    @readonly literal: function(value: string | number | boolean, base: table?): table
 }
 
 local KNOWN_TARGETS = {

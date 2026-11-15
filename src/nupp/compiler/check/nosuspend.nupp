@@ -309,25 +309,6 @@ export function install(c: state.Checker): Ops
             mayYield = false
         elseif info and info.summary then
             mayYield = info.summary.topYields == true or info.summary.external == true or info.summary.yields == true
-            if mayYield and info.body then
-                local calls: {cst.Node} = {}
-                callsWithin(info.body, calls)
-                local allTypedNonYielding = #calls > 0
-                for _, call in ipairs(calls) do
-                    local target = call.calleeType or call.signatureType
-                    -- An ownership intrinsic is not a call to something that could
-                    -- yield: it lowers to generated code that calls the terminals
-                    -- named in it, and those are judged as the cleanups they are.
-                    if call.ownershipIntrinsic then
-                        target = nil
-                    elseif not target or target.tag ~= "func" or not target.noYield then
-                        allTypedNonYielding = false
-                    end
-                end
-                if allTypedNonYielding then
-                    mayYield = false
-                end
-            end
         elseif cleanup and cleanup.functionType and cleanup.functionType.tag == "func" then
             mayYield = cleanup.functionType.noYield ~= true and cleanup.visibleBody == true
         end

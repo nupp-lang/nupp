@@ -141,6 +141,51 @@ function M.anUncontractedVisibleBodyThatCannotBeReadMayYield()
     testAssert.eq(t.noYield, nil, "an unreadable body may suspend")
 end
 
+function M.nonCallUnknownOperationsDoNotPublishNoSuspend()
+    for _, expression in ipairs({"`${value}`", "value .. '!'"}) do
+        local exported = moduleTypeOf(
+            table.concat(
+                {
+                    "local M = {}",
+                    "local interface Label",
+                    "    metamethod __tostring: function(self: Label): string",
+                    "    metamethod __concat: function(self: Label, other: string): string",
+                    "end",
+                    "function M.render(value: Label): string",
+                    "    local _ = math.floor(0)",
+                    "    return " .. expression,
+                    "end",
+                    "return M",
+                },
+                "\n"
+            ),
+            "unknown-operation-export"
+        )
+        local render = fieldType(exported, "render")
+        assert(render ~= nil and render.tag == "func", "the export is callable")
+        testAssert.eq(render.noYield, nil, "a non-call operation may suspend: " .. expression)
+    end
+end
+
+function M.noSuspendBuiltinCallsStillPublishNoSuspend()
+    local exported = moduleTypeOf(
+        table.concat(
+            {
+                "local M = {}",
+                "function M.round(value: number): integer",
+                "    return math.floor(value)",
+                "end",
+                "return M",
+            },
+            "\n"
+        ),
+        "builtin-suspension-export"
+    )
+    local round = fieldType(exported, "round")
+    assert(round ~= nil and round.tag == "func", "the export is callable")
+    testAssert.eq(round.noYield, true, "a typed non-suspending call keeps its guarantee")
+end
+
 function M.aGenuinelyBodylessDeclarationMayYield()
     -- A `cdef` has no body at all: there is nothing for inference to read, so the only
     -- way it could carry a guarantee is by declaring one, and it declares none.
