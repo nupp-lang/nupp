@@ -212,7 +212,11 @@ function process.command(argv: {string}, opts: process.Options?): string
         parts[#parts + 1] = quote(windows and index == 1 and (arg:gsub("/", "\\")) or arg)
     end
     local command = table.concat(parts, " ")
-    if opts.cwd then
+    -- An empty directory is the current one. `cd ""` keeps it in a POSIX shell,
+    -- but `cmd` refuses `cd /d ""`, and `nupp task` from a project root asks for
+    -- exactly that: the root is `.`, and joining a task with no `cwd` onto it
+    -- gives "".
+    if opts.cwd and opts.cwd ~= "" then
         command = windows and ("cd /d " .. quote(opts.cwd) .. " && " .. command)
             or ("cd " .. quote(opts.cwd) .. " && " .. command)
     end
