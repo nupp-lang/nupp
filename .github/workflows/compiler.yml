@@ -293,7 +293,19 @@ jobs:
         run: ./bin/nupp test --list-groups
 
       - name: Run the shared-process suites
-        run: ./bin/nupp test --fresh --scope=all --lane=shared
+        run: |
+          # Temporary: find what the shared lane holds when the runner dies.
+          ( while sleep 30; do
+              echo "::group::resources $(date -u +%T)"
+              free -m
+              ps -eo rss,etimes,args --sort=-rss | head -n 6 | cut -c1-120
+              for q in $(find build -name order 2>/dev/null); do
+                ls -t "$(dirname "$q")" | grep '^taken-' | head -n 4 |
+                  while read -r t; do sed -n "${t#taken-}p" "$q"; done
+              done
+              echo '::endgroup::'
+            done ) &
+          ./bin/nupp test --fresh --scope=all --lane=shared
 
       # Saved explicitly rather than through the action's post step, so a run
       # that fails a suite still keeps the compiler build the next run would
