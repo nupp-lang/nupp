@@ -41,9 +41,7 @@ local function compilerInputs(): {string}
     local receipt = json.decodevalue(read(fs.dirname(image) .. "/receipt.json"))
     local runtimeHash, imageHash = digest(runtime), digest(image)
     assert(
-        receipt.format == "nupp-vm-cli-1"
-        and runtimeHash == receipt.runtimeSha256
-        and imageHash == receipt.imageSha256,
+        receipt.format == "nupp-vm-cli-1" and runtimeHash == receipt.runtimeSha256 and imageHash == receipt.imageSha256,
         "verified compiler pair required"
     )
 
