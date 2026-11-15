@@ -75,7 +75,7 @@ export function install(c: state.Checker): Ops
     end
 
     ops.trust = function(node, t)
-        if node and fixed.requiresTrust(t) then
+        if node and fixed.holdsTrust(t) then
             node.fixedWidthTrusted = true
         end
     end
@@ -123,7 +123,7 @@ export function install(c: state.Checker): Ops
     ops.setBinding = function(entry, source, resultIndex)
         if entry then
             entry.fixedWidthEstablished = copyFacts(sourceFacts(source, resultIndex))
-            entry.fixedWidthTrusted = fixed.requiresTrust(entry.t) and sourceTrusted(source, resultIndex) or nil
+            entry.fixedWidthTrusted = fixed.holdsTrust(entry.t) and sourceTrusted(source, resultIndex) or nil
             entry.fixedWidthCallableUntrusted = source and source.fixedWidthCallableUntrusted == true or nil
         end
     end

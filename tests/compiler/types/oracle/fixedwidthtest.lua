@@ -222,6 +222,36 @@ return keep
     )
 end
 
+-- A function that may return no record still returns a checked one, and the
+-- record a nil test narrows its result to is as trusted as the result.
+function M.anOptionalRecordResultKeepsItsTrustWhenNarrowed()
+    checkedTree(
+        [[
+local record Reading
+    value: float
+end
+local function make(): Reading?
+    return Reading(value = math.f32.narrow(0.5))
+end
+local function keep(): {Reading}
+    local kept: {Reading} = {}
+    local reading = make()
+    if reading ~= nil then
+        kept[1] = reading
+    end
+    local single: Reading? = make()
+    if single == nil then
+        return kept
+    end
+    local copy: Reading = single
+    kept[2] = copy
+    return kept
+end
+return keep
+]]
+    )
+end
+
 function M.foreignCallableAssertionsDoNotEstablishResults()
     testAssert.eq(
         errorCodes(

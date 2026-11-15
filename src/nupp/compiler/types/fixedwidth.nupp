@@ -147,6 +147,27 @@ export function requiresTrust(t: T.Type?, seen: {[string]: boolean}?): boolean
     return false
 end
 
+--- Whether a binding of this type keeps the trust its source carries: a record
+--- that requires trust, or an optional one. `local chip = make()` binds `Fm?`,
+--- and the `Fm` a nil test narrows it to has only what the binding recorded. An
+--- optional target does not itself require trust.
+export function holdsTrust(t: T.Type?): boolean
+    if requiresTrust(t) then
+        return true
+    end
+    local raw = t and T.unwrapOwnership(t) or nil
+    if raw == nil or raw.tag ~= "union" then
+        return false
+    end
+    for _, member in ipairs(raw.members or {}) do
+        if requiresTrust(member) then
+            return true
+        end
+    end
+
+    return false
+end
+
 --- The value produced by loading one physical scalar slot.
 export function loaded(t: T.Type): T.Type
     local raw = T.unwrapOwnership(t)
