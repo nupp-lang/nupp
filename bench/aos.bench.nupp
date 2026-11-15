@@ -6,12 +6,12 @@ local bench = require("debug.bench")
 const {type Invocation} = require("debug.bench")
 
 local struct Particle
-    x: number
-    y: number
-    z: number
-    vx: number
-    vy: number
-    vz: number
+    x: float
+    y: float
+    z: float
+    vx: float
+    vy: float
+    vz: float
 end
 
 local N: integer = 200000
