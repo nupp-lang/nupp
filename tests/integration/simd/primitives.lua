@@ -414,7 +414,7 @@ local function generateLanes(options)
     return {files = files, entry = "simd_lanes", probes = probes, coverage = inventory}
 end
 
-local directory = assert(debug.getinfo(1, "S").source:match("^@(.*)/[^/]+$"))
+local directory = assert(debug.getinfo(1, "S").source:gsub("\\", "/"):match("^@(.*)/[^/]+$"))
 function M.generate(options)
     options = options or {}
     local selection = {
