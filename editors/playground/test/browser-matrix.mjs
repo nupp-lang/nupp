@@ -28,9 +28,12 @@ try {
         page.on('pageerror', error => errors.push(String(error)));
         console.log(`${name}: ${file}`);
         let result;
+        // application.html compiles and runs fifteen programs in the guest:
+        // WebKit takes about 150s of the 180s the other pages get, and a
+        // slow runner goes over.
         try {
           await page.goto(new URL(file, base).href);
-          await page.waitForFunction(() => ['passed','failed'].includes(document.querySelector('#result')?.dataset.status), null, {timeout:180000});
+          await page.waitForFunction(() => ['passed','failed'].includes(document.querySelector('#result')?.dataset.status), null, {timeout:file === 'application.html' ? 480000 : 180000});
           result = await page.locator('#result').textContent().then(JSON.parse);
           if (name === 'chromium' && result.unsupported) result.ok = false;
         } catch (error) {
