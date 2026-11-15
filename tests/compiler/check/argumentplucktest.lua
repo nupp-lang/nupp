@@ -1041,4 +1041,80 @@ function M.formattingKeepsPluckGroupsReadable()
     )
 end
 
+function M.namedSelfContainedInputsCheckPayloadAndLoans()
+    clean(
+        [[
+local file = assert(io.tmpfile())
+local previous = debug.log.setsink(next = debug.log.writersink(io.Writer.of(file)))
+own.drop(previous)
+]]
+    )
+    local got = diagnostics(
+        [[
+local buffer = bytes.Buffer.create()
+local previous = debug.log.setsink(next = debug.log.writersink(buffer:writer()))
+own.drop(previous)
+]]
+    )
+    assert(got:find("NUPP2608", 1, true), got)
+    assert(not got:find("NUPP2125", 1, true), got)
+end
+
+function M.overloadedSelfContainedInputsCheckPayloadAndLoans()
+    local prefix = [[
+local record Library
+    install: function(takes next: own.SelfContained<debug.log.Sink>): nil & function(next: integer): nil
+end
+local library = nil as any as Library
+]]
+    for _, named in ipairs({false, true}) do
+        local argument = named and "next = " or ""
+        clean(
+            prefix
+            .. [[
+local file = assert(io.tmpfile())
+library.install(]]
+            .. argument
+            .. [[debug.log.writersink(io.Writer.of(file)))
+]]
+        )
+        local got = diagnostics(
+            prefix
+            .. [[
+local buffer = bytes.Buffer.create()
+library.install(]]
+            .. argument
+            .. [[debug.log.writersink(buffer:writer()))
+]]
+        )
+        assert(got:find("NUPP2608", 1, true), got)
+        assert(not got:find("NUPP2125", 1, true), got)
+    end
+end
+
+function M.expandedResultLoansReachTheirSelfContainedInputSlot()
+    local prefix = [[
+local function pair(takes writer: io.Writer): (integer, affine(debug.log.Sink))
+    return 1, debug.log.writersink(writer)
+end
+local function install(value: integer, takes sink: own.SelfContained<debug.log.Sink>): nil
+    own.drop(sink)
+end
+local function relay(value: integer, takes sink: debug.log.Sink): affine(debug.log.Sink)
+    return sink
+end
+]]
+    clean(prefix .. [[
+local file = assert(io.tmpfile())
+install(pair(io.Writer.of(file)))
+]])
+    for _, body in ipairs({
+        "install(pair(buffer:writer()))",
+        "local previous = debug.log.setsink(relay(pair(buffer:writer())))\nown.drop(previous)",
+    }) do
+        local got = diagnostics(prefix .. "\nlocal buffer = bytes.Buffer.create()\n" .. body)
+        assert(got:find("NUPP2608", 1, true), got)
+    end
+end
+
 return M

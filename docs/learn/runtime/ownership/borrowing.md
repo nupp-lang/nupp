@@ -422,6 +422,36 @@ A public forwarder also writes `preserves source`. Visible-body inference
 remains a private implementation convenience rather than part of an implicit API
 contract.
 
+## Independent lifetimes
+
+A taking parameter may still depend on a resource its caller owns. An API
+that retains the value beyond the call requires `own.SelfContained<T>`:
+
+```nupp
+local function install(takes sink: own.SelfContained<debug.log.Sink>): nil
+    local previous = debug.log.setsink(sink)
+    own.drop(previous)
+end
+
+local file = assert(io.tmpfile())
+install(debug.log.writersink(io.Writer.of(file)))
+```
+
+The contract requires an owner with no borrowed dependencies. A writer taken
+from a buffer remains tied to that buffer through a writer sink, a record,
+or another consuming wrapper, so installing it is rejected:
+
+```nupp:refused
+local buffer = bytes.Buffer.create()
+local previous = debug.log.setsink(debug.log.writersink(buffer:writer()))
+```
+
+A helper forwarding an input to this boundary states the same contract.
+An ordinary `takes value: T` parameter may carry its caller's loans, so it
+cannot establish independence. The requirement survives generic aliases,
+callable assignments, and module imports, and adds no runtime wrapper.
+`own.manage` requires the same independence when it creates a managed cell.
+
 ## Generic preservation
 
 `preserves source` transports a source's complete capability through a result:

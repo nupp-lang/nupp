@@ -730,6 +730,13 @@ export function install(c: state.Checker): state.StatHandlers
                 boundEntry.moved = true -- declared storage, no live affine value
             end
             local boundKind = ownershipKind(bound)
+            if boundEntry then
+                local inputs = returnFacts and returnFacts.inputDependencies
+                    or initNode and c.own.inputDependenciesOf(initNode)
+                if inputs and #inputs > 0 then
+                    c.own.capabilityFacts(boundEntry).inputDependencies = inputs
+                end
+            end
             if boundEntry and returnFacts and returnFacts.origin then
                 c.own.capabilityFacts(boundEntry).retention = returnFacts.retention
             end
@@ -910,6 +917,8 @@ export function install(c: state.Checker): state.StatHandlers
     --- scope, and one destroyed after its root is refused rather than held.
     local function holdProvenance(state, target, written)
         local writtenFacts = c.own.capabilityFacts(written, 1, false)
+        local inputs = c.own.inputDependenciesOf(written)
+        c.own.capabilityFacts(state).inputDependencies = #inputs > 0 and inputs or nil
         local roots: {any} = {}
         for _, root in ipairs(writtenFacts.roots or {}) do
             -- An owner preserved through a call moved into the value and was recorded
@@ -1374,6 +1383,17 @@ export function install(c: state.Checker): state.StatHandlers
                                     "reinitialized field must keep its exact cleanup contract"
                                 )
                             end
+                            local facts = c.own.capabilityFacts(container)
+                            local inputs, seenInputs = {}, {}
+                            for _, input in ipairs(facts.inputDependencies or {}) do
+                                seenInputs[input], inputs[#inputs + 1] = true, input
+                            end
+                            for _, input in ipairs(c.own.inputDependenciesOf(written)) do
+                                if not seenInputs[input] then
+                                    seenInputs[input], inputs[#inputs + 1] = true, input
+                                end
+                            end
+                            facts.inputDependencies = #inputs > 0 and inputs or nil
                             moveExpression(written, et, "affine field reinitialization", "affine")
                             if written and container.automaticOwner then
                                 written.automaticOwnerReinit = {owner = container.automaticOwner, field = field,}

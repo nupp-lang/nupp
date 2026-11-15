@@ -161,8 +161,8 @@ one back into its name. `line` is `0` for a line the compiler could not
 attribute, which is every line from a named logger.
 
 `writersink` adapts an [](io.Writer), using the built-in rendering or a supplied
-formatter. The sink takes and closes the writer. A borrowed writer must remain
-valid until the sink is replaced and closed.
+formatter. The sink takes and closes the writer. A sink installed by `setsink`
+must be self-contained, so a writer that borrows a buffer cannot be installed.
 
 ```nupp
 local file = assert(io.open("game.log", "a"))
@@ -212,8 +212,8 @@ evaluated, which is the cost of a name chosen at run time.
 
 ## Cost
 
-Logging is initialized at startup to provide the global `warn` function. A
-module that uses the severity calls also binds its own logging view.
+Logging loads on the first warning or explicit use of this module. A module
+that uses the severity calls also binds its own logging view.
 ]]
 module debug.log
 
@@ -674,9 +674,9 @@ end
 
 --- Replaces the sink, transferring ownership of both sinks.
 ---
---- @param next the sink to install
+--- @param next the self-contained sink to install
 --- @return the previous sink, owned by the caller
-export function setsink(takes next: Sink): affine(Sink)
+export function setsink(takes next: own.SelfContained<Sink>): affine(Sink)
     local kind = type(next)
     if (kind ~= "table" and kind ~= "userdata" and kind ~= "cdata")
         or type((next as any).emit) ~= "function"

@@ -64,7 +64,7 @@ export function collect(root: any, exports: any?): any
         end
         seen[t] = true
         local tag = t.tag
-        if tag == "affine" or tag == "borrowed" or tag == "const" or tag == "pinned" then
+        if tag == "affine" or tag == "borrowed" or tag == "const" or tag == "pinned" or tag == "selfcontained" then
             mark(t.inner)
         elseif tag == "typeobject" or tag == "ctype" then
             mark(t.of)
@@ -286,7 +286,12 @@ export function collect(root: any, exports: any?): any
                 elseif key and source.moduleName then
                     item.targets[#item.targets + 1] = {key = key, module = source.moduleName}
                 end
-            elseif tag == "affine" or tag == "borrowed" or tag == "const" or tag == "pinned" then
+            elseif tag == "affine"
+                or tag == "borrowed"
+                or tag == "const"
+                or tag == "pinned"
+                or tag == "selfcontained"
+            then
                 link(t.inner)
             elseif tag == "array" or tag == "carray" or tag == "ptr" then
                 link(t.elem)

@@ -166,6 +166,34 @@ export function install(c: state.Checker): state.StatHandlers
         return table.concat(keys, ";")
     end
 
+    local function mergeInputs(left: {any}?, right: {any}?): {any}
+        local result, seen = {}, {}
+        for _, input in ipairs(left or {}) do
+            seen[input], result[#result + 1] = true, input
+        end
+        for _, input in ipairs(right or {}) do
+            if not seen[input] then
+                seen[input], result[#result + 1] = true, input
+            end
+        end
+
+        return result
+    end
+
+    local function inputsFit(inputs: {any}?, allowed: {any}?): boolean
+        local seen = {}
+        for _, input in ipairs(allowed or {}) do
+            seen[input] = true
+        end
+        for _, input in ipairs(inputs or {}) do
+            if not seen[input] then
+                return false
+            end
+        end
+
+        return true
+    end
+
     local function ownershipSnapshot(): {any}
         local seen, snapshot = {}, {}
         local scope = c.scope
@@ -187,6 +215,7 @@ export function install(c: state.Checker): state.StatHandlers
                         movedAt = state.movedAt,
                         movedFields = movedFields,
                         retained = own.capabilityFacts(state, nil, false).retention ~= nil,
+                        inputDependencies = own.capabilityFacts(state, nil, false).inputDependencies,
                         capability = own.capabilityOf(state.t, state).id,
                         activeBorrows = state.activeBorrows or 0,
                         activeExclusiveBorrows = state.activeExclusiveBorrows or 0,
@@ -207,7 +236,7 @@ export function install(c: state.Checker): state.StatHandlers
     --- What the surviving arms of a branching statement did to the owners it began
     --- with, so the join can tell a move every arm made from one only some did.
     local function ownershipJoin(): any
-        return {arms = 0, kept = {}, fieldMoved = {}, nilAtEnd = {}, fieldEmpty = {}}
+        return {arms = 0, kept = {}, fieldMoved = {}, nilAtEnd = {}, fieldEmpty = {}, inputs = {}}
     end
 
     --- Called before a surviving arm's scope is popped: a consuming parameter the arm
@@ -258,6 +287,9 @@ export function install(c: state.Checker): state.StatHandlers
                 join.kept[state] = true
             end
             if recordMoves and join then
+                join.inputs[
+                    state
+                ] = mergeInputs(join.inputs[state], own.capabilityFacts(state, nil, false).inputDependencies)
                 for field in pairs(state.movedFields or {}) do
                     if not (item.movedFields and item.movedFields[field]) then
                         local fields = join.fieldMoved[state] or {}
@@ -268,6 +300,7 @@ export function install(c: state.Checker): state.StatHandlers
                 end
             end
             state.moved, state.movedAt = item.moved, item.movedAt
+            own.capabilityFacts(state).inputDependencies = item.inputDependencies
             local movedFields = nil
             for field in pairs(item.movedFields or {}) do
                 movedFields = movedFields or {}
@@ -285,6 +318,9 @@ export function install(c: state.Checker): state.StatHandlers
     --- moved afterwards: an automatic owner's field keeps its own run-time record,
     --- which a later `drop` of the whole consults, and any other owner's is refused.
     local function auditOwnershipJoin(moved: {[any]: boolean}, join: any, at): nil
+        for state, inputs in pairs(join.inputs) do
+            own.capabilityFacts(state).inputDependencies = #inputs > 0 and inputs or nil
+        end
         for state in pairs(moved) do
             if state.auditedConsumer and join.kept[state] then
                 local name = state.definition and state.definition.token and state.definition.token.text or "?"
@@ -415,6 +451,12 @@ export function install(c: state.Checker): state.StatHandlers
     local function compareBackEdge(snapshot: {any}, at: any, ownershipOnly: boolean?): nil
         for _, item in ipairs(snapshot) do
             local state = item.state
+            local inputs = own.capabilityFacts(state, nil, false).inputDependencies
+            local addsDependencies = not inputsFit(inputs, item.inputDependencies)
+            -- The header was checked under its original uncertainty. Refilling
+            -- with an independent owner is safe, but a loop that runs zero times
+            -- still leaves the original input in place.
+            own.capabilityFacts(state).inputDependencies = mergeInputs(item.inputDependencies, inputs)
             -- A consume-and-refill iteration hands the owner away and binds a fresh
             -- one of the same obligation, so its capability identity differs at the
             -- back edge. No loan can dangle across the edge when both sides are
@@ -449,6 +491,7 @@ export function install(c: state.Checker): state.StatHandlers
                 end
             end
             if state.moved ~= item.moved
+                or addsDependencies
                 or (own.capabilityFacts(state, nil, false).retention ~= nil) ~= item.retained
                 or capabilityChanged
                 or fieldsChanged
@@ -509,11 +552,12 @@ export function install(c: state.Checker): state.StatHandlers
             for _, item in ipairs(edge.snapshot) do
                 local record = records[item.state]
                 if not record then
-                    record = {moved = {}, present = {}, fields = {}}
+                    record = {moved = {}, present = {}, fields = {}, inputs = {}}
                     records[item.state] = record
                     order[#order + 1] = item.state
                 end
                 record.present[arm] = true
+                record.inputs = mergeInputs(record.inputs, item.inputDependencies)
                 if item.moved then
                     record.moved[arm] = true
                     record.movedAt = record.movedAt or item.movedAt
@@ -526,6 +570,7 @@ export function install(c: state.Checker): state.StatHandlers
         end
         for _, state in ipairs(order) do
             local record = records[state]
+            own.capabilityFacts(state).inputDependencies = #record.inputs > 0 and record.inputs or nil
             local movedSomewhere, kept = false, false
             for arm, edge in ipairs(edges) do
                 local empty = edge.nilAtEnd[state] and edge.nilAtEnd[state][1] or false
@@ -871,6 +916,14 @@ export function install(c: state.Checker): state.StatHandlers
             return
         end
         collector[#collector + 1] = valueT
+        if collector.inputDependencies then
+            for _, input in ipairs(own.inputDependenciesOf(stat.value)) do
+                if not collector.seenInputs[input] then
+                    collector.seenInputs[input] = true
+                    collector.inputDependencies[#collector.inputDependencies + 1] = input
+                end
+            end
+        end
         stat.switchResultType = valueT
         if collector.roots then
             collector.expressions[#collector.expressions + 1] = stat.value
@@ -1594,6 +1647,7 @@ export function install(c: state.Checker): state.StatHandlers
             c.popScope()
             join.arms = join.arms + 1
             for _, item in ipairs(ownershipBefore) do
+                join.inputs[item.state] = mergeInputs(join.inputs[item.state], item.inputDependencies)
                 local nilHere = join.nilAtEnd[item.state] and join.nilAtEnd[item.state][join.arms] or false
                 if not item.moved and not nilHere then
                     join.kept[item.state] = true

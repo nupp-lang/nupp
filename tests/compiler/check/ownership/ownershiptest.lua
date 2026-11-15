@@ -9183,4 +9183,387 @@ output[1] = 65
     assert(borrowed:find("NUPP2602", 1, true) or borrowed:find("NUPP2607", 1, true), borrowed)
 end
 
+function M.protectedExitResultsKeepUncertainInputDependencies()
+    local got = codes(
+        [[
+local function wrap(takes writer: io.Writer): affine(debug.log.Sink)
+    return debug.log.writersink(writer)
+end
+local function forward(takes writer: io.Writer): (nil, unknown)
+    local sink = pcall(wrap, writer) or return
+    local _ = debug.log.setsink(sink)
+    return nil, nil
+end
+]]
+    )
+    assert(got:find("NUPP2608", 1, true), "the successful protected result keeps its input dependency: " .. got)
+end
+
+function M.refilledOwnedFieldsKeepTheirNewInputDependencies()
+    local got = codes(
+        [[
+local record Holder
+    sink: debug.log.Sink?
+end
+local function forward(takes sink: debug.log.Sink): nil
+    local file = assert(io.tmpfile())
+    local holder = Holder(sink = debug.log.writersink(io.Writer.of(file)))
+    local previous = holder.sink
+    if previous ~= nil then own.drop(previous) end
+    holder.sink = sink
+    if holder.sink ~= nil then
+        local _ = debug.log.setsink(holder.sink)
+    end
+end
+]]
+    )
+    assert(got:find("NUPP2608", 1, true), "a refilled field keeps the new input's dependency: " .. got)
+end
+
+function M.loopRefillsCanStrengthenDependencyProof()
+    for _, tail in ipairs({"", "continue"}) do
+        local prefix = [[
+local function forward(takes sink: debug.log.Sink, replace: boolean): nil
+    while replace do
+        own.drop(sink)
+        local file = assert(io.tmpfile())
+        sink = debug.log.writersink(io.Writer.of(file))
+]]
+            .. tail
+            .. [[
+    end
+]]
+        assertClean(prefix .. "    own.drop(sink)\nend")
+        local got = codes(prefix .. "    local _ = debug.log.setsink(sink)\nend")
+        assert(got:find("NUPP2608", 1, true), "a zero-iteration exit keeps the original dependency: " .. got)
+    end
+end
+
+function M.installedLogSinksRejectBorrowedWriterDependencies()
+    local prefix = [[
+local function wrap(takes writer: io.Writer): affine(debug.log.Sink)
+    return debug.log.writersink(writer)
+end
+local function install(): nil
+    local buffer = bytes.Buffer.create()
+]]
+    for _, body in ipairs({
+        "    local _ = debug.log.setsink(debug.log.writersink(buffer:writer()))",
+        "    local sink = debug.log.writersink(buffer:writer())\n    local _ = debug.log.setsink(sink)",
+        "    local _ = debug.log.setsink(wrap(buffer:writer()))",
+        "    local set = debug.log.setsink\n    local _ = set(debug.log.writersink(buffer:writer()))",
+        "    local _ = debug.log.setsink(debug.log.writersink(buffer:writer()) as own.SelfContained<debug.log.Sink>)",
+    }) do
+        local got = codes(prefix .. body .. "\nend")
+        assert(got:find("NUPP2608", 1, true), body .. "\n" .. got)
+    end
+end
+
+function M.selfContainedRequirementsSurviveGenericAliases()
+    local prefix = [[
+local ownership = require("own")
+local type Independent<T> = ownership.SelfContained<T>
+local type Installed = Independent<debug.log.Sink>
+local function retain(takes sink: Installed): nil
+    own.drop(sink)
+end
+]]
+    local got = codes(prefix .. [[
+local buffer = bytes.Buffer.create()
+retain(debug.log.writersink(buffer:writer()))
+]])
+    assert(got:find("NUPP2608", 1, true), got)
+    assertClean(prefix .. [[
+local file = assert(io.tmpfile())
+retain(debug.log.writersink(io.Writer.of(file)))
+]])
+    assertClean(
+        [[
+local type Independent<T> = const own.SelfContained<T>
+local type Installed = Independent<debug.log.Sink>
+local function retain(takes sink: Installed): nil
+    own.drop(sink)
+end
+local file = assert(io.tmpfile())
+retain(debug.log.writersink(io.Writer.of(file)))
+]]
+    )
+end
+
+function M.forwardingRetainedInputsRequiresTheSameContract()
+    for _, body in ipairs({
+        "local _ = debug.log.setsink(sink)",
+        "local alias = sink\nlocal _ = debug.log.setsink(alias)",
+    }) do
+        local got = codes("local function forward(takes sink: debug.log.Sink): nil\n" .. body .. "\nend")
+        assert(got:find("NUPP2608", 1, true), body .. "\n" .. got)
+    end
+    local got = codes(
+        [[
+local function forward(takes writer: io.Writer): nil
+    local sink = debug.log.writersink(writer)
+    local _ = debug.log.setsink(sink)
+end
+]]
+    )
+    assert(got:find("NUPP2608", 1, true), got)
+    got = codes(
+        [[
+local record Box<T>
+    value: T
+end
+local function forward(takes sink: debug.log.Sink): nil
+    local box = Box<debug.log.Sink>(value = sink)
+    local _ = debug.log.setsink(box.value)
+end
+]]
+    )
+    assert(got:find("NUPP2608", 1, true), "a generic field can carry caller dependencies: " .. got)
+    got = codes(
+        [[
+local record Holder
+    sink: debug.log.Sink
+    function install(takes self): nil
+        local _ = debug.log.setsink(self.sink)
+    end
+end
+]]
+    )
+    assert(got:find("NUPP2608", 1, true), "a consuming receiver can carry caller dependencies: " .. got)
+    assertClean(
+        [[
+local function forward(takes sink: own.SelfContained<debug.log.Sink>): nil
+    local alias = sink
+    local _ = debug.log.setsink(alias)
+end
+local function adapt(takes writer: own.SelfContained<io.Writer>): nil
+    local sink = debug.log.writersink(writer)
+    local _ = debug.log.setsink(sink)
+end
+]]
+    )
+end
+
+function M.callableConversionsCannotEraseSelfContainedInputs()
+    local got = codes(
+        [[
+local install: function(takes next: debug.log.Sink): affine(debug.log.Sink) = debug.log.setsink
+]]
+    )
+    assert(got:find("NUPP2001", 1, true), got)
+    for _, target in ipairs({"function(takes next: debug.log.Sink): affine(debug.log.Sink)", "any"}) do
+        got = codes("local install = debug.log.setsink as " .. target)
+        assert(got:find("NUPP2608", 1, true), "a cast cannot erase the callable input contract: " .. got)
+    end
+    assertClean(
+        [[
+local install: function(takes next: own.SelfContained<debug.log.Sink>): affine(debug.log.Sink) = debug.log.setsink
+local file = assert(io.tmpfile())
+local previous = install(debug.log.writersink(io.Writer.of(file)))
+own.drop(previous)
+]]
+    )
+end
+
+function M.erasedAndNarrowedViewsCannotHideSelfContainedInputs()
+    local got = codes(
+        [[
+local hidden: unknown = debug.log.setsink
+local install = hidden as function(takes next: debug.log.Sink): affine(debug.log.Sink)
+]]
+    )
+    assert(got:find("NUPP2001", 1, true), "unknown cannot hide the callable contract: " .. got)
+    got = codes(
+        [[
+local hidden: table = {install = debug.log.setsink}
+local recovered = hidden as {install: function(takes next: debug.log.Sink): affine(debug.log.Sink)}
+]]
+    )
+    assert(got:find("NUPP2001", 1, true), "table cannot hide a member's callable contract: " .. got)
+    got = codes(
+        [[
+local type Installer = function(takes next: own.SelfContained<debug.log.Sink>): affine(debug.log.Sink)
+local full: {keep: Installer, hidden: Installer} = {keep = debug.log.setsink, hidden = debug.log.setsink}
+local narrowed: {keep: Installer} = full
+local recovered = narrowed as {hidden: function(takes next: debug.log.Sink): affine(debug.log.Sink)}
+]]
+    )
+    assert(got:find("NUPP2608", 1, true), "a cast cannot invent a hidden callable contract: " .. got)
+    assertClean(
+        [[
+local view: {@readonly level: function(): debug.log.Level} = debug.log
+local type Installer = function(takes next: own.SelfContained<debug.log.Sink>): affine(debug.log.Sink)
+local full: {keep: Installer, hidden: Installer} = {keep = debug.log.setsink, hidden = debug.log.setsink}
+local narrowed: {keep: Installer} = full
+]]
+    )
+end
+
+function M.takingClosuresKeepUncertainInputDependencies()
+    local body = [[
+local function retain(takes action: own.SelfContained<function(): nil>): nil
+    action()
+end
+local function forward(takes sink: %s): nil
+    retain(function(): nil takes (sink)
+        own.drop(sink)
+    end)
+end
+]]
+    local got = codes(body:format("debug.log.Sink"))
+    assert(got:find("NUPP2608", 1, true), got)
+    assertClean(body:format("own.SelfContained<debug.log.Sink>"))
+end
+
+function M.selfContainedReceiversKeepTheirCallBoundary()
+    local prefix = [[
+local record Holder
+    sink: debug.log.Sink
+    function install(takes self: own.SelfContained<Holder>): nil
+        local _ = debug.log.setsink(self.sink)
+    end
+end
+]]
+    assertClean(
+        prefix
+        .. [[
+local function forward(takes sink: own.SelfContained<debug.log.Sink>): nil
+    local holder = Holder(sink = sink)
+    holder:install()
+end
+]]
+    )
+    local got = codes(
+        prefix
+        .. [[
+local buffer = bytes.Buffer.create()
+local holder = Holder(sink = debug.log.writersink(buffer:writer()))
+holder:install()
+]]
+    )
+    assert(got:find("NUPP2608", 1, true), "a method receiver keeps its dependency check: " .. got)
+end
+
+function M.conditionalReinitializationKeepsUncertainInputDependencies()
+    local replacement = [[
+    own.drop(sink)
+    local file = assert(io.tmpfile())
+    sink = debug.log.writersink(io.Writer.of(file))
+]]
+    local got = codes(
+        [[
+local function forward(takes sink: debug.log.Sink, replace: boolean): nil
+    if replace then
+]]
+        .. replacement
+        .. [[
+    end
+    local _ = debug.log.setsink(sink)
+end
+]]
+    )
+    assert(got:find("NUPP2608", 1, true), "the unreplaced branch keeps its input dependency: " .. got)
+    assertClean(
+        [[
+local function forward(takes sink: debug.log.Sink): nil
+]]
+        .. replacement
+        .. [[
+    local _ = debug.log.setsink(sink)
+end
+]]
+    )
+end
+
+function M.optionalSelfContainedInputsKeepTheCallRequirement()
+    for _, annotation in ipairs({"own.SelfContained<debug.log.Sink>?", "own.SelfContained<debug.log.Sink> | nil"}) do
+        local prefix = "local function retain(takes sink: " .. annotation .. [[): nil
+    own.drop(sink)
+end
+]]
+        local got = codes(
+            prefix .. [[
+local buffer = bytes.Buffer.create()
+retain(debug.log.writersink(buffer:writer()))
+]]
+        )
+        assert(got:find("NUPP2608", 1, true), got)
+        assertClean(
+            prefix
+            .. [[
+retain()
+retain(nil)
+local file = assert(io.tmpfile())
+retain(debug.log.writersink(io.Writer.of(file)))
+]]
+        )
+    end
+end
+
+function M.copiedScalarFieldsDoNotBorrowTheirTakingOwner()
+    local prefix = [[
+local record Counter is own.Closeable
+    count: integer
+    label: string
+    function close(takes self): nil end
+end
+local function clone(takes old: Counter): nil
+]]
+    for _, copy in ipairs({
+        "    local fresh = Counter(count = old.count, label = old.label)",
+        "    local count, label = old.count, old.label\n    local fresh = Counter(count = count, label = label)",
+    }) do
+        assertClean(prefix .. copy .. [[
+
+    own.drop(old)
+    local cell = own.manage(fresh)
+    own.drop(cell)
+end
+]])
+    end
+end
+
+function M.copiedReferenceFieldsKeepTheirTakingOwnerDependencies()
+    for _, fieldType in ipairs({"voidptr", "cstring", "{integer}", "function(): nil"}) do
+        local got = codes(
+            (
+                [[
+local record Holder is own.Closeable
+    value: %s
+    function close(takes self): nil end
+end
+local function clone(takes old: Holder): nil
+    local value = old.value
+    local fresh = Holder(value = value)
+    own.drop(old)
+    local cell = own.manage(fresh)
+    own.drop(cell)
+end
+]]
+            ):format(fieldType)
+        )
+        assert(got:find("NUPP2612", 1, true), fieldType .. " retains its possible caller dependency: " .. got)
+    end
+end
+
+function M.managedCellsRequireSelfContainedForwardingInputs()
+    local got = codes(
+        [[
+local function manage(takes writer: io.Writer): nil
+    local cell = own.manage(writer)
+    own.drop(cell)
+end
+]]
+    )
+    assert(got:find("NUPP2612", 1, true), got)
+    assertClean(
+        [[
+local function manage(takes writer: own.SelfContained<io.Writer>): nil
+    local cell = own.manage(writer)
+    own.drop(cell)
+end
+]]
+    )
+end
+
 return M

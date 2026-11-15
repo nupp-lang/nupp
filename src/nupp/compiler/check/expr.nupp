@@ -69,6 +69,27 @@ expr.EXPANDS = EXPANDS
 ---
 --- @param c the run's state
 function expr.install(c: state.Checker): nil
+    local function retainInputs(node: any, inputs: {any}, result: integer?): nil
+        if #inputs == 0 then
+            return
+        end
+        local facts = c.own.capabilityFacts(node, result)
+        local combined, seen = {}, {}
+        for _, input in ipairs(facts.inputDependencies or {}) do
+            combined[#combined + 1], seen[input] = input, true
+        end
+        for _, input in ipairs(inputs) do
+            if not seen[input] then
+                combined[#combined + 1], seen[input] = input, true
+            end
+        end
+        facts.inputDependencies = combined
+    end
+
+    local function retainInputDependencies(node: any, source: any, result: integer?): nil
+        retainInputs(node, c.own.inputDependenciesOf(source, result))
+    end
+
     local function retainTakenCaptureRoots(node: any, body: any): nil
         if body == nil or body.takenCaptures == nil or #body.takenCaptures == 0 then
             return
@@ -79,6 +100,7 @@ function expr.install(c: state.Checker): nil
             roots[#roots + 1], seen[root] = root, true
         end
         for _, capture in ipairs(body and body.takenCaptures or {}) do
+            retainInputs(node, capture.facts and capture.facts.inputDependencies or {})
             for _, root in ipairs(capture.facts and capture.facts.roots or {}) do
                 if not seen[root] then
                     roots[#roots + 1], seen[root] = root, true
@@ -817,6 +839,7 @@ function expr.install(c: state.Checker): nil
                     origin = facts.origin,
                     loans = facts.loans,
                     roots = facts.roots,
+                    inputDependencies = facts.inputDependencies,
                     capturedBorrowRoots = facts.capturedBorrowRoots,
                     exclusive = facts.exclusive,
                     regionRoot = facts.regionRoot,
@@ -917,6 +940,7 @@ function expr.install(c: state.Checker): nil
         if roots and roots[1] then
             c.own.capabilityFacts(node).roots = roots
         end
+        retainInputDependencies(node, operand)
 
         return success
     end
@@ -954,6 +978,7 @@ function expr.install(c: state.Checker): nil
         c.auditOwnershipJoin(yielded.moved, yielded.join, node)
         c.own.capabilityFacts(node).roots = #yielded.roots > 0 and yielded.roots or nil
         for index, expression in ipairs(yielded.expressions) do
+            retainInputDependencies(node, expression)
             if index == 1 then
                 c.fixedWidth.copy(node, expression)
             else
@@ -999,6 +1024,7 @@ function expr.install(c: state.Checker): nil
             if arm.expr then
                 local resultType = c.infer(arm.expr)
                 arm.switchResultType = resultType
+                retainInputDependencies(node, arm.expr)
                 if c.ownershipKind(resultType) == "borrowed" then
                     c.own.provenanceOwners(arm.expr, resultRoots, seenRoots)
                 else
@@ -1024,10 +1050,11 @@ function expr.install(c: state.Checker): nil
                 end
             elseif arm.body then
                 expressionResultsOnly = false
-                local yielded: {Type} = {}
+                local yielded: any = {inputDependencies = {}, seenInputs = {}}
                 c.blockYieldStack[#c.blockYieldStack + 1] = yielded
                 c.checkBlock(arm.body, true)
                 c.blockYieldStack[#c.blockYieldStack] = nil
+                retainInputs(node, yielded.inputDependencies)
                 for _, valueT in ipairs(yielded) do
                     results[#results + 1] = valueT
                 end
@@ -1356,6 +1383,9 @@ function expr.install(c: state.Checker): nil
                 c.own.capabilityFacts(node).roots = capabilityFacts.roots
             end
             if entry then
+                retainInputDependencies(node, c.ownershipState(entry))
+            end
+            if entry then
                 local state = c.ownershipState(entry)
                 if state.moved then
                     local related = state.movedAt and c.related(state.movedAt, "owner was moved here") or nil
@@ -1377,6 +1407,7 @@ function expr.install(c: state.Checker): nil
                     end
                     if capture then
                         c.own.capabilityFacts(node).roots = {capture.root}
+                        retainInputDependencies(node, capture.outer or capture.root)
                         capturedType = T.borrowed(rawType(entry.t))
                     elseif not node.ownershipCaptureReported then
                         -- The branch above is what proves it has one.
@@ -1499,6 +1530,7 @@ function expr.install(c: state.Checker): nil
                 c.checkPackDiscard(inner.valuePack, 2, node)
             end
             node.immutablePath = inner and inner.immutablePath or false
+            retainInputDependencies(node, inner)
             c.fixedWidth.copy(node, inner)
             return out
         elseif kind == "comptimeExpr" then
@@ -1513,10 +1545,12 @@ function expr.install(c: state.Checker): nil
             c.pushScope()
             c.applyFacts(facts.t)
             local tt = c.infer(ifTrue)
+            retainInputDependencies(node, ifTrue)
             c.popScope()
             c.pushScope()
             c.applyFacts(facts.f)
             local ft = c.infer(ifFalse)
+            retainInputDependencies(node, ifFalse)
             c.popScope()
             if c.ownershipKind(tt) or c.ownershipKind(ft) then
                 c.diag("NUPP2602", node, "an ownership-bearing value cannot be selected by a ternary expression", nil, {
@@ -1532,6 +1566,10 @@ function expr.install(c: state.Checker): nil
             end
             local source = c.infer(cast)
             local target = c.resolveType(node.type)
+            if T.hasSelfContainedInput(source) and not isA(source, target) then
+                c.diag("NUPP2608", node, "a cast cannot erase a self-contained input contract")
+            end
+            retainInputDependencies(node, cast)
             c.fixedWidth.storageOnly(node.type, target, "a cast result")
             -- `as` is erased, so it can say a value is one of these but cannot make it
             -- one. A constrained type is exactly the claim that has to be established,
@@ -1734,6 +1772,7 @@ function expr.install(c: state.Checker): nil
                 local roots = {}
                 for _, capture in ipairs(captures) do
                     roots[#roots + 1] = capture.root
+                    retainInputDependencies(node, capture.outer or capture.root)
                 end
                 c.own.capabilityFacts(node).roots = roots
                 if not c.ownershipKind(inferred) then
@@ -1908,7 +1947,8 @@ function expr.install(c: state.Checker): nil
 
             -- An owner stored in a table escapes the checking that tracks it, whichever
             -- way the entry was written.
-            local function tableValue(value: Node, valueT: Type): Type
+            local function tableValue(value: Node, valueT: Type, result: integer?): Type
+                retainInputDependencies(node, value, result)
                 if not c.ownershipKind(valueT) then
                     return valueT
                 end
@@ -1993,7 +2033,7 @@ function expr.install(c: state.Checker): nil
                             for resultIndex = 2, width do
                                 local resultT = T.packAt(expands, resultIndex)
                                 if resultT then
-                                    positional[#positional + 1] = widened(tableValue(value, resultT))
+                                    positional[#positional + 1] = widened(tableValue(value, resultT, resultIndex))
                                 end
                             end
                             if expands.tail then
@@ -2267,6 +2307,16 @@ function expr.install(c: state.Checker): nil
     end
 
     local function recordInferredValue(node: Node, inferred: Type): Type
+        if node.kind == "binop" and node.op then
+            local op = node.op.kind
+            if op == "and" or op == "or" or op == "??" or c.ownershipKind(inferred) == "borrowed" then
+                retainInputDependencies(node, node.lhs)
+                retainInputDependencies(node, node.rhs)
+            end
+        end
+        for _, root in ipairs(c.own.capabilityFacts(node, nil, false).roots or {}) do
+            retainInputDependencies(node, root)
+        end
         local called = node.kind == "call" or node.kind == "methodCall" or node.kind == "safeCall"
         if called then
             markCallMutation(node)
@@ -2306,6 +2356,9 @@ function expr.install(c: state.Checker): nil
         -- while the arguments were inferred, which is one of this call's own arguments.
         node.valuePack = node.valuePack or T.pack({first})
         for index, result in ipairs(node.valuePack.head or {}) do
+            for _, root in ipairs(c.own.capabilityFacts(node, index, false).roots or {}) do
+                retainInputs(node, c.own.inputDependenciesOf(root), index)
+            end
             if fixedWidth.isValue(result) and not node.fixedWidthUntrustedResult then
                 node.fixedWidthResultEstablished = node.fixedWidthResultEstablished or {}
                 node.fixedWidthResultEstablished[index] = {[T.unwrapOwnership(result).tag] = true}
@@ -2416,6 +2469,7 @@ function expr.install(c: state.Checker): nil
                 local roots = {}
                 for _, capture in ipairs(captures) do
                     roots[#roots + 1] = capture.root
+                    retainInputDependencies(node, capture.outer or capture.root)
                 end
                 c.own.capabilityFacts(node).roots = roots
                 if not c.ownershipKind(inferred) then

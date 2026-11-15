@@ -257,6 +257,13 @@ record types.Borrowed
     inner: types.Type
 end
 
+-- A value whose dependencies are owned by the value rather than a caller's loan.
+record types.SelfContained
+    id: string = ""
+    tag: 'selfcontained'
+    inner: types.Type
+end
+
 --- A pinned pointer, paired with a strong Lua anchor at run time.
 record types.Pinned
     id: string = ""
@@ -304,6 +311,7 @@ record types.CapabilityFacts
 
     loans: {types.Loan}?
     roots: {any}?
+    inputDependencies: {any}?
 
     --- Roots read by a named local function. They are checked afresh at each direct
     --- call rather than held as a lexical loan, because the function may be called
@@ -1036,6 +1044,7 @@ type types.Type = types.Prim
     | types.Affine
     | types.Borrowed
     | types.Pinned
+    | types.SelfContained
     | types.Const
     | types.CType
     | types.Func
@@ -1612,6 +1621,12 @@ function types.union(members: {types.Type}): types.Type
     if #flat == 1 then
         return flat[1]
     end
+    if #flat == 2 then
+        local other = flat[1] == types.nil_ and flat[2] or flat[2] == types.nil_ and flat[1] or nil
+        if other and other.tag == "selfcontained" then
+            return types.optional(other)
+        end
+    end
     -- any swallows the union entirely
     for _, m in ipairs(flat) do
         if m == types.any then
@@ -1732,6 +1747,9 @@ end
 
 --- `t` or nil: what an annotation writes `T?`.
 function types.optional(t: types.Type): types.Type
+    if t.tag == "selfcontained" then
+        return types.selfContained(types.optional(t.inner))
+    end
     if t.tag == "affine" and #(t.cleanups or {}) > 0 then
         local payload = types.union({types.unwrapOwnership(t), types.nil_})
         return types.withOwnershipPayload(t, payload, {})
@@ -1851,12 +1869,112 @@ local function obligationFrom(cleanups: {types.Cleanup}, transferOnly: boolean?)
     return types.aggregateObligation(children)
 end
 
+function types.selfContained(t: types.Type): types.Type
+    if t.tag == "const" and t.inner.tag == "affine" then
+        local owner = t.inner as types.Affine
+        t = types.affine(types.constOf(owner.inner), owner.cleanups, owner.transferOnly, owner.obligation)
+    end
+    if t == types.never then
+        return t
+    end
+    if t.tag == "selfcontained" then
+        return t
+    end
+    local key = "selfcontained(" .. t.id .. ")"
+
+    return interned(key) or intern(key, types.SelfContained(tag = "selfcontained", inner = t))
+end
+
+function types.requiresSelfContained(t: types.Type): boolean
+    if t.tag == "selfcontained" then
+        return true
+    elseif t.tag == "affine" or t.tag == "const" or t.tag == "borrowed" or t.tag == "pinned" then
+        return types.requiresSelfContained(t.inner)
+    end
+
+    return false
+end
+
+function types.withoutSelfContained(t: types.Type): types.Type
+    if not types.requiresSelfContained(t) then
+        return t
+    end
+    if t.tag == "selfcontained" then
+        return types.withoutSelfContained(t.inner)
+    elseif t.tag == "affine" then
+        return types.affine(types.withoutSelfContained(t.inner), t.cleanups, t.transferOnly, t.obligation)
+    elseif t.tag == "const" then
+        return types.constOf(types.withoutSelfContained(t.inner))
+    elseif t.tag == "borrowed" then
+        return types.borrowed(types.withoutSelfContained(t.inner))
+    elseif t.tag == "pinned" then
+        return types.pinned(types.withoutSelfContained(t.inner))
+    end
+
+    return t
+end
+
+-- Whether erasing this value's type could hide a callable input requirement.
+function types.hasSelfContainedInput(t: types.Type, seen: {[types.Type]: boolean}?): boolean
+    seen = seen or {}
+    if seen[t] then
+        return false
+    end
+    seen[t] = true
+    if t.tag == "func" then
+        for _, parameter in ipairs(t.params) do
+            if types.requiresSelfContained(parameter) or types.hasSelfContainedInput(parameter, seen) then
+                return true
+            end
+        end
+        for _, result in ipairs(t.rets) do
+            if types.hasSelfContainedInput(result, seen) then
+                return true
+            end
+        end
+    elseif t.tag == "selfcontained"
+        or t.tag == "affine"
+        or t.tag == "borrowed"
+        or t.tag == "pinned"
+        or t.tag == "const"
+    then
+        return types.hasSelfContainedInput(t.inner, seen)
+    elseif t.tag == "union" or t.tag == "intersection" then
+        for _, member in ipairs(t.members) do
+            if types.hasSelfContainedInput(member, seen) then
+                return true
+            end
+        end
+    elseif t.tag == "shape" or t.tag == "nominal" then
+        for _, member in pairs(t.byname or {}) do
+            if types.hasSelfContainedInput(member, seen) then
+                return true
+            end
+        end
+    elseif t.tag == "array" then
+        return types.hasSelfContainedInput(t.elem, seen)
+    elseif t.tag == "map" then
+        return types.hasSelfContainedInput(t.value, seen)
+    elseif t.tag == "tuple" then
+        for _, member in ipairs(t.elems) do
+            if types.hasSelfContainedInput(member, seen) then
+                return true
+            end
+        end
+    end
+
+    return false
+end
+
 function types.affine(
     t: types.Type,
     cleanups: {types.Cleanup}?,
     transferOnly: boolean?,
     obligation: types.Obligation?
 ): types.Type
+    if t.tag == "selfcontained" then
+        return types.selfContained(types.affine(t.inner, cleanups, transferOnly, obligation))
+    end
     local list: {types.Cleanup} = {}
     local ids = {}
     for j, cleanup in ipairs(cleanups or {}) do
@@ -1892,6 +2010,9 @@ end
 
 --- Applies the ownership policy declared by an Affine claim, if any.
 function types.inherentOwner(t: types.Type): types.Type
+    if t.tag == "selfcontained" then
+        return types.selfContained(types.inherentOwner(t.inner))
+    end
     local raw = types.unwrapOwnership(t)
     local representation = raw
     if representation.tag == "typevar" then
@@ -1948,6 +2069,9 @@ function types.inherentOwner(t: types.Type): types.Type
 end
 
 function types.obligationFor(t: types.Type): types.Obligation?
+    if t.tag == "selfcontained" then
+        return types.obligationFor(t.inner)
+    end
     return t.tag == "affine" and t.obligation or nil
 end
 
@@ -1978,9 +2102,13 @@ end
 
 --- The value type inside an ownership qualifier, or `t` itself.
 function types.unwrapOwnership(t: types.Type): types.Type
+    if t.tag == "selfcontained" then
+        return types.unwrapOwnership(t.inner)
+    end
     if t.tag == "affine" or t.tag == "borrowed" or t.tag == "pinned" then
         return t.inner
     end
+
     return t
 end
 
@@ -2070,6 +2198,9 @@ end
 --- Exposes one canonical capability view over the existing erased wrapper encoding
 --- plus flow facts supplied by the checker. An empty loan set is ordinary access.
 function types.capability(t: types.Type, facts: types.CapabilityFacts?): types.Capability
+    if t.tag == "selfcontained" then
+        return types.capability(t.inner, facts)
+    end
     -- Ordinary values share one capability. Check the fields that contribute flow
     -- identity before allocating the temporary lists used by qualified values.
     -- Read the fields rather than caching by facts identity: a checker extends the
@@ -2205,7 +2336,7 @@ end
 --- checks physical field values through this view after transferring their capability
 --- to the aggregate itself.
 function types.containedOwnershipPayload(t: types.Type): types.Type
-    if t.tag == "affine" or t.tag == "borrowed" or t.tag == "pinned" then
+    if t.tag == "affine" or t.tag == "borrowed" or t.tag == "pinned" or t.tag == "selfcontained" then
         return types.containedOwnershipPayload(t.inner)
     end
     if t.tag == "union" then
@@ -3381,6 +3512,15 @@ end
 -- A read-only view of T. Const is carried so an imported signature keeps what the
 -- header said; it does not change the representation.
 function types.constOf(t: types.Type): types.Type
+    if t.tag == "selfcontained" then
+        local inner = t.inner
+        if inner.tag == "affine" then
+            return types.selfContained(
+                types.affine(types.constOf(inner.inner), inner.cleanups, inner.transferOnly, inner.obligation)
+            )
+        end
+        return types.selfContained(types.constOf(inner))
+    end
     if t.tag == "const" then
         return t
     end
@@ -3664,7 +3804,7 @@ function types.hasTypevar(t: types.Type): boolean
     end
 
     local tag = t.tag
-    if tag == "affine" or tag == "borrowed" or tag == "pinned" or tag == "const" then
+    if tag == "affine" or tag == "borrowed" or tag == "pinned" or tag == "const" or tag == "selfcontained" then
         return types.hasTypevar(t.inner)
     elseif tag == "ctype" or tag == "metatable" then
         return types.hasTypevar(t.of)
@@ -3942,6 +4082,8 @@ function types.tostring(t: types.Type): string
             parts[j] = rendered
         end
         return table.concat(parts, " & ")
+    elseif tag == "selfcontained" then
+        return "own.SelfContained<" .. types.tostring(t.inner) .. ">"
     elseif tag == "const" then
         return "const " .. types.tostring(t.inner)
     elseif tag == "ctype" then

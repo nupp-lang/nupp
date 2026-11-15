@@ -920,6 +920,7 @@ function callexpr.install(c: state.Checker): state.ExprHandlers
                 -- cell.
                 local selfContained = #args == 1
                     and #c.own.rootsOf(args[1]) == 0
+                    and #c.own.inputDependenciesOf(args[1]) == 0
                     and capability
                     and T.capabilityHasMovable(capability)
                     and not T.capabilityTransferOnly(capability)
@@ -2221,6 +2222,8 @@ function callexpr.install(c: state.Checker): state.ExprHandlers
         if mt then
             local callable = mt.tag == "func"
             local receiverMode = mt.tag == "func" and mt.paramModes[1] or "plain"
+            local selfContainedReceiver = mt.tag == "func" and mt.params[1] and T.requiresSelfContained(mt.params[1])
+                or false
             if mt.tag == "intersection" then
                 callable = true
                 for _, signature in ipairs(mt.members) do
@@ -2323,6 +2326,16 @@ function callexpr.install(c: state.Checker): state.ExprHandlers
                 channelCall.workerChannelRoot = scopeEntry and c.borrowRoot(scopeEntry) or nil
             end
             local first, rets, pack = c.inferCall(node, callable and dropSelf(methodType) or methodType, callArgs)
+            if callable and methodType.tag == "intersection" and node.overloadWinner then
+                for _, signature in ipairs(methodType.members) do
+                    if signature.tag == "func" and dropSelf(signature).id == node.overloadWinner.id then
+                        local selected = signature as T.Func
+                        selfContainedReceiver = selected.params[1] and T.requiresSelfContained(selected.params[1])
+                            or false
+                        break
+                    end
+                end
+            end
             forwardProtocol(node)
             if rotated and originalExprs then
                 (callArgs as cst.Args).exprs = originalExprs
@@ -2437,6 +2450,9 @@ function callexpr.install(c: state.Checker): state.ExprHandlers
                     local candidate = dropSelf(specializeSelf(owner, entry.signature, owner))
                     if candidate.id == node.overloadWinner.id or entry.member == selectedMember then
                         receiverMode = entry.signature.paramModes[1] or "plain"
+                        selfContainedReceiver = entry.signature.params[1]
+                            and T.requiresSelfContained(entry.signature.params[1])
+                            or false
                         node.overloadMember = entry.member
                         node.methodEntry = entry
                         c.markToken(member, entry.definition, specializeSelf(owner, entry.signature, owner), "method")
@@ -2445,6 +2461,11 @@ function callexpr.install(c: state.Checker): state.ExprHandlers
                     end
                 end
                 node.overloadMember = node.overloadMember or selectedMember
+            end
+            if selfContainedReceiver and (#c.own.rootsOf(receiver) > 0 or #c.own.inputDependenciesOf(receiver) > 0) then
+                c.diag("NUPP2608", receiver, "a self-contained receiver cannot depend on a borrowed resource", nil, {
+                    help = "call the method on an independent owner, or require own.SelfContained on a forwarding input"
+                })
             end
             if receiverMode ~= "takes" then
                 -- A method sees the whole record, including a field that was moved
@@ -2464,7 +2485,14 @@ function callexpr.install(c: state.Checker): state.ExprHandlers
                     local entry = c.ownershipEntry(receiver)
                     local exclusive = c.own.capabilityFacts(receiver, nil, false).exclusive
                         or entry and c.own.capabilityFacts(entry, nil, false).exclusive
-                    c.own.retainConsumedLoans(node, c.own.rootsOf(receiver), rets or {first}, exclusive)
+                    c.own.retainConsumedLoans(
+                        node,
+                        c.own.rootsOf(receiver),
+                        rets or {first},
+                        exclusive,
+                        c.own.inputDependenciesOf(receiver),
+                        pack
+                    )
                     c.moveExpression(receiver, ot, "method receiver")
                     if receiver.automaticOwnerMove then
                         node.automaticOwnerMoves = node.automaticOwnerMoves or {}

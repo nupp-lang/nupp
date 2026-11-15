@@ -884,6 +884,9 @@ end
 ----------------------------------------------------------------------------
 
 local function copyable(t: Type, seen: {[Type]: boolean}): boolean
+    if t.tag == "selfcontained" then
+        return copyable(t.inner, seen)
+    end
     if t.tag == "affine" or t.tag == "borrowed" or t.tag == "pinned" then
         return false
     end
@@ -980,6 +983,9 @@ local function check(a: Type, b: Type): boolean, string?
     if btag == "never" then
         return false, ("%s is not never; no value is"):format(T.tostring(a))
     end
+    if (btag == "any" or btag == "unknown" or btag == "table") and T.hasSelfContainedInput(a) then
+        return false, "a self-contained input contract cannot be erased into " .. btag
+    end
     if atag == "any" or btag == "any" then
         return true
     end
@@ -1027,6 +1033,14 @@ local function check(a: Type, b: Type): boolean, string?
     end
     if btag == "typevar" then
         return true
+    end
+
+    -- A self-contained input is a stricter caller requirement. In particular,
+    -- callable contravariance cannot erase that requirement through an alias.
+    if btag == "selfcontained" then
+        return atag == "selfcontained" and isA(a.inner, b.inner) or fail(a, b)
+    elseif atag == "selfcontained" then
+        return isA(a.inner, b)
     end
 
     -- Resolving an inherently owned interface normally adds its ownership

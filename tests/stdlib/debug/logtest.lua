@@ -663,7 +663,7 @@ function M.everyPathCallRunsFromAModule()
     local code = compile(
         table.concat(
             {
-                "return function(takes sink: debug.log.Sink): {any}",
+                "return function(takes sink: own.SelfContained<debug.log.Sink>): {any}",
                 "    local answers: {any} = {}",
                 "    answers[#answers + 1] = debug.log.setlevel('debug')",
                 "    answers[#answers + 1] = debug.log.level()",
