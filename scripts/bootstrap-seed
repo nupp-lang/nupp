@@ -13,6 +13,7 @@ import subprocess
 import sys
 import tarfile
 import tempfile
+import time
 import urllib.request
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -151,12 +152,24 @@ def fetch(args):
         verify(extracted, expected)
         # Every cold fetch proves actual execution, not just image decoding.
         execute(extracted)
-        try:
-            extracted.rename(package)
-        except OSError:
-            if not package.exists():
-                raise
-            verify(package, expected)
+        # Windows refuses the rename while a scanner still holds the runtime
+        # `execute` just ran, as scripts/vm-cli's move_into_place does.
+        for attempt in range(20 if os.name == "nt" else 1):
+            try:
+                extracted.rename(package)
+                break
+            except PermissionError:
+                if os.name != "nt" or attempt == 19 or package.exists():
+                    if not package.exists():
+                        raise
+                    verify(package, expected)
+                    break
+                time.sleep(0.5)
+            except OSError:
+                if not package.exists():
+                    raise
+                verify(package, expected)
+                break
     print(package.resolve())
 
 
