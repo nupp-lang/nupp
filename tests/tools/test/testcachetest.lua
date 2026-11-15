@@ -345,14 +345,16 @@ function M.realRunnerReusesPackagesAcrossSelectionsAndRerunsOnlyChangedPackages(
             local status = os.execute(command)
             assert(status == 0 or status == true, fs.readFile(errors))
 
-            return json.decode(assert(fs.readFile(output)))
+            return json.decode(assert(fs.readFile(output))), fs.readFile(errors)
         end
 
-        local cold = run({"--group=pair", "--jobs=1"})
+        -- Verbose runs name each package's cache answer, which is all a
+        -- miss on a platform nobody can run locally has to go on.
+        local cold, coldReasons = run({"--group=pair", "--jobs=1", "--verbose"})
         test.eq(cold.passed, 2)
         test.eq(cold.cached, 0)
-        local hit = run({"betatest", "alphatest", "--jobs=4", "--verbose"})
-        test.eq(hit.passed, 0)
+        local hit, hitReasons = run({"betatest", "alphatest", "--jobs=4", "--verbose"})
+        test.eq(hit.passed, 0, "cold:\n" .. tostring(coldReasons) .. "\nhit:\n" .. tostring(hitReasons))
         test.eq(hit.cached, 2)
         test.eq(hit.cachedPackages, 2)
         fs.writeFile(root .. "/tests/two/betatest.lua", "return {passes = function() assert(1 + 1 == 2) end}\n")
