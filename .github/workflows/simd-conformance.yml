@@ -149,6 +149,10 @@ jobs:
           python-version: '3.12'
       - name: Install the guest build tools
         run: sudo apt-get update && sudo apt-get install -y gcc-multilib g++-multilib flex bison libelf-dev libssl-dev
+      - name: Install the pinned Rust guest target
+        run: |
+          channel=$(sed -n 's/^channel = "\([^"]*\)"$/\1/p' rust-toolchain.toml)
+          rustup toolchain install "$channel" --profile minimal --target i686-unknown-linux-musl
       - uses: actions/cache@v4
         with:
           path: .nupp-cache/toolchain
