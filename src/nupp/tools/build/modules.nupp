@@ -40,6 +40,7 @@ local materializeObserve = require("nupp.compiler.comptime.materialize.observe")
 local progress = require("nupp.tools.build.progress")
 local constspecialize = require("nupp.compiler.lua.constspecialize")
 local native = require("nupp.compiler.native")
+local buildLibraries = require("nupp.tools.build.libraries")
 local moduleTargets = require("nupp.compiler.standardsurface")
 
 local normalize, join = fs.normalize, fs.join
@@ -694,6 +695,7 @@ local function copyModuleRecord(record)
         artifactHash = record.artifactHash,
         dependencies = dependencies,
         runtimeModules = runtimeModules,
+        nativeLibraries = list(record.nativeLibraries),
         compilerRuntime = record.compilerRuntime,
         projectDependencies = projectDependencies,
         externalInputs = externalInputs,
@@ -1140,6 +1142,7 @@ function modules.compileChecked(job: modules.CompileJob): modules.Compiled
         artifactHash = artifactHash,
         dependencies = jsonArray(depNames),
         runtimeModules = runtimeModules,
+        nativeLibraries = jsonArray(buildLibraries.collect(result.result and result.result.root, not job.checkOnly)),
         compilerRuntime = job.compilerRuntime or nil,
         projectDependencies = jsonArray(inc.projectDependencies(path)),
         externalInputs = jsonArray(inc.externalInputs(path)),

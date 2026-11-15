@@ -70,6 +70,8 @@ export type ModuleRecord = {
         fingerprint: string?
     }}?,
 
+    nativeLibraries: {string}?,
+
     --- The compiler-recognized runtime features this module needs staging for.
     effects: {string}?,
 
@@ -208,6 +210,8 @@ export type State = {
 
     -- Completed test artifact and the content proof used to reuse it.
     testBuild: any?,
+
+    nativeLibraries: {string}?,
 
     compilerHash: string?,
 

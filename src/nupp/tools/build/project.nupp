@@ -27,6 +27,8 @@ local buildPlatform = require("nupp.tools.build.platform")
 local storeMod = require("nupp.compiler.project.store")
 local native = require("nupp.tools.build.native")
 local nativeFeatures = require("nupp.compiler.native")
+local libraryConfig = require("nupp.compiler.project.libraries")
+local buildLibraries = require("nupp.tools.build.libraries")
 local materializeObserve = require("nupp.compiler.comptime.materialize.observe")
 local progressMod = require("nupp.tools.build.progress")
 
@@ -554,6 +556,15 @@ local function buildOne(root: string?, opts: project.BuildOptions?): integer
         return 1
     end
     newState.dependencies = dependencies
+    config._nativeLibraryBindings = libraryConfig.resolve(root, config, {
+        target = target.layoutTarget,
+        outDir = outDir,
+        dependencies = dependencies,
+        packaged = not opts.checkOnly,
+        standalone = target.standalone,
+    }).bindings
+    newState.configHash = contentDigest(stable(config))
+    newState.nativeLibraries = cache.jsonArray(buildLibraries.names(oldState.modules or {}))
     report:at("generate")
     report:step("running generators")
     local generated, generatorErr = generators.run(root, outDir, config, dependencies, oldState.generators)
@@ -988,6 +999,42 @@ local function buildOne(root: string?, opts: project.BuildOptions?): integer
     for output in pairs(nativeOutputs) do
         newState.outputs[output] = true
     end
+    newState.nativeLibraries = cache.jsonArray(buildLibraries.names(newState.modules))
+    local reservedLibraries: {[string]: boolean} = {}
+    for output in pairs(newState.outputs) do
+        reservedLibraries[output] = true
+    end
+    for _, dependency in pairs(dependencies) do
+        if dependency.output ~= nil then
+            reservedLibraries[dependency.output] = true
+        end
+        if dependency.runtimeOutput ~= nil then
+            reservedLibraries[dependency.runtimeOutput] = true
+        end
+        if dependency.staticOutput ~= nil then
+            reservedLibraries[dependency.staticOutput] = true
+        end
+    end
+    if aotLibrary ~= nil then
+        reservedLibraries[aotLibrary] = true
+    end
+    local stagedLibraries, librarySidecars, libraryProblem = buildLibraries.stage(
+        root,
+        outDir,
+        config._nativeLibraryBindings,
+        newState.nativeLibraries,
+        reservedLibraries,
+        contentDigest,
+        target.standalone,
+        target.layoutTarget
+    )
+    if stagedLibraries == nil then
+        say(opts, "NUPP0004", "nupp: " .. tostring(libraryProblem) .. "\n")
+        return 1
+    end
+    for output in pairs(stagedLibraries) do
+        newState.outputs[output] = true
+    end
     -- A bundle is a modules build and then one more file: everything it just compiled,
     -- folded into a chunk that runs with nothing beside it.
     local testHost: string? = nil
@@ -1220,6 +1267,19 @@ local function buildOne(root: string?, opts: project.BuildOptions?): integer
                 end
                 newState.outputs[beside] = true
             end
+        end
+        local carriedLibraries, carryProblem = buildLibraries.beside(
+            output,
+            librarySidecars or {},
+            newState.outputs,
+            contentDigest
+        )
+        if carriedLibraries == nil then
+            say(opts, "NUPP0004", "nupp: " .. tostring(carryProblem) .. "\n")
+            return 1
+        end
+        for path in pairs(carriedLibraries) do
+            newState.outputs[path] = true
         end
         report:clear()
     end
