@@ -56,6 +56,15 @@ return {
     remove(dir)
 end
 
+-- `nupp task` passes the root as `.`, and a task with no `cwd` joins onto it as
+-- "", which `cmd` refused as a directory before the task's argv ran.
+function M.aTaskFromTheCurrentDirectoryChangesNoDirectory()
+    local process = require("nupp.compiler.process")
+    local command = process.command({"luajit", "greet.lua"}, {cwd = ""})
+    assert(not command:find("cd ", 1, true), command)
+    assert(command:find("greet.lua", 1, true), command)
+end
+
 function M.taskWorkingDirectoryMustBeANonEmptyString()
     local dir = tempProject({
         [
