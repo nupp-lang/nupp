@@ -1694,6 +1694,60 @@ return M
     os.execute("rm -rf " .. string.format("%q", dir))
 end
 
+-- A shared lane runs as a process wherever no worker host runs it in this one,
+-- which is every project but this repository. Its pieces keep what an earlier
+-- piece loaded, as an in-process lane's do: a project module loaded again into
+-- a state whose carried modules remember the first load raised there, as a
+-- named `types.Key` does. Globals and loaders are still put back.
+function M.sharedProcessQueueKeepsWhatAPieceLoaded()
+    local dir = os.tmpname()
+    os.remove(dir)
+    assert(os.execute("mkdir -p " .. string.format("%q", dir .. "/tests")) == 0)
+    assert(os.execute("mkdir -p " .. string.format("%q", dir .. "/queue")) == 0)
+    write(dir .. "/tests/run.lua", read(ROOT .. "/tests/run.lua"))
+
+    write(dir .. "/tests/lanekept.lua", "return {loads = 0}\n")
+    write(
+        dir .. "/tests/afirstloadtest.lua",
+        [[
+local M = {}
+function M.loadsAModule()
+    _G.laneLeakedGlobal = "left behind"
+    local kept = require("lanekept")
+    kept.loads = kept.loads + 1
+end
+return M
+]]
+    )
+    write(
+        dir .. "/tests/bsecondloadtest.lua",
+        [[
+local M = {}
+function M.findsTheSameModule()
+    assert(rawget(_G, "laneLeakedGlobal") == nil, "a global the previous piece invented")
+    assert(require("lanekept").loads == 1, "the module loaded again")
+end
+return M
+]]
+    )
+    write(dir .. "/queue/order", "afirstloadtest\nbsecondloadtest\n")
+    write(dir .. "/queue/piece-1", "afirstloadtest\n")
+    write(dir .. "/queue/piece-2", "bsecondloadtest\n")
+    local quoted = "'" .. (dir .. "/tests/run.lua"):gsub("'", "'\\''") .. "'"
+    local outputPath = os.tmpname()
+    os.execute(
+        (
+            MODULES .. "NUPP_TEST_SHARED_LANE=1 NUPP_TEST_BUILD=build luajit %s --json --queue=%s >%q 2>/dev/null"
+        ):format(quoted, dir .. "/queue", outputPath)
+    )
+    local output = read(outputPath):gsub("\r\n", "\n")
+    os.remove(outputPath)
+    local report = require("testjson").decode(output)
+    test.eq(report.total, 2, "both queue pieces ran" .. "\n" .. output)
+    test.eq(report.passed, 2, output)
+    os.execute("rm -rf " .. string.format("%q", dir))
+end
+
 function M.isolatedQueuePiecesRunInFreshProcesses()
     local dir = os.tmpname()
     os.remove(dir)

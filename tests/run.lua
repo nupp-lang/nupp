@@ -523,6 +523,9 @@ local queueDir = nil
 -- but runs every claimed piece in a new process so process-global state cannot
 -- cross the suite boundary.
 local freshQueuePieces = os.getenv("NUPP_TEST_FRESH_QUEUE_PIECES") == "1"
+-- A shared-lane worker is a process only where no worker host runs Nupp lanes
+-- in this one. It keeps what its pieces load, as an in-process Nupp lane does.
+local sharedQueuePieces = os.getenv("NUPP_TEST_SHARED_LANE") == "1"
 local supervisedPiece = os.getenv("NUPP_TEST_SUPERVISED_PIECE") == "1"
 local jobs = nil
 local colorMode = "auto"
@@ -955,6 +958,7 @@ do
             end)
         end
         stopExporting("NUPP_TEST_FRESH_QUEUE_PIECES")
+        stopExporting("NUPP_TEST_SHARED_LANE")
         stopExporting("NUPP_TEST_SUPERVISED_PIECE")
 
         local terminal = false
@@ -2992,7 +2996,9 @@ then
                     local processProgressFd = progressFd and (package.config:sub(1, 1) == "\\" and 2 or progressFd)
                         or nil
                     local progress = processProgressFd and ("NUPP_TEST_PROGRESS_FD=%d "):format(processProgressFd) or ""
-                    local fresh = executionLane == "isolated" and "NUPP_TEST_FRESH_QUEUE_PIECES=1 " or ""
+                    local fresh = executionLane == "isolated" and "NUPP_TEST_FRESH_QUEUE_PIECES=1 "
+                        or executionLane == "shared" and "NUPP_TEST_SHARED_LANE=1 "
+                        or ""
                     local invocation = rawget(_G, "__NUPP_TEST_RUNNER_COMMAND") or ("luajit '%s'"):format(arg[0])
                     local worker = (
                         "%s%s%s%s --json %s --color=%s%s"
@@ -3545,6 +3551,12 @@ end
 --     captured identity no longer matches -- without discarding the compiler
 --     between every piece.
 --
+-- A shared lane is a Nupp lane even when it runs as a process, which it does
+-- where no worker host runs it in this one. Removing what a piece loaded there
+-- made the next piece load the same project modules again into a state whose
+-- carried modules remembered the first load: a named `types.Key` raised that its
+-- name was already registered.
+--
 -- `package.path` and `package.cpath` are in the baseline because a suite that
 -- points the loader somewhere and does not put it back changes where the next
 -- piece's modules come from, which is the same defect wearing a different hat.
@@ -3593,7 +3605,7 @@ restoreLane = function()
         end
     end
 
-    if embedded then
+    if embedded or sharedQueuePieces then
         repair(package.loaded, laneBaseline.loaded)
     else
         restore(package.loaded, laneBaseline.loaded)
