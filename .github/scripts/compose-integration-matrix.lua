@@ -12,19 +12,26 @@
 local platforms = {
     {
         variable = "SELECTED_LINUX",
-        entry = {name = "Linux x64", os = "ubuntu-24.04", timeout = 85, artifact = "linux-x64"},
+        entry = {name = "Linux x64", os = "ubuntu-24.04", timeout = 85, artifact = "linux-x64", part = "all"},
     },
     {
         variable = "SELECTED_MACOS",
         -- The Rust-native gate and broad suite need room for cold checks on
-        -- a three-core runner.
-        entry = {name = "macOS arm64", os = "macos-15", timeout = 240, artifact = "macos-arm64"},
+        -- a three-core runner. The shell lane runs in a second job of its
+        -- own: after the other lanes it had a few minutes of the timeout left
+        -- (https://github.com/nupp-lang/nupp/issues/115).
+        entry = {name = "macOS arm64", os = "macos-15", timeout = 240, artifact = "macos-arm64", part = "suite"},
+    },
+    {
+        variable = "SELECTED_MACOS",
+        -- Bootstrap, the dist stamp and the shell lane alone.
+        entry = {name = "macOS arm64 shell", os = "macos-15", timeout = 150, artifact = "macos-arm64", part = "shell"},
     },
     {
         variable = "SELECTED_WINDOWS",
         -- A cold Rust-native artifact gate and broad suite exceeded 180
         -- minutes; keep the timeout above both stages.
-        entry = {name = "Windows x64", os = "windows-2022", timeout = 240, artifact = "windows-x64"},
+        entry = {name = "Windows x64", os = "windows-2022", timeout = 240, artifact = "windows-x64", part = "all"},
     },
 }
 
@@ -35,10 +42,10 @@ for _, platform in ipairs(platforms) do
     end
 end
 
-local shape = '{"name":"%s","os":"%s","timeout":%d,"artifact":"%s"}'
+local shape = '{"name":"%s","os":"%s","timeout":%d,"artifact":"%s","part":"%s"}'
 local encoded = {}
 for index, entry in ipairs(selected) do
-    encoded[index] = shape:format(entry.name, entry.os, entry.timeout, entry.artifact)
+    encoded[index] = shape:format(entry.name, entry.os, entry.timeout, entry.artifact, entry.part)
 end
 local document = "[" .. table.concat(encoded, ",") .. "]"
 

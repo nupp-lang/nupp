@@ -489,7 +489,7 @@ jobs:
       # this graph passes through before reaching here. The other platforms are
       # asked because a checker answer is not promised to be platform-free.
       - name: Check the compiler
-        if: runner.os != 'Linux'
+        if: runner.os != 'Linux' && matrix.part != 'shell'
         shell: bash
         run: ./bin/nupp check
 
@@ -523,6 +523,7 @@ jobs:
       # smoke, and C consumers of the executable, static application archive,
       # and static/dynamic embedding SDKs on the retained platform itself.
       - name: Gate the Rust-native platform artifacts
+        if: matrix.part != 'shell'
         shell: bash
         run: .github/scripts/test-rust-native-platform.sh
 
@@ -531,6 +532,7 @@ jobs:
       # could be buried among thousands of unrelated cases. The broad suite
       # below excludes this group rather than repeating it.
       - name: Run the tl.lua oracle and import-c fixtures
+        if: matrix.part != 'shell'
         shell: bash
         run: |
           compiler_root=$PWD
@@ -598,16 +600,31 @@ jobs:
         # the soft limit is zero, so the kernel writes nothing and the shell
         # still says "core dumped". Raising it here is what makes the step
         # below able to ask a crashed worker anything at all.
+        #
+        # On macOS the shell lane is its own matrix entry (`part: shell`), and
+        # the shared lane runs one worker: each worker's memory grows with the
+        # suites it runs, and three of them on the 7 GB runner swapped until
+        # the job timed out (https://github.com/nupp-lang/nupp/issues/115).
+        env:
+          PART: ${{ matrix.part }}
         run: |
           set -euo pipefail
           ulimit -c unlimited || true
-          ./bin/nupp test --fresh --scope=all --lane=isolated \
-            --exclude-group=external-corpus,rust-native-gate,measurement,wasm-conformance
+          exclude=external-corpus,rust-native-gate,measurement,wasm-conformance
+          if [ "$PART" != shell ]; then
+            ./bin/nupp test --fresh --scope=all --lane=isolated --exclude-group=$exclude
+          fi
           if [ "$RUNNER_OS" != Linux ]; then
-            ./bin/nupp test --fresh --scope=all --lane=shared \
-              --exclude-group=external-corpus,rust-native-gate,measurement,wasm-conformance
-            ./bin/nupp test --fresh --scope=all --lane=shell --jobs=2 \
-              --exclude-group=external-corpus,rust-native-gate,measurement,wasm-conformance
+            if [ "$PART" != shell ]; then
+              shared_jobs=
+              if [ "$RUNNER_OS" = macOS ]; then
+                shared_jobs=--jobs=1
+              fi
+              ./bin/nupp test --fresh --scope=all --lane=shared $shared_jobs --exclude-group=$exclude
+            fi
+            if [ "$PART" != suite ]; then
+              ./bin/nupp test --fresh --scope=all --lane=shell --jobs=2 --exclude-group=$exclude
+            fi
           fi
 
       # A worker killed by a signal says which suite it was in, and on Linux it
