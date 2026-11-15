@@ -197,6 +197,45 @@ return M
     os.execute("rm -rf " .. string.format("%q", dir))
 end
 
+function M.aNuppSuiteChecksAProjectLibraryLoadedAtRunTime()
+    local dir = os.tmpname()
+    os.remove(dir)
+    local fs = require("nupp.compiler.fs")
+    assert(fs.mkdir(dir .. "/tests"))
+    assert(fs.mkdir(dir .. "/src"))
+    write(dir .. "/nupp.lua", 'return {include = {"src"}, build = {entries = {"main"}}}\n')
+    write(dir .. "/src/main.nupp", "return true\n")
+    write(
+        dir .. "/src/createproject.lua",
+        [[
+return function()
+    local source = assert(io.open("src/runtimevalue.nupp", "wb"))
+    source:write("return {value = missingRuntimeProjectValue}\n")
+    source:close()
+end
+]]
+    )
+    write(
+        dir .. "/tests/projecttest.nupp",
+        [[
+local M = {}
+function M.loadsProject(): nil
+    local create = require("createproject") as any
+    create()
+    local name = "runtime" .. "value"
+    assert((require(name) as any) ~= nil)
+end
+return M
+]]
+    )
+    local output, invocation = capturedRun(("cd %q && %q test --json 2>/dev/null"):format(dir, NUPP))
+    os.execute("rm -rf " .. string.format("%q", dir))
+    test.eq(invocation.status, 1, "the project library was not checked strictly" .. evidence(invocation))
+    local report = require("testjson").decode(output)
+    test.eq(report.failed, 1, output)
+    test.matches(report.tests[1].failure.message, "error compiling nupp module 'runtimevalue'.-type errors")
+end
+
 function M.rejectsDuplicateSuiteBasenamesAcrossDirectoriesAndLanguages()
     local dir = os.tmpname()
     os.remove(dir)

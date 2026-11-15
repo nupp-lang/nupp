@@ -1403,7 +1403,10 @@ local function loadSuite(suite)
     -- A carried module arrives with its name and source, and its path is only its
     -- name: compiling that path as a file looked for a file called `events`.
     local removeLoader = require("nupp.compiler.runtime").install(env, function(modulePath, e, moduleName, source)
-        return compile.module(modulePath, e, settings, moduleName, source, false)
+        if source ~= nil then
+            return compile.module(modulePath, e, settings, moduleName, source, false)
+        end
+        return compile.module(modulePath, e, settings)
     end)
     local chunk, loadErr = loadstring(code, "@" .. path)
     if not chunk then
