@@ -283,7 +283,15 @@ jobs:
         run: ./bin/nupp check
 
       - name: Run the shared-process suites
-        run: ./bin/nupp test --fresh --scope=all --lane=shared
+        run: |
+          # Temporary: find what takes the runner down mid-suite.
+          ( while sleep 30; do
+              echo "::group::resources $(date -u +%T)"
+              free -m; df -h . /tmp | tail -n 2
+              ps -eo rss,etimes,args --sort=-rss | head -n 6 | cut -c1-200
+              echo '::endgroup::'
+            done ) &
+          ./bin/nupp test --fresh --scope=all --lane=shared
 
       # Saved explicitly rather than through the action's post step, so a run
       # that fails a suite still keeps the compiler build the next run would
