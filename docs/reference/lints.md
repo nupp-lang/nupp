@@ -560,10 +560,11 @@ not by what it asked for. One per function is a stack: it grows with the work
 and closes with the scope. Two growing side by side compete for pages with no
 bound on either, which is the shape that fragments a process. Open one growable
 arena and fixed ones (`arena.open`) for the rest, or move the second into the
-function that owns its extent.
+function that owns its extent. The arena module is internal to the runtime, so
+only the runtime's own modules can open one; the example shows that code.
 
 ::: code-group
-```nupp [src/one-growable-arena.nupp]
+```nupp:fragment [src/one-growable-arena.nupp]
 const arena = require("nupp.runtime.vm.arena")
 
 local function work(): uint64
