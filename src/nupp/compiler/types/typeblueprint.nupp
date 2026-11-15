@@ -280,6 +280,7 @@ function typeblueprint.validate(envelope: any, permittedReferences: any?): any, 
             or node.kind == "borrowed"
             or node.kind == "pinned"
             or node.kind == "affine"
+            or node.kind == "selfcontained"
         then
             local inner
             inner, why = edge(node.inner, node.kind .. " inner type")
@@ -291,6 +292,8 @@ function typeblueprint.validate(envelope: any, permittedReferences: any?): any, 
                     value = T.ptr(inner)
                 elseif node.kind == "const" then
                     value = T.constOf(inner)
+                elseif node.kind == "selfcontained" then
+                    value = T.selfContained(inner)
                 elseif node.kind == "borrowed" then
                     value = T.borrowed(inner)
                 elseif node.kind == "pinned" then

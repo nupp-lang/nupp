@@ -17,7 +17,7 @@ local record reflection
     bindRuntimeDeclarations: function(any, string): nil
 end
 
-reflection.SCHEMA = 6
+reflection.SCHEMA = 7
 
 -- Associated types, annotations, and comments have no runtime identity. Count
 -- semantic runtime declarations rather than embedding their byte offsets.
@@ -432,6 +432,7 @@ function reflection.graph(root: any, hooks: any?): (integer?, {any}, {any})
             or tag == "borrowed"
             or tag == "pinned"
             or tag == "const"
+            or tag == "selfcontained"
         then
             out.element = intern(t.elem or t.inner)
             if tag == "affine" then

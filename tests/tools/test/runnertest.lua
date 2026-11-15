@@ -166,6 +166,76 @@ return M
     os.execute("rm -rf " .. string.format("%q", dir))
 end
 
+-- A suite that requires a carried library by a name the checker cannot see is
+-- the first thing to load it. The runtime loader hands the compile step the
+-- module's name and carried source, which `nupp run` compiles and the runner
+-- once read as a path to a file named after the module.
+function M.aNuppSuiteLoadsACarriedLibraryAtRunTime()
+    local dir = os.tmpname()
+    os.remove(dir)
+    local fs = require("nupp.compiler.fs")
+    assert(fs.mkdir(dir .. "/tests"))
+    assert(fs.mkdir(dir .. "/src"))
+    write(dir .. "/nupp.lua", 'return {include = {"src"}, build = {entries = {"main"}}}\n')
+    write(dir .. "/src/main.nupp", "return true\n")
+    write(
+        dir .. "/tests/carriedtest.nupp",
+        [[
+local M = {}
+function M.loadsEvents(): nil
+    local name = "ev" .. "ents"
+    local loaded = require(name) as any
+    assert(loaded.MessageBus ~= nil, "events has no MessageBus")
+end
+return M
+]]
+    )
+    local output, invocation = capturedRun(("cd %q && %q test --json 2>/dev/null"):format(dir, NUPP))
+    test.eq(invocation.status, 0, "the carried library did not load" .. evidence(invocation))
+    local report = require("testjson").decode(output)
+    test.eq(report.passed, 1, output)
+    os.execute("rm -rf " .. string.format("%q", dir))
+end
+
+function M.aNuppSuiteChecksAProjectLibraryLoadedAtRunTime()
+    local dir = os.tmpname()
+    os.remove(dir)
+    local fs = require("nupp.compiler.fs")
+    assert(fs.mkdir(dir .. "/tests"))
+    assert(fs.mkdir(dir .. "/src"))
+    write(dir .. "/nupp.lua", 'return {include = {"src"}, build = {entries = {"main"}}}\n')
+    write(dir .. "/src/main.nupp", "return true\n")
+    write(
+        dir .. "/src/createproject.lua",
+        [[
+return function()
+    local source = assert(io.open("src/runtimevalue.nupp", "wb"))
+    source:write("return {value = missingRuntimeProjectValue}\n")
+    source:close()
+end
+]]
+    )
+    write(
+        dir .. "/tests/projecttest.nupp",
+        [[
+local M = {}
+function M.loadsProject(): nil
+    local create = require("createproject") as any
+    create()
+    local name = "runtime" .. "value"
+    assert((require(name) as any) ~= nil)
+end
+return M
+]]
+    )
+    local output, invocation = capturedRun(("cd %q && %q test --json 2>/dev/null"):format(dir, NUPP))
+    os.execute("rm -rf " .. string.format("%q", dir))
+    test.eq(invocation.status, 1, "the project library was not checked strictly" .. evidence(invocation))
+    local report = require("testjson").decode(output)
+    test.eq(report.failed, 1, output)
+    test.matches(report.tests[1].failure.message, "error compiling nupp module 'runtimevalue'.-type errors")
+end
+
 function M.rejectsDuplicateSuiteBasenamesAcrossDirectoriesAndLanguages()
     local dir = os.tmpname()
     os.remove(dir)
@@ -1688,6 +1758,60 @@ return M
     write(dir .. "/queue/piece-1", "adirtiestest\n")
     write(dir .. "/queue/piece-2", "bcleantest\n")
     local output = runJson(dir .. "/tests/run.lua", "--json --queue=" .. dir .. "/queue")
+    local report = require("testjson").decode(output)
+    test.eq(report.total, 2, "both queue pieces ran" .. "\n" .. output)
+    test.eq(report.passed, 2, output)
+    os.execute("rm -rf " .. string.format("%q", dir))
+end
+
+-- A shared lane runs as a process wherever no worker host runs it in this one,
+-- which is every project but this repository. Its pieces keep what an earlier
+-- piece loaded, as an in-process lane's do: a project module loaded again into
+-- a state whose carried modules remember the first load raised there, as a
+-- named `types.Key` does. Globals and loaders are still put back.
+function M.sharedProcessQueueKeepsWhatAPieceLoaded()
+    local dir = os.tmpname()
+    os.remove(dir)
+    assert(os.execute("mkdir -p " .. string.format("%q", dir .. "/tests")) == 0)
+    assert(os.execute("mkdir -p " .. string.format("%q", dir .. "/queue")) == 0)
+    write(dir .. "/tests/run.lua", read(ROOT .. "/tests/run.lua"))
+
+    write(dir .. "/tests/lanekept.lua", "return {loads = 0}\n")
+    write(
+        dir .. "/tests/afirstloadtest.lua",
+        [[
+local M = {}
+function M.loadsAModule()
+    _G.laneLeakedGlobal = "left behind"
+    local kept = require("lanekept")
+    kept.loads = kept.loads + 1
+end
+return M
+]]
+    )
+    write(
+        dir .. "/tests/bsecondloadtest.lua",
+        [[
+local M = {}
+function M.findsTheSameModule()
+    assert(rawget(_G, "laneLeakedGlobal") == nil, "a global the previous piece invented")
+    assert(require("lanekept").loads == 1, "the module loaded again")
+end
+return M
+]]
+    )
+    write(dir .. "/queue/order", "afirstloadtest\nbsecondloadtest\n")
+    write(dir .. "/queue/piece-1", "afirstloadtest\n")
+    write(dir .. "/queue/piece-2", "bsecondloadtest\n")
+    local quoted = "'" .. (dir .. "/tests/run.lua"):gsub("'", "'\\''") .. "'"
+    local outputPath = os.tmpname()
+    os.execute(
+        (
+            MODULES .. "NUPP_TEST_SHARED_LANE=1 NUPP_TEST_BUILD=build luajit %s --json --queue=%s >%q 2>/dev/null"
+        ):format(quoted, dir .. "/queue", outputPath)
+    )
+    local output = read(outputPath):gsub("\r\n", "\n")
+    os.remove(outputPath)
     local report = require("testjson").decode(output)
     test.eq(report.total, 2, "both queue pieces ran" .. "\n" .. output)
     test.eq(report.passed, 2, output)

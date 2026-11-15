@@ -2609,8 +2609,8 @@ export function install(
                     -- is what lets a const value call the method.
                     local first = e.body.params and e.body.params[1]
                     local constReceiver = receiver and first and first.type and first.type.kind == "tconst"
-                    local ft = receiver and addSelf(checked, constReceiver and T.constOf(n) or n, e.body.receiverMode)
-                        or checked
+                    local receiverType = (e.body as any).receiverContractType or (constReceiver and T.constOf(n) or n)
+                    local ft = receiver and addSelf(checked, receiverType, e.body.receiverMode) or checked
                     c.raises.check(e, e.body)
                     local callable = (receiver and dropSelf(ft) or ft) as T.Func
                     local parameterKey = methodslots.parameters(callable)

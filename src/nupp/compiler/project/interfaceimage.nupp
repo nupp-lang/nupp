@@ -19,7 +19,7 @@ local generics = require("nupp.compiler.types.generics")
 local reflection = require("nupp.compiler.reflection")
 local T = require("nupp.compiler.types")
 
-export const SCHEMA = 5
+export const SCHEMA = 6
 
 --- What `interfaceimage.encode` is told about the run it encodes for.
 export type EncodeOptions = {
@@ -915,6 +915,8 @@ export function decode(image: any, options: DecodeOptions?): (any?, string?)
             made = T.carray(edge(node.element), node.count, optional(node.countTerm))
         elseif kind == "const" then
             made = T.constOf(edge(node.element))
+        elseif kind == "selfcontained" then
+            made = T.selfContained(edge(node.element))
         elseif kind == "borrowed" then
             made = T.borrowed(edge(node.element))
         elseif kind == "pinned" then

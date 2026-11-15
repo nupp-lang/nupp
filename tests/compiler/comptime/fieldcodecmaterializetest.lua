@@ -188,7 +188,7 @@ return comptime do return summarize(types.reflect(Pair)) end
 ]]
     testAssert.eq(
         run(src),
-        "6:record:2:left:string,right:integer",
+        "7:record:2:left:string,right:integer",
         "user comptime code reads the versioned descriptor graph"
     )
 end

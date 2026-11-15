@@ -711,4 +711,57 @@ function M.failedCompletionBatchesRestoreEnclosingRefreshScope()
     testAssert.eq(generics.instantiate(first, bindings).byname.afterFailure, T.boolean)
 end
 
+function M.selfContainedCallableInputsSurviveInterfaceImages()
+    local relations = require("nupp.compiler.types.relations")
+    local constrained = T.func({T.selfContained(T.string)}, {T.nil_}, false, {"takes"})
+    local ordinary = T.func({T.string}, {T.nil_}, false, {"takes"})
+    local loaded, image = roundTrip(constrained)
+    testAssert.eq(loaded.params[1], T.selfContained(T.string))
+    assert(not relations.isA(loaded, ordinary), "an imported function cannot forget its input requirement")
+    assert(relations.isA(ordinary, loaded), "an ordinary consumer accepts every self-contained input")
+    local encodedAgain = assert(encode({sample = semantic("sample", loaded)}))
+    testAssert.eq(stable(encodedAgain.descriptor), stable(image.descriptor), "the cache codec preserves the contract")
+    testAssert.eq(stable(encodedAgain.modules), stable(image.modules), "the module roots preserve the contract")
+end
+
+function M.selfContainedGenericAliasesSurviveInterfaceImages()
+    local parameter = T.typevar("Element", "interface-image:self-contained")
+    local alias = T.genericAlias("Independent", T.selfContained(parameter), {parameter}, {T.any}, nil, nil, {"type"})
+    local loaded = roundTrip(alias)
+    testAssert.eq(loaded.body.tag, "selfcontained")
+    local applied = generics.materialize(loaded.body, {[loaded.typeParams[1]] = T.string})
+    testAssert.eq(applied, T.selfContained(T.string), "substitution retains the imported requirement")
+    local reduced, why = generics.reduce(applied, {})
+    testAssert.eq(why, nil)
+    testAssert.eq(reduced, T.selfContained(T.string), "normalization retains the imported requirement")
+    local descriptor = reflection.describe(reduced)
+    testAssert.eq(descriptor.kind, "selfcontained", "reflection retains the qualifier")
+    testAssert.eq(
+        descriptor.types[descriptor.types[descriptor.root].element].kind,
+        "string",
+        "reflection retains its payload"
+    )
+end
+
+function M.selfContainedInputsSurviveNarrowingAndKeepTheirMethodIdentity()
+    local narrowing = require("nupp.compiler.types.narrowing")
+    local optional = T.selfContained(T.optional(T.string))
+    testAssert.eq(T.union({T.selfContained(T.string), T.nil_}), optional, "nullable union contract")
+    local truthy, falsy = narrowing.truthiness(optional)
+    testAssert.eq(truthy, T.selfContained(T.string), "truthy contract")
+    testAssert.eq(falsy, T.selfContained(T.nil_), "falsy contract")
+    testAssert.eq(narrowing.subtract(optional, T.nil_), T.selfContained(T.string), "subtracted contract")
+    local literal = T.literal("kept", T.string)
+    local other = T.literal("removed", T.string)
+    local finite = T.selfContained(T.union({literal, other}))
+    testAssert.eq(narrowing.withoutMember(finite, other), T.selfContained(literal), "removed member contract")
+    local methodslots = require("nupp.compiler.lua.methodslots")
+    local stringInput = T.func({T.selfContained(T.string)}, {T.nil_}, false, {"takes"})
+    local numberInput = T.func({T.selfContained(T.number)}, {T.nil_}, false, {"takes"})
+    assert(
+        methodslots.parameters(stringInput) ~= methodslots.parameters(numberInput),
+        "different self-contained payloads must not share an overload slot"
+    )
+end
+
 return M

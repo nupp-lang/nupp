@@ -50,6 +50,9 @@ export function subtract(t: Type, rem: Type): Type
     elseif t.tag == "pinned" then
         local inner = subtract(t.inner, rem)
         return inner == t.inner and t or T.pinned(inner)
+    elseif t.tag == "selfcontained" then
+        local inner = subtract(t.inner, T.withoutSelfContained(rem))
+        return inner == t.inner and t or T.selfContained(inner)
     end
 
     local function without(m: Type): Type?
@@ -225,6 +228,9 @@ export function memberSet(t: Type?): {Type}?
     if not t then
         return nil
     end
+    if t.tag == "selfcontained" then
+        return memberSet(t.inner)
+    end
     if t.tag == "literal" then
         return {t}
     end
@@ -251,6 +257,10 @@ end
 --- @return what is left, or nil when there is nothing left or nothing to count
 --- @return whether it was the counting that emptied it
 export function withoutMember(t: Type?, litT: Type): Type?, boolean?
+    if t and t.tag == "selfcontained" then
+        local rest, empty = withoutMember(t.inner, T.withoutSelfContained(litT))
+        return rest and T.selfContained(rest) or nil, empty
+    end
     local members = memberSet(t)
     if not members then
         return nil
@@ -277,6 +287,10 @@ end
 --- @return what it holds where the test passed, when that is narrower
 --- @return what it holds where the test failed, when that is narrower
 export function truthiness(vt: Type): Type?, Type?
+    if vt.tag == "selfcontained" then
+        local truthy, falsy = truthiness(vt.inner)
+        return truthy and T.selfContained(truthy) or nil, falsy and T.selfContained(falsy) or nil
+    end
     if vt == T.any then
         return nil, nil
     end

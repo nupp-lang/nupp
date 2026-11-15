@@ -45,10 +45,17 @@ local SCALARS: {
     voidptr = "void *",
 }
 
+local function withoutContract(t: any): any
+    while t and t.tag == "selfcontained" do
+        t = t.inner
+    end
+    return t
+end
+
 local function optionalPointer(t: any): any?
     if t and t.tag == "union" and t.hasNil and #(t.members or {}) == 2 then
         local first, second = t.members[1], t.members[2]
-        local other = first and first.tag == "nil" and second or first
+        local other = withoutContract(first and first.tag == "nil" and second or first)
         if other
             and (other.tag == "ptr" or other.tag == "cstring" or other.tag == "voidptr" or other.tag == "func")
         then
@@ -60,9 +67,11 @@ local function optionalPointer(t: any): any?
 end
 
 local function identityOf(t: any): string
+    t = withoutContract(t)
     local origin = t and (t.origin or t) or nil
     local moduleName = origin and origin.moduleName or nil
     local name = origin and origin.name or "anonymous"
+
     return (moduleName and moduleName .. "." or "") .. name
 end
 
@@ -88,6 +97,7 @@ local function cName(identity: string): string
 end
 
 local function ordinaryStruct(t: any): boolean
+    t = withoutContract(t)
     return t ~= nil and t.tag == "nominal" and t.declKind == "struct" and not t.cdefName
 end
 
@@ -107,7 +117,7 @@ local function baseName(t: any): string?, string?
 end
 
 local function renderDeclaration(t: any, name: string, eraseOrdinaryPointer: boolean?): string?, string?
-    while t and (t.tag == "affine" or t.tag == "borrowed") do
+    while t and (t.tag == "affine" or t.tag == "borrowed" or t.tag == "selfcontained") do
         t = t.inner
     end
     local optional = optionalPointer(t)
@@ -124,7 +134,7 @@ local function renderDeclaration(t: any, name: string, eraseOrdinaryPointer: boo
         end
         return "const " .. rendered
     elseif t.tag == "ptr" then
-        local pointee = t.elem
+        local pointee = withoutContract(t.elem)
         if eraseOrdinaryPointer then
             local unqualified = pointee and pointee.tag == "const" and pointee.inner or pointee
             if ordinaryStruct(unqualified) then
@@ -193,7 +203,7 @@ local function collectDependencies(
     if not t then
         return
     end
-    if t.tag == "const" then
+    if t.tag == "const" or t.tag == "selfcontained" then
         collectDependencies(t.inner, byValue, byPointer, valueSeen, pointerSeen, throughPointer)
     elseif t.tag == "ptr" then
         collectDependencies(t.elem, byValue, byPointer, valueSeen, pointerSeen, true)
@@ -211,6 +221,7 @@ local function collectDependencies(
 end
 
 function cabi.aggregate(t: any, target: string): any?, string?
+    t = withoutContract(t)
     if not ordinaryStruct(t) then
         return nil, "only ordinary Nupp structs have canonical exported C identities"
     end
@@ -233,7 +244,9 @@ function cabi.aggregate(t: any, target: string): any?, string?
         end
         -- The struct lowering reifies one array bound, so a nested array would be
         -- published for a struct that never builds.
-        if fieldType and fieldType.tag == "carray" and fieldType.elem and fieldType.elem.tag == "carray" then
+        local unqualified = withoutContract(fieldType)
+        local element = unqualified and withoutContract(unqualified.elem) or nil
+        if unqualified and unqualified.tag == "carray" and element and element.tag == "carray" then
             return nil, ("field %q is a nested array, which a struct cannot hold yet"):format(name)
         end
         local declaration, fieldWhy = renderDeclaration(fieldType, name)

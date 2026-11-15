@@ -298,4 +298,35 @@ return hits]]),
     )
 end
 
+function M.selfContainedMetamethodInputsCheckPayloadAndLoans()
+    local prefix = [[
+local record Reader
+    sink: debug.log.Sink
+    metamethod __index: function(borrows self: own.SelfContained<Reader>, key: string): integer
+end
+]]
+    testAssert.eq(
+        diagsOf(
+            prefix
+            .. [[
+local file = assert(io.tmpfile())
+local reader = Reader(sink = debug.log.writersink(io.Writer.of(file)))
+local value = reader["count"]
+own.drop(reader)
+]]
+        ),
+        ""
+    )
+    local got = diagsOf(
+        prefix
+        .. [[
+local buffer = bytes.Buffer.create()
+local reader = Reader(sink = debug.log.writersink(buffer:writer()))
+local value = reader["count"]
+own.drop(reader)
+]]
+    )
+    assert(got:find("NUPP2608", 1, true), got)
+end
+
 return M

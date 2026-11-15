@@ -70,7 +70,7 @@ assert(pool.capacity == 2 and pool:free() == 2)
     for _, name in ipairs({"nupp.util.internal.structpool", "nupp.runtime.storage"}) do
         assert(
             not payload:find(('package.preload[%q]'):format(name), 1, true),
-            "record pool unexpectedly packages " .. name
+            "record pool unexpectedly packages " .. name .. " in " .. dir
         )
     end
     remove(dir)

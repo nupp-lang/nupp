@@ -78,6 +78,8 @@ function derive.install(namespace: any): nil
     end
     runtime.register = register
     runtime.entry = derive.entry
+    runtime.initializer = derive.initializer
+    runtime.forEach = derive.forEach
     runtime.debug = derive.debug
 end
 

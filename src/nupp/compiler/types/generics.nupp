@@ -368,6 +368,8 @@ local function substitute(t: Type, map: Bindings, unmapped: string): Type
         return T.carray(substWith(t.elem, map, unmapped), count, term)
     elseif tag == "const" then
         return T.constOf(substWith(t.inner, map, unmapped))
+    elseif tag == "selfcontained" then
+        return T.selfContained(substWith(t.inner, map, unmapped))
     elseif tag == "ctype" then
         return T.ctype(substWith(t.of, map, unmapped))
     elseif tag == "affine" then
@@ -1342,7 +1344,7 @@ normalize = function(t: Type, memo: ReductionMemo, budget: ReductionBudget): Typ
         if not err then
             out = T.constOf(inner)
         end
-    elseif t.tag == "affine" or t.tag == "borrowed" or t.tag == "pinned" then
+    elseif t.tag == "affine" or t.tag == "borrowed" or t.tag == "pinned" or t.tag == "selfcontained" then
         local inner
         inner, err = normalize(t.inner, memo, budget)
         if not err then
@@ -1350,6 +1352,8 @@ normalize = function(t: Type, memo: ReductionMemo, budget: ReductionBudget): Typ
                 out = T.affine(inner, t.cleanups, t.transferOnly)
             elseif t.tag == "borrowed" then
                 out = T.borrowed(inner)
+            elseif t.tag == "selfcontained" then
+                out = T.selfContained(inner)
             else
                 out = T.pinned(inner)
             end
@@ -2438,7 +2442,7 @@ function collectBinders(t: Type?, out: {[any]: boolean}): nil
         for _, argument in ipairs(t.typeArgs or {}) do
             collectBinders(argument, out)
         end
-    elseif tag == "affine" or tag == "borrowed" or tag == "pinned" or tag == "const" then
+    elseif tag == "affine" or tag == "borrowed" or tag == "pinned" or tag == "const" or tag == "selfcontained" then
         collectBinders(t.inner, out)
     elseif tag == "ctype" or tag == "metatable" then
         collectBinders(t.of, out)

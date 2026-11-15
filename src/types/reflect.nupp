@@ -29,6 +29,9 @@ export type Info = types.reflect.Info
 export type FieldCodecBlueprint = types.reflect.FieldCodecBlueprint
 export type FieldCodec<T> = types.reflect.FieldCodec<T>
 
+--- A declaration's minted initializer, which fills storage the caller already holds.
+export type Initializer = function(instance: any, ...: any): any
+
 --- Creates a key for a lazily derived descriptor value.
 export const extensionkey: function<T>(build: function(host: any): T): ExtensionKey<T> = api.extensionKey
 
@@ -37,3 +40,12 @@ export const runtime: function<T>(typeobject: Type<T>): Info = api.runtime
 
 --- Reads a reachable nominal witness, or nil for an unresolved declaration.
 export const runtimetype: function(info: Info, index: integer): Type<unknown>? = api.runtimeType
+
+--- Reads the data a derive provider attached to a declaration under a key.
+export const derived: function<T>(typeobject: Type<T>, key: string): any = api.derived
+
+--- Reads the initializer a derive provider requested for a declaration.
+export const initializer: function<T>(typeobject: Type<T>): Initializer? = api.initializer
+
+--- Iterates loaded declarations whose derive data has a key.
+export const declarations: function(key: string): function(): (Type<unknown>?, any) = api.declarations

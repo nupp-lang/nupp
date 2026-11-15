@@ -11,7 +11,7 @@ const _DYNAMIC_REQUIRES = "@requires-dynamically nothing"
 -- covers callers the compiler cannot see, such as plain Lua. Without `debug.log`
 -- in the program, a warning goes to stderr the way stock Lua writes one.
 local function installWarn(runtime: any): nil
-    local logModule = "debug" .. "." .. "log"
+    local logModule = table.concat({"debug", "log"}, ".")
     if package.loaded[logModule] ~= nil or rawget(runtime, "__nuppWarnStub") ~= nil then
         return
     end
@@ -20,14 +20,15 @@ local function installWarn(runtime: any): nil
 
     local function fallback(...: any): nil
         local count = select("#", ...)
-        local message = ""
+        local parts: {string} = {}
         for index = 1, count do
             local part = select(index, ...)
             if type(part) ~= "string" and type(part) ~= "number" then
                 error(("bad argument #%d to 'warn' (string expected, got %s)"):format(index, type(part)), 3)
             end
-            message = message .. tostring(part)
+            parts[index] = tostring(part)
         end
+        local message = table.concat(parts)
         if count == 1 and message:sub(1, 1) == "@" then
             if message == "@on" then
                 enabled = true

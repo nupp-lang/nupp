@@ -442,7 +442,9 @@ local function luaTypeOf(t: any): string?
         return nil
     end
     local tag = t.tag
-    if tag == "literal" then
+    if tag == "selfcontained" then
+        return luaTypeOf(t.inner)
+    elseif tag == "literal" then
         return luaTypeOf(t.base)
     end
     local primitive = PRIMITIVE_LUA_TYPE[tag]
@@ -478,7 +480,9 @@ local function truthinessOf(t: any): boolean?
         return nil
     end
     local tag = t.tag
-    if tag == "nil" then
+    if tag == "selfcontained" then
+        return truthinessOf(t.inner)
+    elseif tag == "nil" then
         return false
     elseif tag == "literal" then
         if t.constant == false then
@@ -647,6 +651,9 @@ function predicate.satisfiedBy(node: predicate.Node?, fieldAt: function(path: {s
     end
 
     local t = fieldAt(node.path or {})
+    while type(t) == "table" and t.tag == "selfcontained" do
+        t = t.inner
+    end
     if t == nil then
         return nil
     end

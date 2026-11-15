@@ -453,7 +453,10 @@ local FEATURES: {[string]: native.Feature} = {
             "types.reflect.extensionkey",
             "types.reflect.runtime",
             "types.reflect.runtimeType",
-            "types.reflect.runtimetype"
+            "types.reflect.runtimetype",
+            "types.reflect.derived",
+            "types.reflect.initializer",
+            "types.reflect.declarations"
         },
         runtimeModule = "nupp.compiler.runtime.reflect",
         portableRuntime = true,

@@ -2331,6 +2331,12 @@ export function install(c: state.Checker): nil
         c.resolvingAlias[name] = true
         local body = c.resolveType(waiting.node)
         c.resolvingAlias[name] = nil
+        -- The source alias stays transparent to the pinned compiler. This compiler
+        -- gives the public ownership contract its checked qualifier before the
+        -- generic alias is built, so an alias of it carries the same requirement.
+        if c.result.moduleName == "own" and name == "SelfContained" and owner == c.rootScope then
+            body = T.selfContained(body)
+        end
         if decl and decl.generics then
             c.popScope()
             t = T.genericAlias(name, body, typeParams, typeBounds, packParams, constParams, paramKinds, paramDefaults)

@@ -308,26 +308,7 @@ export function install(c: state.Checker): Ops
         if cleanup and cleanup.functionType and cleanup.functionType.foreign then
             mayYield = false
         elseif info and info.summary then
-            mayYield = info.summary.top == true or info.summary.external == true or info.summary.yields == true
-            if mayYield and info.body then
-                local calls: {cst.Node} = {}
-                callsWithin(info.body, calls)
-                local allTypedNonYielding = #calls > 0
-                for _, call in ipairs(calls) do
-                    local target = call.calleeType or call.signatureType
-                    -- An ownership intrinsic is not a call to something that could
-                    -- yield: it lowers to generated code that calls the terminals
-                    -- named in it, and those are judged as the cleanups they are.
-                    if call.ownershipIntrinsic then
-                        target = nil
-                    elseif not target or target.tag ~= "func" or not target.noYield then
-                        allTypedNonYielding = false
-                    end
-                end
-                if allTypedNonYielding then
-                    mayYield = false
-                end
-            end
+            mayYield = info.summary.topYields == true or info.summary.external == true or info.summary.yields == true
         elseif cleanup and cleanup.functionType and cleanup.functionType.tag == "func" then
             mayYield = cleanup.functionType.noYield ~= true and cleanup.visibleBody == true
         end
@@ -464,8 +445,9 @@ export function install(c: state.Checker): Ops
                 mayYield = false
             elseif info and info.summary and not info.external then
                 -- Seen here: the summary is the answer, and a widened one is a callee
-                -- that reached something this file could not follow.
-                if info.summary.top then
+                -- that reached something this file could not follow. Widening through
+                -- a `@nosuspend` callee leaves suspension itself known.
+                if info.summary.topYields then
                     mayYield, why = true, "reaches code with unknown effects"
                 else
                     mayYield = info.summary.yields == true

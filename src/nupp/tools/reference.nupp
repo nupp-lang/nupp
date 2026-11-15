@@ -1597,6 +1597,11 @@ The ownership helpers are `own.attemptAll`, `own.borrow`, `own.borrowFrom`,
 and `own.pin`. `attemptAll` tries every cleanup in order and raises the first
 failure with the rest suppressed. A local name shadows a helper.
 
+`own.SelfContained<T>` on a taking input requires a value with no borrowed
+dependencies. A globally retained input, such as `debug.log.setsink`'s sink,
+uses this contract, and a helper forwarding to it states the same requirement.
+Aliases, consuming wrappers, and imported callable signatures preserve it.
+
 `own.manage(owner)` moves a self-contained exact obligation into an independent
 managed cell. The unique `managed(T)` value owns the cell; copyable `alias(T)`
 values provide checked callback borrows, exclusive callback borrows, one-time
@@ -2639,7 +2644,7 @@ return m
         codes = {"NUPP2414", "NUPP2415", "NUPP2416", "NUPP2418"},
         body = [=[
 `types.reflect(T)` resolves `T` in a type position and creates an immutable,
-target-independent semantic descriptor for comptime. Schema 4 represents the
+target-independent semantic descriptor for comptime. Schema 7 represents the
 possibly recursive type as an acyclic indexed graph: `root` selects a node in
 `types`, and edges between nodes are integer indices. The graph covers nominal
 records, interfaces and structs; shapes, fields and indexers; function

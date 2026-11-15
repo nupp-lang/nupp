@@ -761,6 +761,7 @@ function typeprovider.installEvaluator(state, env, opaque, provenance)
             or payload.kind == "borrowed"
             or payload.kind == "pinned"
             or payload.kind == "affine"
+            or payload.kind == "selfcontained"
         then
             return {payload.inner}
         end
@@ -799,6 +800,7 @@ function typeprovider.installEvaluator(state, env, opaque, provenance)
                     or found.payload.kind == "borrowed"
                     or found.payload.kind == "pinned"
                     or found.payload.kind == "affine"
+                    or found.payload.kind == "selfcontained"
                 ) do
                 found = entry(state, found.payload.inner, "Type")
             end
@@ -1237,7 +1239,13 @@ function typeprovider.importDescriptor(
                 end
                 made = make(state, opaque, "Type", {kind = kind, members = members, key = composeKey(kind, keys)}, nil)
             end
-        elseif kind == "ptr" or kind == "const" or kind == "borrowed" or kind == "pinned" or kind == "affine" then
+        elseif kind == "ptr"
+            or kind == "const"
+            or kind == "borrowed"
+            or kind == "pinned"
+            or kind == "affine"
+            or kind == "selfcontained"
+        then
             local inner = import(node.element)
             if inner then
                 local transferOnly = kind == "affine" and node.transferOnly == true
@@ -1448,6 +1456,7 @@ local function finalizeGraph(state, root)
             or payload.kind == "borrowed"
             or payload.kind == "pinned"
             or payload.kind == "affine"
+            or payload.kind == "selfcontained"
         then
             node.inner = intern(payload.inner)
             if payload.kind == "affine" then

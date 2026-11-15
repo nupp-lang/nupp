@@ -36,6 +36,7 @@ local STRICT = {
     witness = HERE .. "/fixtures/witnessexported_main.nupp",
     annotationWitness = HERE .. "/fixtures/derivewitness_consumer.nupp",
     custom = HERE .. "/../editors/playground/src/examples/custom-derive.nupp",
+    reflected = HERE .. "/fixtures/derivereflect_consumer.nupp",
 }
 
 local REFUSED = {
@@ -44,7 +45,14 @@ local REFUSED = {
     immutable = HERE .. "/fixtures/deriveimmutable.nupp",
 }
 
-local STRICT_BATCH = {STRICT.inspect, STRICT.exported, STRICT.witness, STRICT.annotationWitness, STRICT.custom,}
+local STRICT_BATCH = {
+    STRICT.inspect,
+    STRICT.exported,
+    STRICT.witness,
+    STRICT.annotationWitness,
+    STRICT.custom,
+    STRICT.reflected,
+}
 local REFUSED_BATCH = {REFUSED.unsupported, REFUSED.provider, REFUSED.immutable}
 
 local strictly = checkedTogether({}, STRICT_BATCH)

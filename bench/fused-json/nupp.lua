@@ -11,19 +11,21 @@
 -- the vector scan. `tests/bench.lua` refuses to measure unless the entry it
 -- calls is in the `__nuppAotCompiled` registry.
 return {
-   include = {"src", "../../src"},
+    include = {"src", "../../src"},
 
-   build = {
-      outDir = "build",
-      default = "fused-json",
-      targets = {
-         ["fused-json"] = {
-            kind = "modules",
-            description = "Build the fused JSON decoder ahead of time",
-            entries = {"nupp.codec.json.internal.decoder.fusedbench"},
-            optimize = 1,
-            aot = "require",
-         },
-      },
-   },
+    build = {
+        outDir = "build",
+        default = "fused-json",
+        targets = {
+            [
+                "fused-json"
+            ] = {
+                kind = "modules",
+                description = "Build the fused JSON decoder ahead of time",
+                entries = {"nupp.codec.json.internal.decoder.fusedbench", "nupp.codec.json.aot"},
+                optimize = 1,
+                aot = "require",
+            },
+        },
+    },
 }

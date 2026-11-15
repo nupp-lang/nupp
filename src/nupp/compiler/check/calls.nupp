@@ -406,14 +406,18 @@ local function probeArm(ft: T.Func, argPack: T.Pack, cdefCall: boolean?, control
         if mode == "scoped" and (actual.tag == "affine" or actual.tag == "pinned") then
             return nil, ("argument %d cannot borrow an affine value as a repeatable callback"):format(j)
         end
-        local ok, why = isA(actual, params.head[j])
+        local expected = T.withoutSelfContained(params.head[j])
+        if mode == "borrows" or mode == "exclusive" then
+            actual, expected = rawType(actual), rawType(expected)
+        end
+        local ok, why = isA(actual, expected)
         if not ok then
             return nil, ("argument %d: %s"):format(j, why or "mismatch")
         end
     end
     if not argPack.tail and actualCount < #params.head then
         for j = actualCount + 1, #params.head do
-            local ok = isA(T.nil_, params.head[j])
+            local ok = isA(T.nil_, T.withoutSelfContained(params.head[j]))
             if not ok then
                 return nil, ("omitted argument %d supplies nil, not %s"):format(j, T.tostring(params.head[j]))
             end
@@ -427,13 +431,21 @@ local function probeArm(ft: T.Func, argPack: T.Pack, cdefCall: boolean?, control
             if mode == "scoped" and (actual.tag == "affine" or actual.tag == "pinned") then
                 return nil, ("argument %d cannot borrow an affine value as a repeatable callback"):format(j)
             end
-            local ok, why = isA(argPack.head[j], tail.type)
+            local expected = T.withoutSelfContained(tail.type)
+            if mode == "borrows" or mode == "exclusive" then
+                actual, expected = rawType(actual), rawType(expected)
+            end
+            local ok, why = isA(actual, expected)
             if not ok then
                 return nil, ("argument %d in pack tail: %s"):format(j, why or "mismatch")
             end
         end
         if argPack.tail and argPack.tail.kind == "homogeneous" then
-            local ok, why = isA(argPack.tail.type, tail.type)
+            local actual, expected = argPack.tail.type, T.withoutSelfContained(tail.type)
+            if tail.mode == "borrows" or tail.mode == "exclusive" then
+                actual, expected = rawType(actual), rawType(expected)
+            end
+            local ok, why = isA(actual, expected)
             if not ok then
                 return nil, "pack tail: " .. (why or "mismatch")
             end
@@ -501,6 +513,34 @@ export type Ops = {
 --- @return the operations the walk calls
 export function install(c: state.Checker): Ops
     local ops = {}
+
+    local function argumentRoots(source, result)
+        if result and result > 1 then
+            return c.own.capabilityFacts(source, result, false).roots or {}
+        end
+
+        return c.own.rootsOf(source)
+    end
+
+    -- The marker is a requirement on the argument's value flow. Signature
+    -- selection compares payload types; the selected contract checks the loan
+    -- facts of the exact result slot passed to it.
+    local function inputPayload(expected: Type, source, result): Type
+        if T.requiresSelfContained(expected) then
+            if source
+                and not cst.isToken(source)
+                and (#argumentRoots(source, result) > 0 or #c.own.inputDependenciesOf(source, result) > 0)
+            then
+                c.diag("NUPP2608", source, "a self-contained input cannot depend on a borrowed resource", nil, {
+                    help = "pass an independent owner, or require own.SelfContained on a forwarding parameter"
+                })
+            end
+
+            return T.withoutSelfContained(expected)
+        end
+
+        return expected
+    end
 
     ---------------------------------------------------------------------
     -- Describing a call site
@@ -1407,7 +1447,13 @@ export function install(c: state.Checker): Ops
         end
         if varargType then
             for j = #params + 1, #ats do
-                local ok, why = isA(ats[j], varargType)
+                local expected = inputPayload(varargType, argNodes[j], 1)
+                local actual = ats[j]
+                local mode = paramPack.tail and paramPack.tail.mode
+                if mode == "borrows" or mode == "exclusive" then
+                    actual, expected = rawType(actual), rawType(expected)
+                end
+                local ok, why = isA(actual, expected)
                 if not ok then
                     c.diag("NUPP2006", argNodes[j] or site, ("%s argument %d: %s"):format(operation, j, why))
                 end
@@ -1417,7 +1463,13 @@ export function install(c: state.Checker): Ops
             c.diag("NUPP2007", site, ("%s takes %d arguments, got %d"):format(operation, #params, #ats))
         end
         for j = 1, math.min(#ats, #params) do
-            local ok, why = isA(ats[j], params[j])
+            local expected = inputPayload(params[j], argNodes[j], 1)
+            local actual = ats[j]
+            local mode = ft.paramModes and ft.paramModes[j]
+            if mode == "borrows" or mode == "exclusive" then
+                actual, expected = rawType(actual), rawType(expected)
+            end
+            local ok, why = isA(actual, expected)
             if not ok then
                 c.diag("NUPP2006", argNodes[j] or site, ("%s argument %d: %s"):format(operation, j, why))
             end
@@ -1621,6 +1673,15 @@ export function install(c: state.Checker): Ops
             -- a field took carries its roots onto the record, which is then a view of
             -- the same owners and leaves the scope on the same terms they do.
             local aggregateRoots, rootSeen = {}, {}
+            local aggregateInputs, inputSeen = {}, {}
+
+            local function retainsInputs(value: any)
+                for _, input in ipairs(c.own.inputDependenciesOf(value)) do
+                    if not inputSeen[input] then
+                        inputSeen[input], aggregateInputs[#aggregateInputs + 1] = true, input
+                    end
+                end
+            end
 
             local function rootedIn(value: any)
                 for _, root in ipairs(c.own.provenanceOwners(value)) do
@@ -1631,6 +1692,9 @@ export function install(c: state.Checker): Ops
             end
 
             local function finished(resultType: Type): (Type, {Type})
+                if #aggregateInputs > 0 then
+                    c.own.capabilityFacts(node).inputDependencies = aggregateInputs
+                end
                 if #aggregateRoots > 0 then
                     c.own.capabilityFacts(node).roots = aggregateRoots
                     if not c.ownershipKind(resultType) then
@@ -1754,6 +1818,7 @@ export function install(c: state.Checker): Ops
                     value.expectedResult = settled and (known and generics.rebind(ft, known) or ft) or nil
                 end
                 local vt = c.infer(value)
+                retainsInputs(value)
                 constructionFields[fname] = {node = value, type = vt}
                 local _, regionPath = c.regionOf(value)
                 if regionPath and regionPath ~= "" then
@@ -2129,6 +2194,14 @@ export function install(c: state.Checker): Ops
                         ):format(T.tostring(calleeT), T.tostring(member), why or "arguments do not fit")
                     )
                     return T.any, nil, T.pack({}, {kind = "unknown", type = T.any})
+                end
+                for j = 1, #unionPack.head do
+                    local source = args[math.min(j, #args)]
+                    local result = j >= #args and j - #args + 1 or 1
+                    local expected = T.packAt(specialized.paramPack, j)
+                    if expected then
+                        inputPayload(expected, source, result)
+                    end
                 end
                 packs[#packs + 1] = specialized.retPack
             end
@@ -2598,7 +2671,9 @@ export function install(c: state.Checker): Ops
         -- it with the adjusted argument pack so substituting a generic pack can carry a
         -- borrowed slot back out without detaching it from its owner.
         local argumentBorrowOwners = {}
+        local argumentResultSlots = {}
         local consumedRoots = {}
+        local consumedInputs = {}
         local consumedExclusive = false
         local exclusiveRegions: {{
             path: string,
@@ -2616,6 +2691,7 @@ export function install(c: state.Checker): Ops
                 end
                 local owners = c.own.capabilityFacts(source, expandedIndex, false).roots
                 argumentBorrowOwners[j] = owners
+                argumentResultSlots[j] = expandedIndex
             end
         end
 
@@ -2947,7 +3023,7 @@ export function install(c: state.Checker): Ops
         end
         if not argPack.tail and actualCount < nparams then
             for j = actualCount + 1, nparams do
-                local ok = isA(T.nil_, params[j])
+                local ok = isA(T.nil_, T.withoutSelfContained(params[j]))
                 if not ok then
                     c.diag(
                         "NUPP2006",
@@ -2986,6 +3062,7 @@ export function install(c: state.Checker): Ops
                 ok = true
             else
                 local expected = tailSlot and (varargType or T.any) or params[j]
+                expected = inputPayload(expected, argNodes[j], argumentResultSlots[j])
                 if mode == "borrows" or mode == "exclusive" then
                     -- Substituting an owning type argument does not make a
                     -- borrowing parameter take its cleanup obligation.
@@ -3072,10 +3149,13 @@ export function install(c: state.Checker): Ops
                         end
                     end
                     consumedExclusive = consumedExclusive
-                        or c.own.capabilityFacts(movedNode, nil, false).exclusive
+                        or c.own.capabilityFacts(movedNode, argumentResultSlots[j], false).exclusive
                         or consumedEntry and c.own.capabilityFacts(consumedEntry, nil, false).exclusive
                         or false
-                    for _, root in ipairs(c.own.rootsOf(movedNode)) do
+                    for _, input in ipairs(c.own.inputDependenciesOf(movedNode, argumentResultSlots[j])) do
+                        consumedInputs[#consumedInputs + 1] = input
+                    end
+                    for _, root in ipairs(argumentRoots(movedNode, argumentResultSlots[j])) do
                         consumedRoots[#consumedRoots + 1] = root
                     end
                     local sourceArg = args[j]
@@ -3547,7 +3627,7 @@ export function install(c: state.Checker): Ops
                 end
             end
         end
-        c.own.retainConsumedLoans(node, consumedRoots, rets, consumedExclusive)
+        c.own.retainConsumedLoans(node, consumedRoots, rets, consumedExclusive, consumedInputs, retPack)
         node.signatureType = T.func(
             params,
             rets,

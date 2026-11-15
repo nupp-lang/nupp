@@ -15,6 +15,12 @@ See [ownership](docs/learn/runtime/ownership/index.md) for moves and cleanup.
 module own
 
 export type Copyable = own.Copyable
+
+--- A value without a borrowed lifetime dependency. See
+--- [borrowing.md](docs/learn/runtime/ownership/borrowing.md#independent-lifetimes) for
+--- input contracts.
+export type SelfContained<T> = T
+
 export type Affine<const cleanup: function> = own.Affine<cleanup>
 export type Closeable = own.Closeable
 export type AliasError = own.AliasError

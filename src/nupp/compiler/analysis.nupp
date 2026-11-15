@@ -52,7 +52,11 @@ local FLAGS = {"allocates", "yields", "raises", "external"}
 -- inferred and never declared, so a contract neither states nor is held to it.
 -- Wide arithmetic allocates a box in ordinary execution but has no allocation
 -- after native scalar lowering. Other allocation sites must remain refusals.
-local INFERRED_FLAGS = {"rawYields", "allocatesBeyondWideArithmetic", "raisesBeyondBounds"}
+-- `topYields` says whether a widened summary may suspend through what widened it.
+-- A call whose type promises `@nosuspend` widens every other fact, since nothing
+-- says what it reads or writes, but it cannot be where the body suspends. A
+-- boundary that asks only about suspension reads this rather than `top`.
+local INFERRED_FLAGS = {"rawYields", "allocatesBeyondWideArithmetic", "raisesBeyondBounds", "topYields"}
 
 local function setOf(values)
     local out = {}
@@ -86,6 +90,7 @@ end
 local function unknownSummary(): analysis.Summary
     local out = summary()
     out.top = true
+    out.topYields = true
     return out
 end
 
@@ -402,6 +407,7 @@ local function collectFunctions(root)
             }
             if not target.effectContract then
                 info.summary.top = true
+                info.summary.topYields = true
             end
             for _, param in ipairs(target.params or {}) do
                 if param.name then
@@ -642,6 +648,13 @@ local function inferFunction(info, byDefinition)
             out.raisesBeyondBounds = true
         else
             out.top = true
+            -- The checker resolved the callee's type even where this pass cannot
+            -- follow its body, and a `@nosuspend` type is a promise about exactly
+            -- the one fact a suspension boundary asks.
+            local target = call.calleeType or call.signatureType
+            if not (target and target.tag == "func" and target.noYield) then
+                out.topYields = true
+            end
         end
     end
 
@@ -694,15 +707,18 @@ local function inferFunction(info, byDefinition)
             if #(node.parts or {}) > 0 then
                 -- Each interpolation invokes a conversion that may be user code.
                 out.top = true
+                out.topYields = true
             end
         elseif kind == "binop" and node.op and node.op.kind == ".." then
             out.allocates = true
             out.allocatesBeyondWideArithmetic = true
             if not node.plainConcat then
                 out.top = true
+                out.topYields = true
             end
         elseif node.effectUnknownOperation then
             out.top = true
+            out.topYields = true
         elseif node.wideArithmetic then
             -- A 64-bit integer result is a fresh cdata box.
             out.allocates = true
@@ -815,8 +831,22 @@ local function inferFunction(info, byDefinition)
                 end
                 local token = operation and operation.kind == "function" and operation.token or nil
                 local known = token and byDefinition[token.definition] or nil
-                if not known or not known.summary or known.summary.top then
+                if not known or not known.summary then
                     out.top = true
+                    out.topYields = true
+                elseif known.summary.top then
+                    -- A known terminal keeps what it knows about suspension even
+                    -- when its other effects are unknown.
+                    out.top = true
+                    if known.summary.topYields then
+                        out.topYields = true
+                    end
+                    if known.summary.yields then
+                        out.yields = true
+                    end
+                    if known.summary.rawYields then
+                        out.rawYields = true
+                    end
                 else
                     if known.summary.allocates then
                         out.allocates = true

@@ -205,7 +205,14 @@ targetLayout.VECTOR_ELEMENT_BYTES = VECTOR_ELEMENT_BYTES
 --- that is not a vector.
 function targetLayout.storageVector(t: any): (string?, integer?)
     local raw = t
-    while raw ~= nil and (raw.tag == "const" or raw.tag == "affine" or raw.tag == "borrowed" or raw.tag == "pinned") do
+    while raw ~= nil
+        and (
+            raw.tag == "const"
+            or raw.tag == "affine"
+            or raw.tag == "borrowed"
+            or raw.tag == "pinned"
+            or raw.tag == "selfcontained"
+        ) do
         raw = raw.inner
     end
     while raw ~= nil and raw.tag == "genericAlias" do
@@ -220,13 +227,16 @@ function targetLayout.storageVector(t: any): (string?, integer?)
     end
     local arguments = raw.typeArgs or {}
     local element = arguments[1]
-    while element ~= nil and element.tag == "const" do
+    while element ~= nil and (element.tag == "const" or element.tag == "selfcontained") do
         element = element.inner
     end
     if element == nil or VECTOR_ELEMENT_BYTES[element.tag as string] == nil then
         return nil, nil
     end
     local species = arguments[2]
+    while species ~= nil and species.tag == "selfcontained" do
+        species = species.inner
+    end
     local speciesOrigin = species ~= nil and (species.origin or species) or nil
     if species == nil
         or species.tag ~= "nominal"
@@ -285,6 +295,9 @@ function targetLayout.of(t: any, key: string): any?, string?
         if not subject then
             return nil, "the type is unresolved"
         end
+        if subject.tag == "selfcontained" then
+            return layoutType(subject.inner)
+        end
         local fixed = FIXED[subject.tag]
         if fixed then
             return fixed
@@ -296,6 +309,9 @@ function targetLayout.of(t: any, key: string): any?, string?
             return model.pointer
         elseif subject.tag == "union" and subject.hasNil and #subject.members == 2 then
             local other = subject.members[1].tag == "nil" and subject.members[2] or subject.members[1]
+            while other and other.tag == "selfcontained" do
+                other = other.inner
+            end
             if other and (other.tag == "ptr" or other.tag == "cstring" or other.tag == "voidptr") then
                 return model.pointer
             end

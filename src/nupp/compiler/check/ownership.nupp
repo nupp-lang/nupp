@@ -23,6 +23,42 @@ local rawType = T.unwrapOwnership
 --- A type, as nupp.compiler.types builds them.
 local type Type = T.Type
 
+local COPIED_SCALARS: {
+    [string]: boolean
+} = {
+    ["nil"] = true,
+    boolean = true,
+    string = true,
+    number = true,
+    integer = true,
+    float = true,
+    int8 = true,
+    int16 = true,
+    int32 = true,
+    int64 = true,
+    uint8 = true,
+    uint16 = true,
+    uint32 = true,
+    uint64 = true,
+}
+
+local function copiedScalar(t: Type): boolean
+    if t.tag == "const" or t.tag == "selfcontained" then
+        return copiedScalar(t.inner)
+    elseif t.tag == "literal" or t.tag == "constrained" then
+        return t.base ~= nil and copiedScalar(t.base) or false
+    elseif t.tag == "union" then
+        for _, member in ipairs(t.members) do
+            if not copiedScalar(member) then
+                return false
+            end
+        end
+        return true
+    end
+
+    return COPIED_SCALARS[t.tag] == true
+end
+
 ----------------------------------------------------------------------------
 -- What the checker asks about ownership
 ----------------------------------------------------------------------------
@@ -42,7 +78,16 @@ export type Ops = {
     capabilityFacts: function(entry: any, result: integer?, create: boolean?): T.CapabilityFacts,
 
     -- Carry foreign loans through an opaque consuming transformation.
-    retainConsumedLoans: function(node: any, roots: {any}, results: {Type}, exclusive: boolean?),
+    retainConsumedLoans: function(
+        node: any,
+        roots: {any},
+        results: {Type},
+        exclusive: boolean?,
+        inputs: {any}?,
+        pack: T.Pack?
+    ),
+
+    inputDependenciesOf: function(expr: any, result: integer?): {any},
 
     --- The entry an ownership fact is recorded on, following a narrowed copy back.
     ownershipState: function(entry: any): any,
@@ -1010,8 +1055,63 @@ export function install(c: state.Checker): Ops
         return out
     end
 
-    function own.retainConsumedLoans(node, roots, results, exclusive)
-        if #roots == 0 then
+    -- A taking input may depend on storage owned by its caller. Keep that
+    -- uncertainty separate from lexical loans: returning a transformed input is
+    -- valid, but installing it in an independent lifetime requires a contract.
+    function own.inputDependenciesOf(expr, result)
+        while expr
+            and (
+                expr.kind == "paren"
+                or expr.kind == "castExpr"
+                or expr.kind == "orExitExpr" and not expr.orExitProtected
+            ) do
+            expr = expr.kind == "orExitExpr" and expr.operand or expr.expr
+        end
+        if not expr then
+            return {}
+        end
+        local valueType = expr.inferredType
+        if result and result > 1 then
+            valueType = expr.valuePack and T.packAt(expr.valuePack, result) or nil
+        end
+        -- Scalar field reads copy their value rather than the owner's storage.
+        -- Expanded calls must classify the selected result, not their first slot.
+        if valueType and own.ownershipKind(valueType) == nil and copiedScalar(valueType) then
+            return {}
+        end
+        local facts = own.capabilityFacts(expr, result, false)
+        if facts.inputDependencies ~= nil then
+            return facts.inputDependencies
+        elseif expr.kind == "name" and expr.token then
+            local entry = own.ownershipState(c.lookupEntry(expr.token.text))
+            return entry and own.capabilityFacts(entry, nil, false).inputDependencies or {}
+        elseif expr.kind == "dotIndex"
+            or expr.kind == "bracketIndex"
+            or expr.kind == "safeIndex"
+            or expr.kind == "safeBracket"
+        then
+            return own.inputDependenciesOf(expr.obj)
+        elseif expr.kind == "funcExpr" or expr.kind == "shortfn" then
+            local inputs = {}
+            for _, capture in ipairs((expr.body or expr).takenCaptures or {}) do
+                for _, input in ipairs(capture.facts and capture.facts.inputDependencies or {}) do
+                    inputs[#inputs + 1] = input
+                end
+            end
+            return inputs
+        end
+
+        return {}
+    end
+
+    function own.retainConsumedLoans(node, roots, results, exclusive, inputs, pack)
+        if pack and pack.alternatives then
+            for _, arm in ipairs(pack.alternatives) do
+                own.retainConsumedLoans(node, roots, arm.head, exclusive, inputs, arm)
+            end
+            return
+        end
+        if #roots == 0 and #(inputs or {}) == 0 then
             return
         end
         -- Taking a wrapper transfers its dependencies too. Its result must keep
@@ -1031,6 +1131,16 @@ export function install(c: state.Checker): Ops
                     end
                 end
                 facts.roots = combined
+                local dependencies, dependencySeen = {}, {}
+                for _, input in ipairs(facts.inputDependencies or {}) do
+                    dependencySeen[input], dependencies[#dependencies + 1] = true, input
+                end
+                for _, input in ipairs(inputs or {}) do
+                    if not dependencySeen[input] then
+                        dependencySeen[input], dependencies[#dependencies + 1] = true, input
+                    end
+                end
+                facts.inputDependencies = dependencies
                 facts.exclusive = facts.exclusive or exclusive
             end
         end
