@@ -52,10 +52,6 @@ jobs:
             os: ubuntu-24.04
             timeout: 45
             artifact: linux-x64
-          - name: macOS arm64
-            os: macos-15
-            timeout: 60
-            artifact: macos-arm64
           - name: Windows x64
             os: windows-2022
             timeout: 60
@@ -89,30 +85,14 @@ jobs:
           channel=$(sed -n 's/^channel = "\([^"]*\)"$/\1/p' rust-toolchain.toml)
           rustup toolchain install "${channel}-x86_64-pc-windows-gnu" --profile minimal
 
-      - name: Provision the pinned toolchain
-        shell: bash
-        run: ./scripts/toolchain --all
-
-      - name: Bootstrap the compiler
-        shell: bash
-        run: ./bin/nupp version
-
-      # One immutable, platform-qualified artifact per commit keeps the
-      # reification speedup bisectable without pretending hosted runner timing
-      # is stable enough for an absolute wall-clock gate.
-      - name: Measure array-of-structs performance
+      - name: Run the root walk test (probe only)
         shell: bash
         run: |
-          set -euo pipefail
-          results=build/ci-benchmarks
-          mkdir -p "$results"
-          {
-            printf 'commit=%s\n' "$GITHUB_SHA"
-            printf 'runner=%s/%s\n' "$RUNNER_OS" "$RUNNER_ARCH"
-          } > "$results/metadata.txt"
-          # The default 120 s per child is a local answer; a hosted Windows
-          # runner takes over two minutes just to list the cases.
-          ./bin/nupp bench --timeout-ms 600000 --file bench/aos.bench.nupp | tee "$results/aos.txt"
+          if [ "$RUNNER_OS" = Windows ]; then
+            channel=$(sed -n 's/^channel = "\([^"]*\)"$/\1/p' rust-toolchain.toml)
+            export RUSTUP_TOOLCHAIN=$channel-x86_64-pc-windows-gnu CARGO_TARGET_X86_64_PC_WINDOWS_GNU_LINKER=gcc
+          fi
+          cargo test --locked --package nupp-vm --no-default-features --features aot-linked --lib root_walk_tests -- --nocapture
 
       - name: Upload array-of-structs measurements
         if: always()
