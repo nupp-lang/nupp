@@ -2235,4 +2235,87 @@ function M.windowsShellUsesArgumentVectorsForNativePipes()
     end
 end
 
+-- A worker that has not loaded the standard I/O module yet loads it before the
+-- wrapper goes over it, so a suite's string commands reach Bash for the whole
+-- run. A suite that installs `io.popen` again while it runs, as the process
+-- suites do, does not take the runner's own commands with it.
+function M.windowsRunnerCommandsKeepBashWhenASuiteReplacesPopen()
+    local source = read(ROOT .. "/tests/run.lua")
+    local first = assert(source:find("-- The suites predate Windows support", 1, true))
+    first = assert(source:find('if package.config:sub(1, 1)', first, true))
+    local last = assert(source:find("local caseDefinitions", first, true))
+    local setup = source:sub(first, last - 1)
+    local received, path
+
+    local function standardPopen(command, mode)
+        received = {command, mode}
+        return {
+            read = function()
+                return "piece report"
+            end,
+            close = function()
+                return true
+            end,
+        }
+    end
+
+    local environment
+    environment = setmetatable(
+        {
+            package = {config = "\\", loaded = {}},
+            io = {
+                open = io.open,
+                popen = function()
+                    error("the CRT popen was used")
+                end
+            },
+            os = {
+                execute = function()
+                end,
+                getenv = function(name)
+                    if name == "NUPP_TEST_BASH" then
+                        return "C:/Program Files/Git/bin/bash.exe"
+                    end
+                end,
+                tmpname = function()
+                    path = os.tmpname() .. ".sh";
+                    return path:sub(1, -4)
+                end,
+                remove = os.remove,
+            },
+            -- What loading the standard I/O module does to the process.
+            require = function(name)
+                test.eq(name, "nupp.runtime.standardio")
+                local module = {popen = standardPopen}
+                environment.package.loaded[name] = module
+                environment.io.popen = standardPopen
+
+                return module
+            end,
+        },
+        {__index = _G}
+    )
+    environment._G = environment
+    assert(setfenv(assert(loadstring(setup, "@nupp:test-runner")), environment))()
+    test.eq(environment.package.loaded["nupp.runtime.standardio"].popen, standardPopen)
+    assert(environment.io.popen ~= standardPopen, "the wrapper is over the module's io.popen")
+
+    -- A suite installs its own while it runs.
+    local process = {}
+    environment.io.popen = function()
+        return process
+    end
+    test.eq(environment.io.popen("printf suite", "r"), process, "the suite gets what it installed")
+
+    local pipe = environment.__NUPP_TEST_POPEN("printf 'piece report'", "r")
+    test.eq(type(received[1]), "table", "the runner's launch starts Bash directly")
+    test.eq(received[1][1], "C:/Program Files/Git/bin/bash.exe")
+    test.eq(received[1][2], path)
+    test.eq(received[2], "r")
+    test.eq(read(path), "printf 'piece report'\n")
+    test.eq(pipe:read("*a"), "piece report")
+    test.eq(pipe:close(), true)
+    test.eq(io.open(path, "rb"), nil, "closing the pipe removes its script")
+end
+
 return M

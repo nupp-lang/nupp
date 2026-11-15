@@ -1565,4 +1565,59 @@ function M.aChildForkingOnItsOwnScopeChecksInAProject()
     assert(code == 0, "both patterns check in a project:\n" .. output)
 end
 
+-- A program that spawns a checkout's launcher by path hands `CreateProcess` an
+-- extensionless shell script, which Windows cannot start. Outside a test runner
+-- process the path resolves to the `bin/nupp.cmd` beside it, whatever
+-- `NUPP_TEST_BASH` says, and that finds Git Bash and starts the compiler.
+function M.aWindowsCheckoutLauncherStartsWithoutAShell()
+    local process = require("nupp.compiler.process")
+    local runnerBash = rawget(_G, "__NUPP_TEST_BASH")
+    local ok, failure = pcall(function()
+        _G.__NUPP_TEST_BASH = nil
+        local command = process.command({NUPP, "--version"})
+        if jit.os ~= "Windows" then
+            assert(command == process.quote(NUPP) .. " --version", command)
+            return
+        end
+        local batch = process.quote((NUPP .. ".cmd"):gsub("/", "\\"))
+        assert(command:find(batch .. " --version", 1, true), "resolves the batch launcher: " .. command)
+        _G.__NUPP_TEST_BASH = "C:/Git/bin/bash.exe"
+        command = process.command({NUPP, "--version"})
+        assert(
+            command:find("C:\\Git\\bin\\bash.exe " .. process.quote(NUPP) .. " --version", 1, true),
+            "a test runner process runs the script under its Git Bash: " .. command
+        )
+    end)
+    _G.__NUPP_TEST_BASH = runnerBash
+    assert(ok, failure)
+    if jit.os ~= "Windows" then
+        return
+    end
+
+    local function launch(env)
+        local child = assert(
+            require("nupp.runtime.standardio").popen({NUPP .. ".cmd", "--version"}, {
+                stdin = "null",
+                stdout = "pipe",
+                stderr = "stdout",
+                env = env,
+                timeoutms = 300000,
+            })
+        )
+
+        return assert(child:communicate())
+    end
+
+    -- cmd.exe treats an empty `NUPP_BASH` as unset, so the second launch finds Git
+    -- Bash beside the Git on `PATH`.
+    for _, bash in ipairs({rawget(_G, "__NUPP_TEST_BASH") or "", ""}) do
+        local result = launch({NUPP_BASH = bash})
+        assert(result:succeeded(), "the batch launcher started the compiler:\n" .. tostring(result.output))
+        assert(result.output:find("nupp ", 1, true), result.output)
+    end
+    local result = launch({NUPP_BASH = "", PATH = (os.getenv("SystemRoot") or "C:\\Windows") .. "\\System32"})
+    assert(not result:succeeded(), "a launcher with no Git on PATH fails")
+    assert(result.output:find("no Git Bash found", 1, true), result.output)
+end
+
 return M

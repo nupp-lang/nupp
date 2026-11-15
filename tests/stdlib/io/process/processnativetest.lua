@@ -11,7 +11,7 @@ local nativeStage = require("nupp.tools.build.native")
 
 local M = {}
 
-local root, process, buffers, priorPreload, priorLoaded
+local root, process, buffers, priorPreload, priorLoaded, priorIO, priorStandardIO
 local unavailable
 
 local function startProcess(options)
@@ -78,6 +78,17 @@ function M.beforeAll()
     priorLoaded = package.loaded["nupp.runtime.native"]
     preloadProvider(libraryPath)
     assert(loadstring(stdlib.bootstrap({["native.process"] = true, ["stdlib.io"] = true,})))()
+    -- The standard I/O module puts its functions on `io` when it loads. The runner
+    -- has usually loaded it already, over its own provider, and on Windows put its
+    -- test shell over `io.popen` after that. Loading it again here is what puts the
+    -- module under test, over this provider, where the cases look.
+    priorIO = {}
+    for name, value in pairs(io) do
+        priorIO[name] = value
+    end
+    priorStandardIO = package.loaded["nupp.runtime.standardio"]
+    package.loaded["nupp.runtime.standardio"] = nil
+    require("nupp.runtime.standardio")
     process = require("io")
     buffers = require("bytes")
 end
@@ -85,6 +96,15 @@ end
 function M.afterAll()
     package.preload["nupp.runtime.native"] = priorPreload
     package.loaded["nupp.runtime.native"] = priorLoaded
+    if priorIO then
+        for name in pairs(io) do
+            io[name] = nil
+        end
+        for name, value in pairs(priorIO) do
+            io[name] = value
+        end
+        package.loaded["nupp.runtime.standardio"] = priorStandardIO
+    end
     if root then
         os.execute("chmod -R u+w '" .. root .. "' 2>/dev/null")
         os.execute("rm -rf '" .. root .. "'")
@@ -392,7 +412,11 @@ end
 
 function M.defaultOutputWritesFlushesAndClosesAProcess()
     local public = ready()
-    local child = assert(public.popen(shell('IFS= read -r line; test "$line" = output42'), "w"))
+    -- Text mode writes `\r\n` on Windows, which `cmd.exe` reads as a line end and
+    -- `sh` keeps as part of the line.
+    local windows = package.config:sub(1, 1) == "\\"
+    local command = windows and 'findstr /x "output42" > NUL' or 'IFS= read -r line; test "$line" = output42'
+    local child = assert(public.popen(command, "w"))
     local previous = io.output()
     local result
     local ok, reason = pcall(function()

@@ -30,6 +30,11 @@ tests/tools/fmt/corpus/** -text
 scripts/** text eol=lf
 .github/scripts/** text eol=lf
 
+# cmd.exe reads a batch file with LF endings unreliably: a jump to a label can
+# miss it. The launcher it runs is the shell script beside it, held to LF.
+bin/nupp text eol=lf
+bin/nupp.cmd text eol=crlf
+
 # Browser guest packages compare these recipe inputs by their raw digest. Keep
 # Windows consumer checkouts byte-identical to the Linux-built runtime inputs.
 runtime/luajit/** text=auto eol=lf
