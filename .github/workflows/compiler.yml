@@ -282,16 +282,16 @@ jobs:
       - name: Check the compiler
         run: ./bin/nupp check
 
+      # An interpreter-only compiler holds about 10 GB after building the test
+      # runner, and `nupp test` waits on the suites in that same process. With
+      # four workers beside it the 16 GB runner ran out of memory and was shut
+      # down. Building in a process of its own returns that memory before the
+      # suites start; the run below then reuses the recorded test build.
+      - name: Build the test runner
+        run: ./bin/nupp test --list-groups
+
       - name: Run the shared-process suites
-        run: |
-          # Temporary: find what takes the runner down mid-suite.
-          ( while sleep 30; do
-              echo "::group::resources $(date -u +%T)"
-              free -m; df -h . /tmp | tail -n 2
-              ps -eo rss,etimes,args --sort=-rss | head -n 6 | cut -c1-200
-              echo '::endgroup::'
-            done ) &
-          ./bin/nupp test --fresh --scope=all --lane=shared
+        run: ./bin/nupp test --fresh --scope=all --lane=shared
 
       # Saved explicitly rather than through the action's post step, so a run
       # that fails a suite still keeps the compiler build the next run would
