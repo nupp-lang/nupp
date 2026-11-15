@@ -18,15 +18,22 @@ function execution(shard, family, route) {
       for (const [module, name] of [['primitives', 'probe'], ['memory', 'fields'], ['memory', 'interleaved'], ['conversions', 'convert'], ['masks', 'masks'],
         ...(lane !== 'preferred' || !['int8', 'uint8', 'int16', 'uint16'].includes(type) ? [['memory', 'indexed']] : []),
         ...(lane !== 'preferred' ? [['transpose', 'transpose']] : []),
-        ...(!['float', 'number'].includes(type) ? [['integeredges', 'edges']] : [['bitpatterns', 'bits'], ['bitmemory', 'memorybits'], ['maps', 'mapmath']])]) {
+        ...(!['float', 'number'].includes(type) ? [['integeredges', 'edges']] : [['bitpatterns', 'bits'], ['bitmemory', 'memorybits'], ['maps', 'mapmath']]),
+        ...(!['number', 'int64', 'uint64'].includes(type) ? [['widen', 'widen']] : []),
+        ...(!['float', 'int8', 'uint8'].includes(type) ? [['widen', 'narrow']] : [])]) {
         add(`simd_${module}_${type}_1`, `${name}_${lane}`);
       }
     } else {
       add(`simd_reducers_${type}_1`, `horizontal_${type}_${lane}`);
-      if (['number', 'int32', 'uint32', 'int64', 'uint64'].includes(type)) {
-        for (let i = 0; i < (type === 'number' ? 14 : 7); i++) add(`simd_masked_reducers_${type}_${lane}`, `masked_case${i}`);
-        for (let i = 0; i < (type === 'number' ? 21 : 9); i++) add(`simd_loop_reducers_${type}`, `loop_case${i}`);
-      }
+      const contracts = { number: 21, float: 18, int32: 9, uint32: 9, int64: 9, uint64: 9 }[type] ?? 0;
+      for (let i = 0; i < contracts; i++) add(`simd_masked_reducers_${type}_${lane}`, `masked_case${i}`);
+    }
+  }
+  if (family === 'reducers') {
+    const contracts = { number: 21, float: 18, int32: 9, uint32: 9, int64: 9, uint64: 9 }[shard.element] ?? 0;
+    for (let i = 0; i < contracts; i++) {
+      add(`simd_loop_reducers_${shard.element}`, `loop_case${i}`);
+      for (const width of [2, 8]) add(`simd_mixed_reducers_${shard.element}_${width}`, `mixed_case${i}`);
     }
   }
   return { ok: true, executionPath: route, cases: 10, probes: Object.keys(symbols).length, nativeCalls: 500, symbols };

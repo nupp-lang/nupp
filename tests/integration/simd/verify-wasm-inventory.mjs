@@ -23,6 +23,8 @@ export function verifyWasmInventory(execution, family, element, requested) {
       match = key.match(new RegExp(`^simd_masked_reducers_${element}_([0-9]+|preferred)\\.masked_[A-Za-z0-9_]+$`));
       if (match) { add('masked', match[1]); continue; }
       if (new RegExp(`^simd_loop_reducers_${element}\\.loop_[A-Za-z0-9_]+$`).test(key)) { add('loop', 'scalar'); continue; }
+      match = key.match(new RegExp(`^simd_mixed_reducers_${element}_([0-9]+)\\.mixed_[A-Za-z0-9_]+$`));
+      if (match) { add('mixed', match[1]); continue; }
       throw new Error(`Unexpected reducer probe: ${key}`);
     } else throw new Error(`Unknown corpus family: ${family}`);
   }
@@ -35,9 +37,7 @@ export function verifyWasmInventory(execution, family, element, requested) {
         ...(['float', 'int8', 'uint8'].includes(element) ? {} : { narrow: [lanes, 1] }),
         transpose: [lanes.filter((lane) => lane !== 'preferred'), 1],
         ...(!['float', 'number'].includes(element) ? { edges: [lanes, 1] } : { bits: [lanes, 1], memorybits: [lanes, 1], mapmath: [lanes, 1] }) }
-    : { horizontal: [lanes, 1],
-        ...(['number', 'int32', 'uint32', 'int64', 'uint64'].includes(element)
-          ? { masked: [lanes, element === 'number' ? 14 : 7], loop: [['scalar'], element === 'number' ? 21 : 9] } : {}) };
+    : { horizontal: [lanes, 1], ...authoredReducers(element, lanes) };
   for (const [group, [widths, count]] of Object.entries(expected)) {
     const actual = groups.get(group) ?? new Map();
     if (actual.size !== widths.length || widths.some((width) => actual.get(width) !== count)) {
@@ -47,6 +47,16 @@ export function verifyWasmInventory(execution, family, element, requested) {
   }
   if (groups.size) throw new Error('Unexpected executed probe group');
   return { family, element, lanes, probes: symbols.length };
+}
+
+// The authored reducers take the floating elements and the 32- and 64-bit
+// integers: one probe per contract through a scalar loop, a masked region at
+// every requested width, and the mixed scalar-region-scalar shape at widths 2
+// and 8. native-inventory.lua holds the same account.
+function authoredReducers(element, lanes) {
+  const contracts = { number: 21, float: 18, int32: 9, uint32: 9, int64: 9, uint64: 9 }[element];
+  return contracts === undefined ? {}
+    : { masked: [lanes, contracts], loop: [['scalar'], contracts], mixed: [['2', '8'], contracts] };
 }
 
 export function verifyCountedRuntime(execution, scalarC) {
