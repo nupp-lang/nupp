@@ -62,13 +62,13 @@ ORIGIN_STAMP="$ROOT/build/.nupp-complete"
 ORIGIN_BUILT="$ROOT/build/nupp/tools/main.lua"
 NEWER_SOURCE=""
 if [ -f "$ORIGIN_STAMP" ]; then
-    NEWER_SOURCE=$(find "$ROOT/src" -type f -newer "$ORIGIN_STAMP" -print -quit 2>/dev/null || true)
-    if [ -z "$NEWER_SOURCE" ] && [ "$ROOT/nupp.lua" -nt "$ORIGIN_STAMP" ]; then
-        NEWER_SOURCE="$ROOT/nupp.lua"
-    fi
+    NEWER_SOURCE=$(find "$ROOT/src" "$ROOT/templates" "$ROOT/nupp.lua" \
+        "$ROOT/tests/run.lua" "$ROOT/tests/cache.lua" \
+        -type f ! -name '.DS_Store' -newer "$ORIGIN_STAMP" -print -quit 2>/dev/null || true)
 fi
 ORIGIN_SOURCE_CHANGES=$(git -C "$ROOT" status --porcelain --untracked-files=normal -- \
-    src nupp.lua native Cargo.toml Cargo.lock rust-toolchain.toml .cargo/config.toml)
+    src templates nupp.lua tests/run.lua tests/cache.lua \
+    native Cargo.toml Cargo.lock rust-toolchain.toml .cargo/config.toml)
 if [ "$ORIGIN_HEAD" = "$TASK_HEAD" ] && [ -f "$ORIGIN_STAMP" ] \
     && [ -f "$ORIGIN_BUILT" ] && [ -z "$NEWER_SOURCE" ] \
     && [ -z "$ORIGIN_SOURCE_CHANGES" ]; then

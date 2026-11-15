@@ -37,14 +37,68 @@ local function posixDrive(path)
     end))
 end
 
+function M.launcherInvalidatesEveryDeclaredCompilerResource()
+    local parent = temporary()
+    local root = parent .. "/checkout"
+    assert(os.execute("mkdir -p " .. quote(root .. "/build/nupp/tools")) == 0)
+    assert(os.execute("mkdir -p " .. quote(root .. "/tests")) == 0)
+    local launcher = read(ROOT .. "/bin/nupp")
+    local current = assert(launcher:match("(built_is_current%(%) {.-\n})"), "launcher freshness check missing")
+    local probe = parent .. "/current.sh"
+    write(
+        probe,
+        '#!/bin/sh\nROOT=$1\nSTAMP="$ROOT/build/.nupp-complete"\nBUILT="$ROOT/build/nupp/tools/main.lua"\n'
+        .. current
+        .. "\nbuilt_is_current\n"
+    )
+    local config = assert(loadfile(ROOT .. "/nupp.lua"))()
+    local inputs = {"src/input.nupp", "templates/input.txt"}
+    for _, resource in ipairs(config.build.targets.compiler.resources) do
+        local source = type(resource) == "table" and resource.source or resource
+        if not source:match("^src/") and not source:match("^templates/") then
+            inputs[#inputs + 1] = source
+        end
+    end
+    inputs[#inputs + 1] = "nupp.lua"
+    for _, input in ipairs(inputs) do
+        local path = root .. "/" .. input
+        assert(os.execute("mkdir -p " .. quote(assert(path:match("^(.*)/")))) == 0)
+        write(path, "input\n")
+        assert(os.execute("touch -t 202001010000 " .. quote(path)) == 0)
+    end
+    write(root .. "/build/nupp/tools/main.lua", "return true\n")
+    write(root .. "/build/.nupp-complete", "complete\n")
+    assert(os.execute("touch -t 202001020000 " .. quote(root .. "/build/.nupp-complete")) == 0)
+    local command = "sh " .. quote(probe) .. " " .. quote(root)
+    assert(os.execute(command) == 0, "unchanged compiler inputs were stale")
+    for _, input in ipairs(inputs) do
+        local path = root .. "/" .. input
+        assert(os.execute("touch -t 202001030000 " .. quote(path)) == 0)
+        assert(os.execute(command) ~= 0, "compiler stayed current after editing " .. input)
+        assert(os.execute("touch -t 202001010000 " .. quote(path)) == 0)
+        assert(os.execute(command) == 0, "restoring " .. input .. " did not restore freshness")
+    end
+    write(root .. "/tests/unrelatedtest.lua", "return {}\n")
+    assert(os.execute(command) == 0, "an unbundled test edit invalidated the compiler")
+    assert(os.execute("rm -rf " .. quote(parent)) == 0)
+end
+
 function M.helperSeedsOnlyReusableWorktreeState()
     local parent = temporary()
     local origin, task, dirtyTask = parent .. "/origin", parent .. "/task", parent .. "/dirty-task"
     assert(
         os.execute(
             (
-                "mkdir -p %s/scripts %s/src %s/build/cache " .. "%s/build/nupp/tools %s/build/lib %s/.rocks"
-            ):format(quote(origin), quote(origin), quote(origin), quote(origin), quote(origin), quote(origin))
+                "mkdir -p %s/scripts %s/src %s/build/cache " .. "%s/build/nupp/tools %s/build/lib %s/.rocks %s/tests"
+            ):format(
+                quote(origin),
+                quote(origin),
+                quote(origin),
+                quote(origin),
+                quote(origin),
+                quote(origin),
+                quote(origin)
+            )
         ) == 0
     )
     assert(os.execute(("cp %s/scripts/worktree %s/scripts/worktree"):format(quote(ROOT), quote(origin))) == 0)
@@ -69,11 +123,12 @@ function M.helperSeedsOnlyReusableWorktreeState()
     write(origin .. "/.rocks/sentinel", "rocks\n")
     -- Checkout bytes are fixture data, independent of the host's Git EOL policy.
     write(origin .. "/.gitattributes", "* text eol=lf\n")
+    write(origin .. "/tests/run.lua", "return true\n")
     assert(
         os.execute(
             (
                 "git -C %s init -q && git -C %s config user.name Test "
-                .. "&& git -C %s config user.email test@example.com && git -C %s add .gitattributes scripts src build/log.lua "
+                .. "&& git -C %s config user.email test@example.com && git -C %s add .gitattributes scripts src tests build/log.lua "
                 .. "&& git -C %s commit -q -m initial"
             ):format(quote(origin), quote(origin), quote(origin), quote(origin), quote(origin))
         ) == 0
@@ -116,8 +171,19 @@ function M.helperSeedsOnlyReusableWorktreeState()
     assert(not io.open(dirtyTask .. "/build/serde/member.lua", "rb"), "a dirty origin seeded moved compiler modules")
     assert(not io.open(dirtyTask .. "/build/warn.lua", "rb"), "a dirty origin seeded a top-level source module")
 
+    -- Building after a resource edit makes its timestamp current, but that output
+    -- still belongs to the dirty checkout rather than the committed revision.
+    assert(os.execute("git -C " .. quote(origin) .. " checkout -- src/main.nupp") == 0)
+    write(origin .. "/tests/run.lua", "return false\n")
+    write(origin .. "/build/.nupp-complete", "complete after dirty resource build\n")
+    local resourceTask = parent .. "/resource-task"
+    command = ("%s/scripts/worktree resource-worktree %s HEAD >/dev/null"):format(quote(origin), quote(resourceTask))
+    assert(os.execute(command) == 0, "dirty-resource worktree helper failed")
+    assert(not io.open(resourceTask .. "/build/nupp/tools/main.lua", "rb"), "a dirty resource seeded the compiler")
+
     os.execute(("git -C %s worktree remove --force %s >/dev/null 2>&1"):format(quote(origin), quote(task)))
     os.execute(("git -C %s worktree remove --force %s >/dev/null 2>&1"):format(quote(origin), quote(dirtyTask)))
+    os.execute(("git -C %s worktree remove --force %s >/dev/null 2>&1"):format(quote(origin), quote(resourceTask)))
     os.execute("rm -rf " .. quote(parent))
 end
 

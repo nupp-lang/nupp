@@ -311,13 +311,16 @@ select_luajit "$ROOT" "$TOOLCHAIN_LUAJIT" || exit 1
 # this to source extensions once meant an edit to one of those was never seen:
 # the copy stayed old until something else forced a rebuild. `.DS_Store` is
 # the one file worth ignoring outright, since Finder touches it on its own.
+# The manifest and its compiler resources outside those trees matter too. The
+# launcher freshness test checks this list against the declared resources.
 #
 # It says whether the last build finished and saw every edit, which is not the
 # same question as whether there is a compiler here. Only the rebuild decision
 # asks this one; which compiler to run is decided further down on the compiler.
 built_is_current() {
     [ -f "$STAMP" ] && [ -f "$BUILT" ] || return 1
-    [ -z "$(find "$ROOT/src" "$ROOT/templates" -type f ! -name '.DS_Store' \
+    [ -z "$(find "$ROOT/src" "$ROOT/templates" "$ROOT/nupp.lua" \
+        "$ROOT/tests/run.lua" "$ROOT/tests/cache.lua" -type f ! -name '.DS_Store' \
         -newer "$STAMP" 2>/dev/null | head -n 1)" ]
 }
 
