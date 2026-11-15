@@ -219,7 +219,9 @@ jobs:
     needs: classify
     if: needs.classify.outputs.fast-checks == 'true'
     runs-on: ubuntu-24.04
-    timeout-minutes: 90
+    # The interpreter-only compiler (NUPP_VM_AUTO_LINK=0) spends about 70
+    # minutes before the suites start, and the suites need about an hour more.
+    timeout-minutes: 180
     steps:
       - name: Check out the repository
         uses: actions/checkout@v5
