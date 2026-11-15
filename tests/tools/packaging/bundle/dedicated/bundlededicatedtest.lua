@@ -68,7 +68,12 @@ local provider = require("nupp.runtime.workersprovider").provider as any
 local native = require("nupp.workers.native") as any
 local time = require("coroutine")
 local ffi = require("ffi")
-ffi.cdef("int usleep(unsigned int usec);")
+-- Windows has no usleep; its kernel32 Sleep takes milliseconds.
+if ffi.os == "Windows" then
+    ffi.cdef("void Sleep(unsigned long milliseconds);")
+else
+    ffi.cdef("int usleep(unsigned int usec);")
+end
 
 -- The public API preserves both endpoint owners and the child's scope loan.
 for _ = 1, 3 do
@@ -85,7 +90,11 @@ for _ = 1, 3 do
     events:close()
     assert(child:await() == 100)
     -- Let the thread end without polling: scope cleanup must still drive its join.
-    ffi.C.usleep(2000)
+    if ffi.os == "Windows" then
+        ffi.C.Sleep(2)
+    else
+        ffi.C.usleep(2000)
+    end
 end
 
 do
