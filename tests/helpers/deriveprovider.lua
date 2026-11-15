@@ -45,7 +45,14 @@ local REFUSED = {
     immutable = HERE .. "/fixtures/deriveimmutable.nupp",
 }
 
-local STRICT_BATCH = {STRICT.inspect, STRICT.exported, STRICT.witness, STRICT.annotationWitness, STRICT.custom, STRICT.reflected,}
+local STRICT_BATCH = {
+    STRICT.inspect,
+    STRICT.exported,
+    STRICT.witness,
+    STRICT.annotationWitness,
+    STRICT.custom,
+    STRICT.reflected,
+}
 local REFUSED_BATCH = {REFUSED.unsupported, REFUSED.provider, REFUSED.immutable}
 
 local strictly = checkedTogether({}, STRICT_BATCH)

@@ -156,18 +156,25 @@ end
 -- compiles the carried source, and a module compiled after that has to see the
 -- `MessageBus` the program was checked against, not a second one.
 function M.cliRunKeepsACarriedModulesTypesAfterCompilingIt()
-    withProject({
-        ["main.nupp"] = 'local events = require("events")\nlocal name = "late" .. "bus"\n'
+    withProject(
+        {
+            [
+                "main.nupp"
+            ] = 'local events = require("events")\nlocal name = "late" .. "bus"\n'
             .. "print(type(events), (require(name) as any).make())\n",
-        ["latebus.nupp"] = "module latebus\n\nexport function make(): string\n"
+            [
+                "latebus.nupp"
+            ] = "module latebus\n\nexport function make(): string\n"
             .. "    local bus: events.MessageBus<integer> = events.MessageBus<integer>()\n"
             .. '    return bus:count() == 0 and "empty" or "full"\nend\n',
-    }, function(dir)
-        local process = require("nupp.compiler.process")
-        local code, output = process.capture({ROOT .. "/bin/nupp", "run", "main.nupp"}, {cwd = dir})
-        testAssert.eq(code, 0, output)
-        testAssert.eq(output, "table\tempty\n", "the late module checks against the loaded MessageBus")
-    end)
+        },
+        function(dir)
+            local process = require("nupp.compiler.process")
+            local code, output = process.capture({ROOT .. "/bin/nupp", "run", "main.nupp"}, {cwd = dir})
+            testAssert.eq(code, 0, output)
+            testAssert.eq(output, "table\tempty\n", "the late module checks against the loaded MessageBus")
+        end
+    )
 end
 
 function M.cliRunLoadsACarriedRootWithoutACompiledLibrary()

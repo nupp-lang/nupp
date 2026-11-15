@@ -231,7 +231,8 @@ taking the instance first: `initializer(storage, ...)` fills storage the caller
 already holds and returns it. Calling the declaration allocates an instance and
 calls the same body. The
 generated runtime protocol records this hidden member in the declaration's derive
-metadata, and `types.reflect.initializer(T)` returns it. A field-list initializer applies a field default where its argument is
+metadata, and `types.reflect.initializer(T)` returns it. A field-list initializer
+applies a field default where its argument is
 nil, which is the one place that can, since a positional call never passes
 through the checker's default filling.
 
