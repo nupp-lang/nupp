@@ -14,11 +14,11 @@ local struct Particle
     vz: float
 end
 
--- Sized for the packaged CLI, which interprets (`bin/nupp` sets NO_JIT): the
--- LuaJIT-era 200000 x 60 kept the first arm short of its samples for the 45
--- minutes a hosted runner gives the job.
-local N: integer = 10000
-local STEPS: integer = 10
+-- Sized for the packaged CLI, which interprets (`bin/nupp` sets NO_JIT). There
+-- the carray arm takes about 64 us per particle step, so a larger case leaves it
+-- short of its samples inside the 120 seconds `nupp bench` gives a benchmark.
+local N: integer = 1000
+local STEPS: integer = 4
 local DT = 1 / 60
 
 local function structs(_: any, _: Invocation): number
