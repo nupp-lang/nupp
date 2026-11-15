@@ -973,3 +973,62 @@ mod scalar_wrapper_tests {
         );
     }
 }
+
+// A compiled frame with a stack map calls a Rust helper that walks the roots,
+// as AOT code reaches `j_new_table_sized` and a collection. On Win64 the Rust
+// frames do not chain through `rbp`, so this is the case that read stack
+// garbage there before the walk unwound through their tables.
+#[cfg(all(test, target_arch = "x86_64", any(windows, target_os = "linux")))]
+mod root_walk_tests {
+    use super::*;
+    use std::sync::Mutex;
+
+    const MARKER: u64 = 0x5eed_5eed_5eed_5eed;
+    static SEEN: Mutex<Vec<u64>> = Mutex::new(Vec::new());
+
+    extern "C" fn fake_helper() {
+        let _hp = enter_helper!();
+        let fp = HELPER_FP.load(std::sync::atomic::Ordering::Relaxed);
+        let mut seen = Vec::new();
+        walk_compiled_roots(fp, &mut |v| seen.push(v));
+        *SEEN.lock().unwrap() = seen;
+    }
+
+    // Frame span 48 with the root at sp+32, above the Win64 home space.
+    std::arch::global_asm!(
+        ".pushsection .text",
+        ".globl nupp_test_fake_compiled",
+        "nupp_test_fake_compiled:",
+        "push rbp",
+        "mov rbp, rsp",
+        "sub rsp, 48",
+        "mov rax, 0x5eed5eed5eed5eed",
+        "mov [rsp + 32], rax",
+        "call {helper}",
+        ".globl nupp_test_fake_compiled_return",
+        "nupp_test_fake_compiled_return:",
+        "add rsp, 48",
+        "pop rbp",
+        "ret",
+        ".globl nupp_test_fake_compiled_end",
+        "nupp_test_fake_compiled_end:",
+        ".popsection",
+        helper = sym fake_helper,
+    );
+    unsafe extern "C" {
+        fn nupp_test_fake_compiled();
+        static nupp_test_fake_compiled_return: u8;
+        static nupp_test_fake_compiled_end: u8;
+    }
+
+    #[test]
+    fn compiled_root_walk_finds_a_compiled_callers_slot_through_a_rust_helper() {
+        let start = nupp_test_fake_compiled as *const () as usize;
+        let ret = std::ptr::addr_of!(nupp_test_fake_compiled_return) as usize;
+        let end = std::ptr::addr_of!(nupp_test_fake_compiled_end) as usize;
+        CODE_MAPS.lock().unwrap().push((start, end, vec![((ret - start) as u32, 48, vec![32])]));
+        unsafe { nupp_test_fake_compiled() };
+        CODE_MAPS.lock().unwrap().retain(|(s, _, _)| *s != start);
+        assert_eq!(SEEN.lock().unwrap().iter().filter(|&&v| v == MARKER).count(), 1);
+    }
+}
