@@ -10,6 +10,21 @@ local files = require("io.internal.files")
 local digest = fingerprint.contentDigest()
 local M = {}
 
+-- `command -v` answers in the shell's spelling. Under Git Bash that is
+-- `/d/a/luajit` for `D:/a/luajit.exe`, which a Windows process cannot open,
+-- so the lookup missed and the cache never opened on Windows.
+local function nativePath(path)
+    if not path or package.config:sub(1, 1) ~= "\\" then
+        return path
+    end
+    path = path:gsub("^/([A-Za-z])/", "%1:/")
+    if not fs.readFile(path) and fs.readFile(path .. ".exe") then
+        return path .. ".exe"
+    end
+
+    return path
+end
+
 -- Selection and presentation do not change a package's answer. Unknown options
 -- stay in the key; case selections never reach the package cache at all.
 function M.flags(arguments)
@@ -104,7 +119,7 @@ function M.open(options)
     end
     if jit then
         local executable = io.popen("command -v luajit", "r")
-        local path = executable and executable:read("*l")
+        local path = nativePath(executable and executable:read("*l"))
         if executable then
             executable:close()
         end
@@ -155,7 +170,7 @@ function M.open(options)
         if not programs[name] then
             local quoted = "'" .. name:gsub("'", "'\"'\"'") .. "'"
             local pipe = io.popen("command -v " .. quoted .. " 2>/dev/null", "r")
-            local path = pipe and pipe:read("*l")
+            local path = nativePath(pipe and pipe:read("*l"))
             if pipe then
                 pipe:close()
             end
