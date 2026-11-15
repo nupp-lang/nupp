@@ -110,7 +110,9 @@ jobs:
             printf 'commit=%s\n' "$GITHUB_SHA"
             printf 'runner=%s/%s\n' "$RUNNER_OS" "$RUNNER_ARCH"
           } > "$results/metadata.txt"
-          ./bin/nupp bench --file bench/aos.bench.nupp | tee "$results/aos.txt"
+          # The default 120 s per child is a local answer; a hosted Windows
+          # runner takes over two minutes just to list the cases.
+          ./bin/nupp bench --timeout-ms 600000 --file bench/aos.bench.nupp | tee "$results/aos.txt"
 
       - name: Upload array-of-structs measurements
         if: always()
