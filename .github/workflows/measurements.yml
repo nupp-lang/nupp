@@ -48,14 +48,6 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - name: Linux x64
-            os: ubuntu-24.04
-            timeout: 45
-            artifact: linux-x64
-          - name: macOS arm64
-            os: macos-15
-            timeout: 60
-            artifact: macos-arm64
           - name: Windows x64
             os: windows-2022
             timeout: 60
@@ -101,16 +93,19 @@ jobs:
         if: failure() && runner.os == 'Windows'
         shell: bash
         run: |
-          set -x
-          ls -la build/vm-cli || true
-          gdb=$(command -v gdb || ls /c/mingw64/bin/gdb.exe /c/msys64/mingw64/bin/gdb.exe 2>/dev/null | head -1)
-          echo "gdb=$gdb"
+          set +e -x
+          ls -la build/vm-cli
+          gdb=$(command -v gdb)
           export NO_JIT=1 NUPP_COMPILER_ROOT="$(cygpath -w "$PWD")"
           export NUPP_VM_BINARY="$(cygpath -w "$PWD/build/vm-cli/runtime")"
           export NUPP_VM_CLI_IMAGE="$(cygpath -w "$PWD/build/vm-cli/compiler.image")"
-          RUST_BACKTRACE=1 build/vm-cli/runtime exec build/vm-cli/compiler.image nupp.tools.vm.root --help; echo "status=$?"
-          "$gdb" -batch -ex run -ex bt -ex 'info registers' -ex 'x/16i $pc-32' \
-            --args build/vm-cli/runtime exec build/vm-cli/compiler.image nupp.tools.vm.root --help || true
+          build/vm-cli/runtime verify build/vm-cli/compiler.image; echo "verify=$?"
+          build/vm-cli/runtime --help | head -20; echo "help=$?"
+          build/vm-cli/aot-tool exec build/vm-cli/compiler.image nupp.tools.vm.root --help | head -5; echo "aot-tool=$?"
+          NO_AOT=1 build/vm-cli/runtime exec build/vm-cli/compiler.image nupp.tools.vm.root --help | head -5; echo "no-aot=$?"
+          "$gdb" -batch -ex 'set pagination off' -ex run -ex 'bt 40' -ex 'info registers' -ex 'x/24i $pc-48' \
+            --args build/vm-cli/runtime exec build/vm-cli/compiler.image nupp.tools.vm.root --help
+          exit 1
 
       # One immutable, platform-qualified artifact per commit keeps the
       # reification speedup bisectable without pretending hosted runner timing
