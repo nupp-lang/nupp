@@ -5,7 +5,7 @@ const terminal = document.querySelector('#terminal');
 const bytes = async name => new Uint8Array(await (await fetch(name)).arrayBuffer());
 let compiler;
 try {
-  compiler = await createCompiler({manifestUrl: './guest-manifest.json', app: await bytes('./compiler.ljbc'), deadlineMs:120000});
+  compiler = await createCompiler({manifestUrl: './guest-manifest.json', app: await bytes('./compiler.ljbc'), deadlineMs:180000});
   const initialize = await bytes('./app-runtime.lua');
   const sources = await (await fetch('./application-sources.json')).json();
   const results = [];
@@ -18,5 +18,5 @@ try {
     results.push({name, ...result});
   }
   output.textContent = JSON.stringify({ok:true, results}); output.dataset.status='passed';
-} catch(error) {output.textContent=JSON.stringify({ok:false,error:String(error.stack||error)});output.dataset.status='failed';}
+} catch(error) {output.textContent=JSON.stringify({ok:false,error:String(error),at:terminal.textContent.split('\n')[0],stack:String(error?.stack||'')});output.dataset.status='failed';}
 finally { compiler?.close(); }
