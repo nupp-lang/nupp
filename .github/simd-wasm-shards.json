@@ -31,8 +31,13 @@
   },
   {
     "element": "float",
-    "batch": "58-64-preferred",
-    "lanes": "58,59,60,61,62,63,64,preferred"
+    "batch": "58-61",
+    "lanes": "58,59,60,61"
+  },
+  {
+    "element": "float",
+    "batch": "62-64-preferred",
+    "lanes": "62,63,64,preferred"
   },
   {
     "element": "number",
