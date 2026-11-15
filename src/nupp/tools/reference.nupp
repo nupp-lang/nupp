@@ -1643,7 +1643,7 @@ return m
 
     reference.Section(
         title = "C interop",
-        codes = {"NUPP2203", "NUPP2101", "NUPP2502", "NUPP2514", "NUPP2602", "NUPP2619", "NUPP2707"},
+        codes = {"NUPP2203", "NUPP2101", "NUPP2502", "NUPP2514", "NUPP2602", "NUPP2619", "NUPP2707", "NUPP2912"},
         body = [=[
 `cdef` declares C functions, structs, unions, and integer bitfields.
 `from "lib"` uses `ffi.load`; omitting it uses the default namespace.

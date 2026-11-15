@@ -1471,6 +1471,18 @@ record cst.CdefFunc is cst.Hints
     --- The library named by a `from` clause.
     fromLib: lexer.Token?
 
+    --- The checked library path, or the linked process namespace.
+    resolvedLibrary: string?
+
+    --- The project library selected by the declaration.
+    nativeLibraryName: string?
+
+    --- A missing project library, reported when executable code is generated.
+    nativeLibraryProblem: string?
+
+    --- Whether code generation retained this project library declaration.
+    nativeLibraryEmitted: boolean?
+
     --- Checked logical counted-pointer wrapper and its original physical C signature.
     countedAbi: any
 
