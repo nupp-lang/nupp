@@ -60,8 +60,18 @@ permissions:
 #
 # The event name is in the key so a push cannot cancel the nightly backstop
 # declared above: a scheduled run's `github.ref` is `refs/heads/main` too.
+#
+# With the NUPP_LINUX_ONLY variable 'true', a pull request from a branch of
+# this repository shares that branch's push key, so the two events a push
+# fires over one commit leave one run. Unset, the key is as it was.
 concurrency:
-  group: ${{ github.workflow }}-${{ github.event_name }}-${{ github.ref }}
+  group: >-
+    ${{ github.workflow }}-${{
+    vars.NUPP_LINUX_ONLY == 'true'
+    && github.event_name == 'pull_request'
+    && github.event.pull_request.head.repo.full_name == github.repository
+    && format('push-refs/heads/{0}', github.head_ref)
+    || format('{0}-{1}', github.event_name, github.ref) }}
   cancel-in-progress: true
 
 # The VM compiler bootstraps the tree, built from the pinned stage-zero image
@@ -176,6 +186,12 @@ jobs:
 
       - name: Classify the affected surfaces
         id: classify
+        # With the NUPP_LINUX_ONLY variable 'true', every run but the nightly
+        # one leaves out macOS and Windows. Unset, every platform runs.
+        env:
+          NUPP_CI_LINUX_ONLY: >-
+            ${{ vars.NUPP_LINUX_ONLY == 'true'
+            && github.event_name != 'schedule' }}
         run: luajit .github/scripts/classify-changes.lua < changed-paths.txt
 
       # The classifier and the workflow have to agree about which jobs exist.
