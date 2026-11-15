@@ -39,3 +39,6 @@ export RUSTC RUSTDOC
 "$CARGO" test --locked --package nupp-native-process
 "$CARGO" test --locked --package nupp-native-net
 "$CARGO" test --locked --package nupp-native-tls
+# The collector's walk from a Rust helper back to compiled frames, which
+# follows a different stack discipline on Win64.
+"$CARGO" test --locked --package nupp-vm --no-default-features --features aot-linked --lib root_walk_tests
