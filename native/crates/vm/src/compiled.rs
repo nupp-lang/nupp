@@ -36,30 +36,100 @@ impl LocalContext {
     pub fn store(&self, value: *mut Interp, order: Ordering) { LOCAL_CTX.with(|v| v.store(value, order)); }
 }
 
+/// Hands `f` every value the stack map at return address `ret` names in the
+/// compiled frame whose frame pointer is `caller_fp`.
+fn visit_compiled_frame(maps: &[(usize, usize, Vec<(u32, u32, Vec<u32>)>)], ret: usize, caller_fp: usize, f: &mut dyn FnMut(u64)) {
+    for (start, end, entries) in maps.iter() {
+        if ret >= *start && ret < *end {
+            let off = (ret - start) as u32;
+            if let Some((_, span, offsets)) = entries.iter().find(|(o, _, _)| *o == off) {
+                // Its SP at the call is its frame pointer minus the frame span.
+                let sp = caller_fp - *span as usize;
+                for &o in offsets { f(unsafe { *((sp + o as usize) as *const u64) }); }
+            }
+        }
+    }
+}
+
 /// Walks the frame-pointer chain from `fp`, handing every value a compiled
 /// frame's stack map describes to `f`. Frames without a map are skipped.
+#[cfg(not(all(windows, target_arch = "x86_64")))]
 pub fn walk_compiled_roots(mut fp: usize, f: &mut dyn FnMut(u64)) {
     let maps = CODE_MAPS.lock().unwrap();
     let mut guard = 0;
     while fp != 0 && guard < 100_000 {
         guard += 1;
         let ret = unsafe { *((fp + 8) as *const usize) };
-        for (start, end, entries) in maps.iter() {
-            if ret >= *start && ret < *end {
-                let off = (ret - start) as u32;
-                if let Some((_, span, offsets)) = entries.iter().find(|(o, _, _)| *o == off) {
-                    // The return address lies in the compiled caller; its frame
-                    // pointer is the next link, and its SP at the call is that
-                    // minus the frame span.
-                    let caller_fp = unsafe { *(fp as *const usize) };
-                    let sp = caller_fp - *span as usize;
-                    for &o in offsets { f(unsafe { *((sp + o as usize) as *const u64) }); }
-                }
-            }
-        }
+        // The return address lies in the compiled caller; its frame pointer
+        // is the next link.
+        visit_compiled_frame(&maps, ret, unsafe { *(fp as *const usize) }, f);
         let next = unsafe { *(fp as *const usize) };
         if next <= fp { break; }
         fp = next;
+    }
+}
+
+/// Win64 Rust frames do not chain through `rbp`: LLVM points it into the
+/// frame (`lea rbp, [rsp+N]`, `.seh_setframe`), so `[rbp]` is not the saved
+/// caller's `rbp` and the chain walk reads stack garbage. Here the stack is
+/// unwound instead: Rust frames through their unwind tables, compiled frames
+/// through the frame pointer they keep (`preserve_frame_pointers`). Only
+/// frames older than the helper that recorded `fp` are visited, as the chain
+/// walk does.
+#[cfg(all(windows, target_arch = "x86_64"))]
+pub fn walk_compiled_roots(fp: usize, f: &mut dyn FnMut(u64)) {
+    use std::ffi::c_void;
+    #[repr(C, align(16))]
+    struct Context([u8; 0x4D0]);
+    const RSP: usize = 0x98;
+    const RBP: usize = 0xA0;
+    const RIP: usize = 0xF8;
+    unsafe extern "system" {
+        fn RtlCaptureContext(context: *mut Context);
+        fn RtlLookupFunctionEntry(pc: u64, image_base: *mut u64, history: *mut c_void) -> *mut c_void;
+        fn RtlVirtualUnwind(
+            handler_type: u32, image_base: u64, pc: u64, entry: *mut c_void, context: *mut Context,
+            handler_data: *mut *mut c_void, establisher_frame: *mut u64, pointers: *mut c_void,
+        ) -> *mut c_void;
+    }
+    let get = |c: &Context, at: usize| u64::from_ne_bytes(c.0[at..at + 8].try_into().unwrap()) as usize;
+    let set = |c: &mut Context, at: usize, v: usize| c.0[at..at + 8].copy_from_slice(&(v as u64).to_ne_bytes());
+
+    let maps = CODE_MAPS.lock().unwrap();
+    let compiled = |pc: usize| maps.iter().any(|(start, end, _)| pc >= *start && pc < *end);
+    let mut context = Context([0; 0x4D0]);
+    unsafe { RtlCaptureContext(&mut context) };
+    let mut guard = 0;
+    while guard < 100_000 {
+        guard += 1;
+        let (pc, sp, bp) = (get(&context, RIP), get(&context, RSP), get(&context, RBP));
+        if pc == 0 { break; }
+        if sp > fp && compiled(pc) {
+            visit_compiled_frame(&maps, pc, bp, f);
+        }
+        let mut image_base = 0u64;
+        let entry = if compiled(pc) {
+            std::ptr::null_mut()
+        } else {
+            unsafe { RtlLookupFunctionEntry(pc as u64, &mut image_base, std::ptr::null_mut()) }
+        };
+        if entry.is_null() {
+            // Compiled code, or generated code without unwind tables: a frame
+            // in the middle of the stack made a call, so it set up `rbp`.
+            if bp <= sp { break; }
+            let (caller_pc, caller_bp) = unsafe { (*((bp + 8) as *const usize), *(bp as *const usize)) };
+            set(&mut context, RIP, caller_pc);
+            set(&mut context, RSP, bp + 16);
+            set(&mut context, RBP, caller_bp);
+        } else {
+            let mut handler_data = std::ptr::null_mut();
+            let mut establisher = 0u64;
+            unsafe {
+                RtlVirtualUnwind(0, image_base, pc as u64, entry, &mut context, &mut handler_data, &mut establisher,
+                    std::ptr::null_mut());
+            }
+        }
+        if get(&context, RSP) <= sp { break; }
     }
 }
 
