@@ -3610,13 +3610,37 @@ restoreLane = function()
         end
     end
 
+    -- A module the lane keeps may have published a global as it loaded:
+    -- debug.log replaces the managed `warn` stub with its own. Resetting that
+    -- global while keeping the module splits one function into two, so a later
+    -- piece's `warn == require("warn")` is false. Keep such a global.
+    local published = {}
     if embedded or sharedQueuePieces then
+        for name, module in pairs(package.loaded) do
+            if laneBaseline.loaded[name] == nil then
+                published[module] = true
+                if type(module) == "table" then
+                    for _, item in pairs(module) do
+                        published[item] = true
+                    end
+                end
+            end
+        end
         repair(package.loaded, laneBaseline.loaded)
     else
         restore(package.loaded, laneBaseline.loaded)
     end
     restore(package.preload, laneBaseline.preload)
+    local kept = {}
+    for key, item in pairs(_G) do
+        if laneBaseline.globals[key] ~= nil and laneBaseline.globals[key] ~= item and published[item] then
+            kept[key] = item
+        end
+    end
     restore(_G, laneBaseline.globals)
+    for key, item in pairs(kept) do
+        _G[key] = item
+    end
     package.path, package.cpath = laneBaseline.path, laneBaseline.cpath
 end
 
