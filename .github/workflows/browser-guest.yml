@@ -68,7 +68,10 @@ concurrency:
 jobs:
   guest:
     runs-on: ubuntu-24.04
-    timeout-minutes: 45
+    # A cold guest cache rebuilds the guest, and the release-archive check
+    # then takes about 20 of the minutes on a slow runner: one such run on
+    # 5d3fa9a19 was cut off at 45 while the same commit passed in 33.
+    timeout-minutes: 60
     steps:
       - uses: actions/checkout@v5
       - uses: actions/setup-python@v5
@@ -180,7 +183,7 @@ jobs:
       # Wasm kernels and the guest's i686 AOT are compiled and linked by nupp
       # itself.
       - name: Verify consumers of the extracted release archive
-        timeout-minutes: 20
+        timeout-minutes: 30
         env:
           NUPP_BENCH_ISOLATED: '0'
           NUPP_BENCH_CSP: "default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; worker-src 'self' blob:; connect-src 'self' http://127.0.0.1:8791"
