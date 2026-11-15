@@ -4,7 +4,7 @@ module nupp.text.regex
 Regular expressions, for matching that Lua patterns cannot express:
 alternation, counted repetition, groups, named captures and Unicode classes.
 
-```nupp
+```nupp:refused
 const regex = nupp.text.regex
 
 local date = assert(regex.compile("(?<year>[0-9]{4})-(?<month>[0-9]{2})"))
@@ -28,7 +28,7 @@ default a pattern matches characters: `.` and the Unicode classes consume
 whole UTF-8 sequences and never split one. `{bytes = true}` matches bytes
 instead, for binary data or text that is not UTF-8:
 
-```nupp
+```nupp:refused
 const regex = nupp.text.regex
 
 local word = assert(regex.compile("\\w+"))
@@ -47,7 +47,7 @@ always advances. Each of these takes an optional `init`, read as
 `string.find` reads it, and a search from `init` still sees the text before it
 when it tests `^` or `\b`.
 
-```nupp
+```nupp:refused
 const regex = nupp.text.regex
 
 local number = assert(regex.compile("[0-9]+"))
@@ -67,7 +67,7 @@ function replacement receives the [](Match) and returns the text to put in its
 place. Both return the new string and how many matches were replaced. `split`
 returns the text between matches.
 
-```nupp
+```nupp:refused
 const regex = nupp.text.regex
 
 local spaces = assert(regex.compile("\\s+"))
