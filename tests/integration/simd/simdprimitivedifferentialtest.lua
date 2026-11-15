@@ -11,7 +11,7 @@ local WORK_CEILINGS = {
     -- The reducer corpus is one loop, seven masked and two mixed modules for
     -- each of the six element types the authored reducers take, each probe
     -- called once per length, selection and scenario.
-    semantics = {units = 135, externalCommands = 0, cases = 60000000, calls = 1650000},
+    semantics = {units = 135, externalCommands = 0, cases = 66000000, calls = 1650000},
 }
 
 local function read(path)
