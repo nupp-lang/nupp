@@ -21,6 +21,8 @@ local generators = require("nupp.tools.build.generators")
 local modules = require("nupp.tools.build.modules")
 local buildPlatform = require("nupp.tools.build.platform")
 local storeMod = require("nupp.compiler.project.store")
+local libraryConfig = require("nupp.compiler.project.libraries")
+local buildLibraries = require("nupp.tools.build.libraries")
 local materializeObserve = require("nupp.compiler.comptime.materialize.observe")
 local progressMod = require("nupp.tools.build.progress")
 
@@ -433,6 +435,15 @@ local function buildOne(root: string?, opts: project.BuildOptions?): integer
         return 1
     end
     newState.dependencies = dependencies
+    config._nativeLibraryBindings = libraryConfig.resolve(root, config, {
+        target = target.layoutTarget,
+        outDir = outDir,
+        dependencies = dependencies,
+        packaged = not opts.checkOnly,
+        standalone = target.standalone,
+    }).bindings
+    newState.configHash = contentDigest(stable(config))
+    newState.nativeLibraries = oldState.nativeLibraries or cache.jsonArray({})
     report:at("generate")
     report:step("running generators")
     local generated, generatorErr = generators.run(root, outDir, config, dependencies, oldState.generators)
@@ -562,7 +573,7 @@ local function buildOne(root: string?, opts: project.BuildOptions?): integer
         report:at("bundle")
         report:step("bundling " .. (target.name or target.kind))
         local package = loadBuildTool("nupp.tools.build.package")
-        local text, bundleErr, unreachable, facilities = package.programPayload(
+        local text, bundleErr, unreachable, facilities, usedLibraries = package.programPayload(
             root,
             config,
             target,
@@ -572,6 +583,36 @@ local function buildOne(root: string?, opts: project.BuildOptions?): integer
         if not text then
             say(opts, "NUPP0004", "nupp: " .. tostring(bundleErr) .. "\n")
             return 1
+        end
+        newState.nativeLibraries = cache.jsonArray(usedLibraries or {})
+        local reservedLibraries: {[string]: boolean} = {}
+        for path in pairs(newState.outputs) do
+            reservedLibraries[path] = true
+        end
+        for _, dependency in pairs(dependencies) do
+            local dependencyOutputs = dependency as any
+            for _, field in ipairs({"output", "runtimeOutput", "staticOutput"}) do
+                if dependencyOutputs[field] ~= nil then
+                    reservedLibraries[dependencyOutputs[field]] = true
+                end
+            end
+        end
+        local stagedLibraries, librarySidecars, libraryProblem = buildLibraries.stage(
+            root,
+            outDir,
+            config._nativeLibraryBindings,
+            newState.nativeLibraries,
+            reservedLibraries,
+            contentDigest,
+            target.standalone,
+            target.layoutTarget
+        )
+        if stagedLibraries == nil then
+            say(opts, "NUPP0004", "nupp: " .. tostring(libraryProblem) .. "\n")
+            return 1
+        end
+        for path in pairs(stagedLibraries) do
+            newState.outputs[path] = true
         end
         if unreachable and #unreachable > 0 then
             say(
@@ -650,6 +691,19 @@ local function buildOne(root: string?, opts: project.BuildOptions?): integer
         end
         primaryArtifact = output
         newState.outputs[output] = true
+        local carriedLibraries, libraryProblem = buildLibraries.beside(
+            output,
+            librarySidecars or {},
+            newState.outputs,
+            contentDigest
+        )
+        if carriedLibraries == nil then
+            say(opts, "NUPP0004", "nupp: " .. tostring(libraryProblem) .. "\n")
+            return 1
+        end
+        for path in pairs(carriedLibraries) do
+            newState.outputs[path] = true
+        end
         -- A dependency's library has to go with the artifact: its binding names
         -- it relative to whatever loads that binding, and here that is the
         -- artifact. One named for the platform loader instead carries no `@` and
@@ -699,8 +753,15 @@ local function buildOne(root: string?, opts: project.BuildOptions?): integer
         mine[#mine + 1] = output
     end
     table.sort(mine)
+    -- Retiring a case alias must not remove a file still owned by this target.
+    local caseOwnedOutputs: {[string]: boolean} = {}
+    if package.config:sub(1, 1) == "\\" then
+        for output in pairs(newState.outputs) do
+            caseOwnedOutputs[fs.absolute(output):lower()] = true
+        end
+    end
     for _, output in ipairs(oldState.targets[targetKey] or {}) do
-        if not newState.outputs[output] then
+        if not newState.outputs[output] and not caseOwnedOutputs[fs.absolute(output):lower()] then
             os.remove(output)
         end
     end

@@ -440,7 +440,7 @@ function project.program(
     modules: {[string]: any}?,
     cacheDir: string?,
     seeded: {string}?
-): (string, {string})
+): (string, {string}, {string})
     local reached: {[string]: boolean} = {}
     for _, facility in ipairs(seeded or {}) do
         reached[facility] = true
@@ -481,14 +481,17 @@ function project.program(
     lower.pathMapper = function(path: string): string?
         return programPath(root, compilerRoot, path)
     end
+    local nativeLibraries: {[string]: boolean} = {}
     lower.graphSink = function(_: string, functions: {any}, _: table): nil
         for _, f in ipairs(functions) do
+            for name in pairs(f.nativeLibraries or {}) do
+                nativeLibraries[name] = true
+            end
             -- A kernel's graph names its operations; anything else its blocks do.
             for _, b in ipairs(f.graph and f.graph.blocks or f.blocks) do
                 for _, ins in ipairs(f.graph and b.op or b.code) do
                     if native[f.graph and ins or ins[1]] then
                         reached["vector"] = true
-                        return
                     end
                 end
             end
@@ -514,7 +517,13 @@ function project.program(
     end
     table.sort(facilities)
 
-    return image, facilities
+    local libraries: {string} = {}
+    for name in pairs(nativeLibraries) do
+        libraries[#libraries + 1] = name
+    end
+    table.sort(libraries)
+
+    return image, facilities, libraries
 end
 
 --- Inspect the VM instructions emitted for one checked source file: its

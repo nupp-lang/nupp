@@ -60,6 +60,9 @@ end
 -- The descriptor of the foreign call `node`, whose callee has the checked
 -- foreign signature `signature`.
 export function descriptor(node: any, signature: any): string
+    if node.nativeLibraryProblem then
+        error("NUPP2912: " .. node.nativeLibraryProblem, 0)
+    end
     local kind, library, symbol = (
         need(node.cdefIdentity, "a foreign call names its cdef") as string
     ):match("^(.-)\0(.-)\0(.*)$")

@@ -1018,6 +1018,36 @@ function M.sessionReportsUnmappedNativeIdentityOnce()
     testAssert.eq(first.unverifiedLibraries[1], "bare")
 end
 
+function M.sessionPinsLogicalLibrariesWithoutASeparateReloadMapping()
+    local library = require("nupp.compiler.project.libraries").filename("mini")
+    local dir = temporaryProject({
+        ["native/" .. library] = "generation one",
+        ["nupp.lua"] = 'return {libraries = {mini = {search = {"native"}}}}\n',
+        [
+            "main.nupp"
+        ] = "cdef function hot_mini_value(): int32 from 'mini'\n"
+        .. "local function value(): number return hot_mini_value() end\nreturn value\n",
+    })
+    local sourcePath = dir .. "/main.nupp"
+    local artifactPath = require("nupp.compiler.fs").absolute(dir .. "/native/" .. library)
+    local session = hotSession.new(dir, {cache = false})
+    local built = session:initial({sourcePath})
+    testAssert.eq(built.kind, "initial")
+    session:loaded(built.entryManifest.module, 1, built.entryManifest)
+    local pinned
+    for _, input in ipairs(session:watchedInputs()) do
+        if input.kind == "native-artifact" then
+            pinned = input.path
+        end
+    end
+    assert(pinned and built.entryCode:find(pinned, 1, true), "the logical binding loads the observed artifact")
+    write(artifactPath, "generation two")
+    session:diskChanged(artifactPath, 2)
+    local result = session:prepare({artifactPath})
+    testAssert.eq(result.kind, "restart-required")
+    testAssert.eq(result.reason.kind, "native-artifact")
+end
+
 function M.headerWatchPathsCollapseDuplicateSpellingsButKeepConsumers()
     local dir = temporaryProject({
         ["api.h"] = "int hot_duplicate(void);\n",
@@ -1153,7 +1183,8 @@ end
 -- when one is installed or named by `NUPP_VM_CLI_IMAGE`; otherwise it refuses
 -- `--watch`, and these cases have nothing to run.
 local HERE = debug.getinfo(1, "S").source:sub(2):match("^(.*)[/\\]") or "."
-local ROOT = HERE:sub(1, 1) == "/" and (HERE .. "/../../..") or ((os.getenv("PWD") or ".") .. "/" .. HERE .. "/../../..")
+local ROOT = HERE:sub(1, 1) == "/" and (HERE .. "/../../..")
+    or ((os.getenv("PWD") or ".") .. "/" .. HERE .. "/../../..")
 
 local function watchCommand()
     local installed = io.open(ROOT .. "/.nupp/vm-cli/current", "rb")

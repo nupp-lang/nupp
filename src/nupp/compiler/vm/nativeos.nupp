@@ -241,6 +241,9 @@ end
 -- ones take the kinds the caller gives them. A 32-bit C result reads as int64
 -- where the caller expects one or names no kind, since the call extends it.
 export function foreign(owner: any, site: any, expected: string?): any
+    if site.nativeLibraryProblem then
+        error("NUPP2912: " .. site.nativeLibraryProblem, 0)
+    end
     local identity = need(cdefOf(site), "foreign site requires a cdef function")
     local definition = site.obj.token.definition
     need(

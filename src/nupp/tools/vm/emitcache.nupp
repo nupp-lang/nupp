@@ -169,6 +169,7 @@ export function open(dir: string, env: any, config: table, carried: {[string]: s
                 fingerprint.runtimeidentity(),
                 fingerprint.declarationFingerprint(digest),
                 table.concat(configText),
+                tostring(env.nativeLibraryFingerprint or ""),
                 table.concat(env.roots or {}, "\1"),
                 tostring(env.layoutTarget or require("nupp.compiler.targetlayout").hostKey()),
             },

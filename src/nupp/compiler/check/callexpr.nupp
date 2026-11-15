@@ -982,6 +982,10 @@ function callexpr.install(c: state.Checker): state.ExprHandlers
         local calleeEntry = calleeName ~= "" and c.lookupEntry(calleeName) or nil
         if calleeName ~= "" then
             node.cdefCall = calleeEntry and calleeEntry.definition and calleeEntry.definition.cdef or false
+            local definition = calleeEntry and calleeEntry.definition
+            local callMetadata = node as any
+            callMetadata.nativeLibraryProblem = node.cdefCall and definition and definition.nativeLibraryProblem or nil
+            callMetadata.nativeLibraryName = node.cdefCall and definition and definition.nativeLibraryName or nil
             node.cdefIdentity = node.cdefCall
                 and calleeEntry
                 and calleeEntry.definition
