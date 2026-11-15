@@ -54,6 +54,9 @@ if name == "fused-json" then
         directory .. "/fused-source.log"
     )
     runner.write(workspace .. source, runner.read(root .. source))
+    local provider = "/src/nupp/codec/json/aot.nupp"
+    runner.command("mkdir -p " .. q(project .. "/src/nupp/codec/json"), directory .. "/fused-provider.log")
+    runner.write(project .. provider, runner.read(root .. provider))
     runner.command("mkdir -p " .. q(workspace .. "/tests/stdlib/serde/json"), directory .. "/fused-tests.log")
     runner.write(
         workspace .. "/tests/stdlib/serde/json/jsonfuseddifferentialtest.lua",
