@@ -12,12 +12,25 @@ local M = {}
 
 -- `command -v` answers in the shell's spelling. Under Git Bash that is
 -- `/d/a/luajit` for `D:/a/luajit.exe`, which a Windows process cannot open,
--- so the lookup missed and the cache never opened on Windows.
+-- so the lookup missed and the cache never opened on Windows. A path inside
+-- the shell's own tree, such as `/usr/bin/sh`, has no drive to spell out, so
+-- cygpath names where it really is.
 local function nativePath(path)
     if not path or package.config:sub(1, 1) ~= "\\" then
         return path
     end
-    path = path:gsub("^/([A-Za-z])/", "%1:/")
+    if path:match("^/[A-Za-z]/") then
+        path = path:gsub("^/([A-Za-z])/", "%1:/")
+    elseif path:sub(1, 1) == "/" then
+        local pipe = io.popen("cygpath -m '" .. path:gsub("'", "'\"'\"'") .. "' 2>/dev/null", "r")
+        local native = pipe and pipe:read("*l")
+        if pipe then
+            pipe:close()
+        end
+        if native and native ~= "" then
+            path = native
+        end
+    end
     if not fs.readFile(path) and fs.readFile(path .. ".exe") then
         return path .. ".exe"
     end
