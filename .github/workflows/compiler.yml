@@ -292,20 +292,29 @@ jobs:
       - name: Build the test runner
         run: ./bin/nupp test --list-groups
 
+      # A shared-lane worker keeps every module its suites load (#115). Four
+      # workers on core-dev's interpreter-only runner reached 16 GB about 85
+      # suites in, and the runner was shut down. Until a worker gives that
+      # memory back, run the lane in five batches of neighboring suites, two
+      # workers each, so no set of workers lives long enough to fill the runner.
       - name: Run the shared-process suites
         run: |
-          # Temporary: find what the shared lane holds when the runner dies.
-          ( while sleep 30; do
-              echo "::group::resources $(date -u +%T)"
-              free -m
-              ps -eo rss,etimes,args --sort=-rss | head -n 6 | cut -c1-120
-              for q in $(find build -name order 2>/dev/null); do
-                ls -t "$(dirname "$q")" | grep '^taken-' | head -n 4 |
-                  while read -r t; do sed -n "${t#taken-}p" "$q"; done
-              done
-              echo '::endgroup::'
-            done ) &
-          ./bin/nupp test --fresh --scope=all --lane=shared
+          ./bin/nupp test --scope=all --lane=shared --list-suites |
+            grep -E '^[A-Za-z0-9_./-]+$' > build/shared-suites
+          count=$(wc -l < build/shared-suites)
+          [ "$count" -gt 0 ] || { echo "no shared suites listed"; exit 1; }
+          size=$(( (count + 4) / 5 ))
+          split -l "$size" build/shared-suites build/shared-batch-
+          status=0
+          for batch in build/shared-batch-*; do
+            echo "::group::$(head -n 1 "$batch") .. $(tail -n 1 "$batch")"
+            # shellcheck disable=SC2046
+            ./bin/nupp test --fresh --scope=all --lane=shared --jobs=2 \
+              $(cat "$batch") || status=1
+            free -m
+            echo '::endgroup::'
+          done
+          exit "$status"
 
       # Saved explicitly rather than through the action's post step, so a run
       # that fails a suite still keeps the compiler build the next run would
