@@ -1996,7 +1996,7 @@ return m
 
     reference.Section(
         title = "C interop",
-        codes = {"NUPP2203", "NUPP2101", "NUPP2602", "NUPP2619"},
+        codes = {"NUPP2203", "NUPP2101", "NUPP2602", "NUPP2619", "NUPP2912"},
         body = [=[
 `cdef` declares C functions, structs, unions, and integer bitfields.
 `from "lib"` loads the named native library; omitting it uses the default

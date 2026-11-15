@@ -12,7 +12,7 @@ pub(crate) mod native {
     use libffi::middle::{Arg, Cif, CodePtr, Ret, Type};
     use std::{
         collections::HashMap,
-        ffi::{c_void, CString},
+        ffi::{CString, c_void},
         rc::Rc,
     };
 
@@ -1167,10 +1167,16 @@ pub(crate) mod native {
                 return None;
             }
             let libraries = LIBRARIES.get_or_init(|| {
-                ["ucrtbase.dll", "msvcrt.dll", "kernel32.dll", "user32.dll", "gdi32.dll"]
-                    .iter()
-                    .filter_map(|name| unsafe { libloading::os::windows::Library::new(name) }.ok())
-                    .collect()
+                [
+                    "ucrtbase.dll",
+                    "msvcrt.dll",
+                    "kernel32.dll",
+                    "user32.dll",
+                    "gdi32.dll",
+                ]
+                .iter()
+                .filter_map(|name| unsafe { libloading::os::windows::Library::new(name) }.ok())
+                .collect()
             });
             libraries.iter().find_map(|library| {
                 unsafe { library.get::<*mut c_void>(symbol.to_bytes_with_nul()) }
@@ -1257,7 +1263,21 @@ pub(crate) mod native {
                     .map(Into::into)
                     .map_err(|e| e.to_string())
             }
-            #[cfg(not(unix))]
+            #[cfg(windows)]
+            {
+                use libloading::os::windows::{LOAD_WITH_ALTERED_SEARCH_PATH, Library};
+                // Project paths are absolute. Search beside that DLL for its
+                // imports without changing the process-wide DLL search path.
+                let flags = if std::path::Path::new(&path).is_absolute() {
+                    LOAD_WITH_ALTERED_SEARCH_PATH
+                } else {
+                    0
+                };
+                unsafe { Library::load_with_flags(&path, flags) }
+                    .map(Into::into)
+                    .map_err(|e| e.to_string())
+            }
+            #[cfg(not(any(unix, windows)))]
             {
                 unsafe { libloading::Library::new(&path) }.map_err(|e| e.to_string())
             }
@@ -1274,6 +1294,87 @@ pub(crate) mod native {
         vm.foreign.loaded.insert(key, Rc::downgrade(&native));
         native
     }
+    #[cfg(all(test, windows))]
+    #[test]
+    fn absolute_libraries_load_adjacent_dll_dependencies() {
+        use std::path::PathBuf;
+        use std::process::Command;
+
+        struct Fixture(PathBuf);
+        impl Drop for Fixture {
+            fn drop(&mut self) {
+                let _ = std::fs::remove_dir_all(&self.0);
+            }
+        }
+        let nonce = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let fixture = Fixture(
+            std::env::temp_dir().join(format!("nupp-vm-dll-{}-{nonce}", std::process::id())),
+        );
+        std::fs::create_dir_all(&fixture.0).unwrap();
+        let support = format!("nupp_support_{}_{nonce}", std::process::id());
+        std::fs::write(
+            fixture.0.join("support.c"),
+            "__declspec(dllexport) int support_value(void) { return 73; }\n",
+        )
+        .unwrap();
+        std::fs::write(fixture.0.join("parent.c"), "__declspec(dllimport) int support_value(void);\n__declspec(dllexport) int parent_value(void) { return support_value(); }\n").unwrap();
+        let compiler = std::env::var_os("CC").unwrap_or_else(|| "cc".into());
+        let output = Command::new(&compiler)
+            .current_dir(&fixture.0)
+            .args([
+                "-shared",
+                "support.c",
+                "-o",
+                &format!("{support}.dll"),
+                &format!("-Wl,--out-implib,lib{support}.a"),
+            ])
+            .output()
+            .expect("C compiler required for adjacent DLL fixture");
+        assert!(
+            output.status.success(),
+            "{}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        let output = Command::new(&compiler)
+            .current_dir(&fixture.0)
+            .args([
+                "-shared",
+                "parent.c",
+                &format!("lib{support}.a"),
+                "-o",
+                "parent.dll",
+            ])
+            .output()
+            .unwrap();
+        assert!(
+            output.status.success(),
+            "{}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        let adjacent = fixture.0.join("moved library \u{e9}");
+        std::fs::create_dir(&adjacent).unwrap();
+        std::fs::rename(fixture.0.join("parent.dll"), adjacent.join("parent.dll")).unwrap();
+        std::fs::rename(
+            fixture.0.join(format!("{support}.dll")),
+            adjacent.join(format!("{support}.dll")),
+        )
+        .unwrap();
+        let path = adjacent.join("parent.dll").canonicalize().unwrap();
+        assert_ne!(std::env::current_dir().unwrap(), adjacent);
+        let mut vm = Interp::new();
+        let library = open_library(&mut vm, path.to_str().unwrap().as_bytes(), false);
+        let value = unsafe {
+            library
+                .library
+                .get::<unsafe extern "C" fn() -> i32>(b"parent_value\0")
+        }
+        .unwrap();
+        assert_eq!(unsafe { value() }, 73);
+    }
+
     /// `foreign.load(name, options)`: the library object a program binds
     /// functions from. `options.global` makes its symbols visible to libraries
     /// loaded after it, as POSIX `RTLD_GLOBAL` does.
@@ -2190,7 +2291,9 @@ pub(crate) mod native {
                     vm.foreign.errno = numeric::word(vm, value, false) as i32;
                     set_errno(vm.foreign.errno);
                 }
-                [Value::inline_integer(old as i64).unwrap()].into_iter().collect()
+                [Value::inline_integer(old as i64).unwrap()]
+                    .into_iter()
+                    .collect()
             }
             _ => unreachable!(),
         }

@@ -146,6 +146,38 @@ function M.explicitStrictContextsDoNotShareImages()
     remove(dir)
 end
 
+function M.nativeLibraryOverridesDoNotReuseAnEarlierResolvedPath()
+    local dir = project()
+    write(dir .. "/nupp.lua", 'return {include = {"src"}, libraries = {physics = {env = "CORE_LIBRARY_OVERRIDE"}}}\n')
+    write(dir .. "/first-library", "first")
+    write(dir .. "/second-library", "second")
+
+    local function selected(path)
+        local original = os.getenv
+        os.getenv = function(name)
+            if name == "CORE_LIBRARY_OVERRIDE" then
+                return path
+            end
+            return original(name)
+        end
+        local ok, env = pcall(environment, dir)
+        os.getenv = original
+        assert(ok, env)
+
+        return env
+    end
+
+    local main, source = dir .. "/main.nupp", assert(read(dir .. "/main.nupp"))
+    assert(imagecache.open(selected(dir .. "/first-library"), main, nil, source, {}).lookup() == nil)
+    imagecache.open(selected(dir .. "/first-library"), main, nil, source, {}).store("first library image")
+    assert(
+        imagecache.open(selected(dir .. "/second-library"), main, nil, source, {}).lookup() == nil,
+        "changing only the override must not retain an old physical library binding"
+    )
+    assert(imagecache.open(selected(dir .. "/first-library"), main, nil, source, {}).lookup() == "first library image")
+    remove(dir)
+end
+
 function M.aSecondEnvironmentReadsTheImageInsteadOfCheckingAgain()
     local dir = project()
     local main = dir .. "/main.nupp"

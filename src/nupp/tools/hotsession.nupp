@@ -733,6 +733,12 @@ function hotSession.new(root: string?, opts: table?): hotSession.Session
     self.libraryPaths = {}
     self.libraryConfiguredPaths = {}
     self.libraryPaths, self.libraryConfiguredPaths = hotSession.libraries(self.inc.env.config, self.inc.env.rootDir)
+    for _, binding in pairs(self.inc.env.nativeLibraryBindings or {}) do
+        if binding.path and not binding.error then
+            self.libraryPaths[binding.reference] = fs.canonical(binding.path)
+            self.libraryConfiguredPaths[binding.reference] = binding.path
+        end
+    end
 
     return self
 end
@@ -758,7 +764,9 @@ local function nativeUses(parsed)
             return
         end
         if (node.kind == "cdefFunc" or node.kind == "cdefStruct") and node.fromLib then
-            add(stringLiteral(node.fromLib.text), false, node)
+            if not (node.nativeLibraryName and node.resolvedLibrary == "<default>") then
+                add(node.resolvedLibrary or stringLiteral(node.fromLib.text), false, node)
+            end
         elseif node.cheaderLib then
             add(node.cheaderLib, false, node)
         elseif node.ffiLoadLib then
@@ -959,16 +967,20 @@ function Session:compile(path, module)
             return
         end
         if node.kind == "cdefFunc" or node.kind == "cdefStruct" then
-            local name = node.fromLib and stringLiteral(node.fromLib.text)
+            local name = node.resolvedLibrary or node.fromLib and stringLiteral(node.fromLib.text)
+            if node.nativeLibraryName and name == "<default>" then
+                name = nil
+            end
             local path = name and self.libraryPaths[name]
             if path then
-                pinned[#pinned + 1] = {node = node, token = node.fromLib}
+                pinned[#pinned + 1] = {node = node, token = node.fromLib, resolvedLibrary = node.resolvedLibrary}
                 local token = {}
                 for key, value in pairs(node.fromLib) do
                     token[key] = value
                 end
                 token.value = path
                 node.fromLib = token
+                node.resolvedLibrary = path
             end
         end
         for _, child in ipairs(node) do
@@ -1009,6 +1021,7 @@ function Session:compile(path, module)
     lower.graphSink = nil
     for _, swapped in ipairs(pinned) do
         swapped.node.fromLib = swapped.token
+        swapped.node.resolvedLibrary = swapped.resolvedLibrary
     end
     -- Lowering rewrites the checked tree in place (metadata expansion adds the
     -- requires its witnesses need), and that tree is the query graph's parse of

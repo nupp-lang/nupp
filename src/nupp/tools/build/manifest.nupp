@@ -106,6 +106,15 @@ export type Dependency = {
     [string]: any
 }
 
+--- A native library resolved relative to this project's manifest.
+export type Library = {
+    name: string?,
+    search: {string}?,
+    env: string?,
+    dependencies: {string}?,
+    [string]: any
+}
+
 --- The build section: either one target inline, or several by name.
 export type Build = {
     outDir: string?,
@@ -175,6 +184,7 @@ export type Config = {
     fmt: {methodParens: boolean?}?,
     lints: {[string]: string}?,
     dependencies: {[string]: Dependency}?,
+    libraries: {[string]: Library}?,
     generators: {[string]: Generator}?,
     build: Build?,
     test: Test?,
@@ -379,6 +389,7 @@ local CONFIG_KEYS = {
     "fmt",
     "lints",
     "dependencies",
+    "libraries",
     "generators",
     "build",
     "test",
@@ -1066,6 +1077,65 @@ local function validateManifest(config: Config): boolean?, string?
     local dependencies = config.dependencies or {}
     if type(dependencies) ~= "table" then
         return nil, "dependencies must be a table"
+    end
+    if config.libraries ~= nil then
+        if type(config.libraries) ~= "table" then
+            return nil, "libraries must be a table"
+        end
+        for name, library in pairs(config.libraries) do
+            if type(name) ~= "string" or not name:match("^[%a_][%w_]*$") then
+                return nil, "library names must be plain identifiers"
+            end
+            local label = "libraries." .. name
+            if dependencies[name] ~= nil then
+                return nil, label .. " collides with dependency " .. name
+            end
+            if type(library) ~= "table" then
+                return nil, label .. " must be a table"
+            end
+            valid, err = validateKeys(library, {"name", "search", "env", "dependencies"}, label)
+            if not valid then
+                return nil, err
+            end
+            for _, field in ipairs({"name", "env"}) do
+                if library[field] ~= nil then
+                    valid, err = validateString(library[field], label .. "." .. field)
+                    if not valid then
+                        return nil, err
+                    end
+                end
+                if library[field] and library[field]:find("%z") then
+                    return nil, label .. "." .. field .. " cannot contain a zero byte"
+                end
+            end
+            if library.name and (library.name:find("[/\\]") or library.name == "." or library.name == "..") then
+                return nil, label .. ".name must be a library base name without a directory"
+            end
+            if library.env and not library.env:match("^[%a_][%w_]*$") then
+                return nil, label .. ".env must be an environment variable name"
+            end
+            valid, err = validateArray(library.search, label .. ".search", "string")
+            if not valid then
+                return nil, err
+            end
+            for _, directory in ipairs(library.search or {}) do
+                if directory == "" or directory:find("%z") then
+                    return nil, label .. ".search must contain non-empty paths without zero bytes"
+                end
+            end
+            valid, err = validateArray(library.dependencies, label .. ".dependencies", "string")
+            if not valid then
+                return nil, err
+            end
+            for _, child in ipairs(library.dependencies or {}) do
+                local dependency: any = dependencies[child]
+                if config.libraries[child] == nil
+                    and not (type(dependency) == "table" and (dependency.kind == "c" or dependency.kind == "cargo"))
+                then
+                    return nil, label .. ".dependencies references unknown native library " .. child
+                end
+            end
+        end
     end
     for name, dep in pairs(dependencies) do
         if type(name) ~= "string" or name == "" then

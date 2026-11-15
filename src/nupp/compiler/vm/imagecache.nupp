@@ -169,6 +169,7 @@ local function keyFor(
         list(env.folders),
         list(env.runtimeSourceRoots),
         tostring(env.layoutTarget or require("nupp.compiler.targetlayout").hostKey()),
+        tostring(env.nativeLibraryFingerprint or ""),
         table.concat(config),
         manifest and digest(manifest) or "",
         -- Lowering spells a relative module path against this, and stubs what it names.
