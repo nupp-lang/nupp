@@ -1099,6 +1099,7 @@ mod tests {
             clear_env: false,
             cwd: None,
             modes: [StdioMode::Null, StdioMode::Null, StdioMode::Null],
+            raw_last: false,
         });
         let error = result.err().expect("a nonexistent executable cannot start");
         assert!(error.os_code.is_some());
@@ -1115,6 +1116,7 @@ mod tests {
             clear_env: false,
             cwd: None,
             modes: [StdioMode::Null, StdioMode::Null, StdioMode::Null],
+            raw_last: false,
         });
         let error = result.err().expect("an empty command cannot start");
         assert_eq!(error.os_code, None);
