@@ -1576,7 +1576,7 @@ function M.aWindowsCheckoutLauncherStartsWithoutAShell()
         _G.__NUPP_TEST_BASH = nil
         local command = process.command({NUPP, "--version"})
         if jit.os ~= "Windows" then
-            assert(command == process.quote(NUPP) .. " --version", command)
+            assert(command == process.quote(NUPP) .. " " .. process.quote("--version"), command)
             return
         end
         local batch = process.quote((NUPP .. ".cmd"):gsub("/", "\\"))
