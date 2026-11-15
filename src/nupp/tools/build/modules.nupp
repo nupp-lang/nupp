@@ -1088,6 +1088,7 @@ function modules.compileChecked(job: modules.CompileJob): modules.Compiled
         -- than a watch run is who seals it and who holds the compiler session,
         -- both of which packaging and the host settle later.
         local hotRequest: any = config._reload
+            and not job.compilerRuntime
             and {mode = "initial", module = name, libraries = config._reloadLibraries or {}}
             or nil
         code, genDiags, coverage, emittedEffects = gen.generate(

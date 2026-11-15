@@ -33,6 +33,29 @@ local LOGICAL_CALL = [[cdef function tiny_add(a: int32, b: int32): int32 from "t
 return tiny_add(20, 21)
 ]]
 
+local RELOAD_CALL = [[module main
+cdef function tiny_add(a: int32, b: int32): int32 from "tiny"
+local M = {}
+function M.answer(): int32
+    return tiny_add(20, 21)
+end
+export = M
+]]
+
+local function reloadAnswer(dir)
+    local away = elsewhere()
+    fixture.write(
+        away .. "/run.lua",
+        (
+            '_G.__nuppHost={hostAbi=1,hostFeatures={}}\npackage.path,package.cpath="",""\nlocal d=assert(loadfile(%q))()\nlocal c=d.install()\nprint("RELOAD " .. tostring(c.exports["main.answer"]()))\n'
+        ):format(dir .. "/dist/app.nuppc")
+    )
+    local code, text = process.capture({"luajit", away .. "/run.lua"}, {cwd = away})
+    remove(away)
+    testAssert.eq(code, 0, text)
+    assert(text:find("RELOAD 41", 1, true), text)
+end
+
 function M.cDependencyLinksAStaticClosureIntoItsSharedLibrary()
     local dir = tempProject({
         [
@@ -438,6 +461,94 @@ return true
     testAssert.eq(project.build(dir, {diagnostics = diagnostics}), 1)
     assert(fixture.json.encode(diagnostics):find("standalone", 1, true), fixture.json.encode(diagnostics))
     assert(not exists(dir .. "/out/lib/" .. libraryName("tiny")), "a standalone target never stages the sidecar")
+    remove(dir)
+end
+
+function M.removingACaseAliasKeepsTheLibraryTheTargetStillOwns()
+    local upper, lower = libraryName("Tiny"), libraryName("tiny")
+    local dir = tempProject({
+        [
+            "nupp.lua"
+        ] = [[return {include={"src"},libraries={
+upper={name="Tiny",search={"one"}},lower={name="tiny",search={"two"}}},
+build={outDir="out",entries={"main"}}}]],
+        [
+            "src/main.nupp"
+        ] = [[cdef function upper_value(): int32 from "upper"
+cdef function lower_value(): int32 from "lower"
+return true
+]],
+        ["one/" .. upper] = "same library",
+        ["two/" .. lower] = "same library",
+    })
+    testAssert.eq(project.build(dir), 0)
+    local kept = dir .. "/out/lib/" .. lower
+    local configured, removeFile = package.config, os.remove
+    -- A Windows deletion through either case names the same file. Model that
+    -- one filesystem operation so the actual output-pruning path runs on POSIX.
+    package.config = "\\" .. configured:sub(2)
+    os.remove = function(path)
+        if fixture.fs.absolute(path):lower() == fixture.fs.absolute(kept):lower() then
+            return removeFile(kept)
+        end
+        return removeFile(path)
+    end
+    local ok, problem = pcall(function()
+        fixture.write(
+            dir .. "/nupp.lua",
+            [[return {include={"src"},
+libraries={lower={name="tiny",search={"two"}}},build={outDir="out",entries={"main"}}}]]
+        )
+        fixture.write(dir .. "/src/main.nupp", [[cdef function lower_value(): int32 from "lower"
+return true
+]])
+        testAssert.eq(project.build(dir), 0)
+        assert(exists(kept), "removing an alias deleted the library the target still owns")
+    end)
+    package.config, os.remove = configured, removeFile
+    remove(dir)
+    assert(ok, problem)
+end
+
+function M.reloadComponentsStageTheirConfiguredLogicalLibrary()
+    local dir = nativeProject()
+    testAssert.eq(project.build(dir), 0)
+    local filename = libraryName("tiny")
+    local selected = dir .. "/vendor/" .. filename
+    assert(fixture.fs.copyFile(dir .. "/out/lib/" .. filename, selected))
+    fixture.write(
+        dir .. "/nupp.lua",
+        [[return {include={"src"},
+libraries={physics={name="tiny",search={"vendor"}}},
+build={kind="component",reload=true,outDir="out",output="dist/app.nuppc",
+entries={"main"},exports={"main.answer"}}}]]
+    )
+    fixture.write(dir .. "/src/main.nupp", RELOAD_CALL:gsub('from "tiny"', 'from "physics"'))
+    testAssert.eq(project.build(dir), 0)
+    testAssert.eq(
+        read(dir .. "/dist/lib/" .. filename),
+        read(selected),
+        "the reload component carries its selected library"
+    )
+    reloadAnswer(dir)
+    remove(dir)
+end
+
+function M.reloadComponentsPinFreshNativeProducers()
+    local dir = nativeProject(
+        RELOAD_CALL,
+        '{kind="component",reload=true,outDir="out",output="dist/app.nuppc",entries={"main"},exports={"main.answer"},dependencies={"tiny"}}'
+    )
+    local selected = dir .. "/out/lib/" .. libraryName("tiny")
+    assert(not exists(selected), "the producer has not built yet")
+    testAssert.eq(project.build(dir), 0)
+    local pinned = ("%q"):format(fixture.fs.canonical(selected))
+    assert(
+        read(dir .. "/out/main.lua"):find(pinned, 1, true),
+        "the first reload generation pins its newly built producer"
+    )
+    testAssert.eq(read(dir .. "/dist/lib/" .. libraryName("tiny")), read(selected))
+    reloadAnswer(dir)
     remove(dir)
 end
 

@@ -735,6 +735,16 @@ return step]], "main.nupp")
     testAssert.eq(declaration.nativeLibraryName, "physics")
     testAssert.eq(declaration.resolvedLibrary, "@lib/physical.so")
     testAssert.eq(declaration.cdefIdentity, "function\0@lib/physical.so\0step")
+    local static = env.new(root, {
+        cache = false,
+        config = {_nativeLibraryBindings = {physics = {name = "physics", reference = "<default>", dependencies = {}},}}
+    })
+    static.targetProfile = {target = "without-loader", dynamicLoader = false}
+    local linked = parser.parse([[cdef function step(): int32 from "physics"]], "linked.nupp")
+    testAssert.eq(#require("helpers.fragment").check(linked, "linked.nupp", static), 0)
+    local literal = parser.parse([[cdef function step(): int32 from "<default>"]], "literal.nupp")
+    local refused = require("helpers.fragment").check(literal, "literal.nupp", static)
+    testAssert.eq(refused[1] and refused[1].code, "NUPP2904", "a literal loader name is not a static binding")
     fixture.remove(root)
 end
 

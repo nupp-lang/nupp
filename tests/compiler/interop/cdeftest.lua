@@ -867,7 +867,7 @@ function M.fromClauseBindsNamedLibrary()
     local library = windows and "kernel32" or "z"
     assertClean(declaration)
     local code = compile(declaration)
-    assert(code:find("__nuppLib('" .. library .. "')", 1, true), "binds through ffi.load:\n" .. code)
+    assert(code:find(("__nuppLib(%q)"):format(library), 1, true), "binds through ffi.load:\n" .. code)
     assert(code:find("__nuppLibCache", 1, true), "load is cached")
     -- and it actually calls the library
     if windows then
