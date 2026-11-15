@@ -175,9 +175,10 @@ function M.buildOutputMatchesItsSchemaWhenItFailsAndWhenItDoesNot()
         written[path] = true
     end
     assert(
-        written["build/good.lua"] and written["build/nupp/runtime/managed.lua"] and written["build/debug/log.lua"],
+        written["build/good.lua"] and written["build/nupp/runtime/managed.lua"],
         "the entry and startup runtimes are named: " .. table.concat(built.written, ", ")
     )
+    assert(not written["build/debug/log.lua"], "a program that never warns omits logging")
     os.execute("rm -rf '" .. dir .. "'")
 end
 

@@ -112,10 +112,36 @@ function M.buildEmitsTheDependencyClosure()
     assert(not exists(dir .. "/main.lua"), "building leaves authored directories untouched")
     assert(exists(dir .. "/build/lib.lua"), "required module compiled too")
     assert(exists(dir .. "/build/nupp/runtime/managed.lua"), "generated ownership runtime is carried")
-    assert(exists(dir .. "/build/debug/log.lua"), "the startup logger is carried")
+    assert(not exists(dir .. "/build/debug/log.lua"), "a program that never warns omits logging")
     -- and the result runs on plain LuaJIT, with no toolchain present
     local ran = capture(("cd '%s' && LUA_PATH='./build/?.lua;;' luajit build/main.lua"):format(dir))
     testAssert.eq(ran, "42\n", "built output runs standalone")
+    os.execute("rm -rf '" .. dir .. "'")
+end
+
+function M.optimizedOwnershipBootstrapKeepsWarningsIndependent()
+    local dir = tempProject({["nupp.lua"] = 'return {include = {"."}}\n', ["main.nupp"] = "return true\n",})
+    local output = capture(("cd '%s' && '%s' build -O2 main.nupp"):format(dir, NUPP))
+    testAssert.eq(output, "", output)
+    assert(not exists(dir .. "/build/debug/log.lua"), "optimization keeps the logger optional")
+    local imports = require("nupp.compiler.lua.gen").runtimeModules(read(dir .. "/build/nupp/runtime/managed.lua"))
+    testAssert.eq(
+        #imports,
+        0,
+        "the ownership bootstrap does not depend on another runtime: " .. table.concat(imports, ", ")
+    )
+    local probe = assert(io.open(dir .. "/verify.lua", "wb"))
+    probe:write(
+        [[
+require("main")
+assert(package.loaded["debug.log"] == nil)
+warn("fallback", 7)
+assert(package.loaded["debug.log"] == nil)
+]]
+    )
+    probe:close()
+    local ran = capture(("cd '%s' && LUA_PATH='./build/?.lua' luajit verify.lua"):format(dir))
+    testAssert.eq(ran, "Lua warning: fallback7\n", "plain Lua callers use the dependency-free warning fallback")
     os.execute("rm -rf '" .. dir .. "'")
 end
 

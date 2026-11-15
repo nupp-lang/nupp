@@ -300,7 +300,7 @@ function M.publicAssertionFacadeRemainsOutsideStock51()
         assert(message:find("NUPP3014", 1, true) or message:find("NUPP3015", 1, true), message)
         assert(
             not message:find("NUPP3016", 1, true),
-            "the refusal concerns runtime requirements, not synthesized syntax"
+            "the refusal concerns runtime requirements, not synthesized syntax:\n" .. message
         )
     end)
 end
