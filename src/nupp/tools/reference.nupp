@@ -1145,9 +1145,10 @@ A fixed arena is one mapping and answers nil once full; a growable one maps
 another chunk of the same size and chains it. A function opens at most one
 growable arena, following Goose: the `one-growable-arena` lint reports a second.
 
-The runtime's modules are not part of the library a project sees, so a program
-outside the runtime checks against a declaration of the surface it uses, as the
-companion beside the example does.
+The runtime's modules are not part of the library a project sees: only a module
+of the runtime's own `nupp` package may require them, which is what the example
+is. It checks against a declaration of the surface it uses, as the companion
+beside it does.
 ]=],
         context = {
             [
@@ -1169,15 +1170,15 @@ return {close = close, open = open, openGrowable = openGrowable, alloc = alloc, 
 ]=]
         },
         example = [=[
+module nupp.runtime.vm.items
+
 const arena = require("nupp.runtime.vm.arena")
 
-local m = {}
-
-struct m.Item
+export struct Item
     value: int64
 end
 
-function m.total(count: int64): int64
+export function total(count: int64): int64
     do local a = arena.open(4096) ;
         local total: int64 = 0
         local i: int64 = 0
@@ -1186,7 +1187,7 @@ function m.total(count: int64): int64
             if raw == nil then
                 return total
             end
-            local item = raw as m.Item*
+            local item = raw as Item*
             @unsafe item.value = i
             total = total + item.value
             i = i + 1
@@ -1194,8 +1195,6 @@ function m.total(count: int64): int64
         return total
     end
 end
-
-return m
 ]=]
     ),
 
@@ -1269,8 +1268,9 @@ read-modify-write operations answer the word before the change.
 
 A marking flag, a worker handoff and a scheduler queue are written with these
 and nothing else; the declaration has no guest implementation, so a program the
-VM runs does not reach it, and a project outside the runtime checks against
-the declaration itself, as the companion beside the example does.
+VM runs does not reach it. Only a module of the runtime's own `nupp` package
+may require it, as the example is, and it checks against the declaration
+itself, as the companion beside the example does.
 ]=],
         context = {
             [
@@ -1323,11 +1323,11 @@ return Atomic
 ]=]
         },
         example = [=[
+module nupp.runtime.vm.counter
+
 const atomic = require("nupp.runtime.vm.atomic")
 
-local m = {}
-
-function m.increment(counter: voidptr): uint64
+export function increment(counter: voidptr): uint64
     local seen = atomic.load(counter, 0)
     while atomic.compareAndSwap(counter, 0, seen, seen + 1) ~= seen do
         seen = atomic.load(counter, 0)
@@ -1335,8 +1335,6 @@ function m.increment(counter: voidptr): uint64
     atomic.fence()
     return seen + 1
 end
-
-return m
 ]=]
     ),
 
