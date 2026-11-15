@@ -48,15 +48,8 @@ runner.write(
 )
 runner.write(project .. "/" .. selected.script, runner.read(root .. "/bench/" .. name .. "/" .. selected.script))
 if name == "fused-json" then
-    local source = "/src/nupp/codec/json/internal/decoder/fused.nupp"
-    runner.command(
-        "mkdir -p " .. q(workspace .. "/src/nupp/codec/json/internal/decoder"),
-        directory .. "/fused-source.log"
-    )
-    runner.write(workspace .. source, runner.read(root .. source))
-    local provider = "/src/nupp/codec/json/aot.nupp"
-    runner.command("mkdir -p " .. q(project .. "/src/nupp/codec/json"), directory .. "/fused-provider.log")
-    runner.write(project .. provider, runner.read(root .. provider))
+    -- The benchmark builds the JSON provider too, so it needs the whole tree.
+    runner.command("cp -R " .. q(root .. "/src") .. " " .. q(workspace .. "/src"), directory .. "/fused-source.log")
     runner.command("mkdir -p " .. q(workspace .. "/tests/stdlib/serde/json"), directory .. "/fused-tests.log")
     runner.write(
         workspace .. "/tests/stdlib/serde/json/jsonfuseddifferentialtest.lua",
