@@ -148,6 +148,7 @@ fn execute(bundle: &Path, words: &[u64]) -> Result<Vec<u64>, Failure> {
     code.copy(&payload[..spec.code]);
     data.copy(&payload[spec.code..]);
     code.executable()?;
+    let _library_origin = library::for_artifact(bundle)?;
     let library = library::imports();
     let imports = [
         pool::pool_start as *const () as u64,
