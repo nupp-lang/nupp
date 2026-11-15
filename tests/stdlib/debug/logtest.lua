@@ -459,6 +459,7 @@ end
 
 function M.theDefaultSinkCanBeRestored()
     local previousLog, previousError = package.loaded["debug.log"], io.stderr
+    local previousWarn = rawget(_G, "warn")
     package.loaded["debug.log"] = nil
     local ok, problem = pcall(function()
         local log = runtime()
@@ -483,6 +484,8 @@ function M.theDefaultSinkCanBeRestored()
         testAssert.eq(written[2], "warn sample: restored\n")
     end)
     io.stderr, package.loaded["debug.log"] = previousError, previousLog
+    -- A fresh debug.log published its own warn; keep the global with the module.
+    rawset(_G, "warn", previousWarn)
     assert(ok, problem)
 end
 

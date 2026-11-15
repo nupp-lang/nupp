@@ -122,6 +122,7 @@ function M.componentsShareOneRuntimeAndRejectNameCollisions()
     local savedHost, savedPublic = _G.__nuppHost, _G.__nuppComponentExports
     local savedShared = _G.__nuppComponentSharedModules
     local savedLogLoaded, savedLogPreload = package.loaded["debug.log"], package.preload["debug.log"]
+    local savedWarn = rawget(_G, "warn")
     package.loaded["debug.log"], package.preload["debug.log"] = nil, nil
     _G.__nuppHost = {hostAbi = 1, hostFeatures = {}}
     local first = one.install()
@@ -142,6 +143,7 @@ function M.componentsShareOneRuntimeAndRejectNameCollisions()
     package.loaded["one.main"], package.loaded["two.main"] = nil, nil
     package.preload["one.main"], package.preload["two.main"] = nil, nil
     package.loaded["debug.log"], package.preload["debug.log"] = savedLogLoaded, savedLogPreload
+    rawset(_G, "warn", savedWarn)
     _G.__nuppHost, _G.__nuppComponentExports = savedHost, savedPublic
     _G.__nuppComponentSharedModules = savedShared
     os.execute("rm -rf '" .. dir .. "'")
