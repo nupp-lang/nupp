@@ -428,19 +428,6 @@ local function buildOne(root: string?, opts: project.BuildOptions?): integer
             say(opts, "NUPP0002", "nupp: a reload component builds at -O0\n")
             return 1
         end
-        -- The same map the session will compile against. A pinned library is part
-        -- of what watch generation writes into a module, so a component generated
-        -- without it is not the code the session would produce for it.
-        local read, pinned = pcall(
-            require("nupp.tools.hotsession").libraries,
-            config,
-            require("nupp.compiler.fs").absolute(root)
-        )
-        if not read then
-            say(opts, "NUPP0002", "nupp: " .. tostring(pinned) .. "\n")
-            return 1
-        end
-        config._reloadLibraries = pinned
     end
     config._optLevel = opts.optLevel or target.optimize as integer? or defaultLevel
     config._disabledPasses = opts.disabled or {}
@@ -563,6 +550,20 @@ local function buildOne(root: string?, opts: project.BuildOptions?): integer
         packaged = not opts.checkOnly,
         standalone = target.standalone,
     }).bindings
+    if config._reload then
+        -- Resolve pins after native producers have built, so the first component
+        -- generation names the same library a session will observe afterward.
+        local read, pinned = pcall(
+            require("nupp.tools.hotsession").libraries,
+            config,
+            require("nupp.compiler.fs").absolute(root)
+        )
+        if not read then
+            say(opts, "NUPP0002", "nupp: " .. tostring(pinned) .. "\n")
+            return 1
+        end
+        config._reloadLibraries = pinned
+    end
     newState.configHash = contentDigest(stable(config))
     newState.nativeLibraries = cache.jsonArray(buildLibraries.names(oldState.modules or {}))
     report:at("generate")
@@ -1303,8 +1304,16 @@ local function buildOne(root: string?, opts: project.BuildOptions?): integer
         mine[#mine + 1] = output
     end
     table.sort(mine)
+    -- Windows resolves differently cased paths to the same file. Retiring one
+    -- alias must not remove an output that this target still owns through another.
+    local caseOwnedOutputs: {[string]: boolean} = {}
+    if package.config:sub(1, 1) == "\\" then
+        for output in pairs(newState.outputs) do
+            caseOwnedOutputs[fs.absolute(output):lower()] = true
+        end
+    end
     for _, output in ipairs(oldState.targets[targetKey] or {}) do
-        if not newState.outputs[output] then
+        if not newState.outputs[output] and not caseOwnedOutputs[fs.absolute(output):lower()] then
             os.remove(output)
         end
     end

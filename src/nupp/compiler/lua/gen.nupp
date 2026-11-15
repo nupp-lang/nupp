@@ -6992,7 +6992,7 @@ export function generate(
             return
 
         elseif kind == "cdefFunc" then
-            if x.nativeLibraryProblem then
+            if x.nativeLibraryProblem and not (x.nativeLibraryName and pluck.hotLibraries[x.nativeLibraryName]) then
                 emitDepth.diag(x.fromLib or x.name, "NUPP2912", x.nativeLibraryProblem)
                 return
             end
@@ -7010,11 +7010,24 @@ export function generate(
             -- symbols come from the default namespace unless a library is named, in
             -- which case they resolve through a cached ffi.load
             local ns = "__nuppFfi.C"
-            if x.resolvedLibrary ~= "<default>" and (x.fromLib or x.resolvedLibrary) then
+            if not (x.nativeLibraryName and x.resolvedLibrary == "<default>") and (x.fromLib or x.resolvedLibrary) then
                 needsLibs = true
-                local authored = x.resolvedLibrary
-                    or (x.fromLib and (x.fromLib.text:match('^"(.*)"$') or x.fromLib.text:match("^'(.*)'$")))
-                local mapped = authored and pluck.hotLibraries[authored] or nil
+                local authored = x.nativeLibraryName
+                if authored == nil and x.fromLib then
+                    authored = lexer.stringValue(x.fromLib.text)
+                    if authored == nil then
+                        local literal = loadstring("return " .. x.fromLib.text)
+                        if literal then
+                            local ok, value = pcall(literal)
+                            if ok and type(value) == "string" then
+                                authored = value
+                            end
+                        end
+                    end
+                end
+                local mapped = authored and pluck.hotLibraries[authored]
+                    or x.resolvedLibrary and pluck.hotLibraries[x.resolvedLibrary]
+                    or nil
                 local library = mapped or x.resolvedLibrary
                 local expression = library and ("%q"):format(library) or (x.fromLib as lexer.Token).text
                 local label = x.nativeLibraryName and (", %q"):format(x.nativeLibraryName) or ""

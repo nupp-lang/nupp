@@ -1305,6 +1305,132 @@ function M.mappedFfiLoadChangesOnlyWatchGeneration()
     assert(watched:find(mapped, 1, true), watched)
 end
 
+function M.logicalLibraryPinsPreferDecodedAuthoredNames()
+    for _, logical in ipairs({true, false}) do
+        local name = logical and "physics" or "mini"
+        local authored = string.char(92) .. (logical and "112hysics" or "109ini")
+        local result = checked('cdef function hot_decoded_pin(): int32 from "' .. authored .. '"')
+        local declaration = result.root.blocks[1].stats[1]
+        declaration.resolvedLibrary = "/original/native.bin"
+        declaration.nativeLibraryName = logical and name or nil
+        local code, diagnostics = gen.generate(result, "decoded-pin.nupp", nil, {
+            mode = "initial",
+            module = "decoded-pin",
+            libraries = {[name] = "/pinned/native.bin", ["/original/native.bin"] = "/wrong/fallback.bin"},
+        })
+        testAssert.eq(#diagnostics, 0)
+        assert(code:find('__nuppLib("/pinned/native.bin"', 1, true), code)
+        assert(not code:find("/wrong/fallback.bin", 1, true), code)
+    end
+end
+
+function M.rawDefaultLibraryNameStillUsesTheLoaderAndCanBePinned()
+    local result = checked('cdef function hot_raw_default(): int32 from "<default>"')
+    local ordinary = gen.generate(result, "raw-default.nupp")
+    assert(ordinary:find('__nuppLib("<default>")', 1, true), ordinary)
+    assert(not ordinary:find("__nuppFfi.C.hot_raw_default", 1, true), ordinary)
+    local dir = temporaryProject({
+        ["nupp.lua"] = 'return { hotreload = { libraries = { ["<default>"] = "pinned.bin" } } }',
+        ["pinned.bin"] = "native bytes",
+        ["main.nupp"] = 'cdef function hot_raw_default(): int32 from "<default>"\nreturn hot_raw_default',
+    })
+    local session = hotSession.new(dir, {cache = false})
+    local built = session:initial({dir .. "/main.nupp"})
+    testAssert.eq(built.kind, "initial")
+    local notices = session:loaded(built.entryManifest.module, 1, built.entryManifest)
+    testAssert.eq(#notices.unverifiedLibraries, 0)
+    assert(built.entryCode:find(("%q"):format(session.libraryPaths["<default>"]), 1, true), built.entryCode)
+    assert(os.execute("rm -rf '" .. dir .. "'") == 0)
+end
+
+function M.projectLogicalLibrariesPinAndObserveTheirCompanions()
+    local libraries = require("nupp.compiler.project.libraries")
+    local fs = require("nupp.compiler.fs")
+    for _, edited in ipairs({"physics", "companion"}) do
+        local physics, companion = libraries.filename("physics"), libraries.filename("companion")
+        local dir = temporaryProject({
+            [
+                "nupp.lua"
+            ] = 'return { libraries = { physics = { search = {"."}, dependencies = {"companion"} }, companion = { search = {"."} } } }',
+            [physics] = "physics generation one",
+            [companion] = "companion generation one",
+            [
+                "main.nupp"
+            ] = 'cdef function hot_logical_value(): int32 from "' .. string.char(
+                92
+            ) .. '112hysics"\nlocal function value(): number return hot_logical_value() end\nreturn value',
+        })
+        local session = hotSession.new(dir, {cache = false})
+        local built = session:initial({dir .. "/main.nupp"})
+        testAssert.eq(built.kind, "initial")
+        local notices = session:loaded(built.entryManifest.module, 1, built.entryManifest)
+        testAssert.eq(#notices.unverifiedLibraries, 0, "declared logical libraries have pinned identities")
+        assert(built.entryCode:find(("%q"):format(fs.canonical(dir .. "/" .. physics)), 1, true), built.entryCode)
+        local watched = {}
+        for _, input in ipairs(session:watchedInputs()) do
+            if input.kind == "native-artifact" then
+                watched[input.path] = true
+            end
+        end
+        assert(watched[fs.absolute(dir .. "/" .. physics)], "the selected library is watched")
+        assert(watched[fs.absolute(dir .. "/" .. companion)], "its declared companion is watched")
+        local path = fs.absolute(dir .. "/" .. (edited == "physics" and physics or companion))
+        write(path, "native generation two")
+        session:diskChanged(path, 2)
+        local prepared = session:prepare({path})
+        testAssert.eq(prepared.kind, "restart-required")
+        testAssert.eq(prepared.reason.kind, "native-artifact")
+        testAssert.eq(prepared.reason.path, path)
+        assert(os.execute("rm -rf '" .. dir .. "'") == 0)
+    end
+end
+
+function M.explicitHotLibraryPinsOverrideLogicalResolutionIncludingMissingFiles()
+    local libraries = require("nupp.compiler.project.libraries")
+    for _, missing in ipairs({false, true}) do
+        local name = libraries.filename("physics")
+        local files = {
+            [
+                "nupp.lua"
+            ] = 'return { libraries = { physics = {search = {"."}} }, hotreload = { libraries = {physics = "pinned.bin"} } }',
+            ["pinned.bin"] = "explicit development artifact",
+            ["main.nupp"] = 'cdef function hot_explicit_pin(): int32 from "physics"\nreturn hot_explicit_pin',
+        }
+        if not missing then
+            files[name] = "ordinary selected artifact"
+        end
+        local dir = temporaryProject(files)
+        local session = hotSession.new(dir, {cache = false})
+        local built = session:initial({dir .. "/main.nupp"})
+        testAssert.eq(built.kind, "initial", "an explicit pin supplies the watch-mode resolution")
+        local pinned = session.libraryPaths.physics
+        assert(built.entryCode:find(("%q"):format(pinned), 1, true), built.entryCode)
+        assert(
+            not built.entryCode:find(("%q"):format(require("nupp.compiler.fs").canonical(dir .. "/" .. name)), 1, true),
+            built.entryCode
+        )
+        assert(os.execute("rm -rf '" .. dir .. "'") == 0)
+    end
+    local dir = temporaryProject({
+        [
+            "nupp.lua"
+        ] = 'return { libraries = { physics = {search = {"."}} }, hotreload = { libraries = {physics = "missing-pin.bin"} } }',
+        ["main.nupp"] = 'cdef function hot_invalid_pin(): int32 from "physics"\nreturn hot_invalid_pin',
+    })
+    local session = hotSession.new(dir, {cache = false})
+    local built = session:initial({dir .. "/main.nupp"})
+    testAssert.eq(built.kind, "initial")
+    hot.resetForTesting()
+    local chunk = assert(loadstring(built.entryCode, "@invalid-logical-pin"))
+    local ok, why = pcall(chunk)
+    hot.resetForTesting()
+    assert(not ok, "an absent explicit pin must fail when the module loads")
+    assert(why:find("native library physics", 1, true), why)
+    assert(why:find(session.libraryPaths.physics, 1, true), why)
+    assert(why:find(": ", 1, true), "the platform loader's failure must be included: " .. why)
+    assert(os.execute("rm -rf '" .. dir .. "'") == 0)
+end
+
 function M.mappedNativeSymlinkRetargetRequiresRestart()
     if package.config:sub(1, 1) == "\\" then
         return require("assert").suite.skip("symbolic-link fixture is POSIX-only")

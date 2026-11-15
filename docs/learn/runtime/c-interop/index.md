@@ -91,10 +91,14 @@ build that uses an unresolved library reports its name, expected filename, and
 the paths searched. A configured library that the target does not use needs
 no file.
 
-Runs and tests use the resolved absolute path. Builds copy used libraries to
-`outDir/lib` and bind them relative to the compiled module or packaged artifact,
-so the output can move to another directory. The deployed program does not read
-the build machine's override variable.
+#### Build outputs
+
+Runs and tests use the resolved absolute path. Builds without `reload` copy used
+libraries to `outDir/lib` and bind them relative to the compiled module or
+packaged artifact, so the output can move to another directory. The deployed
+program does not read the build machine's override variable. A reload component
+uses its development session's pinned paths; see
+[hot-reload.md](../../projects/hot-reload.md).
 
 A C or Cargo dependency also declares a logical library under its dependency
 name. It uses the artifact the build actually produced, including a custom
@@ -102,6 +106,8 @@ output filename, and needs no generated binding. A standalone binary uses a
 selected static dependency through the linked process namespace and refuses
 shared-library sidecars. Set a Cargo dependency's `target` explicitly when
 building its logical library for another target.
+
+#### Runtime dependencies
 
 For a library that imports another library, name its runtime dependencies:
 

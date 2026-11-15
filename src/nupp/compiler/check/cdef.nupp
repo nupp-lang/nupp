@@ -550,7 +550,7 @@ export function install(
             stat.nativeLibraryName = authoredLibrary
             stat.nativeLibraryProblem = libraryBinding.error
         end
-        if stat.fromLib ~= nil and stat.resolvedLibrary ~= "<default>" then
+        if stat.fromLib ~= nil and not (libraryBinding and stat.resolvedLibrary == "<default>") then
             local profile = c.env and c.env.targetProfile or nil
             if profile ~= nil and not (profile as any).dynamicLoader then
                 c.diag(
