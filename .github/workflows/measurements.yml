@@ -97,6 +97,21 @@ jobs:
         shell: bash
         run: ./bin/nupp version
 
+      - name: Probe the Windows validation crash
+        if: failure() && runner.os == 'Windows'
+        shell: bash
+        run: |
+          set -x
+          ls -la build/vm-cli || true
+          gdb=$(command -v gdb || ls /c/mingw64/bin/gdb.exe /c/msys64/mingw64/bin/gdb.exe 2>/dev/null | head -1)
+          echo "gdb=$gdb"
+          export NO_JIT=1 NUPP_COMPILER_ROOT="$(cygpath -w "$PWD")"
+          export NUPP_VM_BINARY="$(cygpath -w "$PWD/build/vm-cli/runtime")"
+          export NUPP_VM_CLI_IMAGE="$(cygpath -w "$PWD/build/vm-cli/compiler.image")"
+          RUST_BACKTRACE=1 build/vm-cli/runtime exec build/vm-cli/compiler.image nupp.tools.vm.root --help; echo "status=$?"
+          "$gdb" -batch -ex run -ex bt -ex 'info registers' -ex 'x/16i $pc-32' \
+            --args build/vm-cli/runtime exec build/vm-cli/compiler.image nupp.tools.vm.root --help || true
+
       # One immutable, platform-qualified artifact per commit keeps the
       # reification speedup bisectable without pretending hosted runner timing
       # is stable enough for an absolute wall-clock gate.
