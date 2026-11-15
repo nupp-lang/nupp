@@ -33,6 +33,8 @@ end
 
 -- The launcher pins this immutable pair before any build starts. A source edit
 -- can change what is lowered, but cannot silently replace its execution host.
+-- An interpreter-only pair (NUPP_VM_AUTO_LINK=0) lowers the same object, and
+-- its runtime digest is part of the key, so it needs no linked code.
 local function compilerInputs(): {string}
     local runtime = assert(os.getenv("NUPP_VM_BINARY"), "compiler runtime required")
     local image = assert(os.getenv("NUPP_VM_CLI_IMAGE"), "compiler image required")
@@ -40,10 +42,9 @@ local function compilerInputs(): {string}
     local runtimeHash, imageHash = digest(runtime), digest(image)
     assert(
         receipt.format == "nupp-vm-cli-1"
-        and receipt.linked
         and runtimeHash == receipt.runtimeSha256
         and imageHash == receipt.imageSha256,
-        "verified linked compiler pair required"
+        "verified compiler pair required"
     )
 
     return {"runtime " .. runtimeHash, "image " .. imageHash}
