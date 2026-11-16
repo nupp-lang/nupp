@@ -45,10 +45,39 @@ runs:
         restore-keys: |
           nupp-testrunner-${{ runner.os }}-${{ runner.arch }}-
 
-    # Builds the runner when it is not current, and answers in a minute when
-    # it is.
+    # What the recorded test build is keyed on from the environment, as names
+    # and a short digest of each value, never the value: when a job that
+    # restored the runner rebuilds it anyway, comparing this with the runner
+    # job's names the variable responsible. The prefixes are the ones the key
+    # leaves out (`nupp.tools.build.testbuild`).
     - shell: bash
-      run: ./bin/nupp test --list-groups
+      run: |
+        hasher="sha256sum"
+        command -v sha256sum > /dev/null 2>&1 || hasher="shasum -a 256"
+        env -0 | while IFS= read -r -d '' item; do
+          name=${item%%=*}
+          case "$name" in
+            GITHUB_*|ACTIONS_*|CODEX_TOOL_CALL_ID|INVOCATION_ID|JOURNAL_STREAM|SYSTEMD_EXEC_PID) continue ;;
+            RUNNER_*) case "$name" in RUNNER_OS|RUNNER_ARCH) ;; *) continue ;; esac ;;
+          esac
+          printf '%s %s\n' "$name" "$(printf '%s' "${item#*=}" | $hasher | cut -c1-8)"
+        done | LC_ALL=C sort
+
+    # Builds the runner when it is not current, and answers in seconds when it
+    # is; the summary line says which, and the log is printed in full when the
+    # build fails.
+    - shell: bash
+      env:
+        NUPP_PROGRESS: always
+      run: |
+        log="$RUNNER_TEMP/test-runner-build.log"
+        status=0
+        ./bin/nupp test --list-groups > "$log" 2>&1 || status=$?
+        if [ "$status" -ne 0 ]; then
+          cat "$log"
+          exit "$status"
+        fi
+        grep -E '(reused|built) testRunner|^  [a-z:-]+ [0-9.]+m?s' "$log" || true
 
     # Cargo's own target directories are most of `build/rust` and none of what
     # a leg reads: the results are copied out to their content keys, and what
