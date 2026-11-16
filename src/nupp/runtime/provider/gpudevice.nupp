@@ -1,0 +1,2335 @@
+@!internal
+--[[
+Safe, handle-based native compute over wgpu-native.
+
+wgpu-native owns command and device-resource lifetimes. This module adds the
+language-facing invariants it does not provide: resource kind checks,
+stale-handle rejection, byte-range validation, an explicit synchronization
+boundary, and one queued readback per buffer. It is what
+[](nupp.runtime.provider.nativegpu) drives, through
+[](nupp.runtime.provider.wgpu)'s FFI binding.
+
+Every exported operation answers its result, or nil and a message beginning
+`gpu: `; a context is only ever used from the Lua state that opened it, so no
+handle can cross threads.
+]]
+module nupp.runtime.provider.gpudevice
+
+-- A wgpu-native call may run a callback before it returns, and a compiled trace
+-- cannot call back into Lua, so nothing in this module is compiled.
+
+local memory = require("nupp.runtime.provider.wgpumemory")
+local wgpu = require("nupp.runtime.provider.wgpu")
+local costs = require("nupp.runtime.provider.gpucosts")
+
+export function pause(milliseconds: integer): nil
+    wgpu.pause(milliseconds)
+end
+
+const NULL = costs.NULL
+const COPY_ALIGNMENT = 4
+const CALLBACK_MODE = 2
+const SPIRV_MAGIC = 0x07230203
+const OP_ENTRY_POINT = 15
+const OP_EXECUTION_MODE = 16
+const EXECUTION_MODEL_GL_COMPUTE = 5
+const EXECUTION_MODE_LOCAL_SIZE = 17
+const OP_TYPE_BOOL = 20
+const OP_TYPE_INT = 21
+const OP_TYPE_FLOAT = 22
+const OP_TYPE_VECTOR = 23
+const OP_TYPE_MATRIX = 24
+const OP_TYPE_ARRAY = 28
+const OP_TYPE_RUNTIME_ARRAY = 29
+const OP_TYPE_STRUCT = 30
+const OP_TYPE_POINTER = 32
+const OP_CONSTANT = 43
+const OP_SPEC_CONSTANT = 50
+const OP_DECORATE = 71
+const OP_MEMBER_DECORATE = 72
+const DECORATION_ARRAY_STRIDE = 6
+const DECORATION_OFFSET = 35
+-- The largest type naga lays out; its `MAX_TYPE_SIZE`.
+const MAX_TYPE_BYTES = 0x40000000
+
+local function array(values: {any}): {any}
+    return require("nupp.codec.json.provider").asarray(values)
+end
+
+--- The marker a failure raised inside this module carries.
+local FailureMT = {}
+
+local function fail(message: string): never
+    error(setmetatable({message = message}, FailureMT), 0)
+end
+
+local function triple(values: {integer}): string
+    return ("[%d, %d, %d]"):format(values[1], values[2], values[3])
+end
+
+local function outOfBounds(operation: string, offset: integer, size: integer, capacity: integer): never
+    fail(("%s range %d..%d exceeds buffer size %d"):format(operation, offset, offset + size, capacity))
+end
+
+-- Public handles never repeat within a process, so a handle from one context is
+-- stale in every other rather than naming some unrelated resource there.
+local nextHandle = 0
+
+local function freshHandle(): integer
+    nextHandle += 1
+
+    return nextHandle as integer
+end
+
+local function lib(): any
+    local ok, value = pcall(wgpu.library)
+    if not ok then
+        fail("no suitable compute adapter is available: " .. tostring(value))
+    end
+
+    return value
+end
+
+-- --- ranges ------------------------------------------------------------------
+
+--- Refuses a range that overflows or runs past `capacity`.
+export function checkedrange(operation: string, offset: integer, size: integer, capacity: integer): nil
+    if offset + size > capacity or offset + size < offset then
+        outOfBounds(operation, offset, size, capacity)
+    end
+end
+
+local function requireCopyAlignment(name: string, value: integer): nil
+    if value % COPY_ALIGNMENT ~= 0 then
+        fail(("GPU %s %d is not aligned to %d bytes"):format(name, value, COPY_ALIGNMENT))
+    end
+end
+
+local function alignUp(value: integer, alignment: integer): integer
+    return (value + alignment - 1) // alignment * alignment
+end
+
+--- How many bytes a copy or binding of `length` at `offset` moves. Both are
+--- whole words; a range whose length is not one may still end the buffer, and
+--- then takes the padding after its last byte along with it.
+export function copyextent(name: string, offset: integer, length: integer, size: integer): integer
+    if offset % COPY_ALIGNMENT ~= 0 then
+        fail(("GPU %s offset %d is not aligned to %d bytes"):format(name, offset, COPY_ALIGNMENT))
+    end
+    if length % COPY_ALIGNMENT == 0 then
+        return length
+    end
+    if offset + length ~= size then
+        fail(
+            (
+                "GPU %s size %d is not a multiple of %d bytes and does not end the buffer"
+            ):format(name, length, COPY_ALIGNMENT)
+        )
+    end
+
+    return alignUp(length, COPY_ALIGNMENT)
+end
+
+--- Whether any of `slots` names `buffer`. The device tracks usage per
+--- allocation, so one allocation bound to a read slot and a write slot of the
+--- same dispatch is refused however far apart the ranges are.
+export function binds(slots: {any}, buffer: integer): boolean
+    for _, slot in ipairs(slots) do
+        if slot and slot.buffer == buffer then
+            return true
+        end
+    end
+
+    return false
+end
+
+--- A device interval in milliseconds, or why the counters do not give one.
+export function timestampmilliseconds(first: any, last: any, period: number): (number?, string?)
+    if first == last then
+        return nil, "equal-timestamps"
+    end
+    if last < first then
+        return nil, "reversed-timestamps"
+    end
+    if period ~= period or period <= 0 or period == math.huge then
+        return nil, "invalid-timestamp-period"
+    end
+
+    return (tonumber(last - first) as number) * period / 1000000, nil
+end
+
+-- --- SPIR-V ------------------------------------------------------------------
+
+--- The words of a SPIR-V module, refusing a partial word or the wrong byte order.
+export function spirvwords(bytes: string): (any, integer)
+    if #bytes == 0 or #bytes % 4 ~= 0 then
+        fail("SPIR-V must be a non-empty sequence of complete 32-bit words")
+    end
+    local count = #bytes // 4
+    local words: any = memory.new("uint32_t[?]", count)
+    memory.copy(words, bytes, #bytes)
+    if words[0] ~= SPIRV_MAGIC then
+        fail("SPIR-V has an invalid magic word or byte order")
+    end
+
+    return words, count
+end
+
+-- The words of a SPIR-V literal string, NUL-terminated and padded to a word.
+local function spirvString(words: any, first: integer, last: integer): string
+    local bytes: {string} = {}
+    for index = first, last do
+        local word = words[index]
+        for shift = 0, 24, 8 do
+            local byte = (word >> shift) & 0xff
+            if byte == 0 then
+                return table.concat(bytes)
+            end
+            bytes[#bytes + 1] = string.char(byte)
+        end
+    end
+
+    return table.concat(bytes)
+end
+
+-- The instructions after the five-word header, as opcode and operand span.
+local function spirvInstructions(words: any, count: integer): {{integer}}
+    local instructions: {{integer}} = {}
+    local at = math.min(5, count)
+    while at < count do
+        local length = words[at] >> 16
+        if length == 0 or at + length > count then
+            fail(("SPIR-V instruction at word %d has an invalid length"):format(at))
+        end
+        instructions[#instructions + 1] = {words[at] & 0xffff, at + 1, at + length - 1}
+        at += length
+    end
+
+    return instructions
+end
+
+--- Refuses a declared workgroup size that is not the one the entry point's
+--- `LocalSize` execution mode compiles in. Dispatch geometry is computed from
+--- the declared size, so a wrong one silently covers the wrong elements.
+export function checkworkgroupsize(words: any, count: integer, entryPoint: string, declared: {integer}): nil
+    local instructions = spirvInstructions(words, count)
+    local entry: integer? = nil
+    for _, instruction in ipairs(instructions) do
+        local first, last = instruction[2], instruction[3]
+        if instruction[1] == OP_ENTRY_POINT
+            and last - first + 1 >= 3
+            and words[first] == EXECUTION_MODEL_GL_COMPUTE
+            and spirvString(words, first + 2, last) == entryPoint
+        then
+            entry = words[first + 1]
+            break
+        end
+    end
+    if entry == nil then
+        return
+    end
+    for _, instruction in ipairs(instructions) do
+        local first, last = instruction[2], instruction[3]
+        if instruction[1] == OP_EXECUTION_MODE
+            and last - first + 1 == 5
+            and words[first] == entry
+            and words[first + 1] == EXECUTION_MODE_LOCAL_SIZE
+        then
+            local compiled = {words[first + 2], words[first + 3], words[first + 4]}
+            if compiled[1] ~= declared[1] or compiled[2] ~= declared[2] or compiled[3] ~= declared[3] then
+                fail(
+                    (
+                        "GPU kernel declares workgroup size %s, but %s is compiled for %s"
+                    ):format(triple(declared), entryPoint, triple(compiled))
+                )
+            end
+            return
+        end
+    end
+end
+
+-- `alignUp` over sizes taken from SPIR-V words, which may pass 2^32.
+local function roundUp(value: number, alignment: number): number
+    return math.ceil(value / alignment) * alignment
+end
+
+--- Refuses a type naga cannot lay out. wgpu-native compiles SPIR-V with naga,
+--- whose front end lays out every type read so far each time it reaches an
+--- array or a struct, and panics, aborting the process, on a scalar that is
+--- not a power-of-two number of bytes or an array larger than 1 GiB. Sizes and
+--- alignments follow naga's layouter.
+export function checklayout(words: any, count: integer): nil
+    local strides: {[integer]: number} = {}
+    local offsets: {[integer]: {[integer]: number}} = {}
+    local constants: {[integer]: number} = {}
+    -- Each type's size and alignment. A type naga refuses on its own has none.
+    local layouts: {[integer]: {number}} = {}
+    for _, instruction in ipairs(spirvInstructions(words, count)) do
+        local op, first, last = instruction[1], instruction[2], instruction[3]
+        local operands = last - first + 1
+        local id: integer = operands > 0 and words[first] or 0
+        if op == OP_DECORATE and operands >= 3 and words[first + 1] == DECORATION_ARRAY_STRIDE then
+            strides[id] = words[first + 2]
+        elseif op == OP_MEMBER_DECORATE and operands >= 4 and words[first + 2] == DECORATION_OFFSET then
+            local members = offsets[id] or {}
+            members[words[first + 1]] = words[first + 3]
+            offsets[id] = members
+        elseif (op == OP_CONSTANT or op == OP_SPEC_CONSTANT) and operands >= 3 then
+            local value: number = words[first + 2]
+            if operands >= 4 then
+                value += words[first + 3] * 0x100000000
+            end
+            constants[words[first + 1]] = value
+        elseif op == OP_TYPE_BOOL and operands >= 1 then
+            layouts[id] = {1, 1}
+        elseif (op == OP_TYPE_INT or op == OP_TYPE_FLOAT) and operands >= 2 then
+            local bits: integer = words[first + 1]
+            if bits ~= 8 and bits ~= 16 and bits ~= 32 and bits ~= 64 then
+                fail(("SPIR-V type %%%d has an unsupported %d-bit width"):format(id, bits))
+            end
+            layouts[id] = {bits / 8, bits / 8}
+        elseif op == OP_TYPE_VECTOR and operands >= 3 then
+            local component, size = layouts[words[first + 1]], words[first + 2]
+            if component and size >= 2 and size <= 4 then
+                layouts[id] = {size * component[1], (size == 3 and 4 or size) * component[2]}
+            end
+        elseif op == OP_TYPE_MATRIX and operands >= 3 then
+            local column, columns = layouts[words[first + 1]], words[first + 2]
+            if column and columns >= 2 and columns <= 4 then
+                layouts[id] = {columns * column[2], column[2]}
+            end
+        elseif op == OP_TYPE_POINTER and operands >= 1 then
+            layouts[id] = {4, 1}
+        elseif (op == OP_TYPE_ARRAY and operands >= 3) or (op == OP_TYPE_RUNTIME_ARRAY and operands >= 2) then
+            -- An array of images or samplers is a binding array, which has
+            -- no layout to check.
+            local element = layouts[words[first + 1]]
+            if element then
+                local length = op == OP_TYPE_ARRAY and (constants[words[first + 2]] or 0) or 1
+                -- naga reads an `ArrayStride` of 0 as no stride at all.
+                local stride: number = strides[id] or 0
+                if stride == 0 then
+                    stride = roundUp(element[1], element[2])
+                end
+                if length > MAX_TYPE_BYTES or length * stride > MAX_TYPE_BYTES then
+                    fail(("SPIR-V array type %%%d is larger than the %d-byte type limit"):format(id, MAX_TYPE_BYTES))
+                end
+                layouts[id] = {length * stride, element[2]}
+            end
+        elseif op == OP_TYPE_STRUCT and operands >= 1 then
+            local placed = offsets[id] or {}
+            local span: number, alignment: number = 0, 1
+            for index = first + 1, last do
+                local member = layouts[words[index]] or {0, 1}
+                span = placed[index - first - 1] or roundUp(span, member[2])
+                span += member[1]
+                alignment = math.max(alignment, member[2])
+            end
+            layouts[id] = {roundUp(span, alignment), alignment}
+        end
+    end
+end
+
+-- Each opcode in `ranges`, a list of `{first, last}` or `{only}`.
+local function opcodes(ranges: {{integer}}): {[integer]: boolean}
+    local set: {[integer]: boolean} = {}
+    for _, range in ipairs(ranges) do
+        for op = range[1], range[2] or range[1] do
+            set[op] = true
+        end
+    end
+
+    return set
+end
+
+-- What `checkstructure` knows about the instructions naga's front end parses,
+-- from the SPIR-V grammar.
+local RESULT_TYPED = opcodes({
+    {1},
+    {12},
+    {41, 44},
+    {46},
+    {48, 51},
+    {54, 55},
+    {57},
+    {59},
+    {61},
+    {65, 66},
+    {68},
+    {77, 84},
+    {86, 98},
+    {100},
+    {103, 104},
+    {106, 107},
+    {109, 115},
+    {124},
+    {126, 148},
+    {154, 159},
+    {164, 191},
+    {194, 205},
+    {207, 215},
+    {227},
+    {229, 230},
+    {232, 242},
+    {245},
+    {334, 335},
+    {337, 339},
+    {345, 366},
+    {6035},
+})
+local RESULT_ONLY = opcodes({{7}, {11}, {19, 30}, {32, 33}, {248}})
+local TYPES = opcodes({{19, 24}, {28, 30}, {32, 33}})
+local NUMERIC_TYPES = opcodes({{20, 24}})
+-- Vectors, matrices, arrays, structs and pointers.
+local COMPOSITE_TYPES = opcodes({{23, 24}, {28, 30}, {32}})
+-- Conversions, arithmetic, relational, logical and bit instructions: naga
+-- takes the scalar kind of their result and operand types without checking
+-- there is one.
+local NUMERIC = opcodes({{109, 115}, {124}, {126, 148}, {154, 159}, {164, 168}, {170, 191}, {194, 205}})
+local ATOMICS = opcodes({{227, 230}, {232, 242}, {6035}})
+local DERIVATIVES = opcodes({{207, 215}})
+-- Image and sampler types and instructions, and the quad operations.
+local UNBOUND = opcodes({{25, 27}, {86, 107}, {365, 366}})
+-- Decorations naga reads no literal for, whatever the word count says.
+local FLAG_DECORATIONS = opcodes({{3, 5}, {13, 14}, {16, 18}, {21}, {23, 25}, {5285}})
+-- Module-scope results naga keeps as values a function can name.
+local MODULE_VALUES = opcodes({{1}, {41, 44}, {46}, {48, 51}, {59}})
+
+const OP_SOURCE_EXTENSION = 4
+const OP_STRING = 7
+const OP_EXT_INST_IMPORT = 11
+const OP_EXT_INST = 12
+const OP_TYPE_VOID = 19
+const OP_TYPE_FUNCTION = 33
+const OP_FUNCTION = 54
+const OP_FUNCTION_END = 56
+const OP_FUNCTION_CALL = 57
+const OP_VARIABLE = 59
+const OP_ACCESS_CHAIN = 65
+const OP_IN_BOUNDS_ACCESS_CHAIN = 66
+const OP_COMPOSITE_CONSTRUCT = 80
+const OP_COMPOSITE_INSERT = 82
+const OP_COPY_OBJECT = 83
+const OP_ATOMIC_STORE = 228
+const OP_PHI = 245
+const OP_LOOP_MERGE = 246
+const OP_SELECTION_MERGE = 247
+const OP_LABEL = 248
+const OP_BRANCH = 249
+const OP_BRANCH_CONDITIONAL = 250
+const OP_SWITCH = 251
+const DECORATION_SPEC_ID = 1
+const NON_SEMANTIC_DEBUG_INFO = "NonSemantic.Shader.DebugInfo.100"
+-- naga builds one expression per element of an array `OpCompositeInsert`
+-- indexes, whichever element it selects.
+const MAX_INSERT_ELEMENTS = 65536
+-- naga, wgpu-native and the driver recurse once per nested block and per type
+-- level, on the caller's stack. On a 2 MiB stack naga's validator overflows at
+-- about 1360 nested selections and an NVIDIA Vulkan driver at about 14000
+-- nested structs.
+const MAX_NESTING = 128
+-- On DX12, wgpu hands naga's HLSL to FXC, which unrolls every loop whose trip
+-- count it can work out, inner ones inside outer ones. Its time grows about
+-- fourfold per level: on one machine 8 nested loops took 0.27 s, 10 took 3 s,
+-- 13 took 215 s and 128 never finished.
+export const MAX_DX12_LOOP_NESTING = 8
+
+-- Refuses nesting past `MAX_NESTING` levels.
+local function checknesting(what: string, depth: integer): nil
+    if depth > MAX_NESTING then
+        fail(("SPIR-V %s nests %d deep; at most %d levels are supported"):format(what, depth, MAX_NESTING))
+    end
+end
+
+--- The deepest `checkstructure` lets loops nest for a context's backend: on
+--- DX12 `MAX_DX12_LOOP_NESTING`, elsewhere as deep as any block.
+export function loopnesting(backend: string): integer
+    return backend == "dx12" and MAX_DX12_LOOP_NESTING or MAX_NESTING
+end
+
+-- Whether a SPIR-V literal string starting at word `from` ends in word `last`.
+local function stringEndsAt(words: any, from: integer, last: integer): boolean
+    for index = from, last do
+        local word = words[index]
+        for shift = 0, 24, 8 do
+            if ((word >> shift) & 0xff) == 0 then
+                return index == last
+            end
+        end
+    end
+
+    return false
+end
+
+local function wordCount(op: integer, at: integer): never
+    fail(("SPIR-V instruction %d at word %d has a word count naga reads differently"):format(op, at))
+end
+
+-- Whether naga keeps `def` as a value the function `scope` can name.
+local function namedValue(
+    words: any,
+    defs: {[integer]: any},
+    imports: {[integer]: string},
+    def: any,
+    scope: integer
+): boolean
+    if def == nil or def.type == nil or def.op == OP_FUNCTION or defs[def.type].op == OP_TYPE_VOID then
+        return false
+    end
+    if def.scope == 0 then
+        return MODULE_VALUES[def.op] == true
+    end
+
+    return def.scope == scope
+        and not (def.op == OP_EXT_INST and imports[words[def.first + 2]] == NON_SEMANTIC_DEBUG_INFO)
+end
+
+-- Refuses an atomic whose pointer, walked from the global variable at its
+-- root, steps through anything but structs and arrays or ends anywhere but an
+-- integer or float. naga's atomic upgrade expects nothing else.
+local function checkatomic(
+    words: any,
+    defs: {[integer]: any},
+    constants: {[integer]: number},
+    pointer: integer,
+    at: integer
+): nil
+    local steps: {{integer}} = {}
+    local def = defs[pointer]
+    local before = at
+    while def ~= nil and def.at < before and def.op ~= OP_VARIABLE do
+        before = def.at
+        if def.op == OP_ACCESS_CHAIN or def.op == OP_IN_BOUNDS_ACCESS_CHAIN then
+            steps[#steps + 1] = {def.first + 3, def.last}
+        elseif def.op ~= OP_COPY_OBJECT then
+            return
+        end
+        def = defs[words[def.first + 2]]
+    end
+    if def == nil or def.op ~= OP_VARIABLE or def.at >= before then
+        return
+    end
+    local pointerType = defs[def.type]
+    local ty: integer? = pointerType.op == OP_TYPE_POINTER and words[pointerType.first + 2] or nil
+    for step = #steps, 1, -1 do
+        for index = steps[step][1], steps[step][2] do
+            local shape = ty and defs[ty]
+            if shape and shape.op == OP_TYPE_STRUCT then
+                local member = constants[words[index]]
+                if member == nil or member >= shape.last - shape.first then
+                    fail(("SPIR-V atomic at word %d selects no member of struct %%%d"):format(at, ty as integer))
+                end
+                ty = words[shape.first + 1 + member]
+            elseif shape and (shape.op == OP_TYPE_ARRAY or shape.op == OP_TYPE_RUNTIME_ARRAY) then
+                ty = words[shape.first + 1]
+            else
+                fail(("SPIR-V atomic at word %d indexes something other than a struct or an array"):format(at))
+            end
+        end
+    end
+    local leaf = ty and defs[ty]
+    if leaf == nil or (leaf.op ~= OP_TYPE_INT and leaf.op ~= OP_TYPE_FLOAT) then
+        fail(("SPIR-V atomic at word %d does not reach an integer or a float"):format(at))
+    end
+end
+
+-- Refuses an `OpCompositeInsert` whose indices leave its composite type, or
+-- that indexes an array naga would build too many expressions for.
+local function checkinsert(
+    words: any,
+    defs: {[integer]: any},
+    constants: {[integer]: number},
+    first: integer,
+    last: integer
+): nil
+    local ty: integer = words[first]
+    for index = first + 4, last do
+        local shape = defs[ty]
+        local selection: integer = words[index]
+        local length: number? = nil
+        local element: integer = 0
+        if shape == nil then
+            return
+        elseif shape.op == OP_TYPE_STRUCT then
+            length = shape.last - shape.first
+        elseif shape.op == OP_TYPE_ARRAY then
+            length = constants[words[shape.first + 2]]
+            element = words[shape.first + 1]
+            if length ~= nil and length > MAX_INSERT_ELEMENTS then
+                fail(
+                    (
+                        "SPIR-V OpCompositeInsert at word %d indexes an array of %d elements; at most %d are supported"
+                    ):format(first - 1, length, MAX_INSERT_ELEMENTS)
+                )
+            end
+        elseif shape.op == OP_TYPE_VECTOR or shape.op == OP_TYPE_MATRIX then
+            length = words[shape.first + 2]
+            element = words[shape.first + 1]
+        end
+        if length == nil then
+            return
+        end
+        if selection >= length then
+            fail(
+                (
+                    "SPIR-V OpCompositeInsert at word %d selects element %d of %%%d, which has %d"
+                ):format(first - 1, selection, ty, length)
+            )
+        end
+        ty = shape.op == OP_TYPE_STRUCT and words[shape.first + 1 + selection] or element
+    end
+end
+
+--- Refuses a module that would reach one of the other panics in naga's SPIR-V
+--- front end (wgpu v29), which abort the process from inside wgpu-native the
+--- way a layout failure does. Each rule holds for every module naga parses
+--- without panicking, except two: images and samplers, which a GPU kernel
+--- never binds, and the quad operations, whose capability naga refuses.
+---
+--- - Result ids are below the module's bound and defined once. A result type
+---   is a type naga records: never a function type, and void only for a
+---   function, a call or an extended instruction.
+--- - Every instruction spans exactly the words naga reads for it, so nothing
+---   hides in another's padding: flag decorations and `SpecId`, scalar
+---   constants, `OpString`, `OpSourceExtension`, `OpExtInst`, `OpPhi`,
+---   `OpSwitch`, the derivatives and the `LocalSize` execution mode.
+--- - Conversions and arithmetic, relational, logical and bit instructions
+---   take and give scalars, vectors or matrices.
+--- - An `OpCompositeConstruct` has a constituent, and an `OpCompositeInsert`'s
+---   indices stay inside its type.
+--- - An `OpSwitch` selector is an integer of at most 32 bits defined before
+---   it; an `OpPhi` names values naga keeps and labels of its own function,
+---   which is where every branch and merge goes; a call names a function.
+--- - An atomic's pointer reaches an integer or float through structs and
+---   arrays alone.
+--- - Blocks and types nest at most `MAX_NESTING` deep, so that nothing that
+---   recurses over them overflows the stack. naga gives every branch of an
+---   `OpBranchConditional` and every switch case its own nested block, merge
+---   instruction or not, and a loop's body one more; a merge block continues
+---   its header's.
+--- - Loops nest at most `loops` deep, `MAX_NESTING` when that is not given.
+export function checkstructure(words: any, count: integer, loops: integer?): nil
+    local maxLoops: integer = loops or MAX_NESTING
+    if count < 5 then
+        return
+    end
+    local bound: integer = words[3]
+    -- Each result id's opcode, result type, function (0 at module scope) and
+    -- words.
+    local defs: {[integer]: any} = {}
+    local constants: {[integer]: number} = {}
+    local imports: {[integer]: string} = {}
+    local calls: {{integer}} = {}
+    local scope: integer, functions: integer = 0, 0
+    local labels: {[integer]: boolean} = {}
+    local targets: {{integer}} = {}
+    local phis: {{integer}} = {}
+    -- How deep each type nests, and how deep naga nests each label's block,
+    -- with the merge and continue targets naga reads branches to as leaving a
+    -- construct rather than entering a block.
+    local typeDepths: {[integer]: integer} = {}
+    local depths: {[integer]: integer} = {}
+    local mergers: {[integer]: boolean} = {}
+    local depth: integer = 0
+    -- How many loops each label's block sits in, from the first branch that
+    -- names it, and how many the current block sits in.
+    local loopDepths: {[integer]: integer} = {}
+    local loopDepth: integer = 0
+
+    -- A branch from the current block to `label`, which sits in the same
+    -- loops unless something named it first.
+    local function reach(label: integer): nil
+        loopDepths[label] = loopDepths[label] or loopDepth
+    end
+
+    -- A branch from the current block opening a block one deeper. naga keeps
+    -- a switch case's earlier depth, but not a conditional branch's.
+    local function enter(label: integer, at: integer, keep: boolean): nil
+        checknesting(("control flow at word %d"):format(at), depth + 1)
+        if not mergers[label] and not (keep and depths[label] ~= nil) then
+            depths[label] = depth + 1
+        end
+        reach(label)
+    end
+
+    for _, instruction in ipairs(spirvInstructions(words, count)) do
+        local op, first, last = instruction[1], instruction[2], instruction[3]
+        local operands = last - first + 1
+        local at = first - 1
+        if UNBOUND[op] then
+            fail(
+                (
+                    "SPIR-V instruction %d at word %d uses images, samplers or quads, which GPU kernels do not support"
+                ):format(op, at)
+            )
+        end
+        local resultType: integer? = nil
+        local result: integer? = nil
+        if RESULT_TYPED[op] and operands >= 2 then
+            resultType, result = words[first], words[first + 1]
+        elseif RESULT_ONLY[op] and operands >= 1 then
+            result = words[first]
+        end
+        if resultType ~= nil then
+            local declared = defs[resultType]
+            if declared == nil
+                or not TYPES[declared.op]
+                or declared.op == OP_TYPE_FUNCTION
+                or (declared.op == OP_TYPE_VOID and op ~= OP_FUNCTION and op ~= OP_FUNCTION_CALL and op ~= OP_EXT_INST)
+            then
+                fail(
+                    (
+                        "SPIR-V instruction at word %d has result type %%%d, which is not a value type"
+                    ):format(at, resultType)
+                )
+            end
+        end
+        if result ~= nil then
+            if result == 0 or result >= bound then
+                fail(("SPIR-V id %%%d at word %d is outside the module's bound %d"):format(result, at, bound))
+            end
+            if defs[result] ~= nil then
+                fail(("SPIR-V id %%%d is defined twice"):format(result))
+            end
+            defs[result] = {op = op, type = resultType, scope = scope, at = at, first = first, last = last}
+            if COMPOSITE_TYPES[op] and operands >= 2 then
+                -- A pointer adds no level to what it points at; a vector,
+                -- matrix, array or struct adds one to what it holds.
+                local nested: integer = 0
+                if op == OP_TYPE_POINTER then
+                    nested = operands >= 3 and typeDepths[words[first + 2]] or 0
+                else
+                    for index = first + 1, op == OP_TYPE_STRUCT and last or first + 1 do
+                        nested = math.max(nested, (typeDepths[words[index]] or 0) + 1) as integer
+                    end
+                end
+                checknesting(("type %%%d"):format(result), nested)
+                typeDepths[result] = nested
+            end
+        end
+
+        if op == OP_STRING or op == OP_SOURCE_EXTENSION then
+            if not stringEndsAt(words, op == OP_STRING and first + 1 or first, last) then
+                wordCount(op, at)
+            end
+        elseif op == OP_EXT_INST_IMPORT and operands >= 2 then
+            imports[words[first]] = spirvString(words, first + 1, last)
+        elseif op == OP_EXT_INST and operands < 4 then
+            wordCount(op, at)
+        elseif (op == OP_DECORATE or op == OP_MEMBER_DECORATE) and operands >= 2 then
+            local base = op == OP_DECORATE and 2 or 3
+            local decoration: integer = words[first + base - 1]
+            if (FLAG_DECORATIONS[decoration] and operands ~= base)
+                or (decoration == DECORATION_SPEC_ID and operands ~= base + 1)
+            then
+                wordCount(op, at)
+            end
+        elseif op == OP_EXECUTION_MODE and operands >= 2 and words[first + 1] == EXECUTION_MODE_LOCAL_SIZE then
+            if operands ~= 5 then
+                wordCount(op, at)
+            end
+        elseif (op == OP_CONSTANT or op == OP_SPEC_CONSTANT) and operands >= 3 then
+            local shape = defs[words[first]]
+            if shape.op == OP_TYPE_INT or shape.op == OP_TYPE_FLOAT then
+                if operands ~= (words[shape.first + 1] == 64 and 4 or 3) then
+                    wordCount(op, at)
+                end
+                if shape.op == OP_TYPE_INT then
+                    constants[
+                        words[first + 1]
+                    ] = words[first + 2] + (operands == 4 and words[first + 3] * 0x100000000 or 0)
+                end
+            end
+        elseif DERIVATIVES[op] and operands ~= 3 then
+            wordCount(op, at)
+        elseif NUMERIC[op] and operands >= 2 then
+            for index = first + 2, last do
+                local operand = defs[words[index]]
+                local ty = operand and operand.type and defs[operand.type]
+                if ty and not NUMERIC_TYPES[ty.op] then
+                    fail(
+                        (
+                            "SPIR-V instruction %d at word %d needs a scalar, vector or matrix where %%%d is not one"
+                        ):format(op, at, words[index])
+                    )
+                end
+            end
+            if not NUMERIC_TYPES[defs[words[first]].op] and (op < 149 or op > 152) then
+                fail(("SPIR-V instruction %d at word %d needs a scalar, vector or matrix result"):format(op, at))
+            end
+        elseif op == OP_COMPOSITE_CONSTRUCT and operands < 3 then
+            fail(("SPIR-V OpCompositeConstruct at word %d has no constituents"):format(at))
+        elseif op == OP_COMPOSITE_INSERT and operands >= 4 then
+            checkinsert(words, defs, constants, first, last)
+        elseif ATOMICS[op] and operands >= 3 then
+            checkatomic(words, defs, constants, op == OP_ATOMIC_STORE and words[first] or words[first + 2], at)
+        elseif op == OP_FUNCTION then
+            functions += 1
+            scope = functions
+            labels, targets, phis = {}, {}, {}
+            depths, mergers, depth = {}, {}, 0
+            loopDepths, loopDepth = {}, 0
+        elseif op == OP_FUNCTION_CALL and operands >= 3 then
+            calls[#calls + 1] = {words[first + 2], at}
+        elseif op == OP_LABEL and operands >= 1 then
+            labels[words[first]] = true
+            -- naga puts a block no branch has named yet at the top.
+            depth = depths[words[first]] or 0
+            loopDepth = loopDepths[words[first]] or 0
+        elseif op == OP_PHI then
+            if operands < 4 or operands % 2 ~= 0 then
+                wordCount(op, at)
+            end
+            phis[#phis + 1] = {at, first, last}
+        elseif op == OP_SWITCH then
+            if operands < 2 or operands % 2 ~= 0 then
+                wordCount(op, at)
+            end
+            local selector = defs[words[first]]
+            local shape = selector and selector.type and defs[selector.type]
+            if not namedValue(words, defs, imports, selector, scope)
+                or shape.op ~= OP_TYPE_INT
+                or words[shape.first + 1] > 32
+            then
+                fail(
+                    (
+                        "SPIR-V OpSwitch at word %d needs an integer selector of at most 32 bits defined before it"
+                    ):format(at)
+                )
+            end
+            targets[#targets + 1] = {words[first + 1], at}
+            enter(words[first + 1], at, true)
+            for index = first + 3, last, 2 do
+                targets[#targets + 1] = {words[index], at}
+                enter(words[index], at, true)
+            end
+        elseif op == OP_BRANCH or op == OP_SELECTION_MERGE then
+            local target: integer = words[first]
+            targets[#targets + 1] = {target, at}
+            reach(target)
+            if op == OP_SELECTION_MERGE then
+                depths[target] = depths[target] or depth
+                mergers[target] = true
+            elseif not mergers[target] then
+                depths[target] = depths[target] or depth
+            end
+        elseif op == OP_BRANCH_CONDITIONAL and operands >= 3 then
+            local yes: integer, no: integer = words[first + 1], words[first + 2]
+            targets[#targets + 1] = {yes, at}
+            targets[#targets + 1] = {no, at}
+            if yes ~= no then
+                enter(yes, at, false)
+                enter(no, at, false)
+            elseif not mergers[yes] then
+                depths[yes] = depth
+                reach(yes)
+            end
+        elseif op == OP_LOOP_MERGE and operands >= 2 then
+            local merge: integer, continuing: integer = words[first], words[first + 1]
+            targets[#targets + 1] = {merge, at}
+            targets[#targets + 1] = {continuing, at}
+            depths[merge] = depths[merge] or depth
+            mergers[merge] = true
+            reach(merge)
+            -- The rest of the header, and the continuing block beside the
+            -- body, sit in the loop.
+            depth += 1
+            checknesting(("control flow at word %d"):format(at), depth)
+            depths[continuing] = depths[continuing] or depth
+            mergers[continuing] = true
+            loopDepth += 1
+            if loopDepth > maxLoops then
+                fail(
+                    (
+                        "SPIR-V loop at word %d nests %d loops deep; at most %d nested loops are supported on this backend"
+                    ):format(at, loopDepth, maxLoops)
+                )
+            end
+            loopDepths[continuing] = loopDepths[continuing] or loopDepth
+        elseif op == OP_FUNCTION_END then
+            for _, target in ipairs(targets) do
+                if not labels[target[1]] then
+                    fail(
+                        (
+                            "SPIR-V branch at word %d goes to %%%d, which is no label of its function"
+                        ):format(target[2], target[1])
+                    )
+                end
+            end
+            for _, phi in ipairs(phis) do
+                for index = phi[2] + 2, phi[3], 2 do
+                    if not namedValue(words, defs, imports, defs[words[index]], scope) then
+                        fail(
+                            (
+                                "SPIR-V OpPhi at word %d takes %%%d, which is no value of its function"
+                            ):format(phi[1], words[index])
+                        )
+                    end
+                    if not labels[words[index + 1]] then
+                        fail(
+                            (
+                                "SPIR-V OpPhi at word %d names %%%d, which is no label of its function"
+                            ):format(phi[1], words[index + 1])
+                        )
+                    end
+                end
+            end
+            scope = 0
+        end
+    end
+    for _, call in ipairs(calls) do
+        local callee = defs[call[1]]
+        if callee == nil or callee.op ~= OP_FUNCTION then
+            fail(("SPIR-V call at word %d names %%%d, which is no function"):format(call[2], call[1]))
+        end
+    end
+end
+
+-- --- resource tables ---------------------------------------------------------
+
+--- A context's public handles, each naming a kind and its entry.
+export function resources(): {[integer]: any}
+    return {}
+end
+
+--- Registers `entry` under a fresh public handle.
+export function insert(table: {[integer]: any}, kind: string, entry: any): integer
+    local handle = freshHandle()
+    table[handle] = {kind = kind, entry = entry}
+
+    return handle
+end
+
+--- The entry `handle` names, refusing a stale handle or one of another kind.
+export function lookup(table: {[integer]: any}, handle: any, expected: string): any
+    local key = (tonumber(handle) or -1) as integer
+    local reference = table[key]
+    if reference == nil then
+        fail(("unknown or released GPU handle %s"):format(tostring(key)))
+    end
+    if reference.kind ~= expected then
+        fail(("GPU handle %d is a %s, not a %s"):format(key, reference.kind, expected))
+    end
+
+    return reference.entry
+end
+
+--- Removes the entry `handle` names, with the same refusals as `lookup`.
+export function remove(table: {[integer]: any}, handle: any, expected: string): any
+    local entry = lookup(table, handle, expected)
+    table[tonumber(handle) as integer] = nil
+
+    return entry
+end
+
+-- --- the device --------------------------------------------------------------
+
+local function settle(context: any): nil
+    local library = context.lib
+    library.wgpuDevicePoll(context.device, 1, nil)
+    library.wgpuInstanceProcessEvents(context.instance)
+end
+
+local function callbackInfo(callback: any, userdata: any, mode: integer?): any
+    local info: any = memory.new("WGPUCallbackInfo")
+    info.mode = mode or CALLBACK_MODE
+    info.callback = callback
+    info.userdata1 = userdata
+
+    return info
+end
+
+local function limitsOf(limits: any): {[string]: integer}
+    return {
+        maxBufferSize = tonumber(limits.maxBufferSize) as integer,
+        maxBindGroups = limits.maxBindGroups,
+        maxBindingsPerBindGroup = limits.maxBindingsPerBindGroup,
+        maxStorageBuffersPerShaderStage = limits.maxStorageBuffersPerShaderStage,
+        maxUniformBufferBindingSize = tonumber(limits.maxUniformBufferBindingSize) as integer,
+        maxStorageBufferBindingSize = tonumber(limits.maxStorageBufferBindingSize) as integer,
+        minStorageBufferOffsetAlignment = limits.minStorageBufferOffsetAlignment,
+        maxComputeInvocationsPerWorkgroup = limits.maxComputeInvocationsPerWorkgroup,
+        maxComputeWorkgroupSizeX = limits.maxComputeWorkgroupSizeX,
+        maxComputeWorkgroupSizeY = limits.maxComputeWorkgroupSizeY,
+        maxComputeWorkgroupSizeZ = limits.maxComputeWorkgroupSizeZ,
+        maxComputeWorkgroupsPerDimension = limits.maxComputeWorkgroupsPerDimension,
+    }
+end
+
+local function releaseAll(context: any): nil
+    local library = context.lib
+    if context.queue ~= nil then
+        library.wgpuQueueRelease(context.queue)
+        context.queue = nil
+    end
+    if context.device ~= nil then
+        library.wgpuDeviceRelease(context.device)
+        context.device = nil
+    end
+    if context.adapter ~= nil then
+        library.wgpuAdapterRelease(context.adapter)
+        context.adapter = nil
+    end
+    if context.instance ~= nil then
+        library.wgpuInstanceRelease(context.instance)
+        context.instance = nil
+    end
+    if context.faultKey ~= nil then
+        wgpu.dropfaults(context.faultKey)
+        context.faultKey = nil
+    end
+end
+
+local function costRecord(context: any, operation: string, values: {[string]: any}): nil
+    if costs.enabled() then
+        costs.record(context.costId, operation, values)
+    end
+end
+
+local function checkCosts(): nil
+    local problem = costs.check()
+    if problem ~= nil then
+        fail(problem)
+    end
+end
+
+local function createContext(): any
+    local library = lib()
+    local callbacks = wgpu.callbacks()
+    local costId = freshHandle()
+    local setupStart = costs.clock()
+    local context: any = {
+        lib = library,
+        costId = costId,
+        timestampSupported = false,
+        pendingTimestamps = {},
+        dispatchSequence = 0,
+        resources = {},
+        pendingDownloads = {},
+    }
+    local backendsOk, backends = pcall(wgpu.requestedbackends)
+    if not backendsOk then
+        fail("no suitable compute adapter is available: " .. tostring(backends))
+    end
+    local extras: any = nil
+    local descriptor: any = nil
+    if backends ~= 0 then
+        extras = memory.new("WGPUInstanceExtras") as any
+        extras.chain.sType = wgpu.STYPE_INSTANCE_EXTRAS
+        extras.backends = backends
+        descriptor = memory.new("WGPUInstanceDescriptor") as any
+        descriptor.nextInChain = memory.cast("WGPUChainedStruct *", extras)
+    end
+    context.instance = library.wgpuCreateInstance(descriptor)
+    if context.instance == nil then
+        fail("no suitable compute adapter is available: wgpu-native created no instance")
+    end
+    local options: any = memory.new("WGPURequestAdapterOptions")
+    options.featureLevel = wgpu.FEATURE_LEVEL_CORE
+    options.powerPreference = wgpu.POWER_HIGH_PERFORMANCE
+    local userdata, key = wgpu.token()
+    library.wgpuInstanceRequestAdapter(context.instance, options, callbackInfo(callbacks.adapter, userdata))
+    library.wgpuInstanceProcessEvents(context.instance)
+    local adapter = wgpu.take(key)
+    if not adapter or adapter.status ~= wgpu.STATUS_SUCCESS or adapter.value == nil then
+        releaseAll(context)
+        fail("no suitable compute adapter is available: " .. (adapter and adapter.message or "no adapter answered"))
+    end
+    context.adapter = adapter.value
+    local adapterTime = costs.elapsed(setupStart)
+    local info: any = memory.new("WGPUAdapterInfo")
+    local infoStatus = library.wgpuAdapterGetInfo(context.adapter, info)
+    if infoStatus == wgpu.STATUS_SUCCESS then
+        context.adapterName = memory.readstring(info.device.data, info.device.length)
+        context.backend = wgpu.backendname(info.backendType)
+        library.wgpuAdapterInfoFreeMembers(info)
+    else
+        context.adapterName = ""
+        context.backend = "empty"
+    end
+    context.timestampSupported = costs.enabled()
+        and library.wgpuAdapterHasFeature(context.adapter, wgpu.FEATURE_TIMESTAMP_QUERY) ~= 0
+    local deviceStart = costs.clock()
+    local adapterLimits: any = memory.new("WGPULimits")
+    library.wgpuAdapterGetLimits(context.adapter, adapterLimits)
+    local features: any = memory.new("uint32_t[1]", wgpu.FEATURE_TIMESTAMP_QUERY)
+    local label = "Nupp native compute device"
+    local faultUserdata, faultKey = wgpu.faultsink()
+    context.faultKey = faultKey
+    local request: any = memory.new("WGPUDeviceDescriptor")
+    request.label = wgpu.view(label)
+    request.requiredFeatureCount = context.timestampSupported and 1 or 0
+    request.requiredFeatures = memory.raw(features)
+    request.requiredLimits = adapterLimits
+    request.deviceLostCallbackInfo.mode = wgpu.CALLBACK_SPONTANEOUS
+    request.deviceLostCallbackInfo.callback = callbacks.lost
+    request.deviceLostCallbackInfo.userdata1 = faultUserdata
+    request.uncapturedErrorCallbackInfo.callback = callbacks.error
+    request.uncapturedErrorCallbackInfo.userdata1 = faultUserdata
+    userdata, key = wgpu.token()
+    library.wgpuAdapterRequestDevice(context.adapter, request, callbackInfo(callbacks.device, userdata))
+    library.wgpuInstanceProcessEvents(context.instance)
+    local device = wgpu.take(key)
+    if not device or device.status ~= wgpu.STATUS_SUCCESS or device.value == nil then
+        releaseAll(context)
+        fail("request GPU device: " .. (device and device.message or "no device answered"))
+    end
+    context.device = device.value
+    context.queue = library.wgpuDeviceGetQueue(context.device)
+    local deviceLimits: any = memory.new("WGPULimits")
+    library.wgpuDeviceGetLimits(context.device, deviceLimits)
+    context.limits = limitsOf(deviceLimits)
+    costRecord(context, "adapterDevice", {
+        phase = "setup",
+        adapter = context.adapterName,
+        backend = context.backend,
+        adapterMs = adapterTime,
+        deviceMs = costs.elapsed(deviceStart),
+        gpuTiming = context.timestampSupported and "timestamp-query" or "unavailable",
+    })
+    local problem = costs.check()
+    if problem ~= nil then
+        releaseAll(context)
+        fail(problem)
+    end
+
+    return context
+end
+
+local function finishValidationScope(context: any): nil
+    local userdata, key = wgpu.token()
+    context.lib.wgpuDevicePopErrorScope(context.device, callbackInfo(wgpu.callbacks().scope, userdata))
+    settle(context)
+    local scope = wgpu.take(key)
+    if not scope then
+        fail("poll GPU device: the validation scope never settled")
+    end
+    if scope.status == wgpu.STATUS_SUCCESS and scope.kind ~= wgpu.ERROR_TYPE_NO_ERROR then
+        local text = scope.message ~= "" and scope.message or wgpu.errortype(scope.kind)
+        fail("GPU validation: " .. text)
+    end
+end
+
+-- --- buffers -----------------------------------------------------------------
+
+local function createBuffer(context: any, size: integer): integer
+    if size == 0 then
+        fail("GPU buffer size must be greater than zero")
+    end
+    if size > context.limits.maxBufferSize then
+        fail(("GPU buffer size %d exceeds the device limit %d"):format(size, context.limits.maxBufferSize))
+    end
+    -- Copies and storage bindings move whole words, so a buffer of narrow
+    -- elements whose bytes end partway through one gets the rest of that word
+    -- as padding nobody can address.
+    local allocated = alignUp(size, COPY_ALIGNMENT)
+    local start = costs.clock()
+    local label = "Nupp resident compute buffer"
+    local descriptor: any = memory.new("WGPUBufferDescriptor")
+    descriptor.label = wgpu.view(label)
+    descriptor.size = allocated
+    descriptor.usage = wgpu.BUFFER_USAGE_STORAGE | wgpu.BUFFER_USAGE_COPY_SRC | wgpu.BUFFER_USAGE_COPY_DST
+    local buffer = context.lib.wgpuDeviceCreateBuffer(context.device, descriptor)
+    local handle = insert(context.resources, "buffer", {
+        buffer = buffer,
+        size = size,
+        download = nil,
+        version = 0,
+        completedVersion = nil,
+        completedLayout = NULL,
+        metadata = NULL,
+    })
+    costRecord(context, "bufferAllocate", {
+        buffer = handle,
+        version = 0,
+        bytes = size,
+        reused = false,
+        hostMs = costs.elapsed(start),
+    })
+
+    return handle
+end
+
+local function releaseBuffer(context: any, handle: any): boolean
+    local entry = lookup(context.resources, handle, "buffer")
+    if entry.download ~= nil and entry.download.pending then
+        fail(("buffer %d already has a queued download"):format(tonumber(handle) as integer))
+    end
+    local start = costs.clock()
+    remove(context.resources, handle, "buffer")
+    context.lib.wgpuBufferRelease(entry.buffer)
+    costRecord(context, "bufferRelease", {buffer = tonumber(handle), hostMs = costs.elapsed(start)})
+
+    return true
+end
+
+-- The caller's bytes cross into C through these typed views of the C functions,
+-- so a span's borrow is never erased into a dynamic value on the way.
+local function writeTyped<T>(context: any, buffer: any, offset: integer, borrows data: const T[?], length: integer): nil
+    local write = context.lib.wgpuQueueWriteBuffer as function(
+        any,
+        any,
+        integer,
+        borrows data: const T[?],
+        integer
+    ): nil
+    write(context.queue, buffer, offset, data, length)
+end
+
+local function copyFrom<T>(destination: any, borrows source: const T[?], length: integer): nil
+    local copy = memory.copy as function(any, borrows source: const T[?], integer): nil
+    copy(destination, source, length)
+end
+
+local function copyInto<T>(borrows destination: T[?], source: string, length: integer): nil
+    local copy = memory.copy as function(borrows destination: T[?], string, integer): nil
+    copy(destination, source, length)
+end
+
+-- Checks an upload, answering its buffer entry and how many bytes it moves.
+local function prepareUpload(context: any, handle: any, offset: integer, length: integer): any
+    local entry = lookup(context.resources, handle, "buffer")
+    checkedrange("upload", offset, length, entry.size)
+
+    return {entry = entry, copied = copyextent("upload", offset, length, entry.size)}
+end
+
+local function finishUpload(
+    context: any,
+    handle: any,
+    offset: integer,
+    length: integer,
+    entry: any,
+    start: number?
+): boolean
+    if length > 0 then
+        entry.version += 1
+    end
+    costRecord(context, "upload", {
+        buffer = tonumber(handle),
+        version = entry.version,
+        offset = offset,
+        bytes = length,
+        layout = entry.metadata,
+        hostMs = costs.elapsed(start),
+        gpuMs = NULL,
+        gpuTiming = "unavailable",
+        hostCopies = 1,
+    })
+
+    return true
+end
+
+-- --- kernels -----------------------------------------------------------------
+
+local function validateKernelDescriptor(context: any, descriptor: any): nil
+    local limits = context.limits
+    if descriptor.entryPoint == "" or descriptor.entryPoint:find("\0", 1, true) then
+        fail("GPU entry point must be non-empty text without NUL bytes")
+    end
+    spirvwords(descriptor.spirv)
+    if descriptor.uniformSize % COPY_ALIGNMENT ~= 0 then
+        fail(("GPU uniform size must be aligned to %d bytes"):format(COPY_ALIGNMENT))
+    end
+    if descriptor.uniformSize > limits.maxUniformBufferBindingSize then
+        fail(
+            (
+                "GPU uniform size %d exceeds the device limit %d"
+            ):format(descriptor.uniformSize, limits.maxUniformBufferBindingSize)
+        )
+    end
+    local size = descriptor.workgroupSize
+    if size[1] == 0 or size[2] == 0 or size[3] == 0 then
+        fail("GPU workgroup dimensions must be nonzero")
+    end
+    if size[1] > limits.maxComputeWorkgroupSizeX
+        or size[2] > limits.maxComputeWorkgroupSizeY
+        or size[3] > limits.maxComputeWorkgroupSizeZ
+        or size[1] * size[2] * size[3] > limits.maxComputeInvocationsPerWorkgroup
+    then
+        fail(("GPU workgroup size %s exceeds device limits"):format(triple(size)))
+    end
+    local readonly, writable = descriptor.readonlyBindings, descriptor.writableBindings
+    local storage = limits.maxStorageBuffersPerShaderStage
+    if readonly > storage
+        or writable > storage
+        or readonly > limits.maxBindingsPerBindGroup
+        or writable > limits.maxBindingsPerBindGroup
+        or readonly + writable > storage
+    then
+        fail("GPU storage binding count exceeds the device limit")
+    end
+    local required = descriptor.uniformSize ~= 0 and 3 or (writable ~= 0 and 2 or (readonly ~= 0 and 1 or 0))
+    if required > limits.maxBindGroups then
+        fail(("GPU kernel requires %d bind groups, but the device supports %d"):format(required, limits.maxBindGroups))
+    end
+end
+
+local function bindGroupLayout(context: any, label: string, count: integer, kind: integer, minimum: integer): any
+    local entries: any = memory.new("WGPUBindGroupLayoutEntry[?]", math.max(count, 1))
+    for binding = 0, count - 1 do
+        entries[binding].binding = binding
+        entries[binding].visibility = wgpu.SHADER_STAGE_COMPUTE
+        entries[binding].buffer.type = kind
+        entries[binding].buffer.minBindingSize = minimum
+    end
+    local descriptor: any = memory.new("WGPUBindGroupLayoutDescriptor")
+    descriptor.label = wgpu.view(label)
+    descriptor.entryCount = count
+    descriptor.entries = entries
+
+    return context.lib.wgpuDeviceCreateBindGroupLayout(context.device, descriptor)
+end
+
+local function emptyGroup(context: any, layout: any): any
+    local descriptor: any = memory.new("WGPUBindGroupDescriptor")
+    local label = "Nupp empty bind group"
+    descriptor.label = wgpu.view(label)
+    descriptor.layout = layout
+
+    return context.lib.wgpuDeviceCreateBindGroup(context.device, descriptor)
+end
+
+-- The groups the generated shaders use: read-only storage at 0, writable
+-- storage at 1, uniforms at 2. A pipeline layout has no holes, so a group a
+-- kernel leaves out below one it uses gets an empty layout, and a dispatch
+-- sets the empty group that matches it.
+local function releaseKernelEntry(context: any, entry: any): nil
+    local library = context.lib
+    for index = 0, 2 do
+        local group = entry.emptyGroups[index]
+        if group ~= nil then
+            library.wgpuBindGroupRelease(group)
+        end
+        local layout = entry.groupLayouts[index]
+        if layout ~= nil then
+            library.wgpuBindGroupLayoutRelease(layout)
+        end
+    end
+    if entry.pipeline ~= nil then
+        library.wgpuComputePipelineRelease(entry.pipeline)
+    end
+end
+
+local function createKernel(context: any, descriptor: any): integer
+    local start = costs.clock()
+    validateKernelDescriptor(context, descriptor)
+    local words, count = spirvwords(descriptor.spirv)
+    checkworkgroupsize(words, count, descriptor.entryPoint, descriptor.workgroupSize)
+    -- Nothing catches a panic inside wgpu-native, so a module naga's front end
+    -- would panic on is refused before it gets there.
+    checklayout(words, count)
+    checkstructure(words, count, loopnesting(context.backend))
+    local library = context.lib
+    library.wgpuDevicePushErrorScope(context.device, wgpu.ERROR_FILTER_VALIDATION)
+    local entry: any = {
+        groupLayouts = {},
+        emptyGroups = {},
+        readonlyBindings = descriptor.readonlyBindings,
+        writableBindings = descriptor.writableBindings,
+        uniformSize = descriptor.uniformSize,
+        workgroupSize = descriptor.workgroupSize,
+        metadata = NULL,
+        dispatches = 0,
+    }
+    local used = {
+        [0] = descriptor.readonlyBindings ~= 0,
+        [1] = descriptor.writableBindings ~= 0,
+        [2] = descriptor.uniformSize ~= 0,
+    }
+    local groups = used[2] and 3 or (used[1] and 2 or (used[0] and 1 or 0))
+    if used[0] then
+        entry.groupLayouts[
+            0
+        ] = bindGroupLayout(
+            context,
+            "Nupp read-only storage layout",
+            descriptor.readonlyBindings,
+            wgpu.BUFFER_BINDING_READ_ONLY_STORAGE,
+            0
+        )
+    end
+    if used[1] then
+        entry.groupLayouts[
+            1
+        ] = bindGroupLayout(
+            context,
+            "Nupp writable storage layout",
+            descriptor.writableBindings,
+            wgpu.BUFFER_BINDING_STORAGE,
+            0
+        )
+    end
+    if used[2] then
+        entry.groupLayouts[
+            2
+        ] = bindGroupLayout(context, "Nupp uniform layout", 1, wgpu.BUFFER_BINDING_UNIFORM, descriptor.uniformSize)
+    end
+    local layouts: any = memory.new("WGPUBindGroupLayout[3]")
+    for index = 0, groups - 1 do
+        if not used[index] then
+            entry.groupLayouts[index] = bindGroupLayout(context, "Nupp empty layout", 0, 0, 0)
+            entry.emptyGroups[index] = emptyGroup(context, entry.groupLayouts[index])
+        end
+        layouts[index] = entry.groupLayouts[index]
+    end
+    entry.used = used
+    local layoutLabel = "Nupp compute pipeline layout"
+    local layoutDescriptor: any = memory.new("WGPUPipelineLayoutDescriptor")
+    layoutDescriptor.label = wgpu.view(layoutLabel)
+    layoutDescriptor.bindGroupLayoutCount = groups
+    layoutDescriptor.bindGroupLayouts = memory.raw(layouts)
+    local pipelineLayout = library.wgpuDeviceCreatePipelineLayout(context.device, layoutDescriptor)
+    local source: any = memory.new("WGPUShaderSourceSPIRV")
+    source.chain.sType = wgpu.STYPE_SHADER_SOURCE_SPIRV
+    source.codeSize = count
+    source.code = memory.raw(words)
+    local moduleLabel = "Nupp SPIR-V compute module"
+    local moduleDescriptor: any = memory.new("WGPUShaderModuleDescriptor")
+    moduleDescriptor.nextInChain = memory.cast("WGPUChainedStruct *", source)
+    moduleDescriptor.label = wgpu.view(moduleLabel)
+    local shader = library.wgpuDeviceCreateShaderModule(context.device, moduleDescriptor)
+    -- A module naga refuses comes back with no shader inside, and wgpu-native
+    -- panics creating a pipeline from one, so its error is read first.
+    local parsed, refusal = pcall(finishValidationScope, context)
+    if not parsed then
+        library.wgpuShaderModuleRelease(shader)
+        library.wgpuPipelineLayoutRelease(pipelineLayout)
+        releaseKernelEntry(context, entry)
+        error(refusal, 0)
+    end
+    library.wgpuDevicePushErrorScope(context.device, wgpu.ERROR_FILTER_VALIDATION)
+    local pipelineLabel = "Nupp compute pipeline"
+    local pipelineDescriptor: any = memory.new("WGPUComputePipelineDescriptor")
+    pipelineDescriptor.label = wgpu.view(pipelineLabel)
+    pipelineDescriptor.layout = pipelineLayout
+    pipelineDescriptor.compute.module = shader
+    pipelineDescriptor.compute.entryPoint = wgpu.view(descriptor.entryPoint)
+    entry.pipeline = library.wgpuDeviceCreateComputePipeline(context.device, pipelineDescriptor)
+    library.wgpuShaderModuleRelease(shader)
+    library.wgpuPipelineLayoutRelease(pipelineLayout)
+    local ok, problem = pcall(finishValidationScope, context)
+    if not ok then
+        releaseKernelEntry(context, entry)
+        error(problem, 0)
+    end
+    local handle = insert(context.resources, "kernel", entry)
+    costRecord(context, "pipelineCreate", {
+        kernel = handle,
+        phase = "setup",
+        bytes = #descriptor.spirv,
+        entrypoint = descriptor.entryPoint,
+        workgroup = descriptor.workgroupSize,
+        reused = false,
+        hostMs = costs.elapsed(start),
+    })
+
+    return handle
+end
+
+-- A kernel compiled from WGSL with a layout the device derives, which is how
+-- the tests exercise a device without generated SPIR-V. Its one writable
+-- binding is group 1, binding 0, as a generated kernel's would be.
+local function createWgslKernel(context: any, shader: string, workgroupSize: {integer}): integer
+    local library = context.lib
+    library.wgpuDevicePushErrorScope(context.device, wgpu.ERROR_FILTER_VALIDATION)
+    local source: any = memory.new("WGPUShaderSourceWGSL")
+    source.chain.sType = wgpu.STYPE_SHADER_SOURCE_WGSL
+    source.code = wgpu.view(shader)
+    local label = "Nupp GPU round-trip test"
+    local moduleDescriptor: any = memory.new("WGPUShaderModuleDescriptor")
+    moduleDescriptor.nextInChain = memory.cast("WGPUChainedStruct *", source)
+    moduleDescriptor.label = wgpu.view(label)
+    local module = library.wgpuDeviceCreateShaderModule(context.device, moduleDescriptor)
+    local entryPoint = "main"
+    local pipelineDescriptor: any = memory.new("WGPUComputePipelineDescriptor")
+    pipelineDescriptor.label = wgpu.view(label)
+    pipelineDescriptor.compute.module = module
+    pipelineDescriptor.compute.entryPoint = wgpu.view(entryPoint)
+    local entry: any = {
+        groupLayouts = {},
+        emptyGroups = {},
+        used = {[0] = false, [1] = true, [2] = false},
+        readonlyBindings = 0,
+        writableBindings = 1,
+        uniformSize = 0,
+        workgroupSize = workgroupSize,
+        metadata = NULL,
+        dispatches = 0,
+    }
+    entry.pipeline = library.wgpuDeviceCreateComputePipeline(context.device, pipelineDescriptor)
+    library.wgpuShaderModuleRelease(module)
+    local ok, problem = pcall(finishValidationScope, context)
+    if not ok then
+        releaseKernelEntry(context, entry)
+        error(problem, 0)
+    end
+    entry.groupLayouts[0] = library.wgpuComputePipelineGetBindGroupLayout(entry.pipeline, 0)
+    entry.emptyGroups[0] = emptyGroup(context, entry.groupLayouts[0])
+    entry.groupLayouts[1] = library.wgpuComputePipelineGetBindGroupLayout(entry.pipeline, 1)
+
+    return insert(context.resources, "kernel", entry)
+end
+
+local function setMetadata(context: any, handle: any, kernel: boolean, value: any): boolean
+    if type(value) ~= "table" then
+        fail("GPU cost metadata must be an object")
+    end
+    if kernel then
+        lookup(context.resources, handle, "kernel").metadata = value
+    else
+        -- Replaced rather than updated, so a binding or download that captured
+        -- the earlier layout keeps it.
+        local entry = lookup(context.resources, handle, "buffer")
+        local merged: {[string]: any} = {}
+        if type(entry.metadata) == "table" and entry.metadata ~= NULL then
+            for key, field in pairs(entry.metadata) do
+                merged[key] = field
+            end
+        end
+        for key, field in pairs(value) do
+            merged[key] = field
+        end
+        entry.metadata = merged
+    end
+    costRecord(context, kernel and "kernelIdentity" or "bufferIdentity", {handle = tonumber(handle), metadata = value})
+
+    return true
+end
+
+local function releaseKernel(context: any, handle: any): boolean
+    local start = costs.clock()
+    local entry = remove(context.resources, handle, "kernel")
+    releaseKernelEntry(context, entry)
+    costRecord(context, "kernelRelease", {kernel = tonumber(handle), hostMs = costs.elapsed(start)})
+
+    return true
+end
+
+-- --- bindings ----------------------------------------------------------------
+
+local function slots(count: integer): {any}
+    local values: {any} = {}
+    for index = 1, count do
+        values[index] = false
+    end
+
+    return values
+end
+
+local function releaseGroup(context: any, binding: any, index: integer): nil
+    local group = binding.groups[index]
+    if group ~= nil then
+        context.lib.wgpuBindGroupRelease(group)
+        binding.groups[index] = nil
+    end
+end
+
+local function createBindings(context: any, kernelHandle: any): integer
+    local start = costs.clock()
+    local kernel = lookup(context.resources, kernelHandle, "kernel")
+    local uniform: any = nil
+    if kernel.uniformSize ~= 0 then
+        local label = "Nupp dispatch uniforms"
+        local descriptor: any = memory.new("WGPUBufferDescriptor")
+        descriptor.label = wgpu.view(label)
+        descriptor.size = alignUp(kernel.uniformSize, 16)
+        descriptor.usage = wgpu.BUFFER_USAGE_UNIFORM | wgpu.BUFFER_USAGE_COPY_DST
+        uniform = context.lib.wgpuDeviceCreateBuffer(context.device, descriptor)
+    end
+    local handle = insert(context.resources, "binding", {
+        kernel = tonumber(kernelHandle),
+        readonly = slots(kernel.readonlyBindings),
+        writable = slots(kernel.writableBindings),
+        uniform = uniform,
+        groups = {},
+    })
+    costRecord(context, "bindingCreate", {
+        binding = handle,
+        kernel = tonumber(kernelHandle),
+        uniformBytes = kernel.uniformSize,
+        reused = false,
+        hostMs = costs.elapsed(start),
+    })
+
+    return handle
+end
+
+local function releaseBindings(context: any, handle: any): boolean
+    local start = costs.clock()
+    local binding = remove(context.resources, handle, "binding")
+    for index = 0, 2 do
+        releaseGroup(context, binding, index)
+    end
+    if binding.uniform ~= nil then
+        context.lib.wgpuBufferRelease(binding.uniform)
+    end
+    costRecord(context, "bindingRelease", {binding = tonumber(handle), hostMs = costs.elapsed(start)})
+
+    return true
+end
+
+local function setBuffer(
+    context: any,
+    bindings: any,
+    writable: boolean,
+    slot: integer,
+    bufferHandle: any,
+    offset: integer,
+    size: integer
+): boolean
+    local buffer = lookup(context.resources, bufferHandle, "buffer")
+    checkedrange("binding", offset, size, buffer.size)
+    if size == 0 then
+        fail("GPU binding range must not be empty")
+    end
+    size = copyextent("storage binding", offset, size, buffer.size)
+    local alignment = context.limits.minStorageBufferOffsetAlignment
+    if offset % alignment ~= 0 then
+        fail(("GPU storage binding offset %d is not aligned to %d bytes"):format(offset, alignment))
+    end
+    if size > context.limits.maxStorageBufferBindingSize then
+        fail(
+            (
+                "GPU storage binding size %d exceeds the device limit %d"
+            ):format(size, context.limits.maxStorageBufferBindingSize)
+        )
+    end
+    local binding = lookup(context.resources, bindings, "binding")
+    local key = tonumber(bufferHandle) as integer
+    if binds(writable and binding.readonly or binding.writable, key) then
+        fail("a GPU buffer cannot be bound for both reading and writing in one dispatch")
+    end
+    local targets = writable and binding.writable or binding.readonly
+    if slot < 0 or slot >= #targets then
+        fail(
+            (
+                "GPU %s binding slot %d is outside the compiled kernel"
+            ):format(writable and "writable" or "read-only", slot)
+        )
+    end
+    targets[slot + 1] = {buffer = key, offset = offset, size = size, layout = buffer.metadata}
+    releaseGroup(context, binding, writable and 1 or 0)
+    costRecord(context, "bindBuffer", {
+        binding = tonumber(bindings),
+        kernel = binding.kernel,
+        buffer = key,
+        writable = writable,
+        slot = slot,
+        offset = offset,
+        bytes = size,
+    })
+
+    return true
+end
+
+local function validateStorageSlots(context: any, values: {any}, writable: boolean): nil
+    for index, value in ipairs(values) do
+        if not value then
+            fail(("missing %s buffer binding at slot %d"):format(writable and "writable" or "read-only", index - 1))
+        end
+        lookup(context.resources, value.buffer, "buffer")
+    end
+end
+
+local function storageGroup(context: any, layout: any, values: {any}, writable: boolean): any
+    local entries: any = memory.new("WGPUBindGroupEntry[?]", math.max(#values, 1))
+    for index, value in ipairs(values) do
+        local buffer = lookup(context.resources, value.buffer, "buffer")
+        entries[index - 1].binding = index - 1
+        entries[index - 1].buffer = buffer.buffer
+        entries[index - 1].offset = value.offset
+        entries[index - 1].size = value.size
+    end
+    local label = writable and "Nupp writable storage bind group" or "Nupp read-only storage bind group"
+    local descriptor: any = memory.new("WGPUBindGroupDescriptor")
+    descriptor.label = wgpu.view(label)
+    descriptor.layout = layout
+    descriptor.entryCount = #values
+    descriptor.entries = entries
+
+    return context.lib.wgpuDeviceCreateBindGroup(context.device, descriptor)
+end
+
+local function uniformGroup(context: any, layout: any, buffer: any, size: integer): any
+    local entries: any = memory.new("WGPUBindGroupEntry[1]")
+    entries[0].binding = 0
+    entries[0].buffer = buffer
+    entries[0].offset = 0
+    entries[0].size = size
+    local label = "Nupp uniform bind group"
+    local descriptor: any = memory.new("WGPUBindGroupDescriptor")
+    descriptor.label = wgpu.view(label)
+    descriptor.layout = layout
+    descriptor.entryCount = 1
+    descriptor.entries = entries
+
+    return context.lib.wgpuDeviceCreateBindGroup(context.device, descriptor)
+end
+
+local function describeSlots(context: any, values: {any}): {any}
+    local described: {any} = {}
+    for index, value in ipairs(values) do
+        if value then
+            local buffer = lookup(context.resources, value.buffer, "buffer")
+            described[
+                #described + 1
+            ] = {
+                slot = index - 1,
+                buffer = value.buffer,
+                version = buffer.version,
+                offset = value.offset,
+                bytes = value.size,
+                layout = value.layout,
+            }
+        end
+    end
+
+    return array(described)
+end
+
+-- Validates a dispatch and builds the bind groups it lacks, answering what the
+-- rest of it needs. The uniforms are written between this and `submitDispatch`.
+local function prepareDispatch(context: any, bindings: any, uniformLength: integer): any
+    local binding = lookup(context.resources, bindings, "binding")
+    local kernelHandle = binding.kernel
+    local kernel = lookup(context.resources, kernelHandle, "kernel")
+    local needReadonly = binding.groups[0] == nil
+    local needWritable = binding.groups[1] == nil
+    local needUniform = binding.groups[2] == nil
+    if uniformLength ~= kernel.uniformSize then
+        fail(
+            (
+                "GPU dispatch supplied %d uniform bytes, but the kernel requires %d"
+            ):format(uniformLength, kernel.uniformSize)
+        )
+    end
+    requireCopyAlignment("uniform size", uniformLength)
+    validateStorageSlots(context, binding.readonly, false)
+    validateStorageSlots(context, binding.writable, true)
+    local used = kernel.used
+    if used[0] and needReadonly then
+        binding.groups[0] = storageGroup(context, kernel.groupLayouts[0], binding.readonly, false)
+    end
+    if used[1] and needWritable then
+        binding.groups[1] = storageGroup(context, kernel.groupLayouts[1], binding.writable, true)
+    end
+    if (kernel.groupLayouts[2] ~= nil and used[2]) ~= (binding.uniform ~= nil) then
+        fail("GPU internal invariant: GPU kernel uniform layout and binding disagree")
+    end
+    if used[2] and needUniform then
+        binding.groups[2] = uniformGroup(context, kernel.groupLayouts[2], binding.uniform, kernel.uniformSize)
+    end
+
+    return {
+        binding = binding,
+        kernel = kernel,
+        kernelHandle = kernelHandle,
+        needReadonly = needReadonly,
+        needWritable = needWritable,
+        needUniform = needUniform,
+    }
+end
+
+local function submitDispatch(
+    context: any,
+    bindings: any,
+    workItems: {integer},
+    uniformLength: integer,
+    prepared: any,
+    start: number?
+): boolean
+    local binding, kernel, kernelHandle = prepared.binding, prepared.kernel, prepared.kernelHandle
+    local needReadonly, needWritable, needUniform = prepared.needReadonly, prepared.needWritable, prepared.needUniform
+    local used = kernel.used
+    local library = context.lib
+    if workItems[1] == 0 or workItems[2] == 0 or workItems[3] == 0 then
+        return true
+    end
+    local size = kernel.workgroupSize
+    local groups = {
+        (workItems[1] + size[1] - 1) // size[1],
+        (workItems[2] + size[2] - 1) // size[2],
+        (workItems[3] + size[3] - 1) // size[3],
+    }
+    local limit = context.limits.maxComputeWorkgroupsPerDimension
+    if groups[1] > limit or groups[2] > limit or groups[3] > limit then
+        fail(
+            ("GPU dispatch workgroup count %s exceeds the per-dimension limit %d"):format(triple(groups as any), limit)
+        )
+    end
+    local encoderLabel = "Nupp compute dispatch"
+    local encoderDescriptor: any = memory.new("WGPUCommandEncoderDescriptor")
+    encoderDescriptor.label = wgpu.view(encoderLabel)
+    local encoder = library.wgpuDeviceCreateCommandEncoder(context.device, encoderDescriptor)
+    local query: any = nil
+    local passLabel = "Nupp compute pass"
+    local passDescriptor: any = memory.new("WGPUComputePassDescriptor")
+    passDescriptor.label = wgpu.view(passLabel)
+    local writes: any = nil
+    if context.timestampSupported and costs.enabled() then
+        local queryLabel = "Nupp cost timestamps"
+        local queryDescriptor: any = memory.new("WGPUQuerySetDescriptor")
+        queryDescriptor.label = wgpu.view(queryLabel)
+        queryDescriptor.type = wgpu.QUERY_TYPE_TIMESTAMP
+        queryDescriptor.count = 2
+        query = library.wgpuDeviceCreateQuerySet(context.device, queryDescriptor)
+        writes = memory.new("WGPUPassTimestampWrites")
+        writes.querySet = query
+        writes.beginningOfPassWriteIndex = 0
+        writes.endOfPassWriteIndex = 1
+        passDescriptor.timestampWrites = writes
+    end
+    local pass = library.wgpuCommandEncoderBeginComputePass(encoder, passDescriptor)
+    library.wgpuComputePassEncoderSetPipeline(pass, kernel.pipeline)
+    for index = 0, 2 do
+        local group = used[index] and binding.groups[index] or kernel.emptyGroups[index]
+        if group ~= nil then
+            library.wgpuComputePassEncoderSetBindGroup(pass, index, group, 0, nil)
+        end
+    end
+    library.wgpuComputePassEncoderDispatchWorkgroups(pass, groups[1], groups[2], groups[3])
+    library.wgpuComputePassEncoderEnd(pass)
+    library.wgpuComputePassEncoderRelease(pass)
+    context.dispatchSequence += 1
+    local operation = context.dispatchSequence
+    if query ~= nil then
+        context.pendingTimestamps[
+            #context.pendingTimestamps + 1
+        ] = {query = query, operation = operation, kernel = kernelHandle,}
+    end
+    local commands: any = memory.new("WGPUCommandBuffer[1]")
+    commands[0] = library.wgpuCommandEncoderFinish(encoder, nil)
+    library.wgpuQueueSubmit(context.queue, 1, memory.raw(commands))
+    library.wgpuCommandBufferRelease(commands[0])
+    library.wgpuCommandEncoderRelease(encoder)
+    local reads = costs.enabled() and describeSlots(context, binding.readonly) or array({})
+    -- One logical version per dispatch even when disjoint writable slots alias.
+    local changed: {[integer]: boolean} = {}
+    for _, value in ipairs(binding.writable) do
+        if value and not changed[value.buffer] then
+            changed[value.buffer] = true
+            local buffer = lookup(context.resources, value.buffer, "buffer")
+            buffer.version += 1
+        end
+    end
+    kernel.dispatches += 1
+    if costs.enabled() then
+        costs.record(context.costId, "dispatch", {
+            dispatch = operation,
+            kernel = kernelHandle,
+            binding = tonumber(bindings),
+            metadata = kernel.metadata,
+            phase = kernel.dispatches == 1 and "first-use" or "steady-state",
+            workItems = workItems,
+            workgroup = size,
+            uniformBytes = uniformLength,
+            read = reads,
+            write = describeSlots(context, binding.writable),
+            bindingsReused = (not used[0] or not needReadonly)
+            and (not used[1] or not needWritable)
+            and (not used[2] or not needUniform),
+            hostMs = costs.elapsed(start),
+            gpuMs = NULL,
+            gpuTiming = context.timestampSupported and "pending" or "unavailable",
+        })
+    end
+
+    return true
+end
+
+-- --- downloads and synchronization -------------------------------------------
+
+local function stagingBuffer(context: any, label: string, size: integer, usage: integer): any
+    local descriptor: any = memory.new("WGPUBufferDescriptor")
+    descriptor.label = wgpu.view(label)
+    descriptor.size = size
+    descriptor.usage = usage
+
+    return context.lib.wgpuDeviceCreateBuffer(context.device, descriptor)
+end
+
+local function submitCopy(context: any, label: string, record: function(encoder: any): nil): nil
+    local library = context.lib
+    local descriptor: any = memory.new("WGPUCommandEncoderDescriptor")
+    descriptor.label = wgpu.view(label)
+    local encoder = library.wgpuDeviceCreateCommandEncoder(context.device, descriptor)
+    record(encoder)
+    local commands: any = memory.new("WGPUCommandBuffer[1]")
+    commands[0] = library.wgpuCommandEncoderFinish(encoder, nil)
+    library.wgpuQueueSubmit(context.queue, 1, memory.raw(commands))
+    library.wgpuCommandBufferRelease(commands[0])
+    library.wgpuCommandEncoderRelease(encoder)
+end
+
+local function queueDownload(context: any, handle: any, offset: integer, size: integer): boolean
+    local start = costs.clock()
+    local entry = lookup(context.resources, handle, "buffer")
+    checkedrange("download", offset, size, entry.size)
+    if size == 0 then
+        fail("GPU download range must not be empty")
+    end
+    local length = size
+    size = copyextent("download", offset, size, entry.size)
+    local key = tonumber(handle) as integer
+    if entry.download ~= nil then
+        if entry.download.pending then
+            fail(("buffer %d already has a queued download"):format(key))
+        end
+        fail(("buffer %d has a synchronized download that has not been read yet"):format(key))
+    end
+    local staging = stagingBuffer(
+        context,
+        "Nupp GPU readback",
+        size,
+        wgpu.BUFFER_USAGE_MAP_READ | wgpu.BUFFER_USAGE_COPY_DST
+    )
+    submitCopy(context, "Nupp GPU download", function(encoder: any): nil
+        context.lib.wgpuCommandEncoderCopyBufferToBuffer(encoder, entry.buffer, offset, staging, 0, size)
+    end)
+    costRecord(context, "downloadQueue", {
+        buffer = key,
+        version = entry.version,
+        offset = offset,
+        bytes = size,
+        layout = entry.metadata,
+        stagingReused = false,
+        stagingBytes = size,
+        hostMs = costs.elapsed(start),
+        gpuMs = NULL,
+        gpuTiming = "unavailable",
+    })
+    entry.download = {
+        pending = true,
+        staging = staging,
+        stagingSize = size,
+        offset = offset,
+        length = length,
+        version = entry.version,
+        layout = entry.metadata,
+    }
+    context.pendingDownloads[#context.pendingDownloads + 1] = key
+
+    return true
+end
+
+-- Maps one staging buffer, waits for the device, and copies it out.
+local function mapDownload(context: any, staging: any, size: integer): string
+    local library = context.lib
+    local userdata, key = wgpu.token()
+    library.wgpuBufferMapAsync(staging, wgpu.MAP_MODE_READ, 0, size, callbackInfo(wgpu.callbacks().map, userdata))
+    settle(context)
+    local mapped = wgpu.take(key)
+    if not mapped then
+        fail("map GPU download: the map request never settled")
+    end
+    if mapped.status ~= wgpu.STATUS_SUCCESS then
+        fail("map GPU download: " .. mapped.message)
+    end
+    local range = library.wgpuBufferGetConstMappedRange(staging, 0, size)
+    if range == nil then
+        library.wgpuBufferUnmap(staging)
+        fail("map GPU download: the mapped range is unavailable")
+    end
+    local bytes = memory.readstring(range, size)
+    library.wgpuBufferUnmap(staging)
+
+    return bytes
+end
+
+local function settleTimestamps(context: any): nil
+    local library = context.lib
+    while #context.pendingTimestamps > 0 do
+        local pending = table.remove(context.pendingTimestamps)
+        local start = costs.clock()
+        -- Metal can resolve pass-boundary counters from the preceding submission
+        -- when resolution shares the compute command buffer. The wait before this
+        -- completes every measured dispatch first; only now submit its resolve and
+        -- copy, preserving current-work identity.
+        local resolve = stagingBuffer(
+            context,
+            "Nupp timestamp resolve",
+            256,
+            wgpu.BUFFER_USAGE_QUERY_RESOLVE | wgpu.BUFFER_USAGE_COPY_SRC
+        )
+        local staging = stagingBuffer(
+            context,
+            "Nupp timestamp readback",
+            16,
+            wgpu.BUFFER_USAGE_COPY_DST | wgpu.BUFFER_USAGE_MAP_READ
+        )
+        submitCopy(context, "Nupp timestamp readback", function(encoder: any): nil
+            library.wgpuCommandEncoderResolveQuerySet(encoder, pending.query, 0, 2, resolve, 0)
+            library.wgpuCommandEncoderCopyBufferToBuffer(encoder, resolve, 0, staging, 0, 16)
+        end)
+        local ok, bytes = pcall(mapDownload, context, staging, 16)
+        library.wgpuQuerySetRelease(pending.query)
+        library.wgpuBufferRelease(resolve)
+        library.wgpuBufferRelease(staging)
+        if not ok then
+            error(bytes, 0)
+        end
+        local ticks: any = memory.new("uint64_t[2]")
+        memory.copy(ticks, bytes, 16)
+        local first, last = ticks[0], ticks[1]
+        local period = library.wgpuQueueGetTimestampPeriod(context.queue)
+        local measured, reason = timestampmilliseconds(first, last, period)
+        costRecord(context, "kernelExecution", {
+            dispatch = pending.operation,
+            kernel = pending.kernel,
+            gpuMs = measured ?? NULL,
+            gpuTiming = measured ~= nil and "timestamp-query" or "unavailable",
+            gpuTimingReason = reason ?? NULL,
+            gpuTicksBegin = (tostring(first):gsub("ULL$", "")),
+            gpuTicksEnd = (tostring(last):gsub("ULL$", "")),
+            gpuTickPeriodNs = period,
+            instrumentationHostMs = costs.elapsed(start),
+        })
+    end
+end
+
+local function synchronizeWork(context: any): boolean
+    local start = costs.clock()
+    settle(context)
+    costRecord(context, "synchronizeWait", {
+        hostMs = costs.elapsed(start),
+        pendingDownloads = #context.pendingDownloads,
+        pendingTimestamps = #context.pendingTimestamps,
+    })
+    while #context.pendingDownloads > 0 do
+        local handle = context.pendingDownloads[1]
+        local entry = lookup(context.resources, handle, "buffer")
+        local download = entry.download
+        if download == nil or not download.pending then
+            fail("GPU internal invariant: pending download queue disagrees with buffer")
+        end
+        local mapStart = costs.clock()
+        local ok, bytes = pcall(mapDownload, context, download.staging, download.stagingSize)
+        costRecord(context, "downloadMapCopy", {
+            buffer = handle,
+            version = download.version,
+            offset = download.offset,
+            bytes = download.stagingSize,
+            layout = download.layout,
+            hostMs = costs.elapsed(mapStart),
+            hostCopies = 1,
+            success = ok,
+        })
+        -- The download is settled either way. A failed map must not stay
+        -- pending: a retry would fail again, and a pending download refuses to
+        -- release its buffer.
+        table.remove(context.pendingDownloads, 1)
+        context.lib.wgpuBufferRelease(download.staging)
+        if not ok then
+            entry.download = nil
+            error(bytes, 0)
+        end
+        entry.download = {
+            pending = false,
+            offset = download.offset,
+            bytes = (bytes as string):sub(1, download.length),
+            version = download.version,
+            layout = download.layout,
+        }
+    end
+    settleTimestamps(context)
+    checkCosts()
+    local recorded = wgpu.takefaults(context.faultKey)
+    if #recorded > 0 then
+        fail("GPU device error: " .. table.concat(recorded, "; "))
+    end
+
+    return true
+end
+
+-- Takes a synchronized download, answering its bytes for the caller to copy.
+local function takeDownload(context: any, handle: any, offset: integer, size: integer): string
+    local entry = lookup(context.resources, handle, "buffer")
+    local key = tonumber(handle) as integer
+    local download = entry.download
+    if download == nil or download.pending then
+        fail(("buffer %d has no synchronized download"):format(key))
+    end
+    if download.offset ~= offset or #download.bytes ~= size then
+        fail(
+            (
+                "downloaded range %d..%d does not match requested range %d..%d"
+            ):format(download.offset, download.offset + #download.bytes, offset, offset + size)
+        )
+    end
+    entry.download = nil
+    entry.completedVersion = download.version
+    entry.completedLayout = download.layout
+
+    return download.bytes
+end
+
+local function recordHostCopy(context: any, handle: any, offset: integer, size: integer, start: number?): boolean
+    local entry = lookup(context.resources, handle, "buffer")
+    local key = tonumber(handle) as integer
+    -- The bytes are already the caller's. A cost output that failed to record
+    -- the copy is reported by the next call that can still fail cleanly, not by
+    -- this one after the download is gone.
+    costRecord(context, "downloadHostCopy", {
+        buffer = key,
+        version = entry.completedVersion ?? NULL,
+        offset = offset,
+        bytes = size,
+        layout = entry.completedLayout,
+        hostCopies = 1,
+        hostMs = costs.elapsed(start),
+    })
+
+    return true
+end
+
+local function release(context: any): boolean
+    if context.device == nil then
+        return true
+    end
+    local cleanupStart: number? = nil
+    if costs.enabled() then
+        synchronizeWork(context)
+        cleanupStart = costs.clock()
+    end
+    local library = context.lib
+    for _, reference in pairs(context.resources) do
+        local entry = reference.entry
+        if reference.kind == "buffer" then
+            library.wgpuBufferRelease(entry.buffer)
+            if entry.download ~= nil and entry.download.staging ~= nil then
+                library.wgpuBufferRelease(entry.download.staging)
+            end
+        elseif reference.kind == "kernel" then
+            releaseKernelEntry(context, entry)
+        else
+            for index = 0, 2 do
+                releaseGroup(context, entry, index)
+            end
+            if entry.uniform ~= nil then
+                library.wgpuBufferRelease(entry.uniform)
+            end
+        end
+    end
+    context.resources = {}
+    for _, pending in ipairs(context.pendingTimestamps) do
+        library.wgpuQuerySetRelease(pending.query)
+    end
+    context.pendingTimestamps = {}
+    -- Released before its device, so the loss its release reports goes nowhere.
+    wgpu.dropfaults(context.faultKey)
+    context.faultKey = nil
+    releaseAll(context)
+    if cleanupStart ~= nil then
+        costs.record(context.costId, "contextCleanup", costs.cleanup(cleanupStart))
+    end
+
+    return true
+end
+
+-- --- the boundary ------------------------------------------------------------
+
+-- Runs one operation, answering its result or nil and the failure it raised.
+-- Anything that is not a failure of this module is a defect and propagates.
+local function guard(body: any, ...: any): (any, string?)
+    local ok, value = pcall(body, ...)
+    if ok then
+        return value, nil
+    end
+    if type(value) == "table" and getmetatable(value) == FailureMT then
+        return nil, "gpu: " .. value.message
+    end
+    error(value, 0)
+end
+
+--- Opens a device context on the preferred compute adapter.
+export function open(): (any, string?)
+    return guard(createContext)
+end
+
+--- Releases a context and everything it holds, settling its work first while
+--- costs are recorded.
+export function close(context: any): (any, string?)
+    return guard(release, context)
+end
+
+--- The context's backend and adapter name, as `backend: adapter`.
+export function description(context: any): string
+    return context.backend .. ": " .. context.adapterName
+end
+
+--- The identity cost records carry for this context.
+export function costid(context: any): integer
+    return context.costId
+end
+
+--- Whether timestamp queries are measured, and lets a test turn them off.
+export function timestamps(context: any, enabled: boolean?): boolean
+    if enabled ~= nil then
+        context.timestampSupported = enabled
+    end
+
+    return context.timestampSupported
+end
+
+--- How many timestamp queries await synchronization, for tests.
+export function pendingtimestamps(context: any): integer
+    return #context.pendingTimestamps
+end
+
+--- How many dispatches the context has submitted, for tests.
+export function dispatches(context: any): integer
+    return context.dispatchSequence
+end
+
+--- Allocates one resident byte buffer.
+export function createbuffer(context: any, size: integer): (any, string?)
+    return guard(createBuffer, context, size)
+end
+
+export function releasebuffer(context: any, handle: any): (any, string?)
+    return guard(releaseBuffer, context, handle)
+end
+
+--- Uploads `length` bytes from `data` at `offset`.
+export function upload<T>(
+    context: any,
+    handle: any,
+    offset: integer,
+    borrows data: const T[?],
+    length: integer
+): (any, string?)
+    local start = costs.clock()
+    local prepared, problem = guard(prepareUpload, context, handle, offset, length)
+    if problem ~= nil then
+        return nil, problem
+    end
+    local entry, copied = prepared.entry, prepared.copied
+    if length > 0 then
+        if copied == length then
+            writeTyped(context, entry.buffer, offset, data, length)
+        else
+            -- A range that ends the buffer partway through a word is padded to it.
+            local padded: any = memory.new("uint8_t[?]", copied)
+            copyFrom(padded, data, length)
+            context.lib.wgpuQueueWriteBuffer(context.queue, entry.buffer, offset, memory.raw(padded), copied)
+        end
+    end
+
+    return guard(finishUpload, context, handle, offset, length, entry, start)
+end
+
+--- Compiles canonical SPIR-V with its explicit binding shape.
+export function createkernel(
+    context: any,
+    spirv: string,
+    entryPoint: string,
+    readonlyBindings: integer,
+    writableBindings: integer,
+    uniformSize: integer,
+    workgroupSize: {integer}
+): (any, string?)
+    return guard(createKernel, context, {
+        spirv = spirv,
+        entryPoint = entryPoint,
+        readonlyBindings = readonlyBindings,
+        writableBindings = writableBindings,
+        uniformSize = uniformSize,
+        workgroupSize = workgroupSize,
+    })
+end
+
+--- Compiles a WGSL test kernel with one writable binding at group 1.
+export function createwgslkernel(context: any, shader: string, workgroupSize: {integer}): (any, string?)
+    return guard(createWgslKernel, context, shader, workgroupSize)
+end
+
+--- Associates an authored kernel or typed buffer with its native identity.
+export function metadata(context: any, handle: any, kernel: boolean, value: any): (any, string?)
+    return guard(setMetadata, context, handle, kernel, value)
+end
+
+export function releasekernel(context: any, handle: any): (any, string?)
+    return guard(releaseKernel, context, handle)
+end
+
+--- Creates an empty binding set for one kernel.
+export function createbindings(context: any, kernel: any): (any, string?)
+    return guard(createBindings, context, kernel)
+end
+
+export function releasebindings(context: any, handle: any): (any, string?)
+    return guard(releaseBindings, context, handle)
+end
+
+--- Binds `size` bytes of a buffer at `offset` to one read or write slot.
+export function setbuffer(
+    context: any,
+    bindings: any,
+    writable: boolean,
+    slot: integer,
+    buffer: any,
+    offset: integer,
+    size: integer
+): (any, string?)
+    return guard(setBuffer, context, bindings, writable, slot, buffer, offset, size)
+end
+
+--- Enqueues one logical dispatch of `workItems` invocations.
+export function dispatch(
+    context: any,
+    bindings: any,
+    workItems: {integer},
+    borrows uniforms: const uint8[?],
+    length: integer
+): (any, string?)
+    local start = costs.clock()
+    local prepared, problem = guard(prepareDispatch, context, bindings, length)
+    if problem ~= nil then
+        return nil, problem
+    end
+    local uniform = prepared.binding.uniform
+    if uniform ~= nil and length > 0 then
+        writeTyped(context, uniform, 0, uniforms, length)
+    end
+
+    return guard(submitDispatch, context, bindings, workItems, length, prepared, start)
+end
+
+--- Queues one readback of a buffer range.
+export function queuedownload(context: any, handle: any, offset: integer, size: integer): (any, string?)
+    return guard(queueDownload, context, handle, offset, size)
+end
+
+--- Whether the submitted work has finished, so that `synchronize` would not
+--- wait for it. Never blocks.
+export function workdone(context: any): (any, string?)
+    return guard(function(): boolean
+        return context.lib.wgpuDevicePoll(context.device, 0, nil) ~= 0
+    end)
+end
+
+--- Waits for the submitted work, then settles its downloads and timestamps.
+export function synchronize(context: any): (any, string?)
+    return guard(synchronizeWork, context)
+end
+
+--- Copies one synchronized download into `destination`.
+export function readdownload<T>(
+    context: any,
+    handle: any,
+    offset: integer,
+    size: integer,
+    borrows destination: T[?]
+): (any, string?)
+    local bytes, problem = guard(takeDownload, context, handle, offset, size)
+    if problem ~= nil then
+        return nil, problem
+    end
+    local start = costs.clock()
+    if size > 0 then
+        copyInto(destination, bytes as string, size)
+    end
+
+    return guard(recordHostCopy, context, handle, offset, size, start)
+end

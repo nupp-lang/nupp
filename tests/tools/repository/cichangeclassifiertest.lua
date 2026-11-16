@@ -196,6 +196,25 @@ function M.gpuChangeSelectsBothAdapters()
     selects("src/io/gpu/kernel.nupp", {"gpu-linux", "gpu-windows", "fast-checks", "linux-integration"})
 end
 
+function M.prebuiltGpuProviderSelectsBothAdapters()
+    for _, path in ipairs({
+        "scripts/wgpu-native",
+        "scripts/wgpu-native.pins.json",
+        "src/nupp/runtime/provider/wgpu.nupp",
+        "src/nupp/runtime/provider/wgpumemory.nupp",
+        "src/nupp/runtime/provider/gpudevice.nupp",
+        "src/nupp/runtime/provider/gpucosts.nupp",
+        "tests/stdlib/io/gpu/gpudevicetest.lua",
+        "tests/fixtures/wgpu/abi.c",
+        "tests/fixtures/naga-panic.spv",
+        ".github/scripts/wgpu-conformance.lua",
+        ".github/scripts/test-wgpu-conformance.py"
+    }) do
+        selects(path, {"gpu-linux", "gpu-windows", "fast-checks", "linux-integration"})
+        doesNotSelect(path, {"docs-site", "macos-integration", "windows-integration"})
+    end
+end
+
 function M.nativeChangeSelectsEveryPlatform()
     selects("native/nupp-native/src/http.rs", {
         "fast-checks",
@@ -224,7 +243,12 @@ function M.theNativeCoreSelectsWhatNativeCodeDoes()
             "fixpoint",
         })
     end
-    selects("tests/core/guests/run.lua", {"fast-checks", "linux-integration", "macos-integration", "windows-integration"})
+    selects("tests/core/guests/run.lua", {
+        "fast-checks",
+        "linux-integration",
+        "macos-integration",
+        "windows-integration"
+    })
 end
 
 function M.packagingChangeSelectsEveryPlatform()

@@ -77,7 +77,7 @@ local groups = {
         "templatevariabletest",
     },
 
-    ["gpu"] = {"gputest"},
+    ["gpu"] = {"gputest", "gpudevicetest"},
 
     -- Packaging and release delivery.
     [

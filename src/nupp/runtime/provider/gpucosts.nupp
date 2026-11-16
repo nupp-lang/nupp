@@ -1,0 +1,223 @@
+@!internal
+--[[
+Opt-in, process-local JSONL cost output for native GPU work.
+
+[](nupp.runtime.provider.gpudevice) records one JSON object per line for each
+GPU operation while an output is selected: by `NUPP_GPU_COSTS` when the process
+first asks, or by [](configure). GPU timestamps are reported separately from
+host API durations, and neither is substituted for the other.
+
+A failed write never fails the GPU work it describes. It is kept and reported by
+[](check), which the next operation that can still fail cleanly calls.
+]]
+module nupp.runtime.provider.gpucosts
+
+local native = require("nupp.vm.foreign")
+local platform = package.config:sub(1, 1) == "\\"
+cdef struct GpuClock
+    seconds: int64
+    nanoseconds: int64
+end
+local now: function(): number = do
+    if platform then
+        local count = carray(GpuClock, 1)
+        local frequency = carray(GpuClock, 1)
+        local clock = native.bind(nil, "QueryPerformanceCounter", {params = {"pointer"}, result = "int32"})
+        native.bind(nil, "QueryPerformanceFrequency", {params = {"pointer"}, result = "int32"})(frequency)
+        yield function(): number
+            clock(count)
+            return (tonumber(count[0].seconds) as number) * 1000 / (tonumber(frequency[0].seconds) as number)
+        end
+    end
+    local time = GpuClock()
+    local clock = native.bind(nil, "clock_gettime", {params = {"int32", "pointer"}, result = "int32"})
+    local darwin = pcall(native.bind, nil, "mach_absolute_time", {params = {}, result = "uint64"})
+    local kind = darwin and 6 or 1
+    yield function(): number
+        clock(kind, time)
+        return (tonumber(time.seconds) as number) * 1000 + (tonumber(time.nanoseconds) as number) / 1000000
+    end
+end
+const processId: integer = native.bind(nil, platform and "GetCurrentProcessId" or "getpid", {
+    params = {},
+    result = "uint32"
+})()
+export const NULL: any = require("nupp.codec.json.provider").NULL
+
+local C: {[string]: any} = {}
+for name, signature in pairs({
+    fopen = {params = {{kind = "pointer", readonly = true}, {kind = "pointer", readonly = true}}, result = "pointer"},
+    fwrite = {params = {{kind = "pointer", readonly = true}, "uint64", "uint64", "pointer"}, result = "uint64"},
+    fflush = {params = {"pointer"}, result = "int32"},
+    fclose = {params = {"pointer"}, result = "int32"},
+    strerror = {params = {"int32"}, result = "pointer"},
+}) do
+    C[name] = native.bind(nil, name, signature)
+end
+
+-- The output. `configured` says whether `active` is settled; until something
+-- asks, the environment's destination has not been opened.
+local configured = false
+local active = false
+local initialized = false
+local file: any = nil
+local failure: string? = nil
+-- Numbers every record this process writes, across every destination.
+local sequence = 0
+-- The environment's destination has been opened once already. Restoring it
+-- later appends, where truncating would lose what it holds.
+local environmentOpened = false
+
+local function close(): nil
+    if file ~= nil then
+        C.fclose(file)
+        file = nil
+    end
+end
+
+local function open(path: string, truncate: boolean): (any, string?)
+    local opened = C.fopen(path, truncate and "wb" or "ab")
+    if opened == nil then
+        return nil, ("GPU cost output %s: %s"):format(path, native.string(C.strerror(native.errno())))
+    end
+
+    return opened, nil
+end
+
+-- Opens the environment's destination: truncated the first time this process
+-- opens it, appended to every time a caller restores it after that.
+local function openEnvironment(path: string): nil
+    if path == "" then
+        return
+    end
+    local opened, problem = open(path, not environmentOpened)
+    if opened ~= nil then
+        file = opened
+        environmentOpened = true
+    else
+        failure = problem
+    end
+end
+
+--- Selects `path` as the output, or restores the environment default for nil.
+---
+--- Each call closes the previous output and switches to the new one, then
+--- reports any write failure the previous output had: the switch happens
+--- either way, so a caller moving away from a failing destination gets there.
+--- @return nil, or what failed
+export function configure(path: string?): string?
+    local previous = failure
+    failure = nil
+    close()
+    local problem: string? = nil
+    if path ~= nil then
+        local opened, openProblem = open(path, true)
+        file = opened
+        problem = openProblem
+    end
+    active = file ~= nil
+    configured = path ~= nil and file ~= nil
+    initialized = configured
+    if previous ~= nil and problem ~= nil then
+        return previous .. "; " .. problem
+    end
+
+    return previous ?? problem
+end
+
+--- Whether an output is selected, opening the environment's on first use.
+export function enabled(): boolean
+    if configured then
+        return active
+    end
+    if not initialized then
+        initialized = true
+        local path = os.getenv("NUPP_GPU_COSTS")
+        if path ~= nil then
+            openEnvironment(path)
+        end
+    end
+    active = file ~= nil
+    configured = true
+
+    return active
+end
+
+--- The start of a timed operation, or nil while nothing is recorded.
+export function clock(): number?
+    if not enabled() then
+        return nil
+    end
+
+    return now()
+end
+
+--- Milliseconds since `start`, or null when it was not timed.
+export function elapsed(start: number?): any
+    if start == nil then
+        return NULL
+    end
+
+    return now() - start
+end
+
+--- The cleanup record a released context writes.
+export function cleanup(start: number?): {[string]: any}
+    return {hostMs = elapsed(start)}
+end
+
+--- Encodes one record. Separate so tests can read what a write would carry.
+export function encode(context: integer, operation: string, values: {[string]: any}, number: integer): string
+    values.schemaVersion = 1
+    values.processId = processId
+    values.sequence = number
+    values.context = context
+    values.operation = operation
+    values.target = "gpu"
+
+    return require("nupp.codec.json.provider").encode(values) .. "\n"
+end
+
+--- Writes one record when an output is selected.
+export function record(context: integer, operation: string, values: {[string]: any}): nil
+    if not enabled() then
+        return
+    end
+    sequence = (sequence + 1) as integer
+    local line = encode(context, operation, values, sequence)
+    if file ~= nil then
+        if C.fwrite(line, 1, #line, file) ~= #line or C.fflush(file) ~= 0 then
+            failure = "GPU cost output: " .. native.string(C.strerror(native.errno()))
+        end
+    end
+end
+
+--- Takes the write failure the output has had since the last check, if any.
+export function check(): string?
+    local problem = failure
+    failure = nil
+
+    return problem
+end
+
+--- Records `message` as a write failure, so tests can exercise the reporting.
+export function injectfailure(message: string): nil
+    failure = message
+end
+
+--- The output state, for tests.
+export function state(): {[string]: any}
+    return {
+        open = file ~= nil,
+        failure = failure,
+        initialized = initialized,
+        active = active,
+        configured = configured,
+        sequence = sequence,
+    }
+end
+
+--- Sets the record sequence, for tests.
+export function setsequence(value: integer): nil
+    sequence = value
+end

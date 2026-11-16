@@ -63,12 +63,31 @@ local rules = {
     {"^src/io/cli%.nupp$", {"library", "cli"}},
     {"^src/types/", {"compiler", "library"}},
     {"^src/own%.nupp$", {"compiler", "library"}},
+    {"^scripts/wgpu%-native", {"gpu"}},
+    {"^src/nupp/runtime/provider/wgpu", {"gpu"}},
+    {"^src/nupp/runtime/provider/gpudevice%.nupp$", {"gpu"}},
+    {"^src/nupp/runtime/provider/gpucosts%.nupp$", {"gpu"}},
+    {"^tests/stdlib/io/gpu/gpudevicetest%.lua$", {"gpu"}},
+    {"^tests/tools/toolchain/wgpunativepintest%.py$", {"gpu"}},
+    {"^tests/fixtures/wgpu/", {"gpu"}},
+    {"^tests/fixtures/naga%-panic%.spv$", {"gpu"}},
+    {"^%.github/scripts/wgpu%-conformance%.lua$", {"gpu"}},
+    {"^%.github/scripts/test%-wgpu%-conformance%.py$", {"gpu"}},
     {"^src/nupp/gpu/", {"library", "gpu"}},
     {"^src/debug/bench%.nupp$", {"library", "measurement"}},
     {"^src/nupp/bench/internal/", {"library", "measurement"}},
     {"^src/io/gpu/", {"library", "gpu"}},
     {"^src/events%.nupp$", {"library"}},
-    {"^src/nupp/runtime/", {"library", "browser", "native"}},
+    {
+        "^src/nupp/runtime/",
+        {"library", "browser", "native"},
+        {
+            ["src/nupp/runtime/provider/wgpu.nupp"] = true,
+            ["src/nupp/runtime/provider/wgpumemory.nupp"] = true,
+            ["src/nupp/runtime/provider/gpudevice.nupp"] = true,
+            ["src/nupp/runtime/provider/gpucosts.nupp"] = true
+        }
+    },
     -- The native core's build tooling: it builds the guest programs and
     -- runtime units the core runs, so it reaches what core runtime code does.
     {"^src/nupp/core/", {"native"}},
@@ -102,14 +121,32 @@ local rules = {
     {"^tests/integration/simd/", {"tests", "aot"}},
     {"^tests/integration/acceptance/", {"tests"}},
     {"^tests/tools/packaging/pages%-cache%.test%.mjs$", {"docs"}},
-    {"^tests/", {"tests"}, {["tests/tools/packaging/pages-cache.test.mjs"] = true}},
+    {
+        "^tests/",
+        {"tests"},
+        {
+            ["tests/tools/packaging/pages-cache.test.mjs"] = true,
+            ["tests/stdlib/io/gpu/gpudevicetest.lua"] = true,
+            ["tests/tools/toolchain/wgpunativepintest.py"] = true,
+            ["tests/fixtures/wgpu/abi.c"] = true,
+            ["tests/fixtures/naga-panic.spv"] = true
+        }
+    },
 
     -- Everything below decides how the whole tree is built, tested or released,
     -- so it has no smaller blast radius than "all of it".
-    {"^%.github/", {"everything"}},
+    {
+        "^%.github/",
+        {"everything"},
+        {[".github/scripts/wgpu-conformance.lua"] = true, [".github/scripts/test-wgpu-conformance.py"] = true}
+    },
     {"^%.githooks/", {"everything"}},
     {"^scripts/toolchain", {"everything"}},
-    {"^scripts/", {"everything"}, {["scripts/pages-cache.mjs"] = true}},
+    {
+        "^scripts/",
+        {"everything"},
+        {["scripts/pages-cache.mjs"] = true, ["scripts/wgpu-native"] = true, ["scripts/wgpu-native.pins.json"] = true}
+    },
     {"^nupp%.lua$", {"everything"}},
     {"^Cargo%.toml$", {"everything"}},
     {"^Cargo%.lock$", {"everything"}},

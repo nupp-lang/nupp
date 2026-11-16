@@ -15,6 +15,12 @@ repeated here so the release notices remain complete in one place.
 | Rust dependency graph | `Cargo.lock` | Mixed permissive licenses | [notices/Rust-dependencies.html](notices/Rust-dependencies.html) |
 | [libffi](https://sourceware.org/libffi/) | as `libffi-sys` 4.2.2 bundles it | MIT | [notices/libffi-LICENSE.txt](notices/libffi-LICENSE.txt) |
 | [LuaJIT](https://luajit.org/) | `1edc3e52b67eaf6ce5f809be8e17d6862594b8bc` | MIT | [notices/LuaJIT-COPYRIGHT.txt](notices/LuaJIT-COPYRIGHT.txt) |
+| [wgpu-native](https://github.com/gfx-rs/wgpu-native) | `v29.0.1.1` | MIT or Apache-2.0, plus dependency licenses | [MIT](notices/wgpu-native-LICENSE.MIT.txt), [Apache-2.0](notices/wgpu-native-LICENSE.APACHE.txt), [dependencies](notices/wgpu-native-Rust-dependencies.html) |
+
+`scripts/wgpu-native` fetches an upstream prebuilt library and its matched
+headers. Its independently pinned notice files travel with each cached copy.
+This removes local Rust compilation from the GPU conformance jobs; the upstream
+library still contains Rust code.
 
 The VM runtime is Rust, and the locked Rust graph supplies it and the native
 facilities a binary links, such as compression, networking and TLS. A build

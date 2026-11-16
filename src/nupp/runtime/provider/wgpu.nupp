@@ -1,0 +1,397 @@
+@!internal
+module nupp.runtime.provider.wgpu
+
+-- The pinned wgpu-native compute ABI through Nupp's checked native-call layer.
+local native = require("nupp.vm.foreign")
+local memory = require("nupp.runtime.provider.wgpumemory")
+local SIGNATURES: {
+    [string]: any
+} = {
+    wgpuBufferGetConstMappedRange = {params = {"pointer", "uint64", "uint64"}, result = "pointer"},
+    wgpuGetVersion = {params = {}, result = "uint32"},
+    wgpuCreateInstance = {params = {"pointer"}, result = "pointer"},
+    wgpuInstanceRelease = {params = {"pointer"}, result = "void"},
+    wgpuInstanceProcessEvents = {params = {"pointer"}, result = "void"},
+    wgpuInstanceRequestAdapter = {
+        params = {"pointer", "pointer", memory.descriptor("WGPUCallbackInfo")},
+        result = memory.descriptor("WGPUFuture")
+    },
+    wgpuAdapterGetInfo = {params = {"pointer", "pointer"}, result = "uint32"},
+    wgpuAdapterInfoFreeMembers = {params = {memory.descriptor("WGPUAdapterInfo")}, result = "void"},
+    wgpuAdapterGetLimits = {params = {"pointer", "pointer"}, result = "uint32"},
+    wgpuAdapterHasFeature = {params = {"pointer", "uint32"}, result = "uint32"},
+    wgpuAdapterRequestDevice = {
+        params = {"pointer", "pointer", memory.descriptor("WGPUCallbackInfo")},
+        result = memory.descriptor("WGPUFuture")
+    },
+    wgpuAdapterAddRef = {params = {"pointer"}, result = "void"},
+    wgpuDeviceAddRef = {params = {"pointer"}, result = "void"},
+    wgpuAdapterRelease = {params = {"pointer"}, result = "void"},
+    wgpuDeviceGetQueue = {params = {"pointer"}, result = "pointer"},
+    wgpuDeviceGetLimits = {params = {"pointer", "pointer"}, result = "uint32"},
+    wgpuDeviceCreateBuffer = {params = {"pointer", "pointer"}, result = "pointer"},
+    wgpuDeviceCreateBindGroupLayout = {params = {"pointer", "pointer"}, result = "pointer"},
+    wgpuDeviceCreatePipelineLayout = {params = {"pointer", "pointer"}, result = "pointer"},
+    wgpuDeviceCreateShaderModule = {params = {"pointer", "pointer"}, result = "pointer"},
+    wgpuDeviceCreateComputePipeline = {params = {"pointer", "pointer"}, result = "pointer"},
+    wgpuDeviceCreateBindGroup = {params = {"pointer", "pointer"}, result = "pointer"},
+    wgpuDeviceCreateCommandEncoder = {params = {"pointer", "pointer"}, result = "pointer"},
+    wgpuDeviceCreateQuerySet = {params = {"pointer", "pointer"}, result = "pointer"},
+    wgpuDevicePushErrorScope = {params = {"pointer", "uint32"}, result = "void"},
+    wgpuDevicePopErrorScope = {
+        params = {"pointer", memory.descriptor("WGPUCallbackInfo")},
+        result = memory.descriptor("WGPUFuture")
+    },
+    wgpuDevicePoll = {params = {"pointer", "uint32", "pointer"}, result = "uint32"},
+    wgpuDeviceDestroy = {params = {"pointer"}, result = "void"},
+    wgpuDeviceRelease = {params = {"pointer"}, result = "void"},
+    wgpuQueueWriteBuffer = {
+        params = {"pointer", "pointer", "uint64", {kind = "pointer", readonly = true}, "uint64"},
+        result = "void"
+    },
+    wgpuQueueSubmit = {params = {"pointer", "uint64", "pointer"}, result = "void"},
+    wgpuQueueGetTimestampPeriod = {params = {"pointer"}, result = "float"},
+    wgpuQueueRelease = {params = {"pointer"}, result = "void"},
+    wgpuBufferMapAsync = {
+        params = {"pointer", "uint64", "uint64", "uint64", memory.descriptor("WGPUCallbackInfo")},
+        result = memory.descriptor("WGPUFuture")
+    },
+    wgpuBufferUnmap = {params = {"pointer"}, result = "void"},
+    wgpuBufferDestroy = {params = {"pointer"}, result = "void"},
+    wgpuBufferRelease = {params = {"pointer"}, result = "void"},
+    wgpuCommandEncoderBeginComputePass = {params = {"pointer", "pointer"}, result = "pointer"},
+    wgpuCommandEncoderCopyBufferToBuffer = {
+        params = {"pointer", "pointer", "uint64", "pointer", "uint64", "uint64"},
+        result = "void"
+    },
+    wgpuCommandEncoderResolveQuerySet = {
+        params = {"pointer", "pointer", "uint32", "uint32", "pointer", "uint64"},
+        result = "void"
+    },
+    wgpuCommandEncoderFinish = {params = {"pointer", "pointer"}, result = "pointer"},
+    wgpuCommandEncoderRelease = {params = {"pointer"}, result = "void"},
+    wgpuCommandBufferRelease = {params = {"pointer"}, result = "void"},
+    wgpuComputePassEncoderSetPipeline = {params = {"pointer", "pointer"}, result = "void"},
+    wgpuComputePassEncoderSetBindGroup = {
+        params = {"pointer", "uint32", "pointer", "uint64", "pointer"},
+        result = "void"
+    },
+    wgpuComputePassEncoderDispatchWorkgroups = {params = {"pointer", "uint32", "uint32", "uint32"}, result = "void"},
+    wgpuComputePassEncoderEnd = {params = {"pointer"}, result = "void"},
+    wgpuComputePassEncoderRelease = {params = {"pointer"}, result = "void"},
+    wgpuComputePipelineGetBindGroupLayout = {params = {"pointer", "uint32"}, result = "pointer"},
+    wgpuComputePipelineRelease = {params = {"pointer"}, result = "void"},
+    wgpuBindGroupRelease = {params = {"pointer"}, result = "void"},
+    wgpuBindGroupLayoutRelease = {params = {"pointer"}, result = "void"},
+    wgpuPipelineLayoutRelease = {params = {"pointer"}, result = "void"},
+    wgpuShaderModuleRelease = {params = {"pointer"}, result = "void"},
+    wgpuQuerySetDestroy = {params = {"pointer"}, result = "void"},
+    wgpuQuerySetRelease = {params = {"pointer"}, result = "void"},
+}
+
+-- Every wgpu-native callback takes its message as a `WGPUStringView` by value,
+-- such a sixteen-byte struct goes, though: Windows x64 passes a pointer to a
+-- copy, and SysV x64 and AArch64 pass its two fields in the next two integer
+-- registers. So each callback is declared the way its ABI receives it, and
+-- `message` below reads either spelling.
+const MESSAGE_BY_POINTER = package.config:sub(1, 1) == "\\" and os.getenv("PROCESSOR_ARCHITECTURE") ~= "ARM64"
+
+--- `WGPUCallbackMode_AllowSpontaneous`: wgpu-native calls back from inside the
+--- call that settles the operation, on the calling thread.
+export const CALLBACK_SPONTANEOUS: integer = 3
+
+export const STATUS_SUCCESS: integer = 1
+export const BUFFER_USAGE_MAP_READ: integer = 0x1
+export const BUFFER_USAGE_COPY_SRC: integer = 0x4
+export const BUFFER_USAGE_COPY_DST: integer = 0x8
+export const BUFFER_USAGE_UNIFORM: integer = 0x40
+export const BUFFER_USAGE_STORAGE: integer = 0x80
+export const BUFFER_USAGE_QUERY_RESOLVE: integer = 0x200
+export const BUFFER_BINDING_UNIFORM: integer = 2
+export const BUFFER_BINDING_STORAGE: integer = 3
+export const BUFFER_BINDING_READ_ONLY_STORAGE: integer = 4
+export const SHADER_STAGE_COMPUTE: integer = 0x4
+export const MAP_MODE_READ: integer = 0x1
+export const QUERY_TYPE_TIMESTAMP: integer = 2
+export const FEATURE_TIMESTAMP_QUERY: integer = 9
+export const FEATURE_LEVEL_CORE: integer = 2
+export const POWER_HIGH_PERFORMANCE: integer = 2
+export const ERROR_FILTER_VALIDATION: integer = 1
+export const ERROR_TYPE_NO_ERROR: integer = 1
+export const STYPE_SHADER_SOURCE_SPIRV: integer = 0x1
+export const STYPE_SHADER_SOURCE_WGSL: integer = 0x2
+export const STYPE_INSTANCE_EXTRAS: integer = 0x00030004
+
+--- `WGPU_WHOLE_SIZE` as the `size_t` wgpuBufferMapAsync takes.
+export const WHOLE_MAP_SIZE: any = memory.maxsize()
+
+-- `WGPUInstanceBackend` bits, for the WGPU_BACKEND names wgpu reads.
+const BACKENDS: {[string]: integer} = {vulkan = 1, gl = 2, gles = 2, metal = 4, dx12 = 8, d3d12 = 8}
+
+-- `WGPUBackendType`, as wgpu's own `Backend::to_str` spells each.
+const BACKEND_NAMES: {
+    [integer]: string
+} = {[1] = "noop", [2] = "webgpu", [4] = "dx12", [5] = "metal", [6] = "vulkan", [7] = "gl", [8] = "gl",}
+
+--- The name wgpu gives a `WGPUBackendType`.
+export function backendname(value: integer): string
+    return BACKEND_NAMES[value] or "empty"
+end
+
+--- The instance backends WGPU_BACKEND asks for, or zero for every one.
+--- @raises string when a name in the variable is not a backend
+export function requestedbackends(): integer
+    local wanted = os.getenv("WGPU_BACKEND")
+    if wanted == nil or wanted == "" then
+        return 0
+    end
+    local bits = 0
+    for name in wanted:lower():gmatch("[^,%s]+") do
+        local bit = BACKENDS[name]
+        if bit == nil then
+            error(("WGPU_BACKEND names unknown backend %q"):format(name), 0)
+        end
+        bits = bits | bit
+    end
+
+    return bits as integer
+end
+
+local loaded: any = nil
+export function library(): any
+    if loaded ~= nil then
+        return loaded
+    end
+    local path = assert(
+        os.getenv("NUPP_WGPU_LIBRARY"),
+        "NUPP_WGPU_LIBRARY must name the digest-verified wgpu-native library"
+    )
+    local handle = native.load(path)
+    local result: {[string]: any} = {}
+    for name, signature in pairs(SIGNATURES) do
+        local call = native.bind(handle, name, signature)
+        result[name] = call
+    end
+    assert(result.wgpuGetVersion() == 0x1d000101, "wgpu-native version does not match the pinned headers")
+    loaded = result
+
+    return result
+end
+
+--- A callback's message, from whichever spelling its ABI delivered.
+export function message(first: any, second: any): string
+    if MESSAGE_BY_POINTER then
+        if first == nil then
+            return ""
+        end
+        local cell: any = memory.new("WGPUStringView")
+        memory.copy(cell, first, 16)
+        if cell.data == nil then
+            return ""
+        end
+        return memory.readstring(cell.data, cell.length)
+    end
+    if first == nil then
+        return ""
+    end
+
+    return memory.readstring(first, second)
+end
+
+-- Callback results are keyed by the integer each request carries. Reuse the
+-- retained callbacks instead of consuming a native callback slot per request.
+local settled: {[integer]: any} = {}
+local cells: {[integer]: any} = {}
+local nextToken: integer = 0
+
+--- A fresh token a request carries in its first userdata, and its result slot.
+export function token(): (any, integer)
+    nextToken = (nextToken + 1) as integer
+    settled[nextToken] = false
+
+    local cell = memory.token(nextToken)
+    cells[nextToken] = cell
+
+    return cell, nextToken
+end
+
+--- Takes what the callback for `key` delivered, or false if it has not run.
+export function take(key: integer): any
+    local value = settled[key]
+    settled[key] = nil
+    cells[key] = nil
+    if type(value) == "table" and value.owned ~= nil then
+        value.value = value.owned.value
+        value.owned = nil
+    end
+
+    return value
+end
+
+local function keyOf(userdata: any): integer
+    return memory.tokenvalue(userdata)
+end
+
+local function deliver(userdata: any, value: any): nil
+    local key = keyOf(userdata)
+    if settled[key] ~= nil then
+        settled[key] = value
+    end
+end
+
+-- Device faults by device key: uncaptured errors and loss, both reported
+-- whenever wgpu-native notices them, drained by the context that owns them.
+local faults: {[integer]: {string}} = {}
+
+--- Starts collecting faults for one device and returns its userdata.
+export function faultsink(): (any, integer)
+    nextToken = (nextToken + 1) as integer
+    faults[nextToken] = {}
+
+    local cell = memory.token(nextToken)
+    cells[nextToken] = cell
+
+    return cell, nextToken
+end
+
+--- Takes every fault recorded for a device since the last call.
+export function takefaults(key: integer): {string}
+    local recorded = faults[key]
+    if recorded == nil then
+        return {}
+    end
+    faults[key] = {}
+
+    return recorded
+end
+
+--- Stops collecting faults for a device.
+export function dropfaults(key: integer): nil
+    faults[key] = nil
+    cells[key] = nil
+end
+
+local function record(userdata: any, text: string): nil
+    local recorded = faults[keyOf(userdata)]
+    if recorded ~= nil then
+        recorded[#recorded + 1] = text
+    end
+end
+
+const LOST_REASONS: {
+    [integer]: string
+} = {[1] = "Unknown", [2] = "Destroyed", [3] = "CallbackCancelled", [4] = "FailedCreation",}
+
+const ERROR_TYPES: {
+    [integer]: string
+} = {[2] = "Validation Error", [3] = "Out of Memory", [4] = "Internal error", [5] = "Unknown error",}
+
+--- How wgpu describes an error type.
+export function errortype(value: integer): string
+    return ERROR_TYPES[value] or ("error type " .. tostring(value))
+end
+
+local adapterCallback: any = nil
+local deviceCallback: any = nil
+local mapCallback: any = nil
+local scopeCallback: any = nil
+local lostCallback: any = nil
+local errorCallback: any = nil
+
+-- Adapter and device callbacks transfer an owned reference. Move it through
+-- native storage so it survives the VM's callback-scoped pointer loan.
+local function onAdapter(status: integer, adapter: any, first: any, second: any, third: any, fourth: any): nil
+    local userdata = MESSAGE_BY_POINTER and second or third
+    local owned: any = nil
+    if adapter ~= nil then
+        library().wgpuAdapterAddRef(adapter)
+        owned = memory.ownedslot(adapter)
+        library().wgpuAdapterRelease(adapter)
+    end
+    deliver(userdata, {status = status, owned = owned, message = message(first, second)})
+end
+
+local function onDevice(status: integer, device: any, first: any, second: any, third: any, fourth: any): nil
+    local userdata = MESSAGE_BY_POINTER and second or third
+    local owned: any = nil
+    if device ~= nil then
+        library().wgpuDeviceAddRef(device)
+        owned = memory.ownedslot(device)
+        library().wgpuDeviceRelease(device)
+    end
+    deliver(userdata, {status = status, owned = owned, message = message(first, second)})
+end
+
+local function onMap(status: integer, first: any, second: any, third: any, fourth: any): nil
+    local userdata = MESSAGE_BY_POINTER and second or third
+    deliver(userdata, {status = status, message = message(first, second)})
+end
+
+local function onScope(status: integer, kind: integer, first: any, second: any, third: any, fourth: any): nil
+    local userdata = MESSAGE_BY_POINTER and second or third
+    deliver(userdata, {status = status, kind = kind, message = message(first, second)})
+end
+
+local function onLost(device: any, reason: integer, first: any, second: any, third: any, fourth: any): nil
+    local userdata = MESSAGE_BY_POINTER and second or third
+    record(userdata, ("device lost (%s): %s"):format(LOST_REASONS[reason] or tostring(reason), message(first, second)))
+end
+
+local function onError(device: any, kind: integer, first: any, second: any, third: any, fourth: any): nil
+    local userdata = MESSAGE_BY_POINTER and second or third
+    local text = message(first, second)
+    record(userdata, text ~= "" and text or errortype(kind))
+end
+
+--- Retained callbacks carry an explicit scalar C signature. WGPUStringView is
+--- lowered as its two integer registers, or a pointer to its copy on Win64.
+export function callbacks(): {[string]: any}
+    if adapterCallback == nil then
+        local messageParts = MESSAGE_BY_POINTER and {"pointer"} or {"pointer", "uint64"}
+
+        local function callback(prefix: {string}, body: any): any
+            local args: {string} = {}
+            for _, value in ipairs(prefix) do
+                args[#args + 1] = value
+            end
+            for _, value in ipairs(messageParts) do
+                args[#args + 1] = value
+            end
+            args[#args + 1] = "pointer";
+            args[#args + 1] = "pointer"
+
+            return native.callback({params = args, result = "void"}, body)
+        end
+
+        adapterCallback = callback({"uint32", "pointer"}, onAdapter)
+        deviceCallback = callback({"uint32", "pointer"}, onDevice)
+        mapCallback = callback({"uint32"}, onMap)
+        scopeCallback = callback({"uint32", "uint32"}, onScope)
+        lostCallback = callback({"pointer", "uint32"}, onLost)
+        errorCallback = callback({"pointer", "uint32"}, onError)
+    end
+
+    return {
+        adapter = adapterCallback,
+        device = deviceCallback,
+        map = mapCallback,
+        scope = scopeCallback,
+        lost = lostCallback,
+        error = errorCallback
+    }
+end
+
+export function view(text: string?): any
+    return memory.view(text)
+end
+
+export function pause(milliseconds: integer): nil
+    if milliseconds <= 0 then
+        return
+    end
+    local call = native.bind(nil, package.config:sub(1, 1) == "\\" and "Sleep" or "usleep", {
+        params = {"uint32"},
+        result = "void"
+    })
+    call(package.config:sub(1, 1) == "\\" and milliseconds or milliseconds * 1000)
+end

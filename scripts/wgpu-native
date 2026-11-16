@@ -1,0 +1,139 @@
+#!/usr/bin/env python3
+"""Fetch the pinned WebGPU C library and matched headers; compile nothing."""
+import argparse
+import hashlib
+import json
+import os
+from pathlib import Path, PurePosixPath
+import platform
+import shutil
+import subprocess
+import sys
+import tempfile
+import urllib.request
+import zipfile
+
+ROOT = Path(__file__).resolve().parent.parent
+
+def host_target():
+    system = platform.system()
+    machine = platform.machine().lower()
+    arch = {"arm64": "aarch64", "aarch64": "aarch64", "amd64": "x86_64", "x86_64": "x86_64"}.get(machine)
+    suffix = {"Darwin": "apple-darwin", "Linux": "unknown-linux-gnu", "Windows": "pc-windows-msvc"}.get(system)
+    if not arch or not suffix:
+        raise ValueError(f"wgpu-native has no pinned binary for {system}/{machine}")
+    return f"{arch}-{suffix}"
+
+def digest(path):
+    with path.open("rb") as stream:
+        value = hashlib.sha256()
+        for block in iter(lambda: stream.read(1024 * 1024), b""):
+            value.update(block)
+        return value.hexdigest()
+
+def valid(directory, record):
+    try:
+        return all(digest(directory / name) == expected for name, expected in record["files"].items())
+    except OSError:
+        return False
+
+def cache_home():
+    if os.environ.get("NUPP_TOOLCHAIN_DIR"):
+        return Path(os.environ["NUPP_TOOLCHAIN_DIR"])
+    try:
+        found = subprocess.run(["git", "-C", str(ROOT), "rev-parse", "--git-common-dir"], capture_output=True, text=True)
+    except OSError:
+        return ROOT / "build/toolchain"
+    if found.returncode == 0:
+        common = Path(found.stdout.strip())
+        if not common.is_absolute():
+            common = ROOT / common
+        return common.resolve().parent / ".nupp-cache/toolchain"
+    return ROOT / "build/toolchain"
+
+def provision(target, cache, source, offline):
+    pins = json.loads((ROOT / "scripts/wgpu-native.pins.json").read_text())
+    if target not in pins["targets"]:
+        raise ValueError(f"wgpu-native has no pinned binary for {target}")
+    record = dict(pins["targets"][target])
+    record["files"] = {**record["files"], **{"notices/" + name: value for name, value in pins["notices"].items()}}
+    namespace = cache / "wgpu-native" / pins["version"]
+    destination = namespace / f"{target}-{record['sha256'][:16]}"
+    if valid(destination, record):
+        return destination / record["library"]
+    if destination.exists():
+        raise ValueError(f"corrupt wgpu-native cache entry: {destination}; refusing to load it")
+    namespace.mkdir(parents=True, exist_ok=True)
+    archive = namespace / record["asset"]
+    if not archive.is_file() or digest(archive) != record["sha256"]:
+        with tempfile.NamedTemporaryFile(dir=namespace, delete=False) as stream:
+            pending = Path(stream.name)
+        try:
+            candidate = source / record["asset"] if source else None
+            if candidate and candidate.is_file():
+                shutil.copyfile(candidate, pending)
+            elif offline:
+                raise ValueError(f"offline: provide the pinned {record['asset']} in NUPP_HOST_SOURCE_DIR")
+            else:
+                base = os.environ.get("NUPP_HOST_SOURCE_BASE_URL")
+                url = (base.rstrip("/") if base else f"https://github.com/gfx-rs/wgpu-native/releases/download/{pins['version']}") + "/" + record["asset"]
+                print(f"wgpu-native: fetching {record['asset']}", file=sys.stderr)
+                with urllib.request.urlopen(url, timeout=90) as response, pending.open("wb") as output:
+                    shutil.copyfileobj(response, output)
+            found = digest(pending)
+            if found != record["sha256"]:
+                raise ValueError(f"wgpu-native digest {found}, expected {record['sha256']}; refusing archive")
+            pending.replace(archive)
+        finally:
+            pending.unlink(missing_ok=True)
+    with tempfile.TemporaryDirectory(prefix=".wgpu-", dir=namespace) as temporary:
+        staging = Path(temporary)
+        files = {}
+        with zipfile.ZipFile(archive) as package:
+            for name in [record["library"], "include/webgpu/webgpu.h", "include/webgpu/wgpu.h", "wgpu-native-meta/wgpu-native-git-tag"]:
+                relative = PurePosixPath(name)
+                if relative.is_absolute() or ".." in relative.parts:
+                    raise ValueError("invalid pinned archive path")
+                data = package.read(name)
+                output = staging / name
+                output.parent.mkdir(parents=True, exist_ok=True)
+                output.write_bytes(data)
+                files[name] = hashlib.sha256(data).hexdigest()
+        tag = (staging / "wgpu-native-meta/wgpu-native-git-tag").read_text().strip()
+        if tag != pins["version"]:
+            raise ValueError(f"wgpu-native archive identifies {tag}, expected {pins['version']}")
+        for name, expected in pins["notices"].items():
+            notice = ROOT / "host/notices" / name
+            if digest(notice) != expected:
+                raise ValueError(f"wgpu-native notice drift: {name}")
+            output = staging / "notices" / name
+            output.parent.mkdir(exist_ok=True)
+            shutil.copyfile(notice, output)
+            files["notices/" + name] = expected
+        if files != record["files"]:
+            raise ValueError("wgpu-native extracted files do not match the pinned headers/library/notices")
+        (staging / "receipt.json").write_text(json.dumps({"version": pins["version"], "target": target, "archiveSha256": record["sha256"], "files": files}, indent=2) + "\n")
+        # A concurrent identical producer may win. Never replace a valid winner.
+        if valid(destination, record):
+            return destination / record["library"]
+        try:
+            staging.rename(destination)
+        except OSError:
+            if not valid(destination, record):
+                raise
+    return destination / record["library"]
+
+def main():
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("target", nargs="?")
+    parser.add_argument("--cache", type=Path, default=cache_home())
+    args = parser.parse_args()
+    source = os.environ.get("NUPP_HOST_SOURCE_DIR")
+    offline = os.environ.get("NUPP_HOST_OFFLINE", "").lower() in {"1", "true", "yes", "on"}
+    print(provision(args.target or host_target(), args.cache, Path(source) if source else None, offline))
+
+if __name__ == "__main__":
+    try:
+        main()
+    except (OSError, ValueError, KeyError, zipfile.BadZipFile) as problem:
+        sys.exit(f"wgpu-native: {problem}")

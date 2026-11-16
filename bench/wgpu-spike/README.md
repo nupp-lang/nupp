@@ -1,5 +1,10 @@
 # WGPU native-runtime benchmarks
 
+The isolated checked-FFI compute provider and GPU CI path are documented in
+[prebuilt-compute.md](prebuilt-compute.md). The Rust-backed benchmark path below
+remains the historical comparison; the public VM GPU provider is not switched
+by that isolated change.
+
 These benchmarks exercise Nupp's native GPU architecture end to end:
 
 1. An ordinary checked `@aot(target = "gpu")` function lowers to canonical

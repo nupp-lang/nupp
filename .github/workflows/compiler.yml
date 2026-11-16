@@ -808,25 +808,9 @@ jobs:
           path: .nupp-cache/toolchain
           key: >-
             nupp-toolchain-${{ runner.os }}-${{ runner.arch }}-${{
-            hashFiles('scripts/toolchain.pins', 'scripts/toolchain') }}
+            hashFiles('scripts/bootstrap-seeds.json', 'scripts/wgpu-native.pins.json') }}
           restore-keys: |
             nupp-toolchain-${{ runner.os }}-${{ runner.arch }}-
-
-      # One identity for the Rust artifacts, shared by every job that builds
-      # them: the lock file, the toolchain file and the native sources. The
-      # feature sets differ between the GPU jobs and the platform gate, and the
-      # store is content-addressed, so a job that asked for a different set
-      # rebuilds what it needs and reuses the rest rather than starting empty.
-      - name: Restore the Rust build outputs
-        uses: actions/cache@v4
-        with:
-          path: build/rust
-          key: >-
-            nupp-rust-${{ runner.os }}-${{ runner.arch }}-${{
-            hashFiles('Cargo.lock', 'Cargo.toml', 'rust-toolchain.toml',
-            'native/**/Cargo.toml', 'scripts/toolchain', 'scripts/toolchain.pins') }}
-          restore-keys: |
-            nupp-rust-${{ runner.os }}-${{ runner.arch }}-
 
       - name: Install the software Vulkan adapter
         run: |
@@ -836,32 +820,31 @@ jobs:
           test -n "$icd"
           printf 'NUPP_GPU_ICD=%s\n' "$icd" >> "$GITHUB_ENV"
 
-      - name: Provision the compiler
-        run: ./scripts/toolchain --all
+      - name: Restore compiled GPU test modules
+        uses: actions/cache@v4
+        with:
+          path: build/cache
+          key: >-
+            nupp-wgpu-modules-${{ runner.os }}-${{ runner.arch }}-${{
+            hashFiles('scripts/bootstrap-seeds.json') }}-${{
+            hashFiles('src/nupp/runtime/provider/wgpu*.nupp',
+            'src/nupp/runtime/provider/gpudevice.nupp',
+            'src/nupp/runtime/provider/gpucosts.nupp',
+            'tests/stdlib/io/gpu/gpudevicetest.lua') }}
+          restore-keys: |
+            nupp-wgpu-modules-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('scripts/bootstrap-seeds.json') }}-
 
       - name: Run exact GPU dispatch and readback
         id: gpu_conformance
-        continue-on-error: true
         run: .github/scripts/test-gpu-conformance.sh
 
-      # A failed conformance step would otherwise skip actions/cache's post
-      # save the toolchain for every diagnostic commit. Preserve the expensive
-      # compiler build before turning the captured outcome back
-      # into the job's verdict.
-      - name: Save a failed conformance build
-        if: steps.gpu_conformance.outcome == 'failure'
-        uses: actions/cache/save@v4
-        continue-on-error: true
+      - name: Upload GPU conformance receipt
+        if: always()
+        uses: actions/upload-artifact@v4
         with:
-          path: build/rust
-          key: >-
-            nupp-rust-${{ runner.os }}-${{ runner.arch }}-${{
-            hashFiles('Cargo.lock', 'Cargo.toml', 'rust-toolchain.toml',
-            'native/**/Cargo.toml', 'scripts/toolchain', 'scripts/toolchain.pins') }}
-
-      - name: Report GPU conformance failure
-        if: steps.gpu_conformance.outcome == 'failure'
-        run: exit 1
+          name: wgpu-conformance-${{ runner.os }}-${{ runner.arch }}
+          path: build/wgpu-conformance/*.json
+          if-no-files-found: warn
 
   gpu-conformance-windows:
     name: GPU conformance / Windows DX12
@@ -879,42 +862,38 @@ jobs:
           path: .nupp-cache/toolchain
           key: >-
             nupp-toolchain-${{ runner.os }}-${{ runner.arch }}-${{
-            hashFiles('scripts/toolchain.pins', 'scripts/toolchain') }}
+            hashFiles('scripts/bootstrap-seeds.json', 'scripts/wgpu-native.pins.json') }}
           restore-keys: |
             nupp-toolchain-${{ runner.os }}-${{ runner.arch }}-
 
-      # One identity for the Rust artifacts, shared by every job that builds
-      # them: the lock file, the toolchain file and the native sources. The
-      # feature sets differ between the GPU jobs and the platform gate, and the
-      # store is content-addressed, so a job that asked for a different set
-      # rebuilds what it needs and reuses the rest rather than starting empty.
-      - name: Restore the Rust build outputs
-        uses: actions/cache@v4
-        with:
-          path: build/rust
-          key: >-
-            nupp-rust-${{ runner.os }}-${{ runner.arch }}-${{
-            hashFiles('Cargo.lock', 'Cargo.toml', 'rust-toolchain.toml',
-            'native/**/Cargo.toml', 'scripts/toolchain', 'scripts/toolchain.pins') }}
-          restore-keys: |
-            nupp-rust-${{ runner.os }}-${{ runner.arch }}-
-
-      - name: Install the ABI-compatible Windows Rust toolchain
-        shell: bash
-        run: |
-          channel=$(sed -n 's/^channel = "\([^"]*\)"$/\1/p' rust-toolchain.toml)
-          rustup toolchain install "${channel}-x86_64-pc-windows-gnu" --profile minimal
-
-      - name: Provision the pinned toolchain
-        shell: bash
-        run: ./scripts/toolchain --all
-
       # Adapter absence is a failure: Vulkan cannot silently substitute for
       # the retained Windows DX12 contract.
+      - name: Restore compiled GPU test modules
+        uses: actions/cache@v4
+        with:
+          path: build/cache
+          key: >-
+            nupp-wgpu-modules-${{ runner.os }}-${{ runner.arch }}-${{
+            hashFiles('scripts/bootstrap-seeds.json') }}-${{
+            hashFiles('src/nupp/runtime/provider/wgpu*.nupp',
+            'src/nupp/runtime/provider/gpudevice.nupp',
+            'src/nupp/runtime/provider/gpucosts.nupp',
+            'tests/stdlib/io/gpu/gpudevicetest.lua') }}
+          restore-keys: |
+            nupp-wgpu-modules-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('scripts/bootstrap-seeds.json') }}-
+
       - name: Run exact DX12 dispatch and readback
         id: gpu_conformance
         shell: bash
         run: .github/scripts/test-gpu-conformance-windows.sh
+
+      - name: Upload GPU conformance receipt
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: wgpu-conformance-${{ runner.os }}-${{ runner.arch }}
+          path: build/wgpu-conformance/*.json
+          if-no-files-found: warn
 
   # The one status a ruleset should require. Its meaning does not change when
   # the jobs above are reorganized, renamed, or split, and it cannot pass by a

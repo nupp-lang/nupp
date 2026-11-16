@@ -1,0 +1,72 @@
+{
+  "schemaVersion": 1,
+  "platform": "macOS arm64",
+  "adapterBackend": "metal",
+  "computeCasesPassed": 31,
+  "abiLayoutsMatched": 33,
+  "validationPath": "/usr/bin:/bin:/usr/sbin:/sbin",
+  "rustToolsOnValidationPath": {
+    "cargo": false,
+    "rustc": false,
+    "rustup": false
+  },
+  "afterSourceChanges": {
+    "schemaVersion": 1,
+    "target": "aarch64-apple-darwin",
+    "backend": "metal",
+    "wgpuVersion": "v29.0.1.1",
+    "archiveSha256": "a5797a37b1adf720bcd5dcffb291edbbd5b7b14be0a3874c28e6393a655a7a3e",
+    "runtimeSha256": "023c81cffa4c108a3ac846c869e1084db4eebaf8b7a16b9a34f7a0ae88cc6fec",
+    "imageSha256": "ab1b144840350699ef459b9b4db218834ffcec94a0f9d1c9597f335370cfc665",
+    "compiler": "verified pinned execution seed",
+    "productionCWrapper": false,
+    "rustCompilation": false,
+    "exitCode": 0,
+    "phases": {
+      "wgpuProvisionMs": 5.410458000000007,
+      "compilerSeedMs": 126.62183400000002,
+      "headerAbiProbeMs": 251.312125,
+      "conformanceMs": 15209.805957999999
+    }
+  },
+  "unchangedWarm": {
+    "schemaVersion": 1,
+    "target": "aarch64-apple-darwin",
+    "backend": "metal",
+    "wgpuVersion": "v29.0.1.1",
+    "archiveSha256": "a5797a37b1adf720bcd5dcffb291edbbd5b7b14be0a3874c28e6393a655a7a3e",
+    "runtimeSha256": "023c81cffa4c108a3ac846c869e1084db4eebaf8b7a16b9a34f7a0ae88cc6fec",
+    "imageSha256": "ab1b144840350699ef459b9b4db218834ffcec94a0f9d1c9597f335370cfc665",
+    "compiler": "verified pinned execution seed",
+    "productionCWrapper": false,
+    "rustCompilation": false,
+    "exitCode": 0,
+    "phases": {
+      "wgpuProvisionMs": 3.866915999999998,
+      "compilerSeedMs": 98.05333299999997,
+      "headerAbiProbeMs": 188.24795799999998,
+      "conformanceMs": 2604.711666
+    }
+  },
+  "rustCompileOnlyBaseline": {
+    "command": "cargo test -p nupp-native-gpu adapter_compute_round_trip_when_available --locked --no-run",
+    "exitCode": 0,
+    "seconds": 17.574221333,
+    "jobs": 4,
+    "compilerCache": false,
+    "wgpuCrateVersion": "30.0.1"
+  },
+  "limitations": [
+    "Binary archives and compiler seed were already cached; no cold network timing.",
+    "Rust baseline compiles one selected test binary without running it; it is not a whole-job comparison.",
+    "Only the macOS arm64 library was executed.",
+    "The public VM GPU provider remains unchanged."
+  ],
+  "baseCommit": "426e42e6198afad87971fea90df9566096d2b799",
+  "providerSourceSha256": {
+    "src/nupp/runtime/provider/gpucosts.nupp": "95988815406e3d87762d9577020130f710ebc2d25081634013c8c1e1fb5a5fe6",
+    "src/nupp/runtime/provider/gpudevice.nupp": "70a399ab887154e365f5e8f51ed79d1aeb93027cd42bc6539280f9eea6c1dfee",
+    "src/nupp/runtime/provider/wgpu.nupp": "82599c82aaf65f6142e2e2eb828cdffb212388028f5f9855c9e3c57d99d676e4",
+    "src/nupp/runtime/provider/wgpumemory.nupp": "56b090ca4f3089983a4682e7c8645182fb677da5c0157d7ae46711d3b1b9a301"
+  }
+}

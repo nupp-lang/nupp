@@ -13,6 +13,6 @@ export NUPP_REQUIRE_GPU=1
 export NUPP_EXPECT_GPU_BACKEND=vulkan
 export NUPP_EXPECT_GPU_ADAPTER=llvmpipe
 
-# Adapter absence is a failure in conformance, not an optional unit-test skip.
-cargo test -p nupp-native-gpu adapter_compute_round_trip_when_available \
-    --locked -- --nocapture
+# The pinned compiler seed checks this checkout's Nupp provider. No Cargo,
+# rustup, or independent compiler bootstrap runs in the GPU job.
+python3 .github/scripts/test-wgpu-conformance.py

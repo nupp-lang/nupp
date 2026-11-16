@@ -1,0 +1,592 @@
+@!internal
+module nupp.runtime.provider.wgpumemory
+
+local strings = string
+local native = require("nupp.vm.foreign")
+
+cdef struct WGPUStringView
+    data: voidptr?
+    length: uint64
+end
+
+cdef struct WGPUChainedStruct
+    next: voidptr?
+    sType: uint32
+end
+
+cdef struct WGPUFuture
+    id: uint64
+end
+
+cdef struct WGPUCallbackInfo
+    nextInChain: voidptr?
+    mode: uint32
+    callback: voidptr?
+    userdata1: voidptr?
+    userdata2: voidptr?
+end
+
+cdef struct WGPUUncapturedErrorCallbackInfo
+    nextInChain: voidptr?
+    callback: voidptr?
+    userdata1: voidptr?
+    userdata2: voidptr?
+end
+
+cdef struct WGPUNativeDisplayHandle
+    type: uint32
+    words: uint64[2]
+end
+
+cdef struct WGPUInstanceExtras
+    chain: WGPUChainedStruct
+    backends: uint64
+    flags: uint64
+    dx12ShaderCompiler: uint32
+    gles3MinorVersion: uint32
+    glFenceBehaviour: uint32
+    dxcPath: WGPUStringView
+    dxcMaxShaderModel: uint32
+    dx12PresentationSystem: uint32
+    budgetForDeviceCreation: voidptr?
+    budgetForDeviceLoss: voidptr?
+    displayHandle: WGPUNativeDisplayHandle
+end
+
+cdef struct WGPUInstanceDescriptor
+    nextInChain: voidptr?
+    requiredFeatureCount: uint64
+    requiredFeatures: voidptr?
+    requiredLimits: voidptr?
+end
+
+cdef struct WGPURequestAdapterOptions
+    nextInChain: voidptr?
+    featureLevel: uint32
+    powerPreference: uint32
+    forceFallbackAdapter: uint32
+    backendType: uint32
+    compatibleSurface: voidptr?
+end
+
+cdef struct WGPUAdapterInfo
+    nextInChain: voidptr?
+    vendor: WGPUStringView
+    architecture: WGPUStringView
+    device: WGPUStringView
+    description: WGPUStringView
+    backendType: uint32
+    adapterType: uint32
+    vendorID: uint32
+    deviceID: uint32
+    subgroupMinSize: uint32
+    subgroupMaxSize: uint32
+end
+
+cdef struct WGPULimits
+    nextInChain: voidptr?
+    maxTextureDimension1D: uint32
+    maxTextureDimension2D: uint32
+    maxTextureDimension3D: uint32
+    maxTextureArrayLayers: uint32
+    maxBindGroups: uint32
+    maxBindGroupsPlusVertexBuffers: uint32
+    maxBindingsPerBindGroup: uint32
+    maxDynamicUniformBuffersPerPipelineLayout: uint32
+    maxDynamicStorageBuffersPerPipelineLayout: uint32
+    maxSampledTexturesPerShaderStage: uint32
+    maxSamplersPerShaderStage: uint32
+    maxStorageBuffersPerShaderStage: uint32
+    maxStorageTexturesPerShaderStage: uint32
+    maxUniformBuffersPerShaderStage: uint32
+    maxUniformBufferBindingSize: uint64
+    maxStorageBufferBindingSize: uint64
+    minUniformBufferOffsetAlignment: uint32
+    minStorageBufferOffsetAlignment: uint32
+    maxVertexBuffers: uint32
+    maxBufferSize: uint64
+    maxVertexAttributes: uint32
+    maxVertexBufferArrayStride: uint32
+    maxInterStageShaderVariables: uint32
+    maxColorAttachments: uint32
+    maxColorAttachmentBytesPerSample: uint32
+    maxComputeWorkgroupStorageSize: uint32
+    maxComputeInvocationsPerWorkgroup: uint32
+    maxComputeWorkgroupSizeX: uint32
+    maxComputeWorkgroupSizeY: uint32
+    maxComputeWorkgroupSizeZ: uint32
+    maxComputeWorkgroupsPerDimension: uint32
+    maxImmediateSize: uint32
+end
+
+cdef struct WGPUQueueDescriptor
+    nextInChain: voidptr?
+    label: WGPUStringView
+end
+
+cdef struct WGPUDeviceDescriptor
+    nextInChain: voidptr?
+    label: WGPUStringView
+    requiredFeatureCount: uint64
+    requiredFeatures: voidptr?
+    requiredLimits: voidptr?
+    defaultQueue: WGPUQueueDescriptor
+    deviceLostCallbackInfo: WGPUCallbackInfo
+    uncapturedErrorCallbackInfo: WGPUUncapturedErrorCallbackInfo
+end
+
+cdef struct WGPUBufferDescriptor
+    nextInChain: voidptr?
+    label: WGPUStringView
+    usage: uint64
+    size: uint64
+    mappedAtCreation: uint32
+end
+
+cdef struct WGPUBufferBindingLayout
+    nextInChain: voidptr?
+    type: uint32
+    hasDynamicOffset: uint32
+    minBindingSize: uint64
+end
+
+cdef struct WGPUSamplerBindingLayout
+    nextInChain: voidptr?
+    type: uint32
+end
+
+cdef struct WGPUTextureBindingLayout
+    nextInChain: voidptr?
+    sampleType: uint32
+    viewDimension: uint32
+    multisampled: uint32
+end
+
+cdef struct WGPUStorageTextureBindingLayout
+    nextInChain: voidptr?
+    access: uint32
+    format: uint32
+    viewDimension: uint32
+end
+
+cdef struct WGPUBindGroupLayoutEntry
+    nextInChain: voidptr?
+    binding: uint32
+    visibility: uint64
+    bindingArraySize: uint32
+    buffer: WGPUBufferBindingLayout
+    sampler: WGPUSamplerBindingLayout
+    texture: WGPUTextureBindingLayout
+    storageTexture: WGPUStorageTextureBindingLayout
+end
+
+cdef struct WGPUBindGroupLayoutDescriptor
+    nextInChain: voidptr?
+    label: WGPUStringView
+    entryCount: uint64
+    entries: voidptr?
+end
+
+cdef struct WGPUPipelineLayoutDescriptor
+    nextInChain: voidptr?
+    label: WGPUStringView
+    bindGroupLayoutCount: uint64
+    bindGroupLayouts: voidptr?
+    immediateSize: uint32
+end
+
+cdef struct WGPUShaderSourceSPIRV
+    chain: WGPUChainedStruct
+    codeSize: uint32
+    code: voidptr?
+end
+
+cdef struct WGPUShaderSourceWGSL
+    chain: WGPUChainedStruct
+    code: WGPUStringView
+end
+
+cdef struct WGPUShaderModuleDescriptor
+    nextInChain: voidptr?
+    label: WGPUStringView
+end
+
+cdef struct WGPUComputeState
+    nextInChain: voidptr?
+    module: voidptr?
+    entryPoint: WGPUStringView
+    constantCount: uint64
+    constants: voidptr?
+end
+
+cdef struct WGPUComputePipelineDescriptor
+    nextInChain: voidptr?
+    label: WGPUStringView
+    layout: voidptr?
+    compute: WGPUComputeState
+end
+
+cdef struct WGPUBindGroupEntry
+    nextInChain: voidptr?
+    binding: uint32
+    buffer: voidptr?
+    offset: uint64
+    size: uint64
+    sampler: voidptr?
+    textureView: voidptr?
+end
+
+cdef struct WGPUBindGroupDescriptor
+    nextInChain: voidptr?
+    label: WGPUStringView
+    layout: voidptr?
+    entryCount: uint64
+    entries: voidptr?
+end
+
+cdef struct WGPUCommandEncoderDescriptor
+    nextInChain: voidptr?
+    label: WGPUStringView
+end
+
+cdef struct WGPUCommandBufferDescriptor
+    nextInChain: voidptr?
+    label: WGPUStringView
+end
+
+cdef struct WGPUPassTimestampWrites
+    nextInChain: voidptr?
+    querySet: voidptr?
+    beginningOfPassWriteIndex: uint32
+    endOfPassWriteIndex: uint32
+end
+
+cdef struct WGPUComputePassDescriptor
+    nextInChain: voidptr?
+    label: WGPUStringView
+    timestampWrites: voidptr?
+end
+
+cdef struct WGPUQuerySetDescriptor
+    nextInChain: voidptr?
+    label: WGPUStringView
+    type: uint32
+    count: uint32
+end
+
+cdef struct GpuByte
+    value: uint8
+end
+
+cdef struct GpuWord
+    value: uint32
+end
+
+cdef struct GpuWide
+    value: uint64
+end
+
+cdef struct GpuPointer
+    value: voidptr?
+end
+
+local layouts: {
+    [string]: any
+} = {
+    WGPUNativeDisplayHandle = ffi.typeof<WGPUNativeDisplayHandle>(),
+    WGPUStringView = ffi.typeof<WGPUStringView>(),
+    WGPUChainedStruct = ffi.typeof<WGPUChainedStruct>(),
+    WGPUFuture = ffi.typeof<WGPUFuture>(),
+    WGPUCallbackInfo = ffi.typeof<WGPUCallbackInfo>(),
+    WGPUUncapturedErrorCallbackInfo = ffi.typeof<WGPUUncapturedErrorCallbackInfo>(),
+    WGPUInstanceExtras = ffi.typeof<WGPUInstanceExtras>(),
+    WGPUInstanceDescriptor = ffi.typeof<WGPUInstanceDescriptor>(),
+    WGPURequestAdapterOptions = ffi.typeof<WGPURequestAdapterOptions>(),
+    WGPUAdapterInfo = ffi.typeof<WGPUAdapterInfo>(),
+    WGPULimits = ffi.typeof<WGPULimits>(),
+    WGPUQueueDescriptor = ffi.typeof<WGPUQueueDescriptor>(),
+    WGPUDeviceDescriptor = ffi.typeof<WGPUDeviceDescriptor>(),
+    WGPUBufferDescriptor = ffi.typeof<WGPUBufferDescriptor>(),
+    WGPUBufferBindingLayout = ffi.typeof<WGPUBufferBindingLayout>(),
+    WGPUSamplerBindingLayout = ffi.typeof<WGPUSamplerBindingLayout>(),
+    WGPUTextureBindingLayout = ffi.typeof<WGPUTextureBindingLayout>(),
+    WGPUStorageTextureBindingLayout = ffi.typeof<WGPUStorageTextureBindingLayout>(),
+    WGPUBindGroupLayoutEntry = ffi.typeof<WGPUBindGroupLayoutEntry>(),
+    WGPUBindGroupLayoutDescriptor = ffi.typeof<WGPUBindGroupLayoutDescriptor>(),
+    WGPUPipelineLayoutDescriptor = ffi.typeof<WGPUPipelineLayoutDescriptor>(),
+    WGPUShaderSourceSPIRV = ffi.typeof<WGPUShaderSourceSPIRV>(),
+    WGPUShaderSourceWGSL = ffi.typeof<WGPUShaderSourceWGSL>(),
+    WGPUShaderModuleDescriptor = ffi.typeof<WGPUShaderModuleDescriptor>(),
+    WGPUComputeState = ffi.typeof<WGPUComputeState>(),
+    WGPUComputePipelineDescriptor = ffi.typeof<WGPUComputePipelineDescriptor>(),
+    WGPUBindGroupEntry = ffi.typeof<WGPUBindGroupEntry>(),
+    WGPUBindGroupDescriptor = ffi.typeof<WGPUBindGroupDescriptor>(),
+    WGPUCommandEncoderDescriptor = ffi.typeof<WGPUCommandEncoderDescriptor>(),
+    WGPUCommandBufferDescriptor = ffi.typeof<WGPUCommandBufferDescriptor>(),
+    WGPUPassTimestampWrites = ffi.typeof<WGPUPassTimestampWrites>(),
+    WGPUComputePassDescriptor = ffi.typeof<WGPUComputePassDescriptor>(),
+    WGPUQuerySetDescriptor = ffi.typeof<WGPUQuerySetDescriptor>(),
+}
+
+export function descriptor(name: string): any
+    local value = assert(layouts[name], "unknown GPU ABI type " .. name)
+    return value
+end
+
+export function raw(value: any): any
+    if type(value) == "table" and value.__gpuStorage ~= nil then
+        return value.__gpuStorage
+    end
+    return value
+end
+
+local function scalararray(storage: any, count: integer): any
+    return setmetatable({__gpuStorage = storage, count = count}, {
+        __index = function(self: any, key: integer): any
+            assert(key >= 0 and key < count, "GPU native array index out of range")
+            return storage[key].value
+        end,
+        __newindex = function(self: any, key: integer, value: any): nil
+            assert(key >= 0 and key < count, "GPU native array index out of range")
+            storage[key].value = raw(value)
+        end,
+    })
+end
+
+local function allocate(name: string, count: any): any
+    if name == "WGPUStringView" then
+        return WGPUStringView()
+    elseif name == "WGPUStringView[?]" then
+        return carray(WGPUStringView, count)
+    elseif name == "WGPUChainedStruct" then
+        return WGPUChainedStruct()
+    elseif name == "WGPUChainedStruct[?]" then
+        return carray(WGPUChainedStruct, count)
+    elseif name == "WGPUFuture" then
+        return WGPUFuture()
+    elseif name == "WGPUFuture[?]" then
+        return carray(WGPUFuture, count)
+    elseif name == "WGPUCallbackInfo" then
+        return WGPUCallbackInfo()
+    elseif name == "WGPUCallbackInfo[?]" then
+        return carray(WGPUCallbackInfo, count)
+    elseif name == "WGPUUncapturedErrorCallbackInfo" then
+        return WGPUUncapturedErrorCallbackInfo()
+    elseif name == "WGPUUncapturedErrorCallbackInfo[?]" then
+        return carray(WGPUUncapturedErrorCallbackInfo, count)
+    elseif name == "WGPUInstanceExtras" then
+        return WGPUInstanceExtras()
+    elseif name == "WGPUInstanceExtras[?]" then
+        return carray(WGPUInstanceExtras, count)
+    elseif name == "WGPUInstanceDescriptor" then
+        return WGPUInstanceDescriptor()
+    elseif name == "WGPUInstanceDescriptor[?]" then
+        return carray(WGPUInstanceDescriptor, count)
+    elseif name == "WGPURequestAdapterOptions" then
+        return WGPURequestAdapterOptions()
+    elseif name == "WGPURequestAdapterOptions[?]" then
+        return carray(WGPURequestAdapterOptions, count)
+    elseif name == "WGPUAdapterInfo" then
+        return WGPUAdapterInfo()
+    elseif name == "WGPUAdapterInfo[?]" then
+        return carray(WGPUAdapterInfo, count)
+    elseif name == "WGPULimits" then
+        return WGPULimits()
+    elseif name == "WGPULimits[?]" then
+        return carray(WGPULimits, count)
+    elseif name == "WGPUQueueDescriptor" then
+        return WGPUQueueDescriptor()
+    elseif name == "WGPUQueueDescriptor[?]" then
+        return carray(WGPUQueueDescriptor, count)
+    elseif name == "WGPUDeviceDescriptor" then
+        return WGPUDeviceDescriptor()
+    elseif name == "WGPUDeviceDescriptor[?]" then
+        return carray(WGPUDeviceDescriptor, count)
+    elseif name == "WGPUBufferDescriptor" then
+        return WGPUBufferDescriptor()
+    elseif name == "WGPUBufferDescriptor[?]" then
+        return carray(WGPUBufferDescriptor, count)
+    elseif name == "WGPUBufferBindingLayout" then
+        return WGPUBufferBindingLayout()
+    elseif name == "WGPUBufferBindingLayout[?]" then
+        return carray(WGPUBufferBindingLayout, count)
+    elseif name == "WGPUSamplerBindingLayout" then
+        return WGPUSamplerBindingLayout()
+    elseif name == "WGPUSamplerBindingLayout[?]" then
+        return carray(WGPUSamplerBindingLayout, count)
+    elseif name == "WGPUTextureBindingLayout" then
+        return WGPUTextureBindingLayout()
+    elseif name == "WGPUTextureBindingLayout[?]" then
+        return carray(WGPUTextureBindingLayout, count)
+    elseif name == "WGPUStorageTextureBindingLayout" then
+        return WGPUStorageTextureBindingLayout()
+    elseif name == "WGPUStorageTextureBindingLayout[?]" then
+        return carray(WGPUStorageTextureBindingLayout, count)
+    elseif name == "WGPUBindGroupLayoutEntry" then
+        return WGPUBindGroupLayoutEntry()
+    elseif name == "WGPUBindGroupLayoutEntry[?]" then
+        return carray(WGPUBindGroupLayoutEntry, count)
+    elseif name == "WGPUBindGroupLayoutDescriptor" then
+        return WGPUBindGroupLayoutDescriptor()
+    elseif name == "WGPUBindGroupLayoutDescriptor[?]" then
+        return carray(WGPUBindGroupLayoutDescriptor, count)
+    elseif name == "WGPUPipelineLayoutDescriptor" then
+        return WGPUPipelineLayoutDescriptor()
+    elseif name == "WGPUPipelineLayoutDescriptor[?]" then
+        return carray(WGPUPipelineLayoutDescriptor, count)
+    elseif name == "WGPUShaderSourceSPIRV" then
+        return WGPUShaderSourceSPIRV()
+    elseif name == "WGPUShaderSourceSPIRV[?]" then
+        return carray(WGPUShaderSourceSPIRV, count)
+    elseif name == "WGPUShaderSourceWGSL" then
+        return WGPUShaderSourceWGSL()
+    elseif name == "WGPUShaderSourceWGSL[?]" then
+        return carray(WGPUShaderSourceWGSL, count)
+    elseif name == "WGPUShaderModuleDescriptor" then
+        return WGPUShaderModuleDescriptor()
+    elseif name == "WGPUShaderModuleDescriptor[?]" then
+        return carray(WGPUShaderModuleDescriptor, count)
+    elseif name == "WGPUComputeState" then
+        return WGPUComputeState()
+    elseif name == "WGPUComputeState[?]" then
+        return carray(WGPUComputeState, count)
+    elseif name == "WGPUComputePipelineDescriptor" then
+        return WGPUComputePipelineDescriptor()
+    elseif name == "WGPUComputePipelineDescriptor[?]" then
+        return carray(WGPUComputePipelineDescriptor, count)
+    elseif name == "WGPUBindGroupEntry" then
+        return WGPUBindGroupEntry()
+    elseif name == "WGPUBindGroupEntry[?]" then
+        return carray(WGPUBindGroupEntry, count)
+    elseif name == "WGPUBindGroupDescriptor" then
+        return WGPUBindGroupDescriptor()
+    elseif name == "WGPUBindGroupDescriptor[?]" then
+        return carray(WGPUBindGroupDescriptor, count)
+    elseif name == "WGPUCommandEncoderDescriptor" then
+        return WGPUCommandEncoderDescriptor()
+    elseif name == "WGPUCommandEncoderDescriptor[?]" then
+        return carray(WGPUCommandEncoderDescriptor, count)
+    elseif name == "WGPUCommandBufferDescriptor" then
+        return WGPUCommandBufferDescriptor()
+    elseif name == "WGPUCommandBufferDescriptor[?]" then
+        return carray(WGPUCommandBufferDescriptor, count)
+    elseif name == "WGPUPassTimestampWrites" then
+        return WGPUPassTimestampWrites()
+    elseif name == "WGPUPassTimestampWrites[?]" then
+        return carray(WGPUPassTimestampWrites, count)
+    elseif name == "WGPUComputePassDescriptor" then
+        return WGPUComputePassDescriptor()
+    elseif name == "WGPUComputePassDescriptor[?]" then
+        return carray(WGPUComputePassDescriptor, count)
+    elseif name == "WGPUQuerySetDescriptor" then
+        return WGPUQuerySetDescriptor()
+    elseif name == "WGPUQuerySetDescriptor[?]" then
+        return carray(WGPUQuerySetDescriptor, count)
+    elseif name == "uint8_t[?]" then
+        return scalararray(carray(GpuByte, count), count)
+    elseif name == "uint32_t[?]" then
+        return scalararray(carray(GpuWord, count), count)
+    elseif name == "uint64_t[?]" then
+        return scalararray(carray(GpuWide, count), count)
+    elseif name == "WGPUCommandBuffer[?]" then
+        return scalararray(carray(GpuPointer, count), count)
+    elseif name == "WGPUBindGroupLayout[?]" then
+        return scalararray(carray(GpuPointer, count), count)
+    end
+    error("unknown GPU allocation " .. name)
+end
+
+export function new(name: string, initializer: any): any
+    if name == "uint64_t" then
+        local value = GpuWide()
+        value.value = initializer as uint64
+        return value.value
+    end
+    local element, size = name:match("^(.-)%[(%d+)%]$")
+    if element ~= nil then
+        local count = tonumber(size) as integer
+        local value = allocate(element .. "[?]", count)
+        if initializer ~= nil then
+            if type(initializer) == "table" then
+                for i = 0, count - 1 do
+                    value[i] = initializer[i + 1] or 0
+                end
+            else
+                value[0] = initializer
+            end
+        end
+        return value
+    end
+
+    return allocate(name, initializer)
+end
+
+local nativecopy = native.bind(nil, "memcpy", {
+    params = {"pointer", {kind = "pointer", readonly = true}, "uint64"},
+    result = "pointer"
+})
+export function copy(destination: any, source: any, length: integer): nil
+    nativecopy(raw(destination), raw(source), length)
+end
+
+export function readstring(pointer: any, length: any): string
+    local text = native.string(raw(pointer), length and tonumber(length))
+    return text
+end
+
+export function cast(name: string, value: any): any
+    assert(name == "WGPUChainedStruct *", "unsupported GPU pointer cast")
+    return raw(value)
+end
+
+export function token(value: integer): any
+    local cell = GpuWide()
+    cell.value = value as uint64
+    return cell
+end
+
+export function tokenvalue(pointer: any): integer
+    local value = GpuWide()
+    nativecopy(value, pointer, 8)
+    return tonumber(value.value) as integer
+end
+
+export function view(text: string?): any
+    local result: any = WGPUStringView()
+    if text ~= nil then
+        local bytes = carray(GpuByte, #text + 1)
+        nativecopy(bytes, text, #text)
+        result.data = bytes
+        result.length = #text
+    end
+
+    return result
+end
+
+export function maxsize(): any
+    local cell = GpuWide()
+    nativecopy(cell, strings.rep(strings.char(255), 8), 8)
+    return cell.value
+end
+
+-- WebGPU transfers a reference through a callback. The VM callback pointer
+-- itself is lent only until return; native storage carries the owned reference
+-- to the context after that callback has ended.
+export function ownedslot(pointer: any): any
+    local slot = GpuPointer()
+    slot.value = pointer
+    return slot
+end
+
+export function layoutinfo(): {[string]: any}
+    local result: {[string]: any} = {}
+    for name, value in pairs(layouts) do
+        local fields: {[string]: integer} = {}
+        for _, field in ipairs(value.fields) do
+            fields[field.name] = field.offset
+        end
+        result[name] = {size = value.size, alignment = value.alignment, fields = fields}
+    end
+
+    return result
+end
