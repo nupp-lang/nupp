@@ -494,7 +494,7 @@ end
             ):format(dir, ROOT, output, errors)
             local status = os.execute(command)
             testAssert.eq(status, 0, "required project run: " .. readFile(errors))
-            testAssert.eq(readFile(output), "42\t7\t5\n", "required project output")
+            testAssert.eq(readFile(output), "42\t7.0\t5.0\n", "required project output")
         end
     )
 end
