@@ -198,6 +198,7 @@ function M.testBuildReuseSurvivesSeparateCliProcessesAndToolCallIds()
                 GITHUB_OUTPUT = "/tmp/" .. id .. "/output",
                 GITHUB_RUN_ID = id,
                 ACTIONS_RUNTIME_TOKEN = id,
+                SYSTEMD_EXEC_PID = id,
                 NUPP_TEST_REUSE_INPUT = setting,
             }
         })
