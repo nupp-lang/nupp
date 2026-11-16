@@ -73,7 +73,7 @@ runs:
         [ -f "$payload" ] || exit 0
         facilities=$(grep -v '^vector$' build/test-runner/.nupp-vm-program.facilities | paste -sd, -)
         start=$(date +%s)
-        PS4='+$(date +%s) ' sh -x ./scripts/toolchain vm-program "$facilities" "$payload" 2>&1 >/dev/null \
+        PS4='+$(date +%s) ' bash -x ./scripts/toolchain vm-program "$facilities" "$payload" 2>&1 >/dev/null \
           | awk '/^\++[0-9]+ / { t = $1; sub(/^\++/, "", t); if (prev != "" && t - pt >= 3) print (t - pt) "s: " prev; prev = substr($0, 1, 200); pt = t }' \
           || true
         echo "toolchain vm-program took $(( $(date +%s) - start ))s"
