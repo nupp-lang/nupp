@@ -31,7 +31,7 @@ end
 -- failure's message.
 local function answer(command)
     local process = require("io.internal.process")
-    local child, problem = process.spawn({"sh", "-c", command}, {stdin = "null", timeoutms = 30000})
+    local child, problem = process.spawn({"sh", "-c", command}, {stdin = "null", stderr = "pipe", timeoutms = 30000})
     assert(child, problem)
     local result, failed = child:communicate({maxoutputbytes = 16 * 1024 * 1024})
     child:close()
