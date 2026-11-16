@@ -1,0 +1,10 @@
+local test = require("assert")
+local M = {}
+
+-- Synthetic provisioning contracts. The independent five-target C probe checks
+-- actual TLS/codec versions and protocols; HTTP peers have their own suites.
+function M.sharedArtifactCacheChecksItsInputsAndDependencies(): nil
+    test(os.execute("node --test tests/tools/toolchain/clibraries.test.mjs") == 0)
+end
+
+return M

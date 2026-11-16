@@ -1,0 +1,77 @@
+name: Pinned C libraries
+on:
+  workflow_dispatch:
+  push:
+    paths: &inputs
+      - '.github/workflows/c-libraries.yml'
+      - '.github/scripts/test-c-libraries.sh'
+      - 'scripts/toolchain'
+      - 'scripts/toolchain.pins'
+      - 'scripts/native-libraries'
+      - 'scripts/c-libraries/**'
+      - 'tests/fixtures/c-libraries/**'
+      - 'tests/tools/toolchain/clibraries.test.mjs'
+      - 'host/notices/*LICENSE*'
+  pull_request:
+    paths: *inputs
+permissions:
+  contents: read
+concurrency:
+  group: c-libraries-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  conformance:
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name != github.repository
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - {runner: macos-15, target: aarch64-apple-darwin}
+          - {runner: macos-15-intel, target: x86_64-apple-darwin}
+          - {runner: ubuntu-24.04, target: x86_64-unknown-linux-gnu}
+          - {runner: ubuntu-24.04-arm, target: aarch64-unknown-linux-gnu}
+          - {runner: windows-2022, target: x86_64-pc-windows-msvc}
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v5
+      - name: Select the MSVC SDK
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $vswhere = "${env:ProgramFiles(x86)}/Microsoft Visual Studio/Installer/vswhere.exe"
+          $install = & $vswhere -latest -products '*' -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath
+          if (!$install) { throw 'MSVC x64 tools are required' }
+          $setup = Join-Path $install 'Common7/Tools/VsDevCmd.bat'
+          $values = & cmd /c "`"$setup`" -arch=amd64 -host_arch=amd64 >nul && set"
+          if ($LASTEXITCODE) { throw 'MSVC SDK setup failed' }
+          foreach ($line in $values) {
+            if ($line -match '^(PATH|INCLUDE|LIB|LIBPATH|WindowsSDKVersion|VCToolsVersion)=(.*)$') {
+              Add-Content $env:GITHUB_ENV "$($Matches[1])=$($Matches[2])"
+            }
+          }
+      - uses: actions/cache@v4
+        with:
+          path: .nupp-c-library-cache
+          key: c-libraries-${{ matrix.target }}-${{ hashFiles('scripts/toolchain.pins', 'scripts/native-libraries', 'scripts/c-libraries/**') }}
+      - name: Build and verify upstream C artifacts without Rust
+        shell: bash
+        env:
+          NUPP_NATIVE_TARGET: ${{ matrix.target }}
+          NUPP_TOOLCHAIN_DIR: ${{ github.workspace }}/.nupp-c-library-cache
+        run: |
+          mkdir -p build/no-rust-tools
+          for tool in cargo rustc rustup cargo-c; do
+            printf '#!/bin/sh\necho "Unexpected Rust tool invocation" >&2\nexit 99\n' > "build/no-rust-tools/$tool"
+            chmod +x "build/no-rust-tools/$tool"
+          done
+          export PATH="$PWD/build/no-rust-tools:$PATH"
+          sh .github/scripts/test-c-libraries.sh
+      - uses: actions/upload-artifact@v4
+        with:
+          name: c-library-abi-${{ matrix.target }}
+          path: |
+            build/c-libraries/abi.json
+            build/c-libraries/timing.json
+            build/c-libraries/*.identity
+          if-no-files-found: error
