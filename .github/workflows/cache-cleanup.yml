@@ -1,0 +1,105 @@
+name: Cache cleanup
+
+# Deletes Actions caches nothing can restore any more, so the repository's
+# 10 GB keeps room for the ones that can.
+#
+# A cache is scoped to the ref that saved it: a branch reads its own and the
+# default branch's, and a pull request's merge ref reads its own. So a merged
+# pull request's caches and a deleted branch's are unreachable from the moment
+# the event happens, and an older entry of a family a ref has saved again since
+# is only reached by a restore of that exact older source state, which nothing
+# asks for. GitHub evicts all of these eventually, a week after their last use
+# or when the quota is full, by which time they have pushed out entries that
+# were still useful.
+#
+# Nothing here is destructive in the sense that matters: a cache is never
+# load-bearing (every job builds what it does not restore), so the worst a
+# wrong deletion costs is a slower run. Content-addressed sccache objects are
+# left to GitHub's own eviction, since any of them may be the one a later
+# compile asks for.
+on:
+  pull_request:
+    types: [closed]
+  delete:
+  schedule:
+    - cron: "17 6 * * *"
+  workflow_dispatch:
+
+permissions:
+  actions: write
+  contents: read
+  pull-requests: read
+
+concurrency:
+  group: ${{ github.workflow }}
+  cancel-in-progress: false
+
+jobs:
+  cleanup:
+    name: Delete unreachable caches
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - name: Delete unreachable caches
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          EVENT: ${{ github.event_name }}
+          PULL: ${{ github.event.pull_request.number }}
+          DELETED: ${{ github.event.ref }}
+          DELETED_TYPE: ${{ github.event.ref_type }}
+        run: |
+          set -euo pipefail
+          gh api --paginate "repos/$REPO/actions/caches?per_page=100" \
+            --jq '.actions_caches[] | [.id, .ref, .key, .last_accessed_at, .size_in_bytes] | @tsv' \
+            > caches.tsv
+          : > doomed.tsv
+
+          # One ref's every cache, for the events that end a ref.
+          doom_ref() {
+            awk -F'\t' -v ref="$1" '$2 == ref' caches.tsv >> doomed.tsv
+          }
+
+          case "$EVENT" in
+            pull_request)
+              doom_ref "refs/pull/$PULL/merge"
+              ;;
+            delete)
+              [ "$DELETED_TYPE" = branch ] && doom_ref "refs/heads/$DELETED"
+              ;;
+            *)
+              # Refs that no longer lead anywhere: branches that are gone and
+              # pull requests that are closed.
+              gh api --paginate "repos/$REPO/branches?per_page=100" --jq '.[].name' > branches.txt
+              cut -f2 caches.tsv | sort -u | while read -r ref; do
+                case "$ref" in
+                  refs/heads/*)
+                    grep -qxF "${ref#refs/heads/}" branches.txt || doom_ref "$ref"
+                    ;;
+                  refs/pull/*/merge)
+                    number=${ref#refs/pull/}
+                    number=${number%/merge}
+                    state=$(gh api "repos/$REPO/pulls/$number" --jq .state 2>/dev/null || echo closed)
+                    [ "$state" = open ] || doom_ref "$ref"
+                    ;;
+                esac
+              done
+              # Within a ref, only the most recently used entry of a family: a
+              # key with its trailing content digest removed.
+              grep -v $'\tsccache/' caches.tsv \
+                | awk -F'\t' '{ family = $3; sub(/-[0-9a-f]+$/, "", family); print $2 "\t" family "\t" $4 "\t" $0 }' \
+                | sort -t$'\t' -k1,1 -k2,2 -k3,3r \
+                | awk -F'\t' '{ group = $1 "\t" $2; if (seen[group]++) { sub(/^[^\t]*\t[^\t]*\t[^\t]*\t/, ""); print } }' \
+                >> doomed.tsv
+              ;;
+          esac
+
+          sort -u doomed.tsv -o doomed.tsv
+          total=0
+          while IFS=$'\t' read -r id ref key used size; do
+            if gh api -X DELETE "repos/$REPO/actions/caches/$id" > /dev/null 2>&1; then
+              total=$((total + size))
+              echo "deleted $ref $key (last used $used)"
+            fi
+          done < doomed.tsv
+          echo "freed $((total / 1048576)) MB"
