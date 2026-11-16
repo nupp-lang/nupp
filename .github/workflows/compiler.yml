@@ -341,6 +341,18 @@ jobs:
       - name: Prepare the compiler
         uses: ./.github/actions/prepare
 
+      # The newest suite timings any leg of this platform saved, carried in
+      # the runner's cache so every leg deals its shards from the same record
+      # (`.github/scripts/run-suite-shard.sh`). Never an exact match: the key
+      # only names this run.
+      - name: Restore the recorded suite timings
+        uses: actions/cache/restore@v4
+        with:
+          path: build/test-runner/.nupp-test-times.json
+          key: nupp-test-times-${{ runner.os }}-runner-${{ github.sha }}
+          restore-keys: |
+            nupp-test-times-${{ runner.os }}-
+
       - name: Build the test runner
         uses: ./.github/actions/test-runner
         with:
@@ -359,6 +371,18 @@ jobs:
       - name: Prepare the compiler
         uses: ./.github/actions/prepare
 
+      # The newest suite timings any leg of this platform saved, carried in
+      # the runner's cache so every leg deals its shards from the same record
+      # (`.github/scripts/run-suite-shard.sh`). Never an exact match: the key
+      # only names this run.
+      - name: Restore the recorded suite timings
+        uses: actions/cache/restore@v4
+        with:
+          path: build/test-runner/.nupp-test-times.json
+          key: nupp-test-times-${{ runner.os }}-runner-${{ github.sha }}
+          restore-keys: |
+            nupp-test-times-${{ runner.os }}-
+
       - name: Build the test runner
         uses: ./.github/actions/test-runner
         with:
@@ -376,6 +400,18 @@ jobs:
 
       - name: Prepare the compiler
         uses: ./.github/actions/prepare
+
+      # The newest suite timings any leg of this platform saved, carried in
+      # the runner's cache so every leg deals its shards from the same record
+      # (`.github/scripts/run-suite-shard.sh`). Never an exact match: the key
+      # only names this run.
+      - name: Restore the recorded suite timings
+        uses: actions/cache/restore@v4
+        with:
+          path: build/test-runner/.nupp-test-times.json
+          key: nupp-test-times-${{ runner.os }}-runner-${{ github.sha }}
+          restore-keys: |
+            nupp-test-times-${{ runner.os }}-
 
       - name: Build the test runner
         uses: ./.github/actions/test-runner
@@ -476,19 +512,6 @@ jobs:
           path: .ci-corpus/teal
           sparse-checkout: tl.lua
           sparse-checkout-cone-mode: false
-
-      # Suite durations are what a leg's workers are packed from. A clean
-      # runner without them packs blind and the busiest worker decides the wall
-      # clock, so this is a scheduling input, not a correctness one: an
-      # approximate match is exactly as useful as an exact one.
-      - name: Restore the recorded suite timings
-        if: matrix.kind != 'gates'
-        uses: actions/cache/restore@v4
-        with:
-          path: build/test-runner/.nupp-test-times.json
-          key: nupp-test-times-${{ matrix.id }}-${{ github.sha }}
-          restore-keys: |
-            nupp-test-times-${{ matrix.id }}-
 
       - name: Prepare the compiler
         uses: ./.github/actions/prepare
@@ -680,15 +703,16 @@ jobs:
           retention-days: 7
 
       # Saved whatever the suite concluded. A failing run still measured every
-      # suite that ran, and the next run's packing is better for having it
-      # than for relearning it from nothing.
+      # suite that ran, and the next run's deal is better for having it than
+      # for relearning it from nothing. The runner job restores the newest of
+      # these for the next run's legs.
       - name: Save the recorded suite timings
         if: always() && matrix.kind != 'gates'
         uses: actions/cache/save@v4
         continue-on-error: true
         with:
           path: build/test-runner/.nupp-test-times.json
-          key: nupp-test-times-${{ matrix.id }}-${{ github.sha }}
+          key: nupp-test-times-${{ runner.os }}-${{ matrix.id }}-${{ github.sha }}
 
   integration-macos:
     name: ${{ matrix.name }}

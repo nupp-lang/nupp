@@ -5,13 +5,16 @@
 #   run-suite-shard.sh SHARD SHARDS BATCH JOBS SELECTION...
 #
 # SELECTION is what names the suites (`--lane=shared --exclude-group=...`, or
-# `--group=native-runtime`). Every shard of one selection lists it, sorts the
-# names and keeps each SHARDS-th one starting at its own index, so the shards
-# partition the selection without any of them being told what the others took:
-# the list is a function of the tree, and they all have the same tree. Suites
-# that sort together tend to cost alike -- the native graph suites are the
-# slowest in the tree and all begin `native` -- so dealing them out in turn
-# also spreads the cost, where cutting the list into runs would not.
+# `--group=native-runtime`). Every shard of one selection lists it and deals the
+# suites out the same way, so the shards partition the selection without any of
+# them being told what the others took.
+#
+# The deal is by recorded duration (`TIMINGS`, the runner's suite timings):
+# heaviest first, each to the shard with the least so far. Dealing sorted names
+# in turn left one Linux shard at fifty minutes beside two at thirty, because
+# the slowest suites share prefixes. Every shard of a platform reads the same
+# file -- the one the test runner's cache carries -- so they all deal alike; a
+# suite with no record counts as the median of those that have one.
 #
 # A shard runs its suites BATCH at a time, each batch in workers of its own. A
 # shared-lane worker keeps every module its suites load (#115), so what bounds
@@ -29,6 +32,12 @@ shift 4
 
 runner=(./bin/nupp test)
 
+timings=${TIMINGS:-build/test-runner/.nupp-test-times.json}
+recorded=""
+if [ -f "$timings" ] && command -v jq > /dev/null 2>&1; then
+    recorded=$(jq -r '.suites // {} | to_entries[] | "\(.key) \(.value)"' "$timings" 2>/dev/null || true)
+fi
+
 listed=$("${runner[@]}" --scope=all "$@" --list-suites | tr -d '\r' \
     | grep -E '^[A-Za-z0-9_./-]+$' | LC_ALL=C sort)
 total=$(printf '%s\n' "$listed" | grep -c . || true)
@@ -37,7 +46,39 @@ if [ "$total" -eq 0 ]; then
     exit 1
 fi
 
-mine=$(printf '%s\n' "$listed" | awk -v n="$shards" -v k="$shard" '(NR - 1) % n == k - 1')
+mine=$({
+    printf '%s\n' "$recorded" | sed 's/^/time /'
+    printf '%s\n' "$listed" | sed 's/^/suite /'
+} | awk -v n="$shards" -v k="$shard" '
+    $1 == "time" && NF == 3 { known[$2] = $3; next }
+    $1 == "suite" && NF == 2 { names[++count] = $2 }
+    END {
+        # The median of the suites listed here that have a record.
+        m = 0
+        for (i = 1; i <= count; i++) if (names[i] in known) values[++m] = known[names[i]]
+        for (i = 2; i <= m; i++) { v = values[i]; for (j = i - 1; j >= 1 && values[j] > v; j--) values[j + 1] = values[j]; values[j + 1] = v }
+        median = m > 0 ? values[int((m + 1) / 2)] : 1
+        for (i = 1; i <= count; i++) {
+            weight[i] = names[i] in known ? known[names[i]] : median
+            order[i] = i
+        }
+        # Heaviest first; names break ties, so every shard sorts alike.
+        for (i = 2; i <= count; i++) {
+            v = order[i]
+            for (j = i - 1; j >= 1 && (weight[order[j]] < weight[v] || weight[order[j]] == weight[v] && names[order[j]] > names[v]); j--) order[j + 1] = order[j]
+            order[j + 1] = v
+        }
+        for (s = 1; s <= n; s++) load[s] = 0
+        sum = 0
+        for (i = 1; i <= count; i++) {
+            best = 1
+            for (s = 2; s <= n; s++) if (load[s] < load[best]) best = s
+            load[best] += weight[order[i]]
+            sum += weight[order[i]]
+            if (best == k) print names[order[i]]
+        }
+        printf "shard %d of %d: about %.0f of %.0f suite-seconds\n", k, n, load[k] / 1000, sum / 1000 > "/dev/stderr"
+    }' | LC_ALL=C sort)
 count=$(printf '%s\n' "$mine" | grep -c . || true)
 echo "shard $shard of $shards: $count of $total suites"
 if [ "$count" -eq 0 ]; then
