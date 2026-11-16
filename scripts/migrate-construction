@@ -2,6 +2,10 @@
 # Keep the old parser independent of the compiler currently built in this checkout.
 set -eu
 ROOT=$(CDPATH= cd -- "$(dirname "$0")/.." && pwd)
+# Git Bash answers /d/a/...; LuaJIT on Windows needs D:/a/... in LUA_PATH.
+if command -v cygpath >/dev/null 2>&1; then
+    ROOT=$(cygpath -m "$ROOT")
+fi
 MIGRATION_STAGE0=$("$ROOT/scripts/toolchain" migration-stage0)
 NUPP_MIGRATION_COMPILER_ROOT=$(dirname "$MIGRATION_STAGE0")
 NUPP_COMPILER_ROOT=$NUPP_MIGRATION_COMPILER_ROOT
