@@ -52,8 +52,10 @@ local function compiledEvents()
     file:close()
 
     -- Git Bash names the temporary directory `/c/Users/...`, which the node
-    -- suite's guest, a Windows process, cannot open on its path.
-    if package.config:sub(1, 1) == "\\" then
+    -- suite's guest, a Windows process, cannot open on its path. This
+    -- process opens it fine and its package.config did not report Windows
+    -- on CI, so jit.os decides, as nativeDriver does below.
+    if jit.os == "Windows" then
         directory = directory:gsub("^/(%a)/", "%1:/")
     end
 
