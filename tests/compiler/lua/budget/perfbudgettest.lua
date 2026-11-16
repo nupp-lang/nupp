@@ -317,8 +317,10 @@ end
 -- and a hello-world payload is a few hundred bytes, so the whole is about 1.2 MB on
 -- arm64 macOS. The ceiling is loose on purpose -- hosts differ by platform -- and is
 -- there for the regression that matters: something large, the code generator or a
--- facility nobody selected, travelling in every binary.
+-- facility nobody selected, travelling in every binary. A Windows host links the
+-- GNU runtime statically and is about 3.4 MB, so it gets its own ceiling.
 local STAMPED_BINARY_BYTES = 3 * 1024 * 1024
+local WINDOWS_STAMPED_BINARY_BYTES = 4 * 1024 * 1024
 
 function M.aStampedHelloWorldStaysSmall()
     local dir = temporary()
@@ -333,10 +335,8 @@ function M.aStampedHelloWorldStaysSmall()
     local binary = readFile(dir .. (windows and "/build/app.exe" or "/build/app"))
     os.execute("rm -rf '" .. dir .. "'")
     assert(binary, "the hello-world binary was not built: " .. out)
-    assert(
-        #binary <= STAMPED_BINARY_BYTES,
-        ("a stamped hello world is %d bytes, over the budget of %d"):format(#binary, STAMPED_BINARY_BYTES)
-    )
+    local budget = windows and WINDOWS_STAMPED_BINARY_BYTES or STAMPED_BINARY_BYTES
+    assert(#binary <= budget, ("a stamped hello world is %d bytes, over the budget of %d"):format(#binary, budget))
 end
 
 return M
