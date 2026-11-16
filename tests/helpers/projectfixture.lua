@@ -255,7 +255,6 @@ return {
     answerFrom = answerFrom,
     setEnvironment = setEnvironment,
     aotScopeFixture = aotScopeFixture,
-    syntheticStub = syntheticStub,
     cheaderProject = cheaderProject,
     callingProject = callingProject,
     TINY_ROCKSPEC = TINY_ROCKSPEC,

@@ -1,52 +1,33 @@
 local fixture = require("helpers.projectfixture")
 local testAssert = fixture.testAssert
 local project = fixture.project
-local hash = fixture.hash
-local nativeStage = fixture.nativeStage
-local json = fixture.json
-local write = fixture.write
-local read = fixture.read
 local exists = fixture.exists
-local tempProject = fixture.tempProject
-local remove = fixture.remove
-local syntheticStub = fixture.syntheticStub
 
-local withProject = require("helpers.crossproject").withProject
+local cross = require("helpers.crossproject")
 local M = {}
 
-function M.crossTargetBuildKeepsIndependentPlatformsAndCleansOne()
-    withProject(function(context)
-        local platforms, dir = context.platforms, context.dir
-        local stubDir, records, catalogPath = context.stubDir, context.records, context.catalogPath
-        local linux = platforms[1]
-        local windowsOutput = dir .. "/build/default/x86_64-pc-windows-msvc/default.exe"
-        os.remove(windowsOutput)
-        records["aarch64-apple-darwin"] = nil
-        write(catalogPath, json.encode({catalogRelease = "synthetic-2", hostAbi = 1, stubs = records}))
-        local partial = {}
-        local partialCode = project.build(dir, {platform = "all", produced = partial})
-        testAssert.eq(partialCode, 1, "one missing platform makes the aggregate fail")
-        testAssert.eq(partial.platforms[1].status, "built", "the first platform still builds")
-        testAssert.eq(partial.platforms[2].status, "failed", "the missing platform is reported")
-        testAssert.eq(partial.platforms[3].status, "built", "later independent platforms still build")
-        assert(exists(windowsOutput), "a platform after the failure was restamped")
-        local removed = {}
+-- `--platform all` still builds each configured platform on its own and reports
+-- every one, so the refusal of each is reported per platform and the aggregate
+-- fails without writing an output for any of them.
+function M.anAggregateBuildReportsEveryPlatformRefused()
+    cross.withProject(function(context)
+        local dir = context.dir
+        local produced, diagnostics = {}, {}
         testAssert.eq(
-            project.clean(dir, {
-                target = "default",
-                platform = "x86_64-pc-windows-msvc",
-                removed = removed,
-            }),
-            0,
-            "one platform can be cleaned"
+            project.build(dir, {platform = "all", produced = produced, diagnostics = diagnostics}),
+            1,
+            "the aggregate fails"
         )
-        testAssert.eq(
-            removed[1],
-            "build/default/x86_64-pc-windows-msvc/default.exe",
-            "clean reports the selected platform output"
-        )
-        assert(not exists(windowsOutput), "the selected Windows output was removed")
-        assert(exists(dir .. "/build/default/x86_64-unknown-linux-gnu/default"), "another platform output remains")
+        testAssert.eq(#produced.platforms, #context.platforms, "every configured platform is reported")
+        for index, platform in ipairs(context.platforms) do
+            local entry = produced.platforms[index]
+            testAssert.eq(entry.platform, platform, "platforms are reported in configured order")
+            testAssert.eq(entry.status, "failed", platform .. " is refused")
+            testAssert.eq(#entry.outputs, 0, platform .. " produced nothing")
+        end
+        testAssert.eq(#produced.outputs, 0, "the aggregate produced nothing")
+        assert(cross.refused(diagnostics), "the refusal names the VM program contract")
+        assert(not exists(dir .. "/build/default"), "no platform output directory was written")
     end)
 end
 
