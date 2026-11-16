@@ -132,12 +132,17 @@ export type FsCaps = FsCapsType
 --- A created temporary path, removed when its owner closes unless persisted.
 export type TemporaryPath = TemporaryPathType
 
-local function filename(value: any, position: integer): any
+local function filename(value: any, position: integer, operation: string): any
     if type(value) == "table" then
         if type(value.tostring) ~= "function" then
             error("bad argument #" .. tostring(position) .. " (path or string expected)", 3)
         end
         return value:tostring()
+    elseif type(value) ~= "string" and type(value) ~= "number" then
+        -- Lua coerces a number to its text; anything else is refused here, at
+        -- the call, rather than by the host library beneath it.
+        local problem = "string expected, got " .. type(value)
+        error("bad argument #" .. tostring(position) .. " to '" .. operation .. "' (" .. problem .. ")", 3)
     end
 
     return value
@@ -176,7 +181,7 @@ export function remove(path: Path, recursive: boolean?): (boolean?, string?, num
         return true
     end
 
-    return luaRemove(filename(path, 1))
+    return luaRemove(filename(path, 1, "remove"))
 end
 
 --- Renames a file or directory, replacing the destination when supported.
@@ -199,7 +204,7 @@ export function rename(from: Path, to: Path): (boolean?, string?, number?)
         return true
     end
 
-    return luaRename(filename(from, 1), filename(to, 2))
+    return luaRename(filename(from, 1, "rename"), filename(to, 2, "rename"))
 end
 
 -- The filesystem implementation loads on the first call that needs it, so a
