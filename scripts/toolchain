@@ -747,25 +747,47 @@ provision_rust_vendor() {
 # an incremental rebuild rather than a cold one beside every earlier result;
 # each result is copied out to its content key, which is the file a build reads.
 build_native_core_object() {
-    # This tool only writes layouts and objects. Execution of the Nupp sources
-    # stays on the immutable compiler pair selected by the launcher.
-    object_target="$RUST_BUILD_ROOT/native-core-object/target"
-    set -- "$CARGO" build --manifest-path "$ROOT/Cargo.toml" --package nupp-vm \
-        --bin nupp-vm --release --locked --features aot --target-dir "$(cargo_dir "$object_target")"
-    offline && set -- "$@" --offline
-    vendor_arguments=$(rust_vendor_arguments)
-    if [ -n "$vendor_arguments" ]; then
-        while IFS= read -r config; do
-            set -- "$@" --config "$config"
-        done <<EOF
+    # The writer is kept under the digest of what it is built from, as the
+    # object emitter and the program archive are: a checkout that restored it,
+    # as every CI leg does, has no Cargo target directory to find it fresh in,
+    # and asking Cargo spent most of three minutes rebuilding a tool that was
+    # already there.
+    rust_environment=$(rust_environment_material)
+    digest=$({
+        printf '%s|%s|%s|%s\n' nupp-vm-object-writer "$RUST_TOOL_MATERIAL" "$(rust_sources_digest)" "$KEY"
+        printf '%s\n' "$rust_environment"
+    } | sha256_stdin | cut -c1-16)
+    executable=nupp-vm
+    [ "$PLATFORM" = windows ] && executable=nupp-vm.exe
+    out="$RUST_BUILD_ROOT/native-core-object/$digest"
+    object_tool="$out/$executable"
+    if ! { [ -f "$out/.complete" ] && [ -f "$object_tool" ]; } \
+        && take_lock "rust-vm-object-writer" "$out/.complete" test -f "$object_tool"; then
+        if ! { [ -f "$out/.complete" ] && [ -f "$object_tool" ]; }; then
+            object_target="$RUST_BUILD_ROOT/native-core-object/target"
+            set -- "$CARGO" build --manifest-path "$ROOT/Cargo.toml" --package nupp-vm \
+                --bin nupp-vm --release --locked --features aot --target-dir "$(cargo_dir "$object_target")"
+            offline && set -- "$@" --offline
+            vendor_arguments=$(rust_vendor_arguments)
+            if [ -n "$vendor_arguments" ]; then
+                while IFS= read -r config; do
+                    set -- "$@" --config "$config"
+                done <<EOF
 $vendor_arguments
 EOF
+            fi
+            set -- "$@" --config "$(rust_remap_arguments)"
+            (unset NUPP_AOT_OBJECT NUPP_NATIVE_RUNTIME_OBJECT; CC="$CC" CXX="$CXX" RUSTC="$RUSTC" "$@" >&2) \
+                || die "Cargo could not build the native object writer"
+            mkdir -p "$out"
+            cp "$object_target/release/$executable" "$object_tool.partial" \
+                && mv "$object_tool.partial" "$object_tool" \
+                || die "cannot stage the native object writer in $out"
+            printf 'done\n' > "$out/.complete"
+        fi
+        release_lock
     fi
-    set -- "$@" --config "$(rust_remap_arguments)"
-    (unset NUPP_AOT_OBJECT NUPP_NATIVE_RUNTIME_OBJECT; CC="$CC" CXX="$CXX" RUSTC="$RUSTC" "$@" >&2) \
-        || die "Cargo could not build the native object writer"
-    object_tool="$object_target/release/nupp-vm"
-    [ "$PLATFORM" != windows ] || object_tool="$object_tool.exe"
+    [ -f "$object_tool" ] || die "the native object writer is missing from $out"
     NUPP_VM_AUTO_REBUILD=0 NUPP_COMPILER_ROOT="$ROOT" \
         "$ROOT/bin/nupp" run "$ROOT/scripts/native-runtime-build.lua" "$object_tool" \
         || die "cannot build the Nupp execution core"
