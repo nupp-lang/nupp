@@ -20,11 +20,14 @@ runs:
         TOOLCHAIN: >-
           nupp-toolchain-${{ runner.os }}-${{ runner.arch }}-${{
           hashFiles('scripts/toolchain.pins', 'scripts/toolchain') }}
+        # Exactly what `scripts/vm-cli current` fingerprints, which is what
+        # decides whether `bin/nupp` rebuilds. A narrower key was a hit for a
+        # generation the launcher then found stale: the build job rebuilt it,
+        # the hit kept it from being saved, and every leg rebuilt it again.
         VMCLI: >-
           nupp-vmcli-${{ runner.os }}-${{ runner.arch }}-${{
-          hashFiles('src/**', 'native/crates/**/*.rs', 'native/crates/**/Cargo.toml', 'Cargo.lock',
-          'nupp.lua', 'scripts/vm-cli', 'scripts/toolchain.pins',
-          '!src/nupp/runtime/core/**', '!src/nupp/core/**', '!native/crates/core-bridge/**') }}
+          hashFiles('src/**', 'templates/**', 'native/**', 'runtime/**', 'scripts/**', 'bin/**',
+          'nupp.lua', 'tests/run.lua', 'Cargo.toml', 'Cargo.lock', 'rust-toolchain.toml', '.cargo/**') }}
       run: |
         echo "toolchain=$TOOLCHAIN" >> "$GITHUB_OUTPUT"
         echo "vmcli=$VMCLI" >> "$GITHUB_OUTPUT"
