@@ -30,6 +30,12 @@ local function readFile(path)
     return text
 end
 
+-- These cases spell module paths inline on purpose, which is what they test. The
+-- inline-module-path lint would report each of them, so the fixtures turn it off.
+local function qualifiedPaths()
+    return {include = {"src"}, lints = {["inline-module-path"] = "off"}}
+end
+
 local function withProject(files, callback)
     local dir = os.tmpname()
     os.remove(dir)
@@ -47,7 +53,7 @@ local function withProject(files, callback)
 end
 
 local function projectEnv(dir)
-    return envMod.new(dir, {config = {include = {"src"}}})
+    return envMod.new(dir, {config = qualifiedPaths()})
 end
 
 local function compile(path, env, name, source)
@@ -280,7 +286,7 @@ end
 ]],
         },
         function(dir)
-            local inc = incremental.new(dir, {config = {include = {"src"}}})
+            local inc = incremental.new(dir, {config = qualifiedPaths()})
             local checked = inc.checkFile(dir .. "/src/a.nupp")
             testAssert.eq(#checked.diags, 0, checked.diags[1] and checked.diags[1].msg)
             assert(checked.exports.values.fromA ~= nil, "the recursive interface keeps its function")
@@ -317,7 +323,7 @@ end
 ]],
         },
         function(dir)
-            local inc = incremental.new(dir, {config = {include = {"src"}}})
+            local inc = incremental.new(dir, {config = qualifiedPaths()})
             local checked = inc.checkFile(dir .. "/src/use.nupp")
             testAssert.eq(#checked.diags, 0, checked.diags[1] and checked.diags[1].msg)
             local image = program.image(checked.result, "use", dir .. "/src/use.nupp")
@@ -349,7 +355,7 @@ end
 ]],
         },
         function(dir)
-            local inc = incremental.new(dir, {config = {include = {"src"}}})
+            local inc = incremental.new(dir, {config = qualifiedPaths()})
             local checked = inc.checkFile(dir .. "/src/usequery.nupp")
             testAssert.eq(#checked.diags, 0, checked.diags[1] and checked.diags[1].msg)
             local image = program.image(checked.result, "usequery", dir .. "/src/usequery.nupp")
@@ -405,7 +411,7 @@ end
 ]],
         },
         function(dir)
-            local inc = incremental.new(dir, {config = {include = {"src"}}})
+            local inc = incremental.new(dir, {config = qualifiedPaths()})
             local checked = inc.checkFile(dir .. "/src/use.nupp")
             testAssert.eq(#checked.diags, 0, checked.diags[1] and checked.diags[1].msg)
             local image = program.image(checked.result, "use", dir .. "/src/use.nupp")
@@ -434,7 +440,7 @@ function M.registryRejectsReservedAndChildExportCollisions()
             ["src/pkg/child.nupp"] = "module pkg.child\nexport const value: integer = 2\n",
         },
         function(dir)
-            local inc = incremental.new(dir, {config = {include = {"src"}}})
+            local inc = incremental.new(dir, {config = qualifiedPaths()})
             local reserved = inc.checkFile(dir .. "/src/nupp/pin.nupp").diags
             assert(diagnosticContaining(reserved, "compiler-owned"), "reserved compiler path")
             local collision = inc.checkFile(dir .. "/src/pkg/child.nupp").diags
@@ -519,7 +525,7 @@ end
 ]],
         },
         function(dir)
-            local inc = incremental.new(dir, {config = {include = {"src"}}})
+            local inc = incremental.new(dir, {config = qualifiedPaths()})
             inc.checkFile(dir .. "/src/a.nupp")
             local diags = inc.checkFile(dir .. "/src/b.nupp").diags
             assert(diagnosticContaining(diags, "eager module cycle"), "eager cycle diagnostic")
@@ -767,7 +773,7 @@ function M.privacyChangesInvalidateImporters()
             ["src/app.nupp"] = "module app\nexport const value: integer = library.value\n",
         },
         function(dir)
-            local inc = incremental.new(dir, {config = {include = {"src"}}})
+            local inc = incremental.new(dir, {config = qualifiedPaths()})
             local app, library = dir .. "/src/app.nupp", dir .. "/src/library/init.nupp"
             testAssert.eq(#inc.checkFile(app).diags, 0, "initial public import")
             inc.changeDocument(library, "@!internal\nmodule library\nexport const value: integer = 1\n")
@@ -813,7 +819,7 @@ function M.generatedImportPermissionDoesNotSurviveAnOrdinaryOverlay()
             ["src/app.nupp"] = "module app\n",
         },
         function(dir)
-            local inc = incremental.new(dir, {config = {include = {"src"}}})
+            local inc = incremental.new(dir, {config = qualifiedPaths()})
             local app = dir .. "/src/app.nupp"
             local text = 'module app\nlocal implementation = require("library.internal")\nexport const value: integer = implementation.value\n'
             inc.openGeneratedDocument(app, text)
@@ -838,7 +844,7 @@ export const message: schema.Message = schema.Message(value = 42)
 ]]
         },
         function(dir)
-            local inc = incremental.new(dir, {config = {include = {"src"}}})
+            local inc = incremental.new(dir, {config = qualifiedPaths()})
             local staged = dir .. "/build/cache/runtime-source"
             inc.env.roots[#inc.env.roots + 1] = staged
             inc.openDocument(staged .. "/schema.nupp", [[module schema
@@ -894,7 +900,7 @@ end
 ]],
         },
         function(dir)
-            local inc = incremental.new(dir, {config = {include = {"src"}}})
+            local inc = incremental.new(dir, {config = qualifiedPaths()})
             local checked = inc.checkFile(dir .. "/src/draw.nupp")
             testAssert.eq(#checked.diags, 1, "only the field the nested record does not have")
             testAssert.eq(checked.diags[1].code, "NUPP2004", checked.diags[1].msg)
@@ -945,7 +951,7 @@ end
 ]],
         },
         function(dir)
-            local inc = incremental.new(dir, {config = {include = {"src"}}})
+            local inc = incremental.new(dir, {config = qualifiedPaths()})
             local checked = inc.checkFile(dir .. "/src/first.nupp")
             testAssert.eq(#checked.diags, 0, checked.diags[1] and checked.diags[1].msg)
         end

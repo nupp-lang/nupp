@@ -26,6 +26,12 @@ local function writeFile(path, text)
     file:close()
 end
 
+-- These cases spell module paths inline on purpose, which is what they test. The
+-- inline-module-path lint would report each of them, so the fixtures turn it off.
+local function qualifiedPaths()
+    return {include = {"src"}, lints = {["inline-module-path"] = "off"}}
+end
+
 local function withProject(files, callback)
     local dir = os.tmpname()
     os.remove(dir)
@@ -61,7 +67,7 @@ local function withWorkerProject(files, callback)
         writeFile(workerRoot .. "/" .. path, text)
     end
     if not workerEnv then
-        workerEnv = envMod.new(workerRoot, {config = {include = {"src"}}})
+        workerEnv = envMod.new(workerRoot, {config = qualifiedPaths()})
     else
         workerEnv.loaded = {}
         workerEnv.loadedPaths = {}
@@ -82,7 +88,7 @@ local function checkFile(env, path)
 end
 
 local function projectEnv(dir)
-    local env = envMod.new(dir, {config = {include = {"src"}}})
+    local env = envMod.new(dir, {config = qualifiedPaths()})
     local files = envMod.listProjectFiles(env)
     assert(#files > 0, "project discovery found no files under " .. dir)
     return env
