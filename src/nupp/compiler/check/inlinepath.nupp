@@ -119,6 +119,12 @@ export function sweep(c: state.Checker): nil
     -- as bytes.span. Extension implementations keep the builtin root's identity.
     local function builtinAccess(moduleName: string?, path: {any}): boolean
         local root = path[1]
+        -- A path through a local binding is already an import: `pool.Pool` after
+        -- `local pool = require("table")` names a member of what the binding
+        -- holds, and there is no module path left to rewrite.
+        if root and root.definition and root.definition.lexical then
+            return true
+        end
         local entry = root and env.globals and env.globals[root.text]
         if entry and root.definition and root.definition == entry.definition then
             return true

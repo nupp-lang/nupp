@@ -307,6 +307,18 @@ function M.leavesAuthoredBuiltinImportsAndOtherQualifiedAccesses()
     assert(#diagnostics('local files = require("io.http")\nreturn io.http.file("a"), files.file("b")\n') == 0)
 end
 
+-- A path that starts at a local binding goes through an import that is already
+-- written, however the binding was made, so there is no module path to replace.
+function M.leavesPathsThroughALocalBinding()
+    for _, source in ipairs({
+        "local pool = require('table')\nlocal record Event\n    id: integer\nend\nreturn pool.Pool(Event, 4)\n",
+        "local arena = table\nlocal struct Sample\n    value: float\nend\nreturn arena.Pool(Sample, 8)\n",
+    }) do
+        local found = diagnostics(source)
+        assert(#found == 0, "a path through a local binding was reported:\n" .. source)
+    end
+end
+
 function M.keepsInnerAnnotationsBeforeImports()
     local output = userOrganized('@!internal\nreturn app.files.read("a")\n')
     assert(output:find('@!internal\nconst files', 1, true), output)
