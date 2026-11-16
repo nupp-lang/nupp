@@ -1,0 +1,79 @@
+name: Provide the test runner
+description: >-
+  The manifest's test runner for exactly these sources: every module compiled
+  into one image and stamped onto a program runtime. Building it checks and
+  lowers the whole of src, which is twenty-five minutes and twelve gigabytes
+  on a runner, and every job that ran a suite used to do it for itself. The
+  platform's runner job runs this with `save` set and is the one job that
+  builds it; a leg restores what that job saved and finds it current. A leg
+  that finds nothing saved builds the runner itself, so a lost cache costs
+  time and not an answer.
+inputs:
+  save:
+    description: Save the runner this run built.
+    default: "false"
+runs:
+  using: composite
+  steps:
+    # What the runner is built from: the compiler's own inputs, and the harness
+    # sources it carries as resources.
+    - id: keys
+      shell: bash
+      env:
+        RUNNER: >-
+          nupp-testrunner-${{ runner.os }}-${{ runner.arch }}-${{
+          hashFiles('src/**', 'native/crates/**/*.rs', 'native/crates/**/Cargo.toml', 'Cargo.lock',
+          'nupp.lua', 'scripts/vm-cli', 'scripts/toolchain', 'scripts/toolchain.pins',
+          'tests/run.lua', 'tests/cache.lua', 'tests/tools/test/runner/**') }}
+      run: echo "runner=$RUNNER" >> "$GITHUB_OUTPUT"
+
+    # Beside the runner itself: what it recorded about each module, so a
+    # restored older one rechecks only what changed, and the linked runtimes
+    # and native core object its build is content-addressed by, so a leg's
+    # freshness check finds them rather than linking them again.
+    - id: runner
+      uses: actions/cache/restore@v4
+      with:
+        path: |
+          build/test-runner
+          build/nupp-test
+          build/nupp-test.exe
+          build/rust
+          build/native-runtime
+          ~/.cache/nupp/build-steps
+        key: ${{ steps.keys.outputs.runner }}
+        restore-keys: |
+          nupp-testrunner-${{ runner.os }}-${{ runner.arch }}-
+
+    # Builds the runner when it is not current, and answers in a minute when
+    # it is.
+    - shell: bash
+      run: ./bin/nupp test --list-groups
+
+    # Cargo's own target directories are most of `build/rust` and none of what
+    # a leg reads: the results are copied out to their content keys, and what
+    # Cargo needs again it has from sccache. Programs other than the runner
+    # are whatever an older restored cache still held.
+    - if: inputs.save == 'true' && steps.runner.outputs.cache-hit != 'true'
+      shell: bash
+      run: |
+        rm -rf build/rust/target build/rust/*-target build/rust/*/target build/rust/*/target-*
+        rm -rf build/rust/vm-program/programs/*.work.*
+        cd build/rust/vm-program/programs 2>/dev/null || exit 0
+        newest=$(ls -t | head -n 1)
+        for entry in *; do
+          [ "$entry" = "$newest" ] || rm -rf "$entry"
+        done
+
+    - if: inputs.save == 'true' && steps.runner.outputs.cache-hit != 'true'
+      uses: actions/cache/save@v4
+      continue-on-error: true
+      with:
+        path: |
+          build/test-runner
+          build/nupp-test
+          build/nupp-test.exe
+          build/rust
+          build/native-runtime
+          ~/.cache/nupp/build-steps
+        key: ${{ steps.keys.outputs.runner }}

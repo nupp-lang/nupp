@@ -32,6 +32,66 @@
         }
       ]
     },
+    "build-linux": {
+      "platforms": ["linux"],
+      "selectedBy": "fast-checks, linux-integration, docs-site, fixpoint",
+      "steps": [
+        {
+          "name": "Build the compiler",
+          "guarantees": ["the compiler builds from these sources, once, for every Linux job that runs it"]
+        }
+      ]
+    },
+    "build-macos": {
+      "platforms": ["macos"],
+      "selectedBy": "macos-integration",
+      "steps": [
+        {
+          "name": "Build the compiler",
+          "guarantees": ["the compiler builds from these sources, once, for every macOS leg"]
+        }
+      ]
+    },
+    "build-windows": {
+      "platforms": ["windows"],
+      "selectedBy": "windows-integration",
+      "steps": [
+        {
+          "name": "Build the compiler",
+          "guarantees": ["the compiler builds from these sources, once, for every Windows leg"]
+        }
+      ]
+    },
+    "runner-linux": {
+      "platforms": ["linux"],
+      "selectedBy": "linux-integration",
+      "steps": [
+        {
+          "name": "Build the test runner",
+          "guarantees": ["the manifest's test runner builds from these sources, once, for every Linux leg"]
+        }
+      ]
+    },
+    "runner-macos": {
+      "platforms": ["macos"],
+      "selectedBy": "macos-integration",
+      "steps": [
+        {
+          "name": "Build the test runner",
+          "guarantees": ["the manifest's test runner builds from these sources, once, for every macOS leg"]
+        }
+      ]
+    },
+    "runner-windows": {
+      "platforms": ["windows"],
+      "selectedBy": "windows-integration",
+      "steps": [
+        {
+          "name": "Build the test runner",
+          "guarantees": ["the manifest's test runner builds from these sources, once, for every Windows leg"]
+        }
+      ]
+    },
     "fast-checks": {
       "platforms": ["linux"],
       "selectedBy": "fast-checks",
@@ -44,17 +104,16 @@
           "name": "Check the compiler",
           "compilerModes": ["strict"],
           "guarantees": ["the compiler type-checks its own sources"]
-        },
-        {
-          "name": "Run the shared-process suites",
-          "lane": "shared",
-          "guarantees": ["every suite a Nupp worker can share a process with"]
         }
       ]
     },
-    "integration": {
+    "integration-linux": {
+      "comment": [
+        "The three integration jobs run one list of steps, written once here and",
+        "aliased by the other two, so a step's platforms are named on the step."
+      ],
       "platforms": ["linux", "macos", "windows"],
-      "selectedBy": "linux-integration, macos-integration, windows-integration",
+      "selectedBy": "linux-integration",
       "steps": [
         {
           "name": "Check the compiler",
@@ -98,13 +157,25 @@
         },
         {
           "name": "Run the compiler suite",
+          "lanes": ["shared", "isolated", "shell"],
           "excludes": {
-            "groups": ["external-corpus", "windows-preflight", "native-runtime"],
-            "lanes": ["shared"]
+            "groups": ["external-corpus", "windows-preflight", "measurement", "native-runtime"]
           },
-          "guarantees": ["every suite an earlier step in this job did not run"]
+          "guarantees": [
+            "every suite no group-named step of this job runs, each lane dealt across shards that partition it"
+          ]
         }
       ]
+    },
+    "integration-macos": {
+      "platforms": ["macos"],
+      "selectedBy": "macos-integration",
+      "sharesStepsOf": "integration-linux"
+    },
+    "integration-windows": {
+      "platforms": ["windows"],
+      "selectedBy": "windows-integration",
+      "sharesStepsOf": "integration-linux"
     },
     "fixpoint": {
       "platforms": ["linux"],

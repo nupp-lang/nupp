@@ -1,0 +1,104 @@
+name: Prepare the compiler
+description: >-
+  Everything a job needs before it can run a Nupp command: the provisioned
+  toolchain, a shared Rust compiler cache, and the VM compiler for exactly
+  these sources. The platform's build job runs this with `save` set, so it is
+  the one job that rebuilds a changed compiler; every job after it restores
+  what that one saved and starts in seconds. A job that finds nothing saved
+  builds the compiler itself, so a lost cache costs time and not an answer.
+inputs:
+  save:
+    description: Save the toolchain and the VM compiler this run built.
+    default: "false"
+runs:
+  using: composite
+  steps:
+    # One spelling of each key, read by the restores and the saves below.
+    - id: keys
+      shell: bash
+      env:
+        TOOLCHAIN: >-
+          nupp-toolchain-${{ runner.os }}-${{ runner.arch }}-${{
+          hashFiles('scripts/toolchain.pins', 'scripts/toolchain') }}
+        VMCLI: >-
+          nupp-vmcli-${{ runner.os }}-${{ runner.arch }}-${{
+          hashFiles('src/**', 'native/crates/**/*.rs', 'native/crates/**/Cargo.toml', 'Cargo.lock',
+          'nupp.lua', 'scripts/vm-cli', 'scripts/toolchain.pins',
+          '!src/nupp/runtime/core/**', '!src/nupp/core/**', '!native/crates/core-bridge/**') }}
+      run: |
+        echo "toolchain=$TOOLCHAIN" >> "$GITHUB_OUTPUT"
+        echo "vmcli=$VMCLI" >> "$GITHUB_OUTPUT"
+
+    - id: toolchain
+      uses: actions/cache/restore@v4
+      with:
+        path: .nupp-cache/toolchain
+        key: ${{ steps.keys.outputs.toolchain }}
+        restore-keys: |
+          nupp-toolchain-${{ runner.os }}-${{ runner.arch }}-
+
+    # An exact match is current and nothing rebuilds. An older one lowers these
+    # sources with the compiler it holds, which is minutes; none at all starts
+    # from the pinned stage zero, which is half an hour.
+    - id: vmcli
+      uses: actions/cache/restore@v4
+      with:
+        path: .nupp/vm-cli
+        key: ${{ steps.keys.outputs.vmcli }}
+        restore-keys: |
+          nupp-vmcli-${{ runner.os }}-${{ runner.arch }}-
+
+    # Every Cargo build the compiler starts goes through sccache once it is on
+    # the path (`bin/nupp`, `scripts/toolchain`, `scripts/vm-cli`), and this
+    # points it at the repository's Actions cache. A crate is then compiled
+    # once per source state for the whole repository, whichever job, target
+    # directory or feature set asks first. A cached `build/rust` could not do
+    # that: one key was shared by jobs that build different crates, so the
+    # first to save decided what every later one restored, and a fresh
+    # checkout's file times made Cargo rebuild the workspace crates anyway.
+    - uses: mozilla-actions/sccache-action@fc920bf0ec8de6ee65d409111f7ec508035751ba # v0.0.11
+      with:
+        version: v0.19.0
+    # A cache that cannot be reached compiles instead of failing the build.
+    - shell: bash
+      run: |
+        echo "SCCACHE_GHA_ENABLED=true" >> "$GITHUB_ENV"
+        echo "SCCACHE_IGNORE_SERVER_IO_ERROR=1" >> "$GITHUB_ENV"
+
+    - if: runner.os == 'Windows'
+      shell: bash
+      run: |
+        channel=$(sed -n 's/^channel = "\([^"]*\)"$/\1/p' rust-toolchain.toml)
+        rustup toolchain install "${channel}-x86_64-pc-windows-gnu" --profile minimal
+
+    - shell: bash
+      run: ./scripts/toolchain --all
+
+    - shell: bash
+      run: ./bin/nupp version
+
+    # Only the generation this run selected is kept: each holds a runtime, and
+    # older ones are dead weight in the cache.
+    - if: inputs.save == 'true' && steps.vmcli.outputs.cache-hit != 'true'
+      shell: bash
+      run: |
+        cd .nupp/vm-cli
+        keep=" $(cat current 2>/dev/null || true) "
+        for entry in */; do
+          entry=${entry%/}
+          case "$keep" in *" $entry "*) ;; *) rm -rf "$entry" ;; esac
+        done
+
+    - if: inputs.save == 'true' && steps.vmcli.outputs.cache-hit != 'true'
+      uses: actions/cache/save@v4
+      continue-on-error: true
+      with:
+        path: .nupp/vm-cli
+        key: ${{ steps.keys.outputs.vmcli }}
+
+    - if: inputs.save == 'true' && steps.toolchain.outputs.cache-hit != 'true'
+      uses: actions/cache/save@v4
+      continue-on-error: true
+      with:
+        path: .nupp-cache/toolchain
+        key: ${{ steps.keys.outputs.toolchain }}

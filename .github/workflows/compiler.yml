@@ -67,16 +67,17 @@ concurrency:
   cancel-in-progress: true
 
 # The VM compiler bootstraps the tree, built from the pinned stage-zero image
-# when no restored one is current, and runs everything. It runs interpreted,
-# since linking its compiled code costs ten minutes of a runner's cores for a
-# compiler that answers the same either way.
+# when no restored one is current, and runs everything. It runs interpreted:
+# a check of one compiler module and what it imports took 37.7 s with the
+# compiled code linked in and 40.1 s without, and the link costs a runner
+# longer than that seven percent returns.
 env:
   NUPP_VM_AUTO_LINK: "0"
 
 jobs:
   # Everything a run can decide before it provisions anything. This is the job
-  # that must stay cheap: the platform matrices wait on it, so a minute here is
-  # a minute added to every path through the graph.
+  # that must stay cheap: every other job waits on it, so a minute here is a
+  # minute added to every path through the graph.
   classify:
     name: Classify the change
     # A pull request from a branch of this repository repeats its push.
@@ -94,7 +95,12 @@ jobs:
       gpu-linux: ${{ steps.classify.outputs.gpu-linux }}
       gpu-windows: ${{ steps.classify.outputs.gpu-windows }}
       fixpoint: ${{ steps.classify.outputs.fixpoint }}
-      integration-matrix: ${{ steps.matrix.outputs.integration }}
+      linux-legs: ${{ steps.matrix.outputs.linux-legs }}
+      macos-legs: ${{ steps.matrix.outputs.macos-legs }}
+      windows-legs: ${{ steps.matrix.outputs.windows-legs }}
+      build-linux: ${{ steps.matrix.outputs.build-linux }}
+      build-macos: ${{ steps.matrix.outputs.build-macos }}
+      build-windows: ${{ steps.matrix.outputs.build-windows }}
       selection: ${{ steps.classify.outputs.selection }}
     steps:
       - name: Check out the repository
@@ -199,19 +205,21 @@ jobs:
       - name: Validate the workflow against the classifier
         run: luajit .github/scripts/validate-ci-coverage.lua
 
-      # Composing the platform matrix here rather than putting three `if`s on
-      # three near-identical jobs keeps one copy of a two-hundred-line job and
-      # makes the selection itself reviewable as data.
-      - name: Compose the integration matrix
+      # Each platform's legs as data, and which platforms need a compiler built.
+      - name: Compose the integration matrices
         id: matrix
         env:
           SELECTED_LINUX: ${{ steps.classify.outputs.linux-integration }}
           SELECTED_MACOS: ${{ steps.classify.outputs.macos-integration }}
           SELECTED_WINDOWS: ${{ steps.classify.outputs.windows-integration }}
+          SELECTED_LINUX_COMPILER: >-
+            ${{ steps.classify.outputs.fast-checks == 'true'
+            || steps.classify.outputs.docs-site == 'true'
+            || steps.classify.outputs.fixpoint == 'true' }}
         run: luajit .github/scripts/compose-integration-matrix.lua
 
       # Only on a cold cache, where this job has just built LuaJIT from source
-      # and every job behind it is about to do the same. `fast-checks` saves the
+      # and every job behind it is about to do the same. A build job saves the
       # same key, so whichever arrives second warns and keeps the first entry.
       - name: Save the provisioned toolchain
         if: always()
@@ -223,38 +231,133 @@ jobs:
             nupp-toolchain-${{ runner.os }}-${{ runner.arch }}-${{
             hashFiles('scripts/toolchain.pins', 'scripts/toolchain') }}
 
-  # Formatting, the checker, and every suite a Nupp worker can share a process
-  # with. Run these before the platform jobs so failures appear before platform
-  # provisioning.
-  fast-checks:
-    name: Fast checks
+  # The compiler for these sources, once per platform. Every job below runs
+  # it, and each used to rebuild it for itself: on a compiler change that was
+  # the same six minutes of lowering in every job at once. This job is the one
+  # that pays; the rest restore what it saves (`.github/actions/prepare`).
+  build-linux:
+    name: Build the compiler / Linux x64
     needs: classify
-    if: needs.classify.outputs.fast-checks == 'true'
+    if: needs.classify.outputs.build-linux == 'true'
     runs-on: ubuntu-24.04
+    # A cold start lowers the compiler twice from the pinned stage zero.
+    timeout-minutes: 75
+    steps:
+      - name: Check out the repository
+        uses: actions/checkout@v5
+
+      - name: Build the compiler
+        uses: ./.github/actions/prepare
+        with:
+          save: "true"
+
+  build-macos:
+    name: Build the compiler / macOS arm64
+    needs: classify
+    if: needs.classify.outputs.build-macos == 'true'
+    runs-on: macos-15
+    timeout-minutes: 75
+    steps:
+      - name: Check out the repository
+        uses: actions/checkout@v5
+
+      - name: Build the compiler
+        uses: ./.github/actions/prepare
+        with:
+          save: "true"
+
+  build-windows:
+    name: Build the compiler / Windows x64
+    needs: classify
+    if: needs.classify.outputs.build-windows == 'true'
+    runs-on: windows-2022
     timeout-minutes: 90
     steps:
       - name: Check out the repository
         uses: actions/checkout@v5
-        with:
-          fetch-depth: 0
 
-      - name: Restore the pinned build tools
-        uses: actions/cache@v4
+      - name: Build the compiler
+        uses: ./.github/actions/prepare
         with:
-          path: ${{ runner.temp }}/nupp-ci-tools
-          key: >-
-            nupp-tools-${{ runner.os }}-${{ runner.arch }}-${{
-            hashFiles('scripts/toolchain.pins') }}
+          save: "true"
 
-      - name: Restore the provisioned toolchain
-        uses: actions/cache@v4
+  # The test runner for these sources, once per platform, for the reason the
+  # compiler is built once: every leg runs it, and building it is twenty-five
+  # minutes and most of a runner's memory (`.github/actions/test-runner`). It
+  # is a job of its own rather than the tail of the build so that what needs
+  # only the compiler -- the fast checks, the documentation, the fixpoint --
+  # does not wait for it.
+  runner-linux:
+    name: Build the test runner / Linux x64
+    needs: [classify, build-linux]
+    if: needs.classify.outputs.linux-integration == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 75
+    steps:
+      - name: Check out the repository
+        uses: actions/checkout@v5
+
+      - name: Prepare the compiler
+        uses: ./.github/actions/prepare
+
+      - name: Build the test runner
+        uses: ./.github/actions/test-runner
         with:
-          path: .nupp-cache/toolchain
-          key: >-
-            nupp-toolchain-${{ runner.os }}-${{ runner.arch }}-${{
-            hashFiles('scripts/toolchain.pins', 'scripts/toolchain') }}
-          restore-keys: |
-            nupp-toolchain-${{ runner.os }}-${{ runner.arch }}-
+          save: "true"
+
+  runner-macos:
+    name: Build the test runner / macOS arm64
+    needs: [classify, build-macos]
+    if: needs.classify.outputs.macos-integration == 'true'
+    runs-on: macos-15
+    timeout-minutes: 120
+    steps:
+      - name: Check out the repository
+        uses: actions/checkout@v5
+
+      - name: Prepare the compiler
+        uses: ./.github/actions/prepare
+
+      - name: Build the test runner
+        uses: ./.github/actions/test-runner
+        with:
+          save: "true"
+
+  runner-windows:
+    name: Build the test runner / Windows x64
+    needs: [classify, build-windows]
+    if: needs.classify.outputs.windows-integration == 'true'
+    runs-on: windows-2022
+    timeout-minutes: 120
+    steps:
+      - name: Check out the repository
+        uses: actions/checkout@v5
+
+      - name: Prepare the compiler
+        uses: ./.github/actions/prepare
+
+      - name: Build the test runner
+        uses: ./.github/actions/test-runner
+        with:
+          save: "true"
+
+  # Formatting and the checker: what a change can get wrong without running.
+  # The suites that used to follow them here are legs of the Linux platform
+  # now, beside this job rather than behind it.
+  fast-checks:
+    name: Fast checks
+    needs: [classify, build-linux]
+    if: needs.classify.outputs.fast-checks == 'true'
+    runs-on: ubuntu-24.04
+    # Formatting the tree takes twenty minutes when a compiler change has
+    # emptied the format cache, and the check four.
+    timeout-minutes: 60
+    steps:
+      - name: Check out the repository
+        uses: actions/checkout@v5
+
+      - name: Prepare the compiler
+        uses: ./.github/actions/prepare
 
       - name: Restore the content-validated compiler cache
         uses: actions/cache/restore@v4
@@ -265,18 +368,6 @@ jobs:
             hashFiles('src/**', 'nupp.lua', 'scripts/toolchain.pins') }}
           restore-keys: |
             nupp-buildcache-${{ runner.os }}-${{ runner.arch }}-
-
-      - name: Restore the VM compiler
-        uses: ./.github/actions/vm-cli-restore
-
-      - name: Provision the pinned toolchain
-        run: ./scripts/toolchain --all
-
-      - name: Bootstrap the compiler
-        run: ./bin/nupp version
-
-      - name: Build the documentation
-        run: ./bin/nupp build --target docs
 
       # The pre-push hook asks the same question of the files a push changes.
       # Ask it of the whole tree here, because a rewrite landed by a `--no-verify`
@@ -294,51 +385,49 @@ jobs:
       - name: Check the compiler
         run: ./bin/nupp check
 
-      - name: Run the shared-process suites
-        run: ./bin/nupp test --fresh --scope=all --lane=shared
-
-      # Saved explicitly rather than through the action's post step, so a run
-      # that fails a suite still keeps the compiler build the next run would
-      # otherwise redo. The entries validate their own content, so a stale one
-      # is a miss and cannot change an answer.
+      # Saved whatever the two steps above concluded. The entries validate
+      # their own content, so a stale one is a miss and cannot change an
+      # answer, and a run that fails the check still keeps what the next run
+      # would otherwise redo.
       - name: Save the content-validated compiler cache
         if: always()
         uses: actions/cache/save@v4
+        continue-on-error: true
         with:
           path: build/cache
           key: >-
             nupp-buildcache-${{ runner.os }}-${{ runner.arch }}-${{
             hashFiles('src/**', 'nupp.lua', 'scripts/toolchain.pins') }}
 
-      - name: Save the VM compiler
-        if: always()
-        uses: ./.github/actions/vm-cli-save
-
-  integration:
+  # One leg of one platform: its native gates, or a shard of one of its lanes
+  # (`.github/scripts/compose-integration-matrix.lua` is the list). A leg
+  # waits only on its own platform's test runner, so nothing here is behind
+  # the fast checks, and no platform is behind another -- which is why there
+  # are three jobs. They share one list of steps: the two below alias this
+  # one's.
+  integration-linux:
     name: ${{ matrix.name }}
-    needs: [classify, fast-checks]
-    if: >-
-      !cancelled() && needs.classify.result == 'success'
-      && needs.fast-checks.result == 'success'
-      && needs.classify.outputs.integration-matrix != '[]'
-    runs-on: ${{ matrix.os }}
+    needs: [classify, runner-linux]
+    if: needs.classify.outputs.linux-integration == 'true'
+    runs-on: ubuntu-24.04
     # A timeout is here to end a hang, so it has to sit above the work rather
-    # than across it. The Rust-native artifact gate precedes the broad suite;
-    # a cold runner must have time for both. A killed job also skips its post
-    # steps, so it never saves the cache and would miss again next time.
+    # than across it. A killed job also skips its post steps.
     timeout-minutes: ${{ matrix.timeout }}
     strategy:
       fail-fast: false
       matrix:
-        include: ${{ fromJSON(needs.classify.outputs.integration-matrix) }}
-    steps:
+        include: ${{ fromJSON(needs.classify.outputs.linux-legs) }}
+    steps: &leg-steps
       - name: Check out the repository
         uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
 
       # This is a parser/checker oracle, not a build dependency. Pinning the
       # source keeps a language change from being conflated with an upstream
       # corpus change, and sparse checkout avoids fetching the rest of Teal.
       - name: Check out the Teal 0.8.0 tl.lua oracle
+        if: matrix.kind == 'gates'
         uses: actions/checkout@v5
         with:
           repository: teal-language/tl
@@ -347,148 +436,86 @@ jobs:
           sparse-checkout: tl.lua
           sparse-checkout-cone-mode: false
 
-      # After the checkout rather than before it: `actions/checkout` cleans the
-      # workspace, so anything restored first would be removed again before a
-      # step could use it. The key is the toolchain pins, which is everything
-      # the tools are built from; nupp.lua is left out, since it changes several
-      # times a week for reasons that build no tool.
-      - name: Restore the pinned build tools
-        uses: actions/cache@v4
-        with:
-          path: ${{ runner.temp }}/nupp-ci-tools
-          key: >-
-            nupp-tools-${{ runner.os }}-${{ runner.arch }}-${{
-            hashFiles('scripts/toolchain.pins') }}
-
-      # Each entry validates its own content, so an approximate match is useful
-      # here where it would not be above: a lock file that moved on rebuilds the
-      # crates that changed and reuses the rest.
-      - name: Restore the provisioned toolchain
-        uses: actions/cache@v4
-        with:
-          path: .nupp-cache/toolchain
-          key: >-
-            nupp-toolchain-${{ runner.os }}-${{ runner.arch }}-${{
-            hashFiles('scripts/toolchain.pins', 'scripts/toolchain') }}
-          restore-keys: |
-            nupp-toolchain-${{ runner.os }}-${{ runner.arch }}-
-
-      # One identity for the Rust artifacts, shared by every job that builds
-      # them: the lock file, the toolchain file and the native sources. The
-      # feature sets differ between the GPU jobs and the platform gate, and the
-      # store is content-addressed, so a job that asked for a different set
-      # rebuilds what it needs and reuses the rest rather than starting empty.
-      - name: Restore the Rust build outputs
-        uses: actions/cache@v4
-        with:
-          path: build/rust
-          key: >-
-            nupp-rust-${{ runner.os }}-${{ runner.arch }}-${{
-            hashFiles('Cargo.lock', 'Cargo.toml', 'rust-toolchain.toml',
-            'native/**/Cargo.toml', 'scripts/toolchain', 'scripts/toolchain.pins') }}
-          restore-keys: |
-            nupp-rust-${{ runner.os }}-${{ runner.arch }}-
-
-      - name: Restore the content-validated compiler cache
-        uses: actions/cache/restore@v4
-        with:
-          path: build/cache
-          key: >-
-            nupp-buildcache-${{ runner.os }}-${{ runner.arch }}-${{
-            hashFiles('src/**', 'nupp.lua', 'scripts/toolchain.pins') }}
-          restore-keys: |
-            nupp-buildcache-${{ runner.os }}-${{ runner.arch }}-
-
-      # Suite durations are what the process lanes are packed from. A clean
-      # runner without them packs blind and the busiest shard decides the wall
+      # Suite durations are what a leg's workers are packed from. A clean
+      # runner without them packs blind and the busiest worker decides the wall
       # clock, so this is a scheduling input, not a correctness one: an
       # approximate match is exactly as useful as an exact one.
       - name: Restore the recorded suite timings
+        if: matrix.kind != 'gates'
         uses: actions/cache/restore@v4
         with:
-          path: build/.nupp-test-times.json
-          key: >-
-            nupp-test-times-${{ runner.os }}-${{ runner.arch }}-${{ github.sha }}
+          path: build/test-runner/.nupp-test-times.json
+          key: nupp-test-times-${{ matrix.id }}-${{ github.sha }}
           restore-keys: |
-            nupp-test-times-${{ runner.os }}-${{ runner.arch }}-
+            nupp-test-times-${{ matrix.id }}-
 
-      - name: Install the ABI-compatible Windows Rust toolchain
+      - name: Prepare the compiler
+        uses: ./.github/actions/prepare
+
+      - name: Restore the test runner
+        uses: ./.github/actions/test-runner
+
+      # The test shells a Windows suite starts, and where a dying worker leaves
+      # what it was holding: the library each native case built and its phase
+      # trace. Both are written by the suite itself, which is why they arrive
+      # at all -- four rounds of Windows crashes were diagnosed out of these
+      # and none out of a minidump.
+      - name: Name the Windows test shells
         if: runner.os == 'Windows'
         shell: bash
-        run: |
-          channel=$(sed -n 's/^channel = "\([^"]*\)"$/\1/p' rust-toolchain.toml)
-          rustup toolchain install "${channel}-x86_64-pc-windows-gnu" --profile minimal
-
-      - name: Restore the VM compiler
-        uses: ./.github/actions/vm-cli-restore
-
-      - name: Provision the pinned toolchain
-        shell: bash
-        run: ./scripts/toolchain --all
-
-      - name: Bootstrap the compiler
-        shell: bash
-        run: ./bin/nupp version
-
-      - name: Build the documentation
-        shell: bash
-        run: ./bin/nupp build --target docs
-
-      # Already answered on Linux by the fast gate, which every path through
-      # this graph passes through before reaching here. The other platforms are
-      # asked because a checker answer is not promised to be platform-free.
-      - name: Check the compiler
-        if: runner.os != 'Linux'
-        shell: bash
-        run: ./bin/nupp check
-
-      # The Windows Rust ABI is selected through rustup, then shared by the VM
-      # runtime and its providers. Exercise that contract before the expensive
-      # native and full-suite gates so a test fixture cannot accidentally model
-      # Windows as an invented Unix host.
-      #
-      # Fail close to provisioning, and name the last case if the Windows
-      # loader or native networking layer terminates the test process. Exercise
-      # the nested launcher fixtures here too: in the full suite that process is
-      # one long-lived shard, so a failure otherwise appears twenty minutes later
-      # as many unrelated unrun suites. The broad suite below leaves this group
-      # out rather than running it a second time unchanged.
-      - name: Run the Windows native and launcher preflight
-        if: runner.os == 'Windows'
-        shell: bash
-        env:
-          NUPP_TEST_TRACE_CASES: 1
         run: |
           set -euo pipefail
           bash_path=$(command -v bash)
           sh_path=$(dirname "$bash_path")/sh.exe
           test -f "$sh_path"
-          NUPP_TEST_BASH=$(cygpath -w "$bash_path") \
-          NUPP_TEST_SH=$(cygpath -w "$sh_path") \
-          ./bin/nupp test --fresh --scope=all --jobs=1 --group=windows-preflight
+          dumps="$RUNNER_TEMP/nupp-worker-dumps"
+          mkdir -p "$dumps"
+          {
+            echo "NUPP_TEST_BASH=$(cygpath -w "$bash_path")"
+            echo "NUPP_TEST_SH=$(cygpath -w "$sh_path")"
+            echo "NUPP_TEST_AOT_TRACE=1"
+            echo "NUPP_TEST_AOT_ARTIFACTS=$(cygpath -w "$dumps")"
+          } >> "$GITHUB_ENV"
 
-      # Name the Rust-native release boundary before the broad suite: each
-      # resource owner's stress and cancellation tests on the retained platform
-      # itself.
+      # Already answered on Linux by the fast checks. The other platforms are
+      # asked because a checker answer is not promised to be platform-free.
+      - name: Check the compiler
+        if: matrix.kind == 'gates' && runner.os != 'Linux'
+        shell: bash
+        run: ./bin/nupp check
+
+      # The Windows Rust ABI is selected through rustup, then shared by the VM
+      # runtime and its providers. Exercise that contract, and the nested
+      # launcher fixtures, where a failure names its last case rather than
+      # appearing in a lane as many unrelated unrun suites. The lanes leave
+      # this group out rather than running it a second time unchanged.
+      - name: Run the Windows native and launcher preflight
+        if: matrix.kind == 'gates' && runner.os == 'Windows'
+        shell: bash
+        env:
+          NUPP_TEST_TRACE_CASES: 1
+        run: ./bin/nupp test --fresh --scope=all --jobs=1 --group=windows-preflight
+
+      # Name the Rust-native release boundary: each resource owner's stress
+      # and cancellation tests on the retained platform itself.
       - name: Gate the Rust-native platform artifacts
+        if: matrix.kind == 'gates'
         shell: bash
-        run: .github/scripts/test-rust-native-platform.sh
-
-      # The Nupp-authored interpreter core: the handler sources lowered to CLIF,
-      # compiled into an object by the glue, and the runtime's native contract
-      # tests run against it. Linux x64 and macOS ARM64; Windows waits on the
-      # object's unwind and stack-walking behavior there. The broad suite
-      # below excludes the group.
-      - name: Run the native core suites
-        if: runner.os != 'Windows'
-        shell: bash
-        run: ./bin/nupp test --fresh --scope=all --jobs=1 --group=native-runtime
+        run: |
+          # Cargo run directly asks for the compiler cache itself.
+          if [ "$RUNNER_OS" = macOS ]; then
+            export RUSTC_WRAPPER="$PWD/scripts/sccache-wrapper"
+          else
+            export RUSTC_WRAPPER=sccache
+          fi
+          .github/scripts/test-rust-native-platform.sh
 
       # Keep the external corpus and the C importer explicit. A configured
       # corpus used to be absent and silently skipped, while an import-c failure
-      # could be buried among thousands of unrelated cases. The broad suite
-      # below excludes this group rather than repeating it.
+      # could be buried among thousands of unrelated cases. The lanes exclude
+      # this group rather than repeating it.
       - name: Run the tl.lua oracle and import-c fixtures
+        if: matrix.kind == 'gates'
         shell: bash
         run: |
           compiler_root=$PWD
@@ -497,16 +524,6 @@ jobs:
           fi
           export NUPP_COMPILER_ROOT="$compiler_root"
           export NUPP_LUA_CORPUS="$compiler_root/.ci-corpus/teal/tl.lua"
-          # The runner refuses to start on Windows without these, the same way
-          # the whole-suite step below names them.
-          if [ "$RUNNER_OS" = Windows ]; then
-            bash_path=$(command -v bash)
-            sh_path=$(dirname "$bash_path")/sh.exe
-            test -f "$sh_path"
-            export NUPP_TEST_BASH NUPP_TEST_SH
-            NUPP_TEST_BASH=$(cygpath -w "$bash_path")
-            NUPP_TEST_SH=$(cygpath -w "$sh_path")
-          fi
           ./bin/nupp test --fresh --scope=all --jobs=1 --group=external-corpus
 
       # Three minutes of starting child processes, and the only thing that can
@@ -517,48 +534,41 @@ jobs:
       #
       # The rest of the bench surface is not gated. The `keep` intrinsic's
       # lowering, the allocation account, the statistics and the fork merge rules
-      # live in `benchtest`, which the broad suite runs on every change, because a
+      # live in `benchtest`, which the lanes run on every change, because a
       # compiler change can break those without touching anything named above.
       - name: Run the benchmark runner suite
         if: >-
-          runner.os == 'Linux'
+          matrix.kind == 'gates' && runner.os == 'Linux'
           && contains(needs.classify.outputs.selection, '"measurement"')
         shell: bash
         run: ./bin/nupp test --fresh --scope=all --jobs=1 --group=measurement
 
-      # The runner defaults to one shard per core. On macOS and Windows, run
-      # shell suites with two workers: benchmark checks spawn their own children,
-      # and more concurrent cold AOT builds consume the platform timeout.
-      #
-      # `--exclude-group` names what earlier steps in this job already ran.
-      # The shared lane is excluded on Linux only, where the fast gate this job
-      # depends on has already run it against the same revision.
-      - name: Run the compiler suite
-        if: runner.os != 'Windows'
+      # The Nupp-authored interpreter core: the handler sources lowered to CLIF,
+      # compiled into an object by the glue, and the runtime's native contract
+      # tests run against it. Linux x64 and macOS ARM64; Windows waits on the
+      # object's unwind and stack-walking behavior there. The lanes exclude
+      # the group.
+      - name: Run the native core suites
+        if: matrix.kind == 'native-core'
         shell: bash
-        # `core_pattern` already pipes to systemd-coredump on this image, but
-        # the soft limit is zero, so the kernel writes nothing and the shell
-        # still says "core dumped". Raising it here is what makes the step
-        # below able to ask a crashed worker anything at all.
-        run: |
-          set -euo pipefail
-          ulimit -c unlimited || true
-          ./bin/nupp test --fresh --scope=all --lane=isolated \
-            --exclude-group=external-corpus,measurement,native-runtime
-          if [ "$RUNNER_OS" != Linux ]; then
-            ./bin/nupp test --fresh --scope=all --lane=shared \
-              --exclude-group=external-corpus,measurement,native-runtime
-            ./bin/nupp test --fresh --scope=all --lane=shell --jobs=2 \
-              --exclude-group=external-corpus,measurement,native-runtime
-          fi
+        run: >-
+          .github/scripts/run-suite-shard.sh
+          ${{ matrix.shard }} ${{ matrix.shards }} ${{ matrix.batch }} ${{ matrix.jobs }}
+          ${{ matrix.select }}
 
-      # A worker killed by a signal says which suite it was in, and on Linux it
-      # is killed by SIGSEGV in a different set of suites every run -- so the
-      # name says where it was, not what went wrong. The core says that.
-      # Retrieved through `coredumpctl` because `core_pattern` hands cores to
-      # systemd rather than leaving them in a directory. Only runs when the
-      # step above failed, and never fails the job itself: this reports on a
-      # failure, it is not one.
+      # One shard of one lane. `core_pattern` already pipes to systemd-coredump
+      # on the Linux image, but the soft limit is zero, so the kernel writes
+      # nothing and the shell still says "core dumped". Raising it here is what
+      # makes the step below able to ask a crashed worker anything at all.
+      - name: Run the compiler suite
+        if: matrix.kind == 'lane'
+        shell: bash
+        run: |
+          ulimit -c unlimited 2>/dev/null || true
+          .github/scripts/run-suite-shard.sh \
+            ${{ matrix.shard }} ${{ matrix.shards }} ${{ matrix.batch }} ${{ matrix.jobs }} \
+            ${{ matrix.select }}
+
       # A run that stops making progress is cancelled by the job timeout with
       # nothing said about where it stood: every macOS leg from a7deafd88 on
       # sat at "shell suites joining" for an hour with one Nupp worker that
@@ -571,12 +581,19 @@ jobs:
         shell: bash
         run: |
           ps -axo pid,ppid,pgid,stat,etime,command \
-            | grep -E 'nupp-test|tests/run|luajit|bin/nupp' | grep -v grep || true
-          for pid in $(pgrep -f 'nupp-test|tests/run' || true); do
+            | grep -E 'nupp-test|tests/run|vm-cli|bin/nupp' | grep -v grep || true
+          for pid in $(pgrep -f 'nupp-test|tests/run|internal-runner' || true); do
             echo "=== sample $pid"
             sample "$pid" 2 -file /dev/stdout 2>/dev/null | head -60 || true
           done
 
+      # A worker killed by a signal says which suite it was in, and on Linux it
+      # is killed by SIGSEGV in a different set of suites every run -- so the
+      # name says where it was, not what went wrong. The core says that.
+      # Retrieved through `coredumpctl` because `core_pattern` hands cores to
+      # systemd rather than leaving them in a directory. Only runs when a
+      # step above failed, and never fails the job itself: this reports on a
+      # failure, it is not one.
       - name: Report a crashed worker
         if: failure() && runner.os == 'Linux'
         continue-on-error: true
@@ -597,40 +614,6 @@ jobs:
           done
           exit 0
 
-      # Where the suite saves what a dying worker was holding: the library each
-      # native case built and its phase trace. Both are written by the suite
-      # itself, which is why they arrive at all -- four rounds of Windows
-      # crashes were diagnosed out of these and none out of a minidump. Windows
-      # Error Reporting was asked for one here through its LocalDumps keys and
-      # never produced a file or an Application Error event, so the request is
-      # gone rather than left looking like coverage.
-      - name: Make room for Windows worker diagnostics
-        if: runner.os == 'Windows'
-        shell: pwsh
-        run: |
-          New-Item -ItemType Directory -Force (Join-Path $env:RUNNER_TEMP 'nupp-worker-dumps') | Out-Null
-
-      - name: Run the compiler suite
-        if: runner.os == 'Windows'
-        shell: bash
-        env:
-          NUPP_TEST_AOT_TRACE: 1
-          NUPP_TEST_AOT_ARTIFACTS: ${{ runner.temp }}/nupp-worker-dumps
-        run: |
-          set -euo pipefail
-          bash_path=$(command -v bash)
-          sh_path=$(dirname "$bash_path")/sh.exe
-          test -f "$sh_path"
-          NUPP_TEST_BASH=$(cygpath -w "$bash_path")
-          NUPP_TEST_SH=$(cygpath -w "$sh_path")
-          export NUPP_TEST_BASH NUPP_TEST_SH
-          ./bin/nupp test --fresh --scope=all --lane=isolated \
-            --exclude-group=external-corpus,windows-preflight,measurement,native-runtime
-          ./bin/nupp test --fresh --scope=all --lane=shared \
-            --exclude-group=external-corpus,windows-preflight,measurement,native-runtime
-          ./bin/nupp test --fresh --scope=all --lane=shell --jobs=2 \
-            --exclude-group=external-corpus,windows-preflight,measurement,native-runtime
-
       # What the suite saved, named in the log so a reader knows what the
       # artifact holds before downloading it. `aot-libraries.txt` beside these
       # says which case built each library and which tier its detector chose,
@@ -650,39 +633,45 @@ jobs:
         if: failure() && runner.os == 'Windows'
         uses: actions/upload-artifact@v4
         with:
-          name: windows-worker-crashes
+          name: windows-worker-crashes-${{ matrix.id }}
           path: ${{ runner.temp }}/nupp-worker-dumps
           if-no-files-found: ignore
           retention-days: 7
 
       # Saved whatever the suite concluded. A failing run still measured every
-      # suite that ran, and the next run's shard packing is better for having
-      # it than for relearning it from nothing.
+      # suite that ran, and the next run's packing is better for having it
+      # than for relearning it from nothing.
       - name: Save the recorded suite timings
-        if: always()
-        uses: actions/cache/save@v4
-        with:
-          path: build/.nupp-test-times.json
-          key: >-
-            nupp-test-times-${{ runner.os }}-${{ runner.arch }}-${{ github.sha }}
-
-      # Linux has already saved this key from the fast gate, where the same
-      # revision built the same compiler; that save warns and keeps the first
-      # entry, which is the right outcome. macOS and Windows have their own
-      # key and this is the only job that fills it.
-      - name: Save the content-validated compiler cache
-        if: always()
+        if: always() && matrix.kind != 'gates'
         uses: actions/cache/save@v4
         continue-on-error: true
         with:
-          path: build/cache
-          key: >-
-            nupp-buildcache-${{ runner.os }}-${{ runner.arch }}-${{
-            hashFiles('src/**', 'nupp.lua', 'scripts/toolchain.pins') }}
+          path: build/test-runner/.nupp-test-times.json
+          key: nupp-test-times-${{ matrix.id }}-${{ github.sha }}
 
-      - name: Save the VM compiler
-        if: always()
-        uses: ./.github/actions/vm-cli-save
+  integration-macos:
+    name: ${{ matrix.name }}
+    needs: [classify, runner-macos]
+    if: needs.classify.outputs.macos-integration == 'true'
+    runs-on: macos-15
+    timeout-minutes: ${{ matrix.timeout }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include: ${{ fromJSON(needs.classify.outputs.macos-legs) }}
+    steps: *leg-steps
+
+  integration-windows:
+    name: ${{ matrix.name }}
+    needs: [classify, runner-windows]
+    if: needs.classify.outputs.windows-integration == 'true'
+    runs-on: windows-2022
+    timeout-minutes: ${{ matrix.timeout }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include: ${{ fromJSON(needs.classify.outputs.windows-legs) }}
+    steps: *leg-steps
 
   # Byte-identical self-hosting, which is about the compiler's own sources and
   # not about a platform. It was the last step of every matrix entry, where it
@@ -690,54 +679,26 @@ jobs:
   # says the compiler reproduces itself was the one most often not reached.
   fixpoint:
     name: Self-hosting fixpoint
-    needs: [classify, fast-checks]
-    if: >-
-      !cancelled() && needs.classify.result == 'success'
-      && needs.fast-checks.result == 'success'
-      && needs.classify.outputs.fixpoint == 'true'
+    needs: [classify, build-linux]
+    if: needs.classify.outputs.fixpoint == 'true'
     runs-on: ubuntu-24.04
     timeout-minutes: 75
     steps:
       - name: Check out the repository
         uses: actions/checkout@v5
 
-      - name: Restore the pinned build tools
-        uses: actions/cache@v4
-        with:
-          path: ${{ runner.temp }}/nupp-ci-tools
-          key: >-
-            nupp-tools-${{ runner.os }}-${{ runner.arch }}-${{
-            hashFiles('scripts/toolchain.pins') }}
-
-      - name: Restore the provisioned toolchain
-        uses: actions/cache@v4
-        with:
-          path: .nupp-cache/toolchain
-          key: >-
-            nupp-toolchain-${{ runner.os }}-${{ runner.arch }}-${{
-            hashFiles('scripts/toolchain.pins', 'scripts/toolchain') }}
-          restore-keys: |
-            nupp-toolchain-${{ runner.os }}-${{ runner.arch }}-
-
-      - name: Restore the VM compiler
-        uses: ./.github/actions/vm-cli-restore
-
-      - name: Provision the pinned toolchain
-        run: ./scripts/toolchain --all
+      - name: Prepare the compiler
+        uses: ./.github/actions/prepare
 
       - name: Verify the self-hosting fixpoint
         run: ./bin/nupp fixpoint
-
-      - name: Save the VM compiler
-        if: always()
-        uses: ./.github/actions/vm-cli-save
 
   # Documentation generation, its links, and the generated assets a site build
   # produces. This is the whole obligation of a documentation-only change: it
   # provisions no platform matrix, no native toolchain and no GPU adapter.
   docs-site:
     name: Documentation and site
-    needs: classify
+    needs: [classify, build-linux]
     if: needs.classify.outputs.docs-site == 'true'
     runs-on: ubuntu-24.04
     timeout-minutes: 60
@@ -753,42 +714,16 @@ jobs:
       - name: Validate native Pages artifacts
         run: node --test tests/tools/packaging/pages-cache.test.mjs
 
-      - name: Restore the pinned build tools
-        uses: actions/cache@v4
-        with:
-          path: ${{ runner.temp }}/nupp-ci-tools
-          key: >-
-            nupp-tools-${{ runner.os }}-${{ runner.arch }}-${{
-            hashFiles('scripts/toolchain.pins') }}
-
-      - name: Restore the provisioned toolchain
-        uses: actions/cache@v4
-        with:
-          path: .nupp-cache/toolchain
-          key: >-
-            nupp-toolchain-${{ runner.os }}-${{ runner.arch }}-${{
-            hashFiles('scripts/toolchain.pins', 'scripts/toolchain') }}
-          restore-keys: |
-            nupp-toolchain-${{ runner.os }}-${{ runner.arch }}-
-
-      - name: Restore the VM compiler
-        uses: ./.github/actions/vm-cli-restore
-
-      - name: Provision the pinned toolchain
-        run: ./scripts/toolchain --all
-
-      - name: Bootstrap the compiler
-        run: ./bin/nupp version
+      - name: Prepare the compiler
+        uses: ./.github/actions/prepare
 
       - name: Build the documentation
         run: ./bin/nupp build --target docs
 
+      # On the runner the compiler carries, so a documentation change builds
+      # no test runner: eight suites cost less than building one.
       - name: Regenerate and verify the documentation
-        run: ./bin/nupp test --fresh --scope=all --group=docs
-
-      - name: Save the VM compiler
-        if: always()
-        uses: ./.github/actions/vm-cli-save
+        run: ./bin/nupp test --internal-runner --fresh --scope=all --group=docs
 
   gpu-conformance:
     name: GPU conformance / CI Lavapipe Vulkan
@@ -927,8 +862,16 @@ jobs:
       || github.event.pull_request.head.repo.full_name != github.repository)
     needs:
       - classify
+      - build-linux
+      - build-macos
+      - build-windows
+      - runner-linux
+      - runner-macos
+      - runner-windows
       - fast-checks
-      - integration
+      - integration-linux
+      - integration-macos
+      - integration-windows
       - fixpoint
       - docs-site
       - gpu-conformance
