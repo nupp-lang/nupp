@@ -324,12 +324,60 @@ local function portableFileImplementation(name: string): any
     return portableFiles
 end
 
+-- Where a seek counts from, by Lua's names.
+local SEEK_ORIGINS: {[string]: boolean} = {set = true, cur = true, ["end"] = true}
+-- The C library's EINVAL, which Lua answers for a seek before the start.
+const INVALID_ARGUMENT = 22
+const INVALID_ARGUMENT_TEXT = "Invalid argument"
+
+-- `File:seek` for the bootstrap VM's handles, whose methods are fields of a
+-- plain table. A read-only handle holds the file's bytes and its cursor, so
+-- the seek is exact. A writable handle keeps its cursor in the frozen host,
+-- which offers no seek, so it answers Lua's failure results instead.
+local function bridgeSeek(file: any, whence: any, offset: any): (integer?, string?, integer?)
+    local origin = whence == nil and "cur" or whence
+    if type(origin) ~= "string" or not SEEK_ORIGINS[origin] then
+        error("bad argument #1 to 'seek' (invalid option '" .. tostring(origin) .. "')", 2)
+    end
+    local amount: integer? = offset == nil and 0 or math.tointeger(offset)
+    if amount == nil then
+        error("bad argument #2 to 'seek' (number has no integer representation)", 2)
+    end
+    if luaType(file) == "closed file" then
+        error("attempt to use a closed file", 2)
+    end
+    local data: any = rawget(file, "_data")
+    if type(data) ~= "string" then
+        return nil, "this host's writable files cannot seek", INVALID_ARGUMENT
+    end
+    local base: integer = 0
+    if origin == "cur" then
+        base = math.tointeger(rawget(file, "_at")) as integer
+    elseif origin == "end" then
+        base = #(data as string)
+    end
+    local target = base + amount
+    if target < 0 then
+        return nil, INVALID_ARGUMENT_TEXT, INVALID_ARGUMENT
+    end
+    rawset(file, "_at", target)
+
+    return target
+end
+
 local function decorateFile(file: any): any
     if file ~= nil then
         local meta: any = getmetatable(file)
         if meta ~= nil and type(meta.__index) == "table" then
             meta.__index.reader = fileReader
             meta.__index.writer = fileWriter
+        elseif meta == nil and type(file) == "table" then
+            -- The bootstrap VM answers its handles as plain tables.
+            rawset(file, "reader", fileReader)
+            rawset(file, "writer", fileWriter)
+            if rawget(file, "seek") == nil then
+                rawset(file, "seek", bridgeSeek)
+            end
         end
     end
 
