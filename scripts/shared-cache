@@ -15,6 +15,7 @@
 #
 #   kernels/KEY.json     runtime kernel code (nupp.core.unitrunner)
 #   programs/KEY.bin     guest program selections (tests/core/guests/run.lua)
+#   pieces/KEY.bin       compiled guest module pieces (nupp.core.piecestore)
 #   vm-cli/GEN/          compiler generations, named by their own content
 #   vm-cli-builds/KEY    the generation, and its receipt, a build of KEY produced
 #   build-steps/KEY.bin  a compiler build step's outputs (nupp.tools.vm.buildsteps)
@@ -273,7 +274,7 @@ entries() {
     else
         flag=-c format='%X %Y %s %n'
     fi
-    for kind in kernels programs vm-cli-builds build-steps; do
+    for kind in kernels programs pieces vm-cli-builds build-steps; do
         [ -d "$STORE/$kind" ] || continue
         find "$STORE/$kind" -type f -print0 | xargs -0 stat "$flag" "$format" 2>/dev/null \
             | awk '{ used = ($1 > $2 ? $1 : $2); size = int(($3 + 1023) / 1024); path = $0
