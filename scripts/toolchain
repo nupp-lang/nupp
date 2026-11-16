@@ -766,7 +766,7 @@ EOF
         || die "Cargo could not build the native object writer"
     object_tool="$object_target/release/nupp-vm"
     [ "$PLATFORM" != windows ] || object_tool="$object_tool.exe"
-    NUPP_VM_AUTO_REBUILD=0 NUPP_COMPILER_ROOT="$ROOT" \
+    NUPP_VM_AUTO_REBUILD=0 NUPP_COMPILER_ROOT=$(native_path "$ROOT") \
         "$ROOT/bin/nupp" run "$ROOT/scripts/native-runtime-build.lua" "$object_tool" \
         || die "cannot build the Nupp execution core"
 }
