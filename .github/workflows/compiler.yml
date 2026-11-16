@@ -22,8 +22,10 @@ on:
       - "!v*-*"
   # Retained for a contribution from a fork, where no push to this repository
   # happens and this is the only event there is. A pull request from a branch of
-  # this repository would be tested twice, which is a case this repository's
-  # workflow does not produce.
+  # this repository is the same commit its push already started a run for, so
+  # `classify` declines that event and every job behind it is skipped: running
+  # both doubled the queue for one answer, and the two runs could not even
+  # share a cache, since a pull request's merge ref is a cache scope of its own.
   pull_request:
   workflow_dispatch:
   # The affected-surface classifier is deliberately conservative, but it is a
@@ -60,18 +62,8 @@ permissions:
 #
 # The event name is in the key so a push cannot cancel the nightly backstop
 # declared above: a scheduled run's `github.ref` is `refs/heads/main` too.
-#
-# With the NUPP_LINUX_ONLY variable 'true', a pull request from a branch of
-# this repository shares that branch's push key, so the two events a push
-# fires over one commit leave one run. Unset, the key is as it was.
 concurrency:
-  group: >-
-    ${{ github.workflow }}-${{
-    vars.NUPP_LINUX_ONLY == 'true'
-    && github.event_name == 'pull_request'
-    && github.event.pull_request.head.repo.full_name == github.repository
-    && format('push-refs/heads/{0}', github.head_ref)
-    || format('{0}-{1}', github.event_name, github.ref) }}
+  group: ${{ github.workflow }}-${{ github.event_name }}-${{ github.ref }}
   cancel-in-progress: true
 
 # The VM compiler bootstraps the tree, built from the pinned stage-zero image
@@ -87,6 +79,10 @@ jobs:
   # a minute added to every path through the graph.
   classify:
     name: Classify the change
+    # A pull request from a branch of this repository repeats its push.
+    if: >-
+      github.event_name != 'pull_request'
+      || github.event.pull_request.head.repo.full_name != github.repository
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     outputs:
@@ -924,7 +920,11 @@ jobs:
   # fails this, and so does a classification that failed to happen at all.
   required-ci:
     name: required-ci
-    if: always()
+    # Declined with `classify`, for the same event and the same reason: a run
+    # that tested nothing has no status to give.
+    if: >-
+      always() && (github.event_name != 'pull_request'
+      || github.event.pull_request.head.repo.full_name != github.repository)
     needs:
       - classify
       - fast-checks
