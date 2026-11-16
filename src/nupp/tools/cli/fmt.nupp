@@ -88,7 +88,6 @@ local function run(options: any): integer
     -- whichever file is being formatted right now.
     local currentPath = ""
     local formatter = fmt.new({
-        environment = env,
         annotations = env.annotations,
         resolveAnnotation = function(name: string): any
             return env.resolveProjectAnnotation(env, currentPath, name)
@@ -172,10 +171,11 @@ local function run(options: any): integer
     -- Its own store rather than a corner of the header store, because a project may
     -- format without checking or check without formatting, and one file per question
     -- keeps a run that only does one from rewriting what it does not know about.
+    --
+    -- Stamped with the formatter and what it requires, which is the parser and nothing
+    -- of the checker: a compiler change outside them keeps every verdict.
     local settled = reporting and envMod.openStore(env, "formatStore", "formatStoreOpened", "format.buf", {
-        "nupp.tools.fmt",
-        "nupp.tools.fmt.imports",
-        "nupp.compiler.check"
+        "nupp.tools.fmt"
     }) or nil
     local textNeeded = write and true or false
     local hashMod = require("nupp.compiler.hash")
@@ -185,11 +185,7 @@ local function run(options: any): integer
 
     local function verdictKey(path: string, source: string): string
         if not optionsKey then
-            optionsKey = digest(
-                tostring(
-                    methodParens
-                ) .. "\0" .. tostring(width) .. "\0" .. envMod.annotationKey(env) .. "\0" .. fmt.importsKey(env)
-            )
+            optionsKey = digest(tostring(methodParens) .. "\0" .. tostring(width) .. "\0" .. envMod.annotationKey(env))
         end
 
         return digest(optionsKey .. "\0" .. path .. "\0" .. source)

@@ -1646,11 +1646,9 @@ export function newSession(rootDir: string?, emit: function(any), host: Host?): 
     --- The formatted text, or nil when the formatter refused. A file that does not
     --- parse is left exactly as it is: rewriting a half-written file is how an editor
     --- loses work.
-    local function formattedText(uri, doc, bindImports)
+    local function formattedText(uri, doc)
         local path = uriToPath(uri)
         local formatted, errors = fmt.format(doc.text, path, {
-            environment = s.inc.env,
-            bindImports = bindImports,
             annotations = s.inc.env.annotations,
             resolveAnnotation = function(name)
                 return s.inc.env.resolveProjectAnnotation(s.inc.env, path, name)
@@ -1671,8 +1669,8 @@ export function newSession(rootDir: string?, emit: function(any), host: Host?): 
     --- lines that did not change. Line runs are the granularity the formatter actually
     --- works at: it never joins lines, so a line either came through as it was or did
     --- not.
-    local function formattingEdits(uri, doc, bindImports)
-        local formatted = formattedText(uri, doc, bindImports)
+    local function formattingEdits(uri, doc)
+        local formatted = formattedText(uri, doc)
         if not formatted then
             return nil
         end
@@ -1730,9 +1728,7 @@ export function newSession(rootDir: string?, emit: function(any), host: Host?): 
         -- run of changed lines reaching past the selection is a change the request did
         -- not ask for, so it is not offered: formatting a selection must not rewrite
         -- the lines around it.
-        -- Import insertion and reference replacement must be applied together;
-        -- a selected range cannot safely keep just one half of that rewrite.
-        respondWithEdits(id, formattingEdits(uri, doc, false), function(edit)
+        respondWithEdits(id, formattingEdits(uri, doc), function(edit)
             return edit.fromLine >= range.start.line and edit.toLine <= range["end"].line + 1
         end)
     end

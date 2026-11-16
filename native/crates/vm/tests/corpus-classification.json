@@ -626,12 +626,6 @@
       "reason": "pure Lua against compiler modules within the subset"
     },
     {
-      "suite": "fmtimportstest",
-      "class": "portable",
-      "facilities": "load,lua-generator",
-      "reason": "ported: runs in the VM corpus image, its fragments and programs as VM images and its providers as VM instances"
-    },
-    {
       "suite": "fmttest",
       "class": "portable",
       "facilities": "getinfo",
@@ -737,6 +731,12 @@
       "suite": "inlinemethodtest",
       "class": "portable",
       "facilities": "load,getinfo,lua-generator",
+      "reason": "ported: runs in the VM corpus image, its fragments and programs as VM images and its providers as VM instances"
+    },
+    {
+      "suite": "inlinepathtest",
+      "class": "portable",
+      "facilities": "load,lua-generator",
       "reason": "ported: runs in the VM corpus image, its fragments and programs as VM images and its providers as VM instances"
     },
     {

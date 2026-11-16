@@ -202,7 +202,6 @@ local function run(options: any): integer
     local fmt = require("nupp.tools.fmt")
     local env = envMod.new(".", {config = config})
     local formatted, formatErrors = fmt.format(text, out, {
-        environment = env,
         annotations = env.annotations,
         methodParens = envMod.fmtMethodParensDefault(env)
     })

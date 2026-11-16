@@ -45,14 +45,16 @@ its annotations, and it gets a blank line on either side of the declaration it
 belongs to -- on either side of the declaration, that is, rather than between
 the annotations and what they annotate.
 
+The formatter parses and lays out; it never checks. How a module path is spelled
+is the `inline-module-path` lint's question, answered by `nupp check` and its fix,
+so a verdict here depends on the file's bytes, the options and the annotations the
+project declares, and on nothing else in the project or the checker.
+
 The safety invariant is that the output must re-lex to the identical token
 sequence, in kind and in text, as the input; if it does not, `format` returns the
-input untouched along with a diagnostic. Import binding first replaces only
-checker-resolved module and type paths, then reparses the edited source. The
-layout invariant applies to that canonical import spelling. Three further
-rewrites are exempted, each proven
+input untouched along with a diagnostic. Three rewrites are exempted, each proven
 safe rather than merely whitespace: annotation shorthand drops a redundant
-`member =` once the checker has shown the two spellings equivalent; a trailing
+`member =` once the annotation's declaration shows the two spellings equivalent; a trailing
 separator in a type shape is unnecessary; and method parenthesization inserts
 tokens that were not in the input, so instead of omitting them from the check it
 folds them into the sequence checked against.
@@ -69,10 +71,6 @@ local lexer = require("nupp.compiler.syntax.lexer")
 local cst = require("nupp.compiler.syntax.cst")
 local displayWidth = require("nupp.tools.fmt.displaywidth").displayWidth
 local docSyntax = require("nupp.compiler.syntax.docsyntax")
-
-local imports = require("nupp.tools.fmt.imports")
-
-export const importsKey = imports.key
 
 local INDENT = "    "
 local WIDTH: integer = 120
@@ -1893,14 +1891,8 @@ local function parenthesizeMethodCalls(result, opts)
 end
 
 --- What the formatter was asked for. The two annotation entries are how a caller lends
---- the formatter its annotation schemas. The environment supplies module and
---- type resolution for canonical imports.
+--- the formatter its annotation schemas.
 export type Options = {
-    --- Project resolution for module and type imports.
-    @readonly environment: any?,
-
-    --- False for isolated syntax fragments that have no file to import into.
-    @readonly bindImports: boolean?,
     @readonly annotations: any?,
     @readonly resolveAnnotation: (function(name: string): any)?,
     @readonly methodParens: boolean?,
@@ -1913,7 +1905,6 @@ export type Options = {
 --- Options resolved once, so a caller formatting many files does that resolution once
 --- rather than per file. `fmt.new` builds one; `:format` runs it over a file.
 export record Formatter
-    imports: any
     width: integer
     methodParens: boolean?
     annotations: any?
@@ -1924,7 +1915,6 @@ end
 --- columns and parenthesized method calls.
 export function new(opts: Options?): Formatter
     return Formatter(
-        imports = imports.new(opts and opts.environment, opts and opts.bindImports),
         width = (opts and opts.width) or WIDTH,
         methodParens = opts and opts.methodParens,
         annotations = opts and opts.annotations,
@@ -1941,13 +1931,6 @@ function Formatter:format(source: string, filename: string?): string, {any}
     end
     if result.root.formatDisabled then
         return source, {}
-    end
-    local rewritten = self.imports.rewrite(source, filename, result)
-    if rewritten ~= source then
-        result = parser.parse(rewritten, filename)
-        if #result.errors > 0 then
-            return source, result.errors
-        end
     end
     canonicalizeSingleValueAnnotations(result, self)
     parenthesizeMethodCalls(result, self)

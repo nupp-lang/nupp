@@ -73,29 +73,29 @@ function M.writeStillRewritesAFileAlreadyKnownToBeUnformatted()
     os.execute("rm -rf '" .. dir .. "'")
 end
 
-function M.bindsProjectModuleAndTypeReferencesByDefault()
+-- Formatting lays a file out and checks nothing, so it leaves a module path as
+-- written: spelling one as an import is the `inline-module-path` lint's fix.
+function M.leavesModulePathsToTheChecker()
+    local source = "module app\n\nexport function count(): lib.tools.Count\n    return lib.tools.count()\nend\n"
     local dir = tempProject({
         ["nupp.lua"] = 'return { include = {"src"} }\n',
         [
             "src/lib/tools.nupp"
-        ] = 'module lib.tools\nexport type Count = integer\nexport function count(): integer\nreturn 1\nend\n',
-        ["src/app.nupp"] = 'module app\nexport function count(): lib.tools.Count\nreturn lib.tools.count()\nend\n',
+        ] = "module lib.tools\n\nexport type Count = integer\n\nexport function count(): integer\n    return 1\nend\n",
+        ["src/app.nupp"] = source,
     })
     local out, ok = run(dir, "fmt --write src/app.nupp")
     assert(ok, out)
-    local result = readFile(dir .. "/src/app.nupp")
-    assert(result:find('const {type Count} = require("lib.tools")', 1, true), result)
-    assert(result:find('const tools = require("lib.tools")', 1, true), result)
-    assert(result:find('function count(): Count', 1, true), result)
-    assert(result:find('return tools.count()', 1, true), result)
+    assert(readFile(dir .. "/src/app.nupp") == source, readFile(dir .. "/src/app.nupp"))
     local checked, valid = run(dir, "check src/app.nupp")
     assert(valid, checked)
-    local again, settled = run(dir, "fmt --check src/app.nupp")
-    assert(settled and again == "", again)
+    assert(checked:find("NUPP2520 inline-module-path", 1, true), checked)
     os.execute("rm -rf '" .. dir .. "'")
 end
 
-function M.importVerdictsExpireWhenAProjectAddsAModule()
+-- A verdict is a function of the file's bytes, so a module appearing elsewhere in
+-- the project changes no answer about a file that did not change.
+function M.verdictsSurviveAProjectAddingAModule()
     local dir = tempProject({
         ["nupp.lua"] = 'return { include = {"src"} }\n',
         ["src/app.nupp"] = 'return library.tools.count()\n',
@@ -104,24 +104,10 @@ function M.importVerdictsExpireWhenAProjectAddsAModule()
     assert(initiallyFormatted, first)
     assert(os.execute("mkdir -p '" .. dir .. "/src/library'") == 0)
     local module = assert(io.open(dir .. "/src/library/tools.nupp", "wb"))
-    module:write('module library.tools\nexport function count(): integer\nreturn 1\nend\n')
+    module:write("module library.tools\n\nexport function count(): integer\n    return 1\nend\n")
     module:close()
     local after, stillFormatted = run(dir, "fmt --check src/app.nupp")
-    assert(not stillFormatted and after:find("src/app.nupp", 1, true), after)
-    os.execute("rm -rf '" .. dir .. "'")
-end
-
-function M.preservesAnExplicitTypeModuleBindingWithItsCanonicalName()
-    local dir = tempProject({
-        ["nupp.lua"] = 'return { include = {"src"} }\n',
-        ["src/shapes.nupp"] = 'module shapes\nexport record Point\nx: number\nend\n',
-        ["src/app.nupp"] = 'local shapes = require("shapes")\nlocal value: shapes.Point = nil as any\nreturn value\n',
-    })
-    local out, ok = run(dir, "fmt --write src/app.nupp")
-    assert(ok, out)
-    local result = readFile(dir .. "/src/app.nupp")
-    assert(not result:find('const {type Point}', 1, true), result)
-    assert(result:find('value: shapes.Point', 1, true), result)
+    assert(stillFormatted and after == "", after)
     os.execute("rm -rf '" .. dir .. "'")
 end
 

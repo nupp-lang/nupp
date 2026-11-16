@@ -214,7 +214,7 @@ uritest filestest hostchanneltest jsonfacadedefaulttest jsonschematest
 serdecontracttest benchprojectstest benchrunnertest bctest absoluteentrytest
 clitest duplicateclitest coveragereporttest coveragetest clidoctest
 diagnosticgoldentest doctest examplestest explaintest homesampletest
-referencetest fmtclitest fmtcorpustest fmtimportstest inlinepathtest fmttreetest
+referencetest fmtclitest fmtcorpustest inlinepathtest fmttreetest
 associatedtoolingtest lspclitest lsptest constructionmigrationtest repositoryscriptstest
 runnertest testtimingstest buildprogresstest buildtest
 ]]

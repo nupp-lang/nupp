@@ -189,9 +189,9 @@ the same name. An erased alias must be selected with `type`.
 
 ## Qualified module paths
 
-The [formatter](../tooling/formatter.md#module-and-type-imports) turns absolute
-module and type references into explicit local imports by default. Qualified
-paths remain valid source syntax with the resolution rules below.
+Qualified paths are valid source syntax with the resolution rules below. The
+[`inline-module-path`](../../reference/lints.md#inline-module-path) lint asks for
+an import instead of a path to a project module, and its fix writes the import.
 
 A registered package root lets an unshadowed dotted path name a declared module
 directly:

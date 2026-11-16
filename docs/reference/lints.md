@@ -642,8 +642,10 @@ written. Plain Lua, declaration files and generated source are not linted, and
 a file that assigns the global `require` gets no fix, since the import could not
 be trusted to call the builtin.
 
-To fail a check on this lint without moving the project's level,
-`nupp check --deny inline-module-path` reports it as an error for that run.
+`nupp fmt` does not rewrite imports: it lays a file out and checks nothing, so
+its answer depends on the file alone. To fail a check on this lint without
+moving the project's level, `nupp check --deny inline-module-path` reports it as
+an error for that run.
 
 ## Categories
 

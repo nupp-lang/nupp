@@ -286,6 +286,16 @@ function M.skipsPlainLuaDeclarationsAndGeneratedFiles()
     end)
 end
 
+function M.formattingLeavesInlinePathsAlone()
+    withUserModules(function(env)
+        local source = 'local value: app.files.Reader = nil as any\nreturn app.files.read("a"), value\n'
+        local output, errors = fmt.format(source, FILE)
+        assert(#errors == 0, errors[1] and errors[1].msg)
+        assert(output == source, output)
+        assert(#diagnostics(source, env) == 2)
+    end)
+end
+
 function M.leavesTypesReachedThroughAnExplicitBinding()
     withUserModules(function(env)
         local source = 'local files = require("app.files")\nlocal value: files.Reader = nil as any\nreturn value\n'

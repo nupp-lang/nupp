@@ -142,7 +142,7 @@ local function formatType(source: string, prefix: string?, width: integer?): str
     end
 
     prefix = prefix or ""
-    local formatted = formatter.format(prefix .. table.concat(parts), nil, {bindImports = false, width = width})
+    local formatted = formatter.format(prefix .. table.concat(parts), nil, {width = width})
 
     return (formatted:sub(#prefix + 1):gsub("\n$", ""))
 end

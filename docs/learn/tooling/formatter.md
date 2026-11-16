@@ -4,8 +4,7 @@ order: 530
 
 # Formatter
 
-`nupp fmt` rewrites Nupp source into one canonical layout with explicit module
-and type imports. The style is fixed:
+`nupp fmt` rewrites Nupp source into one canonical layout. The style is fixed:
 there is no configuration file and no editor setting, and only `--width` and
 `--no-method-parens` change what the output looks like.
 
@@ -48,43 +47,13 @@ Three measurements are fixed:
 
 ### Module and type imports
 
-Builtin namespaces remain qualified, including type references. The formatter
-does not add imports for them:
-
-::: code-group
-```nupp [Written]
-local function count(values: bytes.span.Span<uint8>): integer
-    return #values
-end
-
-return io.http.file("notes.txt"), count
-```
-
-```nupp [Formatted]
-local function count(values: bytes.span.Span<uint8>): integer
-    return #values
-end
-
-return io.http.file("notes.txt"), count
-```
-:::
-
-References to user modules become local bindings. Their imports follow the
-`module` declaration; module documentation stays above it. Repeated references
-share one binding. Existing module bindings are reused when they are initialized,
-unmodified and unshadowed. A simple local type alias becomes a type selection
-with the same name and position. A name already used in the file gets a numeric
-suffix, including when the conflicting name lives in an inner scope. Type-only selections remain
-erased and do not introduce a runtime dependency. A record or struct used as a
-value, including construction and static methods, uses a value selection.
-When annotations also use that declaration, a separate erased type selection
-shares its local name.
-
-The checker resolves the reference before the formatter shortens it. Ordinary
-table fields, shadowed package roots, unresolved references and compiler
-intrinsics keep their spelling. Strings and comments are preserved; a comment
-inside a dotted path keeps that path intact. Explicit `require` calls keep
-their written placement. Plain Lua files receive layout changes only.
+The formatter changes layout and nothing else, so it never adds an import or
+shortens a module path. A path like `app.files.read(path)` is the
+[`inline-module-path`](../../reference/lints.md#inline-module-path) lint's
+business: `nupp check` reports it, and the lint's fix writes the import. Keeping
+the two apart is what lets a format verdict depend on the file and the
+project's annotation declarations alone, so an edit to another file, or to the
+checker, leaves every stored verdict standing.
 
 ### Breaking a line
 
@@ -323,18 +292,18 @@ It must be the file's first annotation and has no region form.
 
 ## Limits
 
-After resolving and rewriting imports, the formatter checks layout against the
-rewritten token sequence. Its output must re-lex to the same kinds and text,
-apart from the canonicalizations below. When layout would break that invariant,
-it returns the input untouched and reports the rewrite it refused.
+The formatter checks its layout against the input's token sequence: its output
+must re-lex to the same kinds and text, apart from the canonicalizations below.
+When layout would break that invariant, it returns the input untouched and
+reports the rewrite it refused.
 
 That invariant is why it cannot change a quote style, add or remove a table
 constructor's trailing comma, or rewrite a numeric literal. Those change the
 token stream, so no policy about them is available to the formatter.
 
 Two rewrites are exempted, each proven safe rather than merely whitespace. A
-single-value annotation loses its redundant `member =` where the checker has
-proved the two forms equivalent:
+single-value annotation loses its redundant `member =` where the annotation's
+declaration shows the two forms equivalent:
 
 ::: code-group
 ```nupp:fragment [Written]
@@ -368,5 +337,4 @@ The language server implements `textDocument/formatting` and
   whole-document replacement, which preserves cursors and folds.
 
 Range formatting formats the whole document and then keeps the edits that fall
-inside the requested range. It leaves import spelling alone so a selection
-cannot shorten a reference without inserting its binding.
+inside the requested range.
