@@ -1354,7 +1354,9 @@ end}
     local observer = (
         [=[
 return {observesFailure = function()
-    local deadline = os.time() + 10
+    -- Generous: on Windows the other worker's fresh interpreter took longer
+    -- than ten seconds just to start the failing suite.
+    local deadline = os.time() + 60
     repeat
         local file = io.open(%q, "rb")
         local text = file and file:read("*a") or ""
