@@ -4,6 +4,7 @@ local lower = require("nupp.compiler.vm.lower")
 local profile = require("nupp.compiler.vm.nativegraph")
 local graph = require("nupp.compiler.vm.graph")
 local physical = require("nupp.compiler.vm.nativephysical")
+local construction = require("nupp.compiler.vm.construction")
 local M = {}
 local fs = require("nupp.compiler.fs")
 local ROOT = fs.absolute(assert(debug.getinfo(1, "S").source:match("^@(.*)[/\\]")) .. "/..")
@@ -758,11 +759,12 @@ function M.actualCollectorCursorConstructorChildIsNotACallEdge()
     )
     local owner = s.module("nupp.runtime.vm.collector").functions.eachChild
     local found = 0
-    for _, node in ipairs(unit.occurrences(owner)) do
-        if node.kind == "newExpr" then
+    -- A checked construction is the call alone; its `newExpr` is the one
+    -- wrapper the lowerings see, never a member of the checked tree.
+    for _, call in ipairs(unit.occurrences(owner)) do
+        if construction.bare(call) then
             found = found + 1
-            local call = node.call
-            assert(call.isNew and call.structConstruct and unit.localConstructionChild(owner, call))
+            assert(call.structConstruct and unit.localConstructionChild(owner, call))
             local original = call.structConstruct
             call.structConstruct = "forged"
             refuses(
@@ -778,15 +780,15 @@ function M.actualCollectorCursorConstructorChildIsNotACallEdge()
                 end,
                 "outside checked owner"
             )
-            local originalCall = node.call
-            node.call = shallow(call)
+            local wrapper = construction.of(call)
+            wrapper.call = shallow(call)
             refuses(
                 function()
                     unit.localConstructionChild(owner, call)
                 end,
                 "plain checked construction child"
             )
-            node.call = originalCall
+            wrapper.call = call
             assert(unit.localConstructionChild(owner, call))
         end
     end
