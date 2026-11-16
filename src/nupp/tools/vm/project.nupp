@@ -141,7 +141,9 @@ end
 --- `sources` names the files a build compiled for modules, its generated
 --- ones among them, which resolve as those files.
 --- `cacheDir`, when given, is where per-module lowering is kept for the next
---- emit and found from the last (`nupp.tools.vm.emitcache`).
+--- emit and found from the last (`nupp.tools.vm.emitcache`). `summarize` writes
+--- what the cache saved to standard error, which the compiler's own rebuild
+--- reports (`bin/nupp`); a program's build stays quiet.
 --- @raises string when a source cannot be read, checked or lowered.
 local function emitProject(
     root: string,
@@ -153,7 +155,8 @@ local function emitProject(
     reached: {[string]: boolean}?,
     coverage: lower.CoverageRequest?,
     cacheDir: string?,
-    sources: {[string]: string}?
+    sources: {[string]: string}?,
+    summarize: boolean?
 ): string
     if not hostBootstrap then
         triviaarena.installDefault(tableProvider)
@@ -313,6 +316,8 @@ local function emitProject(
         if cache.profile then
             cache.profile.report()
         end
+    end
+    if cache and summarize then
         local stats = cache.stats
         io.stderr:write(
             (
@@ -357,7 +362,7 @@ local function emitFrom(
         and {["nupp.vm.cliResources"] = require("nupp.compiler.vm.resources").prepare(root, config)}
         or nil
 
-    return emitProject(root, config, entry, names(extras), hostBootstrap, carried, nil, nil, cacheDir)
+    return emitProject(root, config, entry, names(extras), hostBootstrap, carried, nil, nil, cacheDir, nil, true)
 end
 
 --- Read, check and lower a project using the compiler's module resolver.
@@ -429,8 +434,9 @@ const NATIVE_OPS = {
 --- output tree, so a module named only by a computed `require` is found.
 --- `cacheDir` keeps each module's lowering for the next build, which replays
 --- what is unchanged (`nupp.tools.vm.emitcache`). A replayed module is not
---- lowered, so the facilities it needs cannot be seen; `seeded` carries the
---- last build's, which a caller passes only with a cache it wrote.
+--- lowered, so the facilities and native libraries it needs cannot be seen;
+--- `seeded` and `seededLibraries` carry the last build's, which a caller passes
+--- only with a cache it wrote.
 function project.program(
     root: string,
     config: table,
@@ -439,7 +445,8 @@ function project.program(
     coverage: lower.CoverageRequest?,
     modules: {[string]: any}?,
     cacheDir: string?,
-    seeded: {string}?
+    seeded: {string}?,
+    seededLibraries: {string}?
 ): (string, {string}, {string})
     local reached: {[string]: boolean} = {}
     for _, facility in ipairs(seeded or {}) do
@@ -482,6 +489,9 @@ function project.program(
         return programPath(root, compilerRoot, path)
     end
     local nativeLibraries: {[string]: boolean} = {}
+    for _, name in ipairs(seededLibraries or {}) do
+        nativeLibraries[name] = true
+    end
     lower.graphSink = function(_: string, functions: {any}, _: table): nil
         for _, f in ipairs(functions) do
             for name in pairs(f.nativeLibraries or {}) do

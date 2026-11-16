@@ -294,21 +294,38 @@ local function programPayload(
     -- A changed target still lowers only what changed: each module's lowering
     -- is kept and replayed when nothing it read has changed
     -- (`nupp.tools.vm.emitcache`). A replayed module is not lowered, so the
-    -- facilities it needs come from the record the last complete emit wrote. The
-    -- record is removed before an emit and written after one, so an emit that
-    -- did not finish leaves none, and the next lowers everything.
+    -- facilities and native libraries it needs come from the record the last
+    -- complete emit wrote. The record is removed before an emit and written after
+    -- one, so an emit that did not finish leaves none.
+    --
+    -- Without a record the kept lowering is emptied rather than left unused:
+    -- nothing in an empty cache can be replayed, so nothing is missing from what
+    -- this emit sees, and it fills the cache for the next one. Passing no cache
+    -- here, as this once did, meant a checkout's first build kept nothing, and
+    -- its second lowered everything again to keep what the first had not.
     local emitDir = cached .. "-emit"
     local record = cached .. ".emit-facilities"
+    local libraryRecord = cached .. ".emit-libraries"
     local seeded: {string}? = nil
+    local seededLibraries: {string}? = nil
     if coverage == nil then
         local kept = fs.readFile(record)
-        if kept ~= nil then
-            seeded = {}
+        local keptLibraries = fs.readFile(libraryRecord)
+        if kept ~= nil and keptLibraries ~= nil then
+            seeded, seededLibraries = {}, {}
             for facility in kept:gmatch("[^\n]+") do
                 seeded[#seeded + 1] = facility
             end
+            for library in keptLibraries:gmatch("[^\n]+") do
+                seededLibraries[#seededLibraries + 1] = library
+            end
+        else
+            for _, path in ipairs(fs.listFiles(emitDir)) do
+                os.remove(path)
+            end
         end
         os.remove(record)
+        os.remove(libraryRecord)
     end
     local ok: boolean, image: any, facilities: any, libraries: any = pcall(
         require("nupp.tools.vm.project").program,
@@ -318,13 +335,15 @@ local function programPayload(
         embedded,
         coverage,
         modules,
-        seeded and emitDir or nil,
-        seeded
+        coverage == nil and emitDir or nil,
+        seeded,
+        seededLibraries
     )
     if not ok then
         return nil, tostring(image)
     end
     if coverage == nil then
+        fs.writeFile(libraryRecord, table.concat(libraries as {string}, "\n") .. "\n")
         fs.writeFile(record, table.concat(facilities as {string}, "\n") .. "\n")
     end
     if coverage ~= nil then
