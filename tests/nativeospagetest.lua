@@ -62,84 +62,32 @@ local function callOf(owner)
     return owner.body.body.stats[1].exprs[1]
 end
 
-function M.directChildSignalPreservesGroupKillAndItsExactABI()
-    fixture(
-        [[
-export function direct(pid: uint64, signal: uint64): int64
-    return os.processsignal(pid, signal)
-end
-export function group(pid: uint64, signal: uint64): int64
-    return os.processKill(pid, signal)
-end
-]],
-        function(_, functions)
-            for _, spec in ipairs({{"direct", 59}, {"group", 33}}) do
-                local owner = functions[spec[1]]
-                local call = nativeos.call(owner, callOf(owner))
-                assert(nativeos.slot(call, owner) == spec[2])
-                assert(#call.params == 2 and call.params[1] == "uint64" and call.params[2] == "uint64")
-                assert(call.result == "int64" and nativeos.result(call) == nil)
-                call.params[1] = "int64"
-                refuses(
-                    function()
-                        nativeos.validate(call)
-                    end,
-                    "changed"
-                )
-                call.params[1] = "uint64"
-                assert(nativeos.validate(call))
-            end
-            assert(nativeos.importCount() == 61)
-        end
-    )
-end
+-- The bridge's imports are the blocking-work pool and the dynamic loader;
+-- pages, entropy, system facts, files and processes are C library calls the
+-- runtime makes through cdef functions, never OS imports.
+local IMPORTS = 10
 
-function M.filesystemCallsRetainTheirExactSlotsAndStatusSignatures()
+function M.bridgeImportsRetainTheirExactSlotsAndStatusSignatures()
     local specifications = {
+        {"poolStart", 0, 'threads: uint64', 'threads', {"uint64"}},
         {
-            "fileInfo",
-            51,
-            'path: voidptr, bytes: uint64, follow: uint64, out: voidptr',
-            'path, bytes, follow, out',
-            {"voidptr", "uint64", "uint64", "voidptr"}
+            "poolSubmit",
+            1,
+            'kind: uint64, word: uint64, base: voidptr, bytes: uint64',
+            'kind, word, base, bytes',
+            {"uint64", "uint64", "voidptr", "uint64"}
         },
-        {"fileStatus", 52, 'fd: uint64, out: voidptr', 'fd, out', {"uint64", "voidptr"}},
+        {"poolTake", 2, '', '', {}},
         {
-            "readLink",
-            53,
-            'path: voidptr, bytes: uint64, out: voidptr, room: uint64',
-            'path, bytes, out, room',
-            {"voidptr", "uint64", "voidptr", "uint64"}
+            "poolFinish",
+            3,
+            'ticket: uint64, out: voidptr, room: uint64',
+            'ticket, out, room',
+            {"uint64", "voidptr", "uint64"}
         },
-        {
-            "makeDirectory",
-            54,
-            'path: voidptr, bytes: uint64, mode: uint64',
-            'path, bytes, mode',
-            {"voidptr", "uint64", "uint64"}
-        },
-        {
-            "makeSymlink",
-            55,
-            'target: voidptr, targetBytes: uint64, path: voidptr, pathBytes: uint64',
-            'target, targetBytes, path, pathBytes',
-            {"voidptr", "uint64", "voidptr", "uint64"}
-        },
-        {
-            "changeMode",
-            56,
-            'path: voidptr, bytes: uint64, mode: uint64',
-            'path, bytes, mode',
-            {"voidptr", "uint64", "uint64"}
-        },
-        {"syncFile", 57, 'fd: uint64', 'fd', {"uint64"}},
-        {
-            "pathQuery",
-            58,
-            'which: uint64, path: voidptr, bytes: uint64, out: voidptr, room: uint64',
-            'which, path, bytes, out, room',
-            {"uint64", "voidptr", "uint64", "voidptr", "uint64"}
-        }
+        {"poolCancel", 4, 'ticket: uint64', 'ticket', {"uint64"}},
+        {"poolsettle", 5, 'ticket: uint64', 'ticket', {"uint64"}},
+        {"dlclose", 8, 'library: voidptr', 'library', {"voidptr"}}
     }
     local body = {}
     for _, spec in ipairs(specifications) do
@@ -154,98 +102,51 @@ function M.filesystemCallsRetainTheirExactSlotsAndStatusSignatures()
             local owner = functions[spec[1]]
             local issued = nativeos.call(owner, callOf(owner))
             assert(nativeos.slot(issued, owner) == spec[2])
-            assert(#issued.params == #spec[5] and issued.result == 'int64' and nativeos.result(issued) == nil)
+            assert(#issued.params == #spec[5] and issued.result == 'int64')
             for index, kind in ipairs(spec[5]) do
                 assert(issued.params[index] == kind)
             end
-            issued.params[1] = 'int64'
+            issued.result = 'uint64'
             refuses(
                 function()
                     nativeos.validate(issued)
                 end,
                 'changed'
             )
-            issued.params[1] = spec[5][1]
+            issued.result = 'int64'
+            if #spec[5] > 0 then
+                issued.params[1] = 'int64'
+                refuses(
+                    function()
+                        nativeos.validate(issued)
+                    end,
+                    'changed'
+                )
+                issued.params[1] = spec[5][1]
+            end
             assert(nativeos.validate(issued))
         end
+        assert(nativeos.importCount() == IMPORTS)
     end)
 end
 
-function M.systemQueriesRetainTheirExactSelectorLoanAndStatusABI()
+function M.frozenOSSourceHasClosedSlotsAndAuthenticatedMembers()
     fixture(
         [[
-export function query(field: uint64, base: voidptr, room: uint64): int64
-    return os.systemquery(field, base, room)
+export function take(dummy: uint64): int64
+    return os.poolTake()
 end
-]],
-        function(_, functions)
-            local call = nativeos.call(functions.query, callOf(functions.query))
-            assert(nativeos.slot(call, functions.query) == 49)
-            assert(
-                #call.params == 3
-                and call.params[1] == "uint64"
-                and call.params[2] == "voidptr"
-                and call.params[3] == "uint64"
-            )
-            assert(call.result == "int64" and nativeos.result(call) == nil)
-            call.result = "uint64"
-            refuses(
-                function()
-                    nativeos.validate(call)
-                end,
-                "changed"
-            )
-            call.result = "int64"
-            assert(nativeos.validate(call))
-        end
-    )
-end
-
-function M.secureEntropyFillRetainsItsExactBufferAndStatusABI()
-    fixture(
-        [[
-export function fill(pointer: voidptr, count: uint64): int64
-    return os.securefill(pointer, count)
-end
-]],
-        function(_, functions)
-            local call = nativeos.call(functions.fill, callOf(functions.fill))
-            assert(nativeos.slot(call, functions.fill) == 48)
-            assert(#call.params == 2 and call.params[1] == "voidptr" and call.params[2] == "uint64")
-            assert(call.result == "int64" and nativeos.result(call) == nil)
-            local original = call.params
-            call.params = {"voidptr", "int64"}
-            refuses(
-                function()
-                    nativeos.validate(call)
-                end,
-                "changed"
-            )
-            call.params = original
-            assert(nativeos.validate(call))
-        end
-    )
-end
-
-function M.frozenOSSourceHasClosedSlotsAndAnOptionalMapResult()
-    fixture(
-        [[
-export function page(dummy: uint64): uint64
-    return os.pageSize()
-end
-export function mapped(bytes: uint64): voidptr?
-    return os.mapPages(bytes)
+export function start(threads: uint64): int64
+    return os.poolStart(threads)
 end
 ]],
         function(session, functions)
-            local page = nativeos.call(functions.page, callOf(functions.page))
-            local map = nativeos.call(functions.mapped, callOf(functions.mapped))
-            assert(nativeos.slot(page, functions.page) == 2 and #page.params == 0)
-            assert(nativeos.slot(map, functions.mapped) == 0)
-            local result = assert(nativeos.result(map))
-            assert(result.nullable and result.pointee == nil and result.machineKind == "voidptr")
+            local take = nativeos.call(functions.take, callOf(functions.take))
+            local start = nativeos.call(functions.start, callOf(functions.start))
+            assert(nativeos.slot(take, functions.take) == 2 and #take.params == 0)
+            assert(nativeos.slot(start, functions.start) == 0 and #start.params == 1)
             local copied = {}
-            for key, value in pairs(map) do
+            for key, value in pairs(start) do
                 copied[key] = value
             end
             refuses(
@@ -256,44 +157,44 @@ end
             )
             refuses(
                 function()
-                    nativeos.slot(map, functions.page)
+                    nativeos.slot(start, functions.take)
                 end,
                 "owner differs"
             )
-            local old = page.params
-            page.params = {"uint64"}
+            local old = take.params
+            take.params = {"uint64"}
             refuses(
                 function()
-                    nativeos.validate(page)
+                    nativeos.validate(take)
                 end,
                 "changed"
             )
-            page.params = old
-            assert(nativeos.validate(page))
-            local call = callOf(functions.page)
+            take.params = old
+            assert(nativeos.validate(take))
+            local call = callOf(functions.take)
             local signature = call.obj.inferredType
-            call.obj.inferredType = callOf(functions.mapped).obj.inferredType
+            call.obj.inferredType = callOf(functions.start).obj.inferredType
             refuses(
                 function()
-                    unit.osDeclaration(functions.page, call)
+                    unit.osDeclaration(functions.take, call)
                 end,
                 "signature occurrence changed"
             )
             call.obj.inferredType = signature
             local resolved = call.obj.resolvedType
-            call.obj.resolvedType = callOf(functions.mapped).obj.resolvedType
+            call.obj.resolvedType = callOf(functions.start).obj.resolvedType
             refuses(
                 function()
-                    unit.osDeclaration(functions.page, call)
+                    unit.osDeclaration(functions.take, call)
                 end,
                 "member signature differs"
             )
             call.obj.resolvedType = resolved
             local definition = call.obj.name.definition
-            call.obj.name.definition = callOf(functions.mapped).obj.name.definition
+            call.obj.name.definition = callOf(functions.start).obj.name.definition
             refuses(
                 function()
-                    unit.osDeclaration(functions.page, call)
+                    unit.osDeclaration(functions.take, call)
                 end,
                 "member identity differs"
             )
@@ -303,24 +204,24 @@ end
             receiver.requiredModule = "other.os"
             refuses(
                 function()
-                    unit.osDeclaration(functions.page, call)
+                    unit.osDeclaration(functions.take, call)
                 end,
                 "receiver identity differs"
             )
             receiver.requiredModule = required
-            assert(nativeos.validate(page))
+            assert(nativeos.validate(take))
             assert(session.validate())
         end
     )
 end
 
-function M.pageCallUsesExistingHelperGraphAndNoFakeParameter()
+function M.poolCallUsesExistingHelperGraphAndNoFakeParameter()
     fixture([[
-export function page(dummy: uint64): uint64
-    return os.pageSize()
+export function take(dummy: uint64): int64
+    return os.poolTake()
 end
 ]], function(session, functions)
-        local owner = functions.page
+        local owner = functions.take
         local g = lower.functionGraph(owner, session.options(owner, "leaf"), profile)
         graph.verify(g)
         local found = 0
@@ -337,7 +238,7 @@ end
     end)
 end
 
-function M.unknownOSMembersAndUnownedUnmapStayRefused()
+function M.retiredAndUnknownOSMembersStayRefused()
     fixture(
         [[
 export function advise(base: voidptr, bytes: uint64): nil
@@ -346,32 +247,44 @@ end
 export function discard(base: voidptr, bytes: uint64): nil
     os.unmapPages(base, bytes)
 end
+export function page(dummy: uint64): uint64
+    return os.pageSize()
+end
+export function fill(base: voidptr, bytes: uint64): int64
+    return os.securefill(base, bytes)
+end
+export function query(field: uint64, base: voidptr, room: uint64): int64
+    return os.systemquery(field, base, room)
+end
 ]],
         function(_, functions)
-            refuses(
-                function()
-                    nativeos.call(functions.advise, functions.advise.body.body.stats[1].expr)
-                end,
-                "unsupported OS import"
-            )
-            local call = functions.discard.body.body.stats[1].expr
-            refuses(
-                function()
-                    nativeos.call(functions.discard, call)
-                end,
-                "explicit owned wrapper"
-            )
+            for _, name in ipairs({"advise", "discard"}) do
+                refuses(
+                    function()
+                        nativeos.call(functions[name], functions[name].body.body.stats[1].expr)
+                    end,
+                    "unsupported OS import"
+                )
+            end
+            for _, name in ipairs({"page", "fill", "query"}) do
+                refuses(
+                    function()
+                        nativeos.call(functions[name], callOf(functions[name]))
+                    end,
+                    "unsupported OS import"
+                )
+            end
         end
     )
 end
 
 function M.changedFrozenDeclarationCannotRetainAnImport()
     fixture([[
-export function page(dummy: uint64): uint64
-    return os.pageSize()
+export function take(dummy: uint64): int64
+    return os.poolTake()
 end
 ]], function(_, functions, dir)
-        local declaration = nativeos.call(functions.page, callOf(functions.page))
+        local declaration = nativeos.call(functions.take, callOf(functions.take))
         local path = dir .. "/src/nupp/runtime/vm/os.d.nupp"
         write(path, read(path) .. "\n-- changed after issue\n")
         refuses(
@@ -383,11 +296,18 @@ end
     end)
 end
 
--- Uses the real checked ledger wrapper, not a synthetic nil-call signature.
--- Its dependent nullable map path composes with the pointer lane before running.
-function M.unmapStatusIsAVisibleGraphValueAndScopeWrite()
-    local path = ROOT .. "/src/nupp/runtime/core/pagemappings.nupp"
-    local session = unit.session(ROOT, {{moduleName = "nupp.runtime.core.pagemappings", path = path}}, TARGET)
+-- Uses the real checked ledger wrapper over the C library's pages. The status
+-- hostpages answers is the visible result of an ordinary checked call, and the
+-- wrapper's own source stores it in the explicit Scope; no import hides it.
+function M.unmapStatusIsAVisibleCallResultAndScopeWrite()
+    local modules = {}
+    for _, name in ipairs({"pagemappings", "hostpages"}) do
+        modules[#modules + 1] = {
+            moduleName = "nupp.runtime.core." .. name,
+            path = ROOT .. "/src/nupp/runtime/core/" .. name .. ".nupp"
+        }
+    end
+    local session = unit.session(ROOT, modules, TARGET)
     local functions = session.module("nupp.runtime.core.pagemappings").functions
     local owner = functions.unmapOwned
     assert(owner.resultKind == "uint64" and functions.entry.resultKind == "voidptr")
@@ -398,22 +318,18 @@ function M.unmapStatusIsAVisibleGraphValueAndScopeWrite()
     local found = 0
     for _, block in ipairs(g.blocks) do
         for index, op in ipairs(block.op) do
-            if op == "NativeHelperCall" and nativeos.isIssued(block.args[index][1]) then
+            local declaration = block.args[index] and block.args[index][1]
+            assert(op ~= "NativeHelperCall" or not nativeos.isIssued(declaration), "unmap reached an OS import")
+            if op == "NativeLeafCall" and declaration.name == "unmapPages" then
                 found = found + 1
-                local declaration = block.args[index][1]
-                assert(nativeos.slot(declaration, owner) == 1 and declaration.result == "uint64")
-                assert(block.op[index + 1] == "NativeConstant" and block.op[index + 2] == "NativeStore")
-                local args = block.args[index + 2]
-                assert(args[1] == 1 and args[3] == block.dst[index])
-                local old = args[3]
-                args[3] = args[2]
-                refuses(
-                    function()
-                        nativeos.verifyStores(g)
-                    end,
-                    "output differs"
-                )
-                args[3] = old
+                assert(declaration.result == "uint64")
+                local status, stores = block.dst[index], 0
+                for later = index + 1, #block.op do
+                    if block.op[later] == "NativeStore" and block.args[later][3] == status then
+                        stores = stores + 1
+                    end
+                end
+                assert(stores == 1, "unmap status is not stored in its scope")
             end
         end
     end
