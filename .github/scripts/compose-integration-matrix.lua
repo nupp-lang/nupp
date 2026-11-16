@@ -24,8 +24,10 @@ local platforms = {
     },
     {
         variable = "SELECTED_MACOS",
-        -- Bootstrap, the dist stamp and the shell lane alone.
-        entry = {name = "macOS arm64 shell", os = "macos-15", timeout = 150, artifact = "macos-arm64", part = "shell"},
+        -- Bootstrap, the dist stamp and the shell lane alone. Setup takes 35
+        -- minutes and the lane about two hours on three cores, ending on one
+        -- worker running cold native fixture builds; 150 cut that tail off.
+        entry = {name = "macOS arm64 shell", os = "macos-15", timeout = 240, artifact = "macos-arm64", part = "shell"},
     },
     {
         variable = "SELECTED_WINDOWS",
