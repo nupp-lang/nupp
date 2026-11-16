@@ -68,11 +68,45 @@ runs:
         echo "SCCACHE_GHA_ENABLED=true" >> "$GITHUB_ENV"
         echo "SCCACHE_IGNORE_SERVER_IO_ERROR=1" >> "$GITHUB_ENV"
 
-    - if: runner.os == 'Windows'
+    # The pinned nightly. A hosted runner carries only stable, and
+    # `scripts/toolchain` installs the pinned channel the first time a build
+    # needs Rust -- quietly, inside whatever step asked, which on a leg was the
+    # test runner's restore: two minutes of every leg spent downloading the
+    # same toolchain. Restored here instead, and installed in plain view when
+    # the restore misses.
+    - id: rust
       shell: bash
       run: |
         channel=$(sed -n 's/^channel = "\([^"]*\)"$/\1/p' rust-toolchain.toml)
-        rustup toolchain install "${channel}-x86_64-pc-windows-gnu" --profile minimal
+        toolchain=$channel
+        [ "$RUNNER_OS" != Windows ] || toolchain="${channel}-x86_64-pc-windows-gnu"
+        echo "toolchain=$toolchain" >> "$GITHUB_OUTPUT"
+
+    - id: rust-cache
+      uses: actions/cache/restore@v4
+      with:
+        # The toolchain, and the manifest hash rustup compares before deciding
+        # an installed toolchain is current; without it, it downloads again.
+        path: |
+          ~/.rustup/toolchains/${{ steps.rust.outputs.toolchain }}*
+          ~/.rustup/update-hashes/${{ steps.rust.outputs.toolchain }}*
+        key: nupp-rust-toolchain-${{ runner.os }}-${{ runner.arch }}-${{ steps.rust.outputs.toolchain }}
+
+    - shell: bash
+      env:
+        TOOLCHAIN: ${{ steps.rust.outputs.toolchain }}
+      run: rustup toolchain install "$TOOLCHAIN" --profile minimal
+
+    - if: inputs.save == 'true' && steps.rust-cache.outputs.cache-hit != 'true'
+      uses: actions/cache/save@v4
+      continue-on-error: true
+      with:
+        # The toolchain, and the manifest hash rustup compares before deciding
+        # an installed toolchain is current; without it, it downloads again.
+        path: |
+          ~/.rustup/toolchains/${{ steps.rust.outputs.toolchain }}*
+          ~/.rustup/update-hashes/${{ steps.rust.outputs.toolchain }}*
+        key: nupp-rust-toolchain-${{ runner.os }}-${{ runner.arch }}-${{ steps.rust.outputs.toolchain }}
 
     - shell: bash
       run: ./scripts/toolchain --all
