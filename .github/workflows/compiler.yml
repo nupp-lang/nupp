@@ -86,6 +86,10 @@ jobs:
       || github.event.pull_request.head.repo.full_name != github.repository
     runs-on: ubuntu-24.04
     timeout-minutes: 10
+    # The trunk's last green run is only on the API.
+    permissions:
+      contents: read
+      actions: read
     outputs:
       docs-site: ${{ steps.classify.outputs.docs-site }}
       fast-checks: ${{ steps.classify.outputs.fast-checks }}
@@ -128,9 +132,11 @@ jobs:
         env:
           EVENT: ${{ github.event_name }}
           REF: ${{ github.ref }}
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
           PR_BASE: ${{ github.event.pull_request.base.sha }}
           PUSH_BEFORE: ${{ github.event.before }}
           HEAD_SHA: ${{ github.sha }}
+          GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
           usable() {
@@ -139,46 +145,81 @@ jobs:
               && git cat-file -e "$1^{commit}" 2>/dev/null
           }
 
-          # A branch is compared against the trunk it will become, never against
-          # its own previous tip.
-          #
-          # `before` is the tempting answer and it is wrong. What this run
-          # authorises is pushing `HEAD_SHA` to `main`, so the question is what
-          # this commit changes about the trunk -- not what its last commit
-          # changed about the one before it. Narrowing against `before` opens a
-          # real hole: a commit that fails the GPU job, then a commit touching
-          # only documentation, and the second run skips GPU, goes green, and
-          # carries the first one's failure onto the trunk. Comparing against the
-          # merge base costs the same and cannot do that.
-          #
-          # It is also the honest answer for the case that happens most here: a
-          # task worktree pushed once when its work is done, whose `before` is
-          # all zeros because the branch is new.
+          # The trunks are the default branch and `main`: where work lands, and
+          # so what a branch is measured against.
+          trunk=false
+          case "$REF" in
+            refs/heads/main|"refs/heads/$DEFAULT_BRANCH") trunk=true ;;
+          esac
+
           base=""
           if [ "$EVENT" = pull_request ]; then
             base=$PR_BASE
-          elif [ "$EVENT" = push ] && [ "$REF" = refs/heads/main ]; then
-            # The trunk has no merge base to compare against but its own
-            # history, so the previous tip is the answer here, and it is the
-            # right one: what is new on `main` is what arrived since `main` was
-            # last at that commit.
-            base=$PUSH_BEFORE
+          elif [ "$EVENT" = push ] && [ "$trunk" = true ]; then
+            # A trunk is compared against the last commit of its own that a
+            # run of this workflow passed.
+            #
+            # `before` is the tempting answer and it is wrong twice. A newer
+            # push cancels the run of the one before it, so a compiler change
+            # followed a minute later by a documentation change would be
+            # answered by a run that looked only at documentation; and a run
+            # that fails leaves a `before` whose failure the next narrow run
+            # never looks at again. Against the last green commit neither can
+            # happen: everything since then is in the diff until a run passes
+            # with it there. While the trunk is red that is a wide diff, which
+            # is what a red trunk should cost.
+            for sha in $(gh api \
+                "repos/$GITHUB_REPOSITORY/actions/workflows/compiler.yml/runs?branch=${REF#refs/heads/}&event=push&status=success&per_page=30" \
+                --jq '.workflow_runs[].head_sha' 2>/dev/null || true); do
+              if usable "$sha" && git merge-base --is-ancestor "$sha" "$HEAD_SHA"; then
+                base=$sha
+                break
+              fi
+            done
           elif [ "$EVENT" = push ]; then
-            git fetch --no-tags --depth=200 origin main 2>/dev/null || true
-            base=$(git merge-base FETCH_HEAD "$HEAD_SHA" 2>/dev/null || true)
-            # A branch with no common history with `main` -- or a fetch that did
-            # not reach far enough back -- has no merge base, and `before` is
-            # then better than nothing.
+            # A branch is compared against the trunk it will become, never
+            # against its own previous tip.
+            #
+            # What this run authorises is pushing `HEAD_SHA` to a trunk, so the
+            # question is what this commit changes about that trunk -- not what
+            # its last commit changed about the one before it. Narrowing
+            # against `before` opens a real hole: a commit that fails the GPU
+            # job, then a commit touching only documentation, and the second
+            # run skips GPU, goes green, and carries the first one's failure
+            # onto the trunk. Comparing against the merge base costs the same
+            # and cannot do that.
+            #
+            # It is also the honest answer for the case that happens most here:
+            # a task worktree pushed once when its work is done, whose `before`
+            # is all zeros because the branch is new.
+            #
+            # Which trunk is not said anywhere, so it is the one this branch
+            # left most recently. Measuring every branch against `main` made
+            # each branch of another trunk a change to everything.
+            distance=""
+            for name in "$DEFAULT_BRANCH" main; do
+              git fetch --no-tags origin "$name" 2>/dev/null || continue
+              candidate=$(git merge-base FETCH_HEAD "$HEAD_SHA" 2>/dev/null || true)
+              usable "$candidate" || continue
+              ahead=$(git rev-list --count "$candidate..$HEAD_SHA")
+              if [ -z "$distance" ] || [ "$ahead" -lt "$distance" ]; then
+                base=$candidate
+                distance=$ahead
+              fi
+            done
+            # A branch with no common history with a trunk has no merge base,
+            # and `before` is then better than nothing.
             if ! usable "$base"; then
               base=$PUSH_BEFORE
             fi
           fi
 
           # A tag, a schedule and a manual dispatch have no diff to narrow, and
-          # neither does a branch whose merge base could not be found. An empty
-          # list means "everything", which the classifier decides rather than
-          # this shell.
+          # neither does a branch whose merge base could not be found or a
+          # trunk no run has passed on. An empty list means "everything",
+          # which the classifier decides rather than this shell.
           if usable "$base"; then
+            echo "comparing against $base"
             git diff --name-only "$base" "$HEAD_SHA" > changed-paths.txt
           else
             : > changed-paths.txt
