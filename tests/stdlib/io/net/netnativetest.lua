@@ -832,12 +832,20 @@ function M.aHostSleepingOnTheReadinessGenerationIsWokenByTheNetwork()
     local C = require("nupp.runtime.native").C
     local seen, found = ffi.new("uint64_t[1]"), ffi.new("uint64_t[1]")
     local sleeps = 0
+    local peerWrite
     local host = {
         park = function(_self, waiting, cancel)
             while not waiting:ready() do
                 assert(C.nuppNativePoll(seen) == 0)
                 if suspensionHost.poll() == 0 and not waiting:ready() then
                     sleeps = sleeps + 1
+                    -- The peer writes only once the host has parked on the
+                    -- snapshot, so the network, not the call, must wake it.
+                    if peerWrite then
+                        local write = peerWrite
+                        peerWrite = nil
+                        write()
+                    end
                     assert(C.nuppNativeWait(seen[0], 10000, found) == 0)
                     if found[0] == seen[0] or sleeps > 1000 then
                         cancel()
@@ -850,17 +858,22 @@ function M.aHostSleepingOnTheReadinessGenerationIsWokenByTheNetwork()
     local installation = suspensionHost.install(host)
     local ok, problem = pcall(function()
         local listener, client, served = pair()
-        assert(client:write("ping"), "the client writes")
-        testAssert.eq(assert(served:read(4)), "ping", "and the server reads it")
+        local wrote
+        peerWrite = function()
+            wrote = client:write("ping")
+        end
+        testAssert.eq(assert(served:read(4)), "ping", "the server reads what the peer wrote")
+        assert(wrote, "the client wrote")
         client:close()
         served:close()
         listener:close()
     end)
     installation:close()
     assert(ok, problem)
-    -- A loopback connect completes on the provider's executor, never inside the
-    -- call, so the host always sleeps at least once and the network wakes it.
+    -- The read finds nothing until the peer writes, and the peer writes only
+    -- from inside a park, so the host always sleeps and the network wakes it.
     assert(sleeps > 0, "the host slept on the generation")
+    assert(peerWrite == nil, "the peer wrote while the host was parked")
 end
 
 function M.streamSpansPreservePayloadAndEndOfStream()
