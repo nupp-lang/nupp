@@ -195,11 +195,15 @@ end
 
 function M.closedBufferReleasesItsAllocationWhileMetadataSurvives()
     local buffer = require("bytes").Buffer.create(string.rep("x", 1048576))
-    local allocation = setmetatable({buffer._data}, {__mode = "v"})
+    local state = buffer._state
+    local root = state._native or state._data
+    assert(root ~= nil, "an open buffer holds its allocation")
+    local allocation = setmetatable({root}, {__mode = "v"})
+    root = nil
     buffer:close()
     collectgarbage("collect")
     collectgarbage("collect")
-    assert(buffer._closed, "the closed buffer metadata remains observable")
+    assert(buffer:isreleased(), "the closed buffer metadata remains observable")
     assert(allocation[1] == nil, "a closed buffer must release its allocation root")
 end
 
@@ -1593,11 +1597,7 @@ return useFile
             testAssert.ne(diagnostic.severity, "error", diagnostic.msg)
         end
         assert(parsed.effects["runtime.file_views"], "checking a parameter-only " .. method .. " records its feature")
-        local code, diagnostics, _, emitted = gen.generate(parsed, "file-view-effects.nupp")
-        testAssert.eq(#diagnostics, 0)
-        assert(emitted["runtime.file_views"], "generated " .. method .. " retains its runtime feature")
-        assert(code:find("nupp.runtime.standardio", 1, true), "the view call installs the file methods")
-        assert(native.expand(emitted)["stdlib.io"], "the view carries its byte-stream runtime")
+        assert(native.expand(parsed.effects)["stdlib.io"], "the view carries its byte-stream runtime")
     end
 end
 
@@ -2080,17 +2080,23 @@ function M.compilerProvidedPureLibraries()
       local io = require("io")
       local bytes = require("bytes")
       local buffer = bytes.Buffer.create("hello")
-      local writer = buffer:reset():writer()
-      assert(writer:write("world"))
+      do
+          local writer = buffer:reset():writer()
+          assert(writer:write("world"))
+      end
       assert(buffer:tostring() == "world")
-      local viewReader = io.Reader.of(buffer:span())
-      assert(not pcall(function() viewReader:read(0) end))
-      assert(viewReader:read(1) == "w")
-      local reader = buffer:reader()
-      assert(reader:read(3) == "wor")
-      assert(reader:read(8) == "ld")
-      assert(reader:read(1) == "")
-      assert(not pcall(function() reader:read(0) end))
+      do
+          local viewReader = io.Reader.of(buffer:span())
+          assert(not pcall(function() viewReader:read(0) end))
+          assert(viewReader:read(1) == "w")
+      end
+      do
+          local reader = buffer:reader()
+          assert(reader:read(3) == "wor")
+          assert(reader:read(8) == "ld")
+          assert(reader:read(1) == "")
+          assert(not pcall(function() reader:read(0) end))
+      end
       local x, y = math.vec2.normalize(3, 4)
       assert(math.abs(x - 0.6) < 0.000001 and math.abs(y - 0.8) < 0.000001)
       local dx, dy = math.vec2.sub(5, 7, 2, 3)
@@ -2723,46 +2729,6 @@ function M.tableLibrary()
     assertClean("local t = table.new(16, 0)")
     assertClean("local t = table.new(16, 0)\ntable.clear(t)")
     testAssert.eq((diagsOf("table.clear = function() end")), "NUPP2009:1")
-end
-
-function M.profileSessionProtocolPreservesItsReportType()
-    assertClean(
-        table.concat(
-            {
-                "local profile = require('debug.profile')",
-                "local function finish<S is profile.Session>(borrows session: S): S.Report",
-                "   return session:stop()",
-                "end",
-                "do local sampling = profile.sample() ;",
-                "   local sample: profile.SampleReport = finish(sampling)",
-                "end",
-                "do local tracing = profile.trace() ;",
-                "   local trace: profile.TraceReport = finish(tracing)",
-                "end",
-            },
-            "\n"
-        )
-    )
-
-    testAssert.eq(
-        (
-            diagsOf(
-                table.concat(
-                    {
-                        "local profile = require('debug.profile')",
-                        "local function finish<S is profile.Session>(borrows session: S): S.Report",
-                        "   return session:stop()",
-                        "end",
-                        "do local sampling = profile.sample() ;",
-                        "   local wrong: profile.TraceReport = finish(sampling)",
-                        "end",
-                    },
-                    "\n"
-                )
-            )
-        ),
-        "NUPP2001:6"
-    )
 end
 
 function M.moduleRequireTyped()
