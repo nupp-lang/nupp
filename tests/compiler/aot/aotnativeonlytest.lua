@@ -8,6 +8,10 @@
 local test = require("assert")
 local HERE = require("helpers.paths").absoluteTests
 local M = {}
+-- The host's default tier names the emitted unit and its symbols: neon on
+-- aarch64, baseline on x86-64.
+local target = require("nupp.compiler.aot.target")
+local TIER = target.DEFAULT_TIERS[target.architecture(assert(target.hostTriple()))]
 
 local function write(path, text)
     local f = assert(io.open(path, "wb"));
@@ -137,14 +141,13 @@ function M.vectorAndMaskEntriesLinkAcrossModulesWithoutALuaEntry()
     local generated = read(dir .. "/build/native/vec.lua")
     assert(not generated:find("ks_%w*twice", 1), "no foreign declaration for a native-only entry:\n" .. generated)
     assert(generated:find("native%-only AOT entry"), "the stub stands where the declaration was:\n" .. generated)
-    local caller = read(dir .. "/build/native/aot/src/main.neon.ll")
+    local caller = read(dir .. "/build/native/aot/src/main." .. TIER .. ".ll")
     assert(
-        caller:find("call <4 x float> @ks_%x+_twice__neon%(<4 x float>"),
+        caller:find("call <4 x float> @ks_%x+_twice__" .. TIER .. "%(<4 x float>"),
         "the caller names the exporting module's qualified symbol:\n" .. caller
     )
     assert(
-        caller:find("call <4 x i1> @ks_%x+_positive__neon%(<4 x float>")
-        or caller:find("call <4 x i1> @ks_%x+_positive__neon%(<4 x float>", 1, true),
+        caller:find("call <4 x i1> @ks_%x+_positive__" .. TIER .. "%(<4 x float>"),
         "the mask entry is called natively:\n" .. caller
     )
 end
@@ -276,12 +279,14 @@ function M.nativeOnlyAggregatesAreValuesAcrossEntriesUnderBothPolicies()
         local result, log = buildAndRun(dir, '"complex"', policy)
         test.eq(result, "aggregates agree", policy .. " at " .. dir .. "\n" .. log)
     end
-    local llvm = read(dir .. "/build/native/aot/src/complex.neon.ll")
+    local llvm = read(dir .. "/build/native/aot/src/complex." .. TIER .. ".ll")
     assert(llvm:find("%aggregate.KaPair = type { <4 x float>, <4 x float> }", 1, true), llvm)
     assert(llvm:find("%aggregate.KaOrbit = type { %aggregate.KaPair, <4 x i1> }", 1, true), llvm)
     assert(
         llvm:find(
-            "define %%aggregate.KaOrbit @ks_%x+_advance__neon%(%%aggregate.KaOrbit %%p_orbit, %%aggregate.KaPair %%p_c%)"
+            "define %%aggregate.KaOrbit @ks_%x+_advance__"
+            .. TIER
+            .. "%(%%aggregate.KaOrbit %%p_orbit, %%aggregate.KaPair %%p_c%)"
         ),
         llvm
     )

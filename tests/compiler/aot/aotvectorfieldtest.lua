@@ -8,6 +8,10 @@ local test = require("assert")
 local HERE = require("helpers.paths").absoluteTests
 
 local M = {}
+-- The host's default tier names the emitted unit and its symbols: neon on
+-- aarch64, baseline on x86-64.
+local target = require("nupp.compiler.aot.target")
+local TIER = target.DEFAULT_TIERS[target.architecture(assert(target.hostTriple()))]
 
 local function write(path, text)
     local file = assert(io.open(path, "wb"))
@@ -178,7 +182,10 @@ function M.aStoredVectorFieldAgreesBetweenLuaAndNative()
             )
         end
     end
-    local llvm = assert(read(dir .. "/build/native/aot/src/particles.neon.ll"), "the NEON unit is emitted")
+    local llvm = assert(
+        read(dir .. "/build/native/aot/src/particles." .. TIER .. ".ll"),
+        "the " .. TIER .. " unit is emitted"
+    )
     assert(
         llvm:find("%struct.KsParticle = type { float, [12 x i8], [4 x float], [3 x float], [4 x i8] }", 1, true),
         "the struct is spelled with the model's padding:\n" .. llvm
