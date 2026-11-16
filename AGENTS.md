@@ -165,8 +165,10 @@ forces execution instead of passing-result reuse. Markdown and CSS changes
 call for direct inspection. Compiler changes still select broadly.
 
 
-`.githooks/pre-push` refuses a push carrying source `nupp fmt` would rewrite,
-asking only about the files that push adds or changes. `scripts/worktree` points
+`.githooks/pre-push` refuses a push carrying source `nupp fmt` would rewrite, or
+a module path spelled inline that the `inline-module-path` lint would turn into an
+import, asking only about the files that push adds or changes. CI holds the whole
+tree to the same lint with `nupp check --deny inline-module-path`. `scripts/worktree` points
 `core.hooksPath` at it; an existing checkout enables it once with
 
 ```sh
