@@ -172,6 +172,18 @@ function cli.main(argv: {string}): integer
         local server = require("nupp.tools.lsp") as {readerMain: function(): integer}
 
         return server.readerMain()
+    elseif name == "__native-core" then
+        -- What `scripts/toolchain` asks for the native core object, run from this
+        -- image. `nupp run` of the same module checked its whole closure from
+        -- source first, the Cranelift lowering among it: ninety seconds of every
+        -- CI job that found the object already built.
+        local rest: {string} = {}
+        for index = 2, #argv do
+            rest[#rest + 1] = argv[index]
+        end
+        local builder = require("nupp.tools.vm.runtimebuild") as {main: function({string}): integer}
+
+        return builder.main(rest)
     end
     local schemaStatus = writeSchema(argv)
     if schemaStatus ~= nil then

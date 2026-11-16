@@ -788,8 +788,11 @@ EOF
         release_lock
     fi
     [ -f "$object_tool" ] || die "the native object writer is missing from $out"
-    NUPP_VM_AUTO_REBUILD=0 NUPP_COMPILER_ROOT="$ROOT" \
-        "$ROOT/bin/nupp" run "$ROOT/scripts/native-runtime-build.lua" "$object_tool" \
+    # Run from the compiler image. A compiler older than that command runs the
+    # same module as a script, which checks its whole closure from source first.
+    NUPP_VM_AUTO_REBUILD=0 NUPP_COMPILER_ROOT="$ROOT" "$ROOT/bin/nupp" __native-core "$object_tool" \
+        || NUPP_VM_AUTO_REBUILD=0 NUPP_COMPILER_ROOT="$ROOT" \
+            "$ROOT/bin/nupp" run "$ROOT/scripts/native-runtime-build.lua" "$object_tool" \
         || die "cannot build the Nupp execution core"
 }
 

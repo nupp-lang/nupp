@@ -63,33 +63,6 @@ runs:
           printf '%s %s\n' "$name" "$(printf '%s' "${item#*=}" | $hasher | cut -c1-8)"
         done | LC_ALL=C sort
 
-    # Where the native toolchain step a reused runner still runs spends its
-    # time: each command that took three seconds or more, from a trace of the
-    # same call the reuse makes. Temporary, while that step costs CI legs two
-    # minutes that it costs a local checkout five seconds.
-    - shell: bash
-      run: |
-        payload=build/test-runner/.nupp-vm-program.payload
-        [ -f "$payload" ] || exit 0
-        echo "tree $(sh scripts/shared-cache digest "$PWD" src templates native runtime scripts bin nupp.lua Cargo.toml Cargo.lock rust-toolchain.toml .cargo)"
-        generation=.nupp/vm-cli/$(cat .nupp/vm-cli/current)
-        sha256sum "$generation/runtime" "$generation/compiler.image" build/rust/native-core-object/*/nupp-vm 2>&1 | cut -c1-16,65-
-        ls -la ~/.cache/nupp/build-steps 2>&1 | head -8
-        git status --porcelain --untracked-files=all -- src templates native runtime scripts bin | head -10
-        writer=$(ls -d build/rust/native-core-object/*/nupp-vm 2>/dev/null | head -n 1)
-        if [ -n "$writer" ]; then
-          begun=$(date +%s)
-          NUPP_VM_AUTO_REBUILD=0 NUPP_COMPILER_ROOT="$PWD" ./bin/nupp run scripts/native-runtime-build.lua "$writer" 2>&1 \
-            | grep -v '^/' || true
-          echo "native core step alone took $(( $(date +%s) - begun ))s"
-        fi
-        facilities=$(grep -v '^vector$' build/test-runner/.nupp-vm-program.facilities | paste -sd, -)
-        start=$(date +%s)
-        PS4='+$(date +%s) ' bash -x ./scripts/toolchain vm-program "$facilities" "$payload" 2>&1 >/dev/null \
-          | awk '/^\++[0-9]+ / { t = $1; sub(/^\++/, "", t); if (prev != "" && t - pt >= 3) print (t - pt) "s: " prev; prev = substr($0, 1, 200); pt = t }' \
-          || true
-        echo "toolchain vm-program took $(( $(date +%s) - start ))s"
-
     # Builds the runner when it is not current, and answers in seconds when it
     # is; the summary line says which, and the log is printed in full when the
     # build fails.
