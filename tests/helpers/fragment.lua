@@ -10,9 +10,11 @@
 -- module by its full path when that path is what the case is about, which
 -- `inline-module-path` would ask it to spell as an import instead.
 --
--- A case that is about either lint asks for it back the way a project would, by passing
--- its own `lints` table -- `opts.lints` replaces this wholesale, the same as it
--- replaces a project's. Everything else about `nupp.compiler.check` is passed straight
+-- A project's own `lints` still apply on top of the default, so a fixture that
+-- turns a lint off in its configuration checks the way the project would. A
+-- case that is about either lint asks for it back by passing its own `lints`
+-- table -- `opts.lints` replaces this wholesale, the same as it replaces a
+-- project's. Everything else about `nupp.compiler.check` is passed straight
 -- through.
 
 local check = require("nupp.compiler.check")
@@ -37,7 +39,14 @@ function fragment.check(result, filename, env, opts)
     for key, value in pairs(opts or {}) do
         merged[key] = value
     end
-    merged.lints = FRAGMENT_LINTS
+    local lints = {}
+    for name, level in pairs(FRAGMENT_LINTS) do
+        lints[name] = level
+    end
+    for name, level in pairs(env and env.config and env.config.lints or {}) do
+        lints[name] = level
+    end
+    merged.lints = lints
 
     return check.check(result, filename, env, merged)
 end
