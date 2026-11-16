@@ -431,6 +431,41 @@ function M.separatesAuthoredTypeFailureFromEvaluatorFailure()
     testAssert.eq(failure.message, "expected a literal format", "authored message is preserved")
 end
 
+-- An envelope evaluated in process holds the checker's own type for each reference,
+-- which is not plain data: one such blueprint kept `type-functions.buf` from being
+-- written at all. What is stored resolves through the permitted inputs instead.
+function M.aStoredBlueprintKeepsItsReferencesAsNamesOnly()
+    local result = parser.parse("local point: {x: integer, y: integer} = {x = 1, y = 2}", "test.nupp")
+    testAssert.eq(#result.errors, 0, "the input source parses")
+    testAssert.eq(#check.check(result, "test.nupp", env), 0, "the input source checks")
+    local point = firstLocalBinding(result)
+    local fingerprint = require("nupp.compiler.reflection").describe(point).fingerprint
+    local payload = {
+        root = 1,
+        nodes = {{kind = "reference", reference = 1, referenceId = "argument1:1", fingerprint = fingerprint}},
+    }
+    local envelope = {
+        kind = "type-blueprint",
+        provider = "types",
+        schema = typeblueprint.SCHEMA,
+        family = "Type",
+        payload = payload,
+        references = {{source = point, referenceId = "argument1:1", fingerprint = fingerprint}},
+        provenance = {},
+        fingerprint = hash.sha256("nupp.types\0v1\0" .. stable(payload)),
+    }
+    testAssert.eq(typeblueprint.validate(envelope), point, "an in-process envelope answers alone")
+
+    local storable = typeblueprint.storable(envelope)
+    testAssert.eq(storable.references[1].source, nil, "the stored form holds no checker type")
+    assert(envelope.references[1].source == point, "the envelope itself is not changed")
+    local codec = require("helpers.plaincodec")
+    local decoded = codec.decode(codec.encode(storable))
+    local permitted = {["argument1:1"] = {source = point, fingerprint = fingerprint}}
+    testAssert.eq(typeblueprint.validate(decoded, permitted), point, "a stored blueprint resolves its input")
+    testAssert.eq(typeblueprint.validate(decoded), nil, "without the input it is a miss")
+end
+
 function M.rejectsTamperedTypeBlueprints()
     local _, envelope = evaluateTypeBlueprint([[return types.array(types.string)]])
     envelope.payload.nodes[1].element = 999

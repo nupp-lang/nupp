@@ -1360,7 +1360,7 @@ function checkMod.check(
         end
         local resultType, validationFailure = typeblueprint.validate(envelope, permitted)
         if resultType and persistent then
-            persistent.put(key, envelope)
+            persistent.put(key, typeblueprint.storable(envelope))
         end
         memo[memoKey] = {result = resultType, failure = validationFailure}
 

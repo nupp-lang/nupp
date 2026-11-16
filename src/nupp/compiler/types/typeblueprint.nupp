@@ -100,6 +100,35 @@ local function sparseArrayKeysFit(values, limit): boolean
     return true
 end
 
+--- `envelope` as it may be kept between commands.
+---
+--- An envelope evaluated in this process holds, for each reference, the checker's
+--- own type it points at, so `validate` can answer without the inputs that
+--- named it. That type is no use to a later command, which resolves the
+--- reference through its own permitted inputs by id or fingerprint, and it is not
+--- plain data: one blueprint holding it kept the whole type-function store from
+--- being written, so every command evaluated every type function again.
+function typeblueprint.storable(envelope: any): any
+    if type(envelope) ~= "table" or type(envelope.references) ~= "table" then
+        return envelope
+    end
+    local copy: {[any]: any} = {}
+    for key, value in pairs(envelope) do
+        copy[key] = value
+    end
+    local references: {[any]: any} = {}
+    for position, reference in pairs(envelope.references) do
+        if type(reference) == "table" then
+            references[position] = {referenceId = reference.referenceId, fingerprint = reference.fingerprint}
+        else
+            references[position] = reference
+        end
+    end
+    copy.references = references
+
+    return copy
+end
+
 function typeblueprint.validate(envelope: any, permittedReferences: any?): any, typeblueprint.Failure?
     if type(envelope) ~= "table"
         or envelope.kind ~= "type-blueprint"
