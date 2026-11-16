@@ -13,13 +13,14 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import {spawn} from "node:child_process";
 import {createInterface} from "node:readline";
+import {fileURLToPath} from "node:url";
 import {createTransfers} from "../../../../../runtime/luajit/transfers.mjs";
 import {closeHostChannel, handleBrowserEffects} from "../../../../../runtime/wasm/app-runtime.mjs";
 
-const ROOT = process.env.NUPP_ROOT || new URL("../../../../..", import.meta.url).pathname;
+const ROOT = process.env.NUPP_ROOT || fileURLToPath(new URL("../../../../..", import.meta.url));
 const LUAJIT = process.env.NUPP_LUAJIT || "luajit";
-const GUEST = new URL("./guest.lua", import.meta.url).pathname;
-const SCENARIOS = new URL("./scenarios.lua", import.meta.url).pathname;
+const GUEST = fileURLToPath(new URL("./guest.lua", import.meta.url));
+const SCENARIOS = fileURLToPath(new URL("./scenarios.lua", import.meta.url));
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
