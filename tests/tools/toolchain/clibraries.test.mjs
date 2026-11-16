@@ -10,6 +10,8 @@ import {spawn, spawnSync} from 'node:child_process';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../..');
 const digest = file => crypto.createHash('sha256').update(fs.readFileSync(file)).digest('hex');
+const shellPath = file => file.replaceAll('\\', '/');
+const nativePath = file => process.platform === 'win32' ? file.replace(/^\/([a-z])\//i, (_, drive) => `${drive.toUpperCase()}:/`) : file;
 function fixture(t) {
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'nupp-c-library-pins-'));
   t.after(() => fs.rmSync(directory, {recursive: true, force: true}));
@@ -25,8 +27,10 @@ function fixture(t) {
   write('host/notices/zlib-LICENSE.txt', 'test notice\n');
   write('source/zlib-1.4/LICENSE', 'test notice\n');
   fs.mkdirSync(path.join(directory, 'archives'));
-  let result = spawnSync('tar', ['-czf', path.join(directory, 'archives/zlib-1.4.tar.gz'), '-C', path.join(directory, 'source'), 'zlib-1.4']);
-  assert.equal(result.status, 0);
+  // Relative archive names avoid GNU tar interpreting a Windows drive as a
+  // remote host; cwd is a native process argument rather than shell text.
+  const result = spawnSync('tar', ['-czf', 'archives/zlib-1.4.tar.gz', '-C', 'source', 'zlib-1.4'], {cwd: directory, encoding: 'utf8'});
+  assert.equal(result.status, 0, result.stderr);
   write('scripts/toolchain.pins', `ZLIB_VERSION=1.4\nZLIB_SHA256=${digest(path.join(directory, 'archives/zlib-1.4.tar.gz'))}\nZLIB_URL=https://invalid.example/zlib.tar.gz\n`);
   write('tools/uname', '#!/bin/sh\ncase "$1" in -s) echo Linux ;; -m) echo x86_64 ;; *) exit 1 ;; esac\n', 0o755);
   write('tools/cc', '#!/bin/sh\necho test-compiler-1\n', 0o755);
@@ -45,12 +49,12 @@ case "$1" in
 esac
 `, 0o755);
   const env = {...process.env, PATH: path.join(directory, 'tools') + path.delimiter + process.env.PATH,
-    NUPP_CC: path.join(directory, 'tools/cc'), NUPP_TOOLCHAIN_DIR: path.join(directory, 'cache'),
-    NUPP_HOST_SOURCE_DIR: path.join(directory, 'archives'), NUPP_HOST_OFFLINE: '1',
-    NUPP_NATIVE_TARGET: 'x86_64-unknown-linux-gnu', TEST_BUILD_CALLS: path.join(directory, 'calls')};
-  const args = [path.join(directory, 'scripts/native-libraries'), 'zlib'];
+    NUPP_CC: shellPath(path.join(directory, 'tools/cc')), NUPP_TOOLCHAIN_DIR: shellPath(path.join(directory, 'cache')),
+    NUPP_HOST_SOURCE_DIR: shellPath(path.join(directory, 'archives')), NUPP_HOST_OFFLINE: '1',
+    NUPP_NATIVE_TARGET: 'x86_64-unknown-linux-gnu', TEST_BUILD_CALLS: shellPath(path.join(directory, 'calls'))};
+  const args = [shellPath(path.join(directory, 'scripts/native-libraries')), 'zlib'];
   const run = (extra = {}) => spawnSync('sh', args, {env: {...env, ...extra}, encoding: 'utf8'});
-  const success = result => {assert.equal(result.status, 0, result.stderr); return result.stdout.trim();};
+  const success = result => {assert.equal(result.status, 0, result.stderr); return nativePath(result.stdout.trim());};
   return {directory, write, env, args, run, success};
 }
 
