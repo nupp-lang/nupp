@@ -63,6 +63,21 @@ runs:
           printf '%s %s\n' "$name" "$(printf '%s' "${item#*=}" | $hasher | cut -c1-8)"
         done | LC_ALL=C sort
 
+    # Where the native toolchain step a reused runner still runs spends its
+    # time: each command that took three seconds or more, from a trace of the
+    # same call the reuse makes. Temporary, while that step costs CI legs two
+    # minutes that it costs a local checkout five seconds.
+    - shell: bash
+      run: |
+        payload=build/test-runner/.nupp-vm-program.payload
+        [ -f "$payload" ] || exit 0
+        facilities=$(grep -v '^vector$' build/test-runner/.nupp-vm-program.facilities | paste -sd, -)
+        start=$(date +%s)
+        PS4='+$(date +%s) ' sh -x ./scripts/toolchain vm-program "$facilities" "$payload" 2>&1 >/dev/null \
+          | awk '/^\++[0-9]+ / { t = $1; sub(/^\++/, "", t); if (prev != "" && t - pt >= 3) print (t - pt) "s: " prev; prev = substr($0, 1, 200); pt = t }' \
+          || true
+        echo "toolchain vm-program took $(( $(date +%s) - start ))s"
+
     # Builds the runner when it is not current, and answers in seconds when it
     # is; the summary line says which, and the log is printed in full when the
     # build fails.
