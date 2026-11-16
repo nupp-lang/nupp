@@ -14,12 +14,14 @@ local ROOT = HERE .. "/.."
 local TARGET = "aarch64-apple-darwin"
 local cachedHeap
 
-local function checked(source, path)
+local function checked(source, path, moduleName)
     trivia.installDefault(provider)
     local parsed = parser.parse(source, path)
     test.eq(#parsed.errors, 0, parsed.errors[1] and parsed.errors[1].msg)
     local env = environment.new(ROOT, {cache = false, nativeCompilerServices = false, config = {include = {"src"}}})
-    for _, diagnostic in ipairs(checker.check(parsed, path, env, {lints = {["unused-binding"] = "off"}})) do
+    for _, diagnostic in ipairs(
+        checker.check(parsed, path, env, {moduleName = moduleName, lints = {["unused-binding"] = "off"}})
+    ) do
         assert(diagnostic.severity ~= "error", diagnostic.msg)
     end
 
@@ -390,6 +392,7 @@ end
 local function headerFixture()
     return checked(
         [[
+module nupp.test.nativephysicalfixture
 local heap = require("nupp.runtime.vm.heap")
 local native = require("nupp.runtime.vm.intrinsics")
 local function read(address: uint64): uint64
@@ -401,7 +404,8 @@ local function write(address: uint64): nil
     @unsafe do h.kind = 3; h.epoch = 42 end
 end
 ]],
-        "=nativephysicalfixture.nupp"
+        ROOT .. "/src/nupp/test/nativephysicalfixture.nupp",
+        "nupp.test.nativephysicalfixture"
     )
 end
 

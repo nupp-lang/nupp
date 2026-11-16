@@ -283,7 +283,7 @@ end
 -- receiver/member shapes as heap.wordAt/setWordAt and collector.register;
 -- the nonallocating model does not admit collector allocation or root effects.
 local BORROW_MODEL = [[
-module model
+module nupp.test.model
 export struct Words
     base: uint64
     ready: boolean
@@ -315,18 +315,19 @@ local function borrowedProject(callback, suffix)
     assert(os.execute("mkdir -p '" .. dir .. "/src'") == 0)
     local intrinsicDirectory = dir .. "/src/nupp/runtime/vm"
     assert(os.execute("mkdir -p '" .. intrinsicDirectory .. "'") == 0)
+    assert(os.execute("mkdir -p '" .. dir .. "/src/nupp/test'") == 0)
     local intrinsic = assert(io.open(ROOT .. "/src/nupp/runtime/vm/intrinsics.d.nupp", "rb"))
     local copied = assert(io.open(intrinsicDirectory .. "/intrinsics.d.nupp", "wb"))
     copied:write(intrinsic:read("*a"));
     copied:close();
     intrinsic:close()
-    local path = dir .. "/src/model.nupp"
+    local path = dir .. "/src/nupp/test/model.nupp"
     local file = assert(io.open(path, "wb"))
     file:write(BORROW_MODEL .. (suffix or ""))
     file:close()
     local ok, problem = pcall(function()
-        local session = unit.session(dir, {{path = path, moduleName = "model"}}, TARGET, {"src"})
-        callback(session, session.module("model").functions)
+        local session = unit.session(dir, {{path = path, moduleName = "nupp.test.model"}}, TARGET, {"src"})
+        callback(session, session.module("nupp.test.model").functions)
     end)
     os.execute("rm -rf '" .. dir .. "'")
     if not ok then

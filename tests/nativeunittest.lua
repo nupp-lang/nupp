@@ -47,12 +47,21 @@ local function write(path, text)
     file:close()
 end
 
-local function project(callback, model, client)
+-- A client of the runtime's internal modules has to be inside their package
+-- namespace, so those fixtures name it here rather than as a plain `client`.
+local INTERNAL_CLIENT = "nupp.test.client"
+
+local function clientPath(dir, clientModule)
+    return dir .. "/src/" .. (clientModule or "client"):gsub("%.", "/") .. ".nupp"
+end
+
+local function project(callback, model, client, clientModule)
     local dir = os.tmpname()
     os.remove(dir)
-    assert(os.execute("mkdir -p '" .. dir .. "/src'") == 0)
+    local path = clientPath(dir, clientModule)
+    assert(os.execute("mkdir -p '" .. path:match("^(.*)/") .. "'") == 0)
     write(dir .. "/src/model.nupp", model or MODEL)
-    write(dir .. "/src/client.nupp", client or CLIENT)
+    write(path, client or CLIENT)
     local ok, result = pcall(callback, dir)
     os.execute("rm -rf '" .. dir .. "'")
     if not ok then
@@ -62,8 +71,8 @@ local function project(callback, model, client)
     return result
 end
 
-local function session(dir, onlyClient)
-    local modules = {{path = dir .. "/src/client.nupp", moduleName = "client"}}
+local function session(dir, onlyClient, clientModule)
+    local modules = {{path = clientPath(dir, clientModule), moduleName = clientModule or "client"}}
     if not onlyClient then
         modules[#modules + 1] = {path = dir .. "/src/model.nupp", moduleName = "model"}
     end
@@ -534,8 +543,8 @@ function M.checkedIntrinsicsOutsideTheBodyBatchRetainTheirContracts()
             local text = source:read("*a")
             source:close()
             write(dir .. "/src/nupp/runtime/vm/intrinsics.d.nupp", text)
-            local s = session(dir)
-            local caller = s.module("client").functions.use
+            local s = session(dir, false, INTERNAL_CLIENT)
+            local caller = s.module(INTERNAL_CLIENT).functions.use
             assert(unit.callee(caller, callOf(caller)) == nil)
             local g = compile(s, caller)
             local casts = 0
@@ -551,10 +560,11 @@ function M.checkedIntrinsicsOutsideTheBodyBatchRetainTheirContracts()
         end,
         nil,
         [[
-module client
+module nupp.test.client
 const native = require("nupp.runtime.vm.intrinsics")
 export function use(value: uint64): uint64 return native.word(native.index(value)) end
-]]
+]],
+        INTERNAL_CLIENT
     )
 end
 
@@ -812,8 +822,8 @@ local function externalBatchFixture(callback)
                 source:close()
                 write(dir .. "/src/nupp/runtime/vm/" .. name, text)
             end
-            local s = session(dir)
-            local functions = s.module("client").functions
+            local s = session(dir, false, INTERNAL_CLIENT)
+            local functions = s.module(INTERNAL_CLIENT).functions
             callback(dir, s, functions, {
                 {owner = functions.use, call = callOf(functions.use), kind = "intrinsic"},
                 {owner = functions.page, call = callOf(functions.page), kind = "os"},
@@ -821,12 +831,13 @@ local function externalBatchFixture(callback)
         end,
         nil,
         [[
-module client
+module nupp.test.client
 const native = require("nupp.runtime.vm.intrinsics")
 const os = require("nupp.runtime.vm.os")
 export function use(value: uint64): int64 return native.index(value) end
 export function page(dummy: uint64): uint64 return os.pageSize() end
-]]
+]],
+        INTERNAL_CLIENT
     )
 end
 
@@ -844,7 +855,7 @@ function M.externalBatchChecksEveryOriginalSiteWithoutIssuingPermission()
             end,
             "entry is outside sealed unit"
         )
-        local foreign = session(dir).module("client").functions.use
+        local foreign = session(dir, false, INTERNAL_CLIENT).module(INTERNAL_CLIENT).functions.use
         refuses(
             function()
                 unit.externalDeclarations(owner, {{owner = foreign, call = callOf(foreign), kind = "intrinsic"}})
