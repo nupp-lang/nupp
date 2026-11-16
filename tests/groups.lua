@@ -232,7 +232,7 @@ rusttoolchaintest toolchaintest
 end
 
 for name in (
-    "compressiontest digestboundarytest eventstest gputest hashstreamtest portableiocontractstest processcompat_test streamadapterstest"
+    "compressiontest digestboundarytest eventstest gpudevicetest gputest hashstreamtest portableiocontractstest processcompat_test streamadapterstest"
 ):gmatch("%S+") do
     scopes[name] = "integration"
 end
