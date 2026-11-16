@@ -322,8 +322,11 @@ if package.config:sub(1, 1) == "\\" then
     _G.__NUPP_TEST_CMD_MARKER = nativeMarker
     _G.__NUPP_TEST_BASH = bash
 
+    -- The result cache is loaded under its own chunk name, and its tool and
+    -- `git ls-files` lookups are shell commands too.
     local function usesTestShell(source)
         return source == "@nupp:test-runner"
+            or source == "@nupp:test-cache"
             or source:find("/tests/", 1, true) ~= nil
             or source:match("^@?tests/") ~= nil
     end
