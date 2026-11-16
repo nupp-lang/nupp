@@ -133,11 +133,13 @@ local function lines(command: string): {string}?
     if not pipe then
         return nil
     end
-    local found: {string} = {}
-    for line in pipe:lines() do
-        found[#found + 1] = (line:gsub("\r$", ""))
-    end
+    -- Read whole: the same `read` the script's answer is taken with.
+    local text = pipe:read("*a") or ""
     pipe:close()
+    local found: {string} = {}
+    for line in text:gmatch("[^\r\n]+") do
+        found[#found + 1] = line
+    end
 
     return found
 end
@@ -156,7 +158,9 @@ export function gitTreeDigest(root: string, paths: {string}): string?
     local spell = windows and function(value: string): string
         return '"' .. value .. '"'
     end or quote
-    local quiet = windows and " 2>nul" or " 2>/dev/null"
+    -- On Windows git's complaints come back with its output, so a refusal
+    -- below can say what git said.
+    local quiet = windows and " 2>&1" or " 2>/dev/null"
     local git = "git -C " .. spell(root)
     local words = {git, "ls-files --cached --others --exclude-standard --"}
     for _, path in ipairs(paths) do
@@ -179,7 +183,11 @@ export function gitTreeDigest(root: string, paths: {string}): string?
         end
     end
     if #files == 0 then
-        return refuse(("%d listed, none readable under %s: %s"):format(#listed, root, listing))
+        return refuse(
+            (
+                "%d listed, none readable under %s: %s; git said: %s"
+            ):format(#listed, root, listing, table.concat(listed, " | "):sub(1, 600))
+        )
     end
     local out: {string} = {}
     local index: integer = 1
