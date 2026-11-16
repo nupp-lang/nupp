@@ -71,6 +71,11 @@ runs:
       run: |
         payload=build/test-runner/.nupp-vm-program.payload
         [ -f "$payload" ] || exit 0
+        echo "tree $(sh scripts/shared-cache digest "$PWD" src templates native runtime scripts bin nupp.lua Cargo.toml Cargo.lock rust-toolchain.toml .cargo)"
+        generation=.nupp/vm-cli/$(cat .nupp/vm-cli/current)
+        sha256sum "$generation/runtime" "$generation/compiler.image" build/rust/native-core-object/*/nupp-vm 2>&1 | cut -c1-16,65-
+        ls -la ~/.cache/nupp/build-steps 2>&1 | head -8
+        git status --porcelain --untracked-files=all -- src templates native runtime scripts bin | head -10
         facilities=$(grep -v '^vector$' build/test-runner/.nupp-vm-program.facilities | paste -sd, -)
         start=$(date +%s)
         PS4='+$(date +%s) ' bash -x ./scripts/toolchain vm-program "$facilities" "$payload" 2>&1 >/dev/null \
