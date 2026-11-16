@@ -1,5 +1,7 @@
 module nupp.core.sharedcache
 
+const {sha256} = require("nupp.compiler.hash")
+
 -- The machine-wide build store every checkout and worktree shares
 -- (`scripts/shared-cache`): NUPP_CACHE_HOME, by default ~/.cache/nupp, with a
 -- directory per kind of entry. An entry is named by the content it was
@@ -119,21 +121,91 @@ export function sweep(root: string): nil
     os.execute(quote(root .. "/scripts/shared-cache") .. " sweep --if-due > /dev/null 2>&1 &")
 end
 
--- The content digest of the files git lists under `paths` in `root`, tracked
--- or not, ignored ones left out: what changes when any of them does.
---
--- On Windows `io.popen` hands the line to cmd, which can neither run a shell
--- script nor read single quotes, so the script goes to `sh` in double quotes.
-export function treeDigest(root: string, paths: {string}): string?
-    local windows = package.config:sub(1, 1) == "\\"
+local windows = package.config:sub(1, 1) == "\\"
+
+-- Longest argument list handed to one `git hash-object`; cmd refuses a line
+-- past 8191 characters.
+const HASH_BATCH_CHARS = 6000
+
+local function lines(command: string): {string}?
+    local pipe = io.popen(command)
+    if not pipe then
+        return nil
+    end
+    local found: {string} = {}
+    for line in pipe:lines() do
+        found[#found + 1] = (line:gsub("\r$", ""))
+    end
+    pipe:close()
+
+    return found
+end
+
+-- What `scripts/shared-cache digest` answers, asked of git directly: the
+-- sha256 of one `<blob> <path>` line per listed file, in byte order. On
+-- Windows `io.popen` hands its line to cmd, and a shell script run from there
+-- did not answer, so this is how a Windows build names its sources.
+export function gitTreeDigest(root: string, paths: {string}): string?
     local spell = windows and function(value: string): string
         return '"' .. value .. '"'
     end or quote
-    local words = {"sh", spell(root .. "/scripts/shared-cache"), "digest", spell(root)}
+    local quiet = windows and " 2>nul" or " 2>/dev/null"
+    local git = "git -C " .. spell(root)
+    local words = {git, "ls-files --cached --others --exclude-standard --"}
     for _, path in ipairs(paths) do
         words[#words + 1] = spell(path)
     end
-    local pipe = io.popen(table.concat(words, " ") .. (windows and " 2>nul" or " 2>/dev/null"))
+    local listed = lines(table.concat(words, " ") .. quiet)
+    if not listed then
+        return nil
+    end
+    table.sort(listed)
+    local files: {string} = {}
+    for _, file in ipairs(listed) do
+        if file ~= "" and file ~= files[#files] then
+            local handle = io.open(root .. "/" .. file, "rb")
+            if handle then
+                handle:close()
+                files[#files + 1] = file
+            end
+        end
+    end
+    if #files == 0 then
+        return nil
+    end
+    local out: {string} = {}
+    local index: integer = 1
+    while index <= #files do
+        local batch: {string} = {git, "hash-object --no-filters --"}
+        local size: integer, first: integer = 0, index
+        while index <= #files and (index == first or size + #files[index] < HASH_BATCH_CHARS) do
+            batch[#batch + 1] = spell(files[index])
+            size = size + #files[index] + 3
+            index = index + 1
+        end
+        local blobs = lines(table.concat(batch, " ") .. quiet)
+        if not blobs or #blobs ~= index - first then
+            return nil
+        end
+        for offset, blob in ipairs(blobs) do
+            out[#out + 1] = blob .. " " .. files[first + offset - 1] .. "\n"
+        end
+    end
+
+    return sha256(table.concat(out))
+end
+
+-- The content digest of the files git lists under `paths` in `root`, tracked
+-- or not, ignored ones left out: what changes when any of them does.
+export function treeDigest(root: string, paths: {string}): string?
+    if windows then
+        return gitTreeDigest(root, paths)
+    end
+    local words = {quote(root .. "/scripts/shared-cache"), "digest", quote(root)}
+    for _, path in ipairs(paths) do
+        words[#words + 1] = quote(path)
+    end
+    local pipe = io.popen(table.concat(words, " ") .. " 2>/dev/null")
     if not pipe then
         return nil
     end
