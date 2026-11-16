@@ -19,10 +19,18 @@ local bit = require("bit")
 local encode = dofile(root .. "/src/nupp/runtime/vendor/lunajson/encoder.lua")()
 local decode = dofile(root .. "/src/nupp/runtime/vendor/lunajson/decoder.lua")()
 
-ffi.cdef[[
+-- Windows has no gettimeofday; kernel32's performance counter stands in.
+if ffi.os == "Windows" then
+    ffi.cdef[[
+int QueryPerformanceCounter(long long *count);
+int QueryPerformanceFrequency(long long *frequency);
+]]
+else
+    ffi.cdef[[
 typedef struct { long tv_sec; long tv_usec; } nupp_test_timeval;
 int gettimeofday(nupp_test_timeval *tv, void *tz);
 ]]
+end
 
 local ALPHABET = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/"
 local decodeTable = {}
@@ -164,11 +172,20 @@ local function exchange(frame)
     return response
 end
 
-local now = ffi.new("nupp_test_timeval")
+local now = ffi.os ~= "Windows" and ffi.new("nupp_test_timeval") or nil
+local ticks, frequency = ffi.new("long long[1]"), ffi.new("long long[1]")
+if not now then
+    ffi.C.QueryPerformanceFrequency(frequency)
+end
 _G.__nuppBrowser = {
     memory = guestMemory,
     now = function()
+        if not now then
+            ffi.C.QueryPerformanceCounter(ticks)
+            return tonumber(ticks[0]) * 1000 / tonumber(frequency[0])
+        end
         ffi.C.gettimeofday(now, nil)
+
         return tonumber(now.tv_sec) * 1000 + tonumber(now.tv_usec) / 1000
     end,
 }
