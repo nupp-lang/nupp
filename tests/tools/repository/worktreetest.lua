@@ -37,8 +37,13 @@ function M.helperSeedsOnlyReusableWorktreeState()
             ):format(quote(origin), quote(origin), quote(origin), quote(origin), quote(origin))
         ) == 0
     )
-    assert(os.execute(("cp %s/scripts/worktree %s/scripts/worktree"):format(quote(ROOT), quote(origin))) == 0)
-    assert(os.execute("chmod +x " .. quote(origin .. "/scripts/worktree")) == 0)
+    -- The helper keeps generations and kernels in the machine's shared store
+    -- through scripts/shared-cache; the store is the fixture's own, not the host's.
+    for _, script in ipairs({"worktree", "shared-cache"}) do
+        assert(os.execute(("cp %s/scripts/%s %s/scripts/%s"):format(quote(ROOT), script, quote(origin), script)) == 0)
+        assert(os.execute("chmod +x " .. quote(origin .. "/scripts/" .. script)) == 0)
+    end
+    local store = "NUPP_CACHE_HOME=" .. quote(parent .. "/store") .. " "
     write(origin .. "/src/main.nupp", "return true\n")
     for _, name in ipairs({"nupp", "serde", "bytes", "io"}) do
         assert(os.execute(("mkdir -p %s/src/%s %s/build/%s"):format(quote(origin), name, quote(origin), name)) == 0)
@@ -70,7 +75,7 @@ function M.helperSeedsOnlyReusableWorktreeState()
     write(origin .. "/build/log.lua", "origin-built output\n")
     write(origin .. "/build/.nupp-complete", "complete\n")
 
-    local command = ("%s/scripts/worktree cached-worktree %s HEAD >/dev/null"):format(quote(origin), quote(task))
+    local command = (store .. "%s/scripts/worktree cached-worktree %s HEAD >/dev/null"):format(quote(origin), quote(task))
     assert(os.execute(command) == 0, "worktree helper failed")
     assert(read(task .. "/build/cache/checks.buf") == "compiler-cache\n", "the incremental cache was not seeded")
     assert(read(task .. "/build/.nupp-test-times.json"):find('"slow":10', 1, true), "test timings were not seeded")
@@ -93,7 +98,7 @@ function M.helperSeedsOnlyReusableWorktreeState()
     -- compiler must not be mistaken for output of the clean revision.
     write(origin .. "/src/main.nupp", "return false\n")
     write(origin .. "/build/.nupp-complete", "complete after dirty build\n")
-    command = ("%s/scripts/worktree dirty-worktree %s HEAD >/dev/null"):format(quote(origin), quote(dirtyTask))
+    command = (store .. "%s/scripts/worktree dirty-worktree %s HEAD >/dev/null"):format(quote(origin), quote(dirtyTask))
     assert(os.execute(command) == 0, "dirty-origin worktree helper failed")
     assert(
         read(dirtyTask .. "/build/cache/checks.buf") == "compiler-cache\n",
