@@ -1,6 +1,7 @@
 module nupp.core.sharedcache
 
 const {sha256} = require("nupp.compiler.hash")
+local process = require("nupp.compiler.process")
 
 -- The machine-wide build store every checkout and worktree shares
 -- (`scripts/shared-cache`): NUPP_CACHE_HOME, by default ~/.cache/nupp, with a
@@ -124,20 +125,28 @@ end
 -- The VM sets package.config from its build target; OS is the backstop.
 local windows = package.config:sub(1, 1) == "\\" or os.getenv("OS") == "Windows_NT"
 
--- Longest argument list handed to one `git hash-object`; cmd refuses a line
--- past 8191 characters.
-const HASH_BATCH_CHARS = 6000
+-- Longest argument list handed to one `git hash-object`, well under the
+-- 32767 characters Windows lets a command line reach.
+const HASH_BATCH_CHARS = 16000
 
-local function lines(command: string): {string}?
-    local pipe = io.popen(command)
-    if not pipe then
-        return nil
+-- Runs git with its arguments as a vector, no shell between: cmd's `/s`
+-- rule strips the first and last quote of a line, so a quoted command line
+-- reached git mangled and it listed nothing. Answers its output lines, or
+-- nil and what it said.
+local function git(root: string, arguments: {string}): ({string}?, string?)
+    local argv = {"git", "-C", root}
+    for _, argument in ipairs(arguments) do
+        argv[#argv + 1] = argument
     end
-    -- Read whole: the same `read` the script's answer is taken with.
-    local text = pipe:read("*a") or ""
-    pipe:close()
+    local ok, code, text = pcall(process.captureIsolated, argv)
+    if not ok then
+        return nil, tostring(code)
+    end
+    if code ~= 0 then
+        return nil, ("exit %s: %s"):format(tostring(code), tostring(text):sub(1, 600))
+    end
     local found: {string} = {}
-    for line in text:gmatch("[^\r\n]+") do
+    for line in (text as string):gmatch("[^\r\n]+") do
         found[#found + 1] = line
     end
 
@@ -155,26 +164,18 @@ end
 -- Windows `io.popen` hands its line to cmd, and a shell script run from there
 -- did not answer, so this is how a Windows build names its sources.
 export function gitTreeDigest(root: string, paths: {string}): string?
-    local spell = windows and function(value: string): string
-        return '"' .. value .. '"'
-    end or quote
-    -- On Windows git's complaints come back with its output, so a refusal
-    -- below can say what git said.
-    local quiet = windows and " 2>&1" or " 2>/dev/null"
-    local git = "git -C " .. spell(root)
-    local words = {git, "ls-files --cached --others --exclude-standard --"}
+    local listing = {"ls-files", "--cached", "--others", "--exclude-standard", "--"}
     for _, path in ipairs(paths) do
-        words[#words + 1] = spell(path)
+        listing[#listing + 1] = path
     end
-    local listing = table.concat(words, " ")
-    local listed = lines(listing .. quiet)
+    local listed, problem = git(root, listing)
     if not listed then
-        return refuse("cannot start: " .. listing)
+        return refuse("git ls-files under " .. root .. ": " .. tostring(problem))
     end
     table.sort(listed)
     local files: {string} = {}
     for _, file in ipairs(listed) do
-        if file ~= "" and file ~= files[#files] then
+        if file ~= files[#files] then
             local handle = io.open(root .. "/" .. file, "rb")
             if handle then
                 handle:close()
@@ -183,26 +184,21 @@ export function gitTreeDigest(root: string, paths: {string}): string?
         end
     end
     if #files == 0 then
-        return refuse(
-            (
-                "%d listed, none readable under %s: %s; git said: %s"
-            ):format(#listed, root, listing, table.concat(listed, " | "):sub(1, 600))
-        )
+        return refuse(("%d listed, none readable under %s"):format(#listed, root))
     end
     local out: {string} = {}
     local index: integer = 1
     while index <= #files do
-        local batch: {string} = {git, "hash-object --no-filters --"}
+        local batch: {string} = {"hash-object", "--no-filters", "--"}
         local size: integer, first: integer = 0, index
         while index <= #files and (index == first or size + #files[index] < HASH_BATCH_CHARS) do
-            batch[#batch + 1] = spell(files[index])
+            batch[#batch + 1] = files[index]
             size = size + #files[index] + 3
             index = index + 1
         end
-        local hashing = table.concat(batch, " ")
-        local blobs = lines(hashing .. quiet)
+        local blobs, hashProblem = git(root, batch)
         if not blobs or #blobs ~= index - first then
-            return refuse(("%d of %d hashed: %s"):format(blobs and #blobs or 0, index - first, hashing:sub(1, 300)))
+            return refuse(("%d of %d hashed: %s"):format(blobs and #blobs or 0, index - first, tostring(hashProblem)))
         end
         for offset, blob in ipairs(blobs) do
             out[#out + 1] = blob .. " " .. files[first + offset - 1] .. "\n"
