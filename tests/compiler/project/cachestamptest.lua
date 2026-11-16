@@ -160,6 +160,26 @@ function M.twoCompilersKeepEachOthersEntries()
     os.execute("rm -rf '" .. dir .. "'")
 end
 
+-- The codec refuses a value that reaches a function, and one such entry used to fail
+-- the whole save: `type-functions.buf` was never written, so every command evaluated
+-- every type function again. An entry that cannot be stored is left out instead.
+function M.anEntryThatCannotBeStoredDoesNotCostTheOthers()
+    local store = require("nupp.compiler.project.store")
+    local dir = tempProject({})
+    local path = dir .. "/keyed.buf"
+    local keyed = store.open(path, "stamp")
+    keyed.put("kept", {value = 1})
+    keyed.put("refused", {value = function() end})
+    keyed.put("also kept", "text")
+    keyed.save()
+    assert(keyed.stats.dropped == 1, "the refused entry is counted")
+    local reopened = store.open(path, "stamp")
+    assert(reopened.get("kept").value == 1, "an entry beside a refused one was lost")
+    assert(reopened.get("also kept") == "text", "an entry after a refused one was lost")
+    assert(reopened.get("refused") == nil, "a refused entry was stored")
+    os.execute("rm -rf '" .. dir .. "'")
+end
+
 -- A module is checked against the carried declarations as much as against the
 -- checker, and they are not modules, so the subsystem stamp never reached them. An
 -- edit to `lua.d.nupp` then left every module's stored diagnostics believed while a

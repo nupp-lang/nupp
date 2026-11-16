@@ -113,14 +113,10 @@ local function encodeForStore(path: string, value: any): string?
     return nil
 end
 
---- Encodes and seals a body, preserving the file's other compiler stamps.
+--- Seals an encoded body, preserving the file's other compiler stamps.
 ---
 --- Failed writes are reported and leave the store dirty for a later retry.
-local function writeSealed(path: string, stamp: string, body: any): boolean
-    local inner = encodeForStore(path, body)
-    if inner == nil then
-        return false
-    end
+local function writeSealedText(path: string, stamp: string, inner: string): boolean
     local digest = sealDigest()
     local slots: {any} = {{stamp = stamp, seal = digest and digest(inner) or nil, body = inner}}
     for _, slot in ipairs(slotsIn(path)) do
@@ -141,6 +137,13 @@ local function writeSealed(path: string, stamp: string, body: any): boolean
     end
 
     return true
+end
+
+--- Encodes and seals a body, preserving the file's other compiler stamps.
+local function writeSealed(path: string, stamp: string, body: any): boolean
+    local inner = encodeForStore(path, body)
+
+    return inner ~= nil and writeSealedText(path, stamp, inner)
 end
 
 --- The body `path` holds under `stamp` when it is intact, else nil.
@@ -191,8 +194,9 @@ export record Store
     --- Writes the file, if anything changed. Cheap and safe to call when nothing did.
     save: function()
 
-    --- How many entries were asked for, hit, and written. For tests, which otherwise
-    --- can only observe that something got faster.
+    --- How many entries were asked for, hit, written, and left out of a save because
+    --- they could not be stored. For tests, which otherwise can only observe that
+    --- something got faster.
     stats: {[string]: integer}
 end
 
@@ -271,7 +275,33 @@ export function open(path: string?, stamp: string): Store
                 keptEntries[key] = entries[key]
             end
         end
-        if writeSealed(path as string, stamp, {order = keptOrder, entries = keptEntries}) then
+        local ok, inner = pcall(buffer.encode, {order = keptOrder, entries = keptEntries})
+        if not ok then
+            -- One entry the codec refuses -- a value that reaches a function -- used to
+            -- fail the whole file, so every later command started with an empty store
+            -- and computed every entry again. Leave out what cannot be kept and keep
+            -- the rest; the entry left out is computed again when it is next asked for.
+            local storable: {string} = {}
+            for _, key in ipairs(keptOrder) do
+                if pcall(buffer.encode, keptEntries[key]) then
+                    storable[#storable + 1] = key
+                else
+                    keptEntries[key] = nil
+                    entries[key] = nil
+                    stats.dropped = (stats.dropped or 0) + 1
+                end
+            end
+            if #storable == #keptOrder then
+                writeFailure(path as string, inner)
+                return
+            end
+            keptOrder = storable
+            inner = encodeForStore(path as string, {order = keptOrder, entries = keptEntries})
+            if inner == nil then
+                return
+            end
+        end
+        if writeSealedText(path as string, stamp, inner) then
             dirty = false
         end
     end
