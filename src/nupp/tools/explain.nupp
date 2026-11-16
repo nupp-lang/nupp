@@ -2261,6 +2261,18 @@ ENTRIES[
 ENTRIES[
     #ENTRIES + 1
 ] = {
+    code = "NUPP2520",
+    summary = "A project module is reached by its full path instead of an import",
+    rule = "The `inline-module-path` lint reports a qualified path that names a declared project module, or a type one exports, with no binding in between: in a project that also contains `module textutil`, `textutil.shout(text)` reaches the module the way an import would. The path is valid source, but it hides a dependency inside an expression, so the lint asks for the import at the top of the file. Its fix inserts the imports after the module header and shortens every such path in the file to its binding. Builtin namespaces and the public modules the compiler carries keep their qualified spelling. Default level is `warning`; `nupp check --deny inline-module-path` refuses it for one run.",
+    wrong = "return textutil.shout(\"hello\")\n",
+    right = "const textutil = require(\"textutil\")\n\nreturn textutil.shout(\"hello\")\n",
+    related = {"NUPP2120"},
+    docs = "docs/reference/lints.md#inline-module-path",
+}
+
+ENTRIES[
+    #ENTRIES + 1
+] = {
     code = "NUPP2601",
     summary = "A moved-from owner is used again",
     rule = "An affine binding or affine field is discharged by exactly one move, drop, or return. The name stays in scope after that, but its value is gone: reading it, moving it a second time, or dropping it again all reuse a transfer that already happened.",

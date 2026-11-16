@@ -571,6 +571,9 @@ export function install(c: state.Checker): state.StatHandlers
             end
         end
         c.allowed[#c.allowed + 1] = set
+        -- Kept on the statement for a lint that judges the checked tree after the
+        -- walk, when `c.allowed` has long been unwound.
+        stat.allowedLints = set
         if stat.stat then
             c.checkStat(stat.stat)
         end

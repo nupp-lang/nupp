@@ -72,6 +72,13 @@ local function reportedFor(aot)
         .. "return mathutil\n"
     )
     module:close()
+    -- An inline module path is one only when it names a declared module.
+    local declared = assert(io.open(dir .. "/textutil.nupp", "wb"))
+    declared:write(
+        "module textutil\n\n"
+        .. "export function shout(text: string): string\n    return text .. \"!\"\nend\n"
+    )
+    declared:close()
 
     local names = {}
     for index, entry in ipairs(explain.entries) do

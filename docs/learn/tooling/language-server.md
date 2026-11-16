@@ -231,6 +231,7 @@ token carrying the diagnostic rather than only at its first byte.
 | ``drop `local` `` | a qualified name that also states visibility |
 | `mark it local`, `mark it global` | a declaration with no visibility |
 | `attach it to <moduleLocal>` | a declaration where the module returns a table |
+| `import module paths` | a project module or its type written as a full path |
 
 A spelling fix refuses on a tie rather than picking one, and a missing require
 offers one fix per candidate module rather than guessing between them.

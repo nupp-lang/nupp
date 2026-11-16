@@ -233,6 +233,12 @@ local lintFixtures = {
             "return m"
         ),
     },
+    -- `harness` is a declared module of this project that the compiler does not
+    -- carry, so a path to it is the file's own dependency.
+    NUPP2520 = {
+        reports = "return harness.parent('a/b')",
+        quiet = source("const harness = require('harness')", "return harness.parent('a/b')"),
+    },
 }
 
 local M = {}

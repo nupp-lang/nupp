@@ -1,0 +1,314 @@
+--[[
+The `inline-module-path` lint: a project module, or a type it exports, reached by
+its full dotted path instead of through an import.
+
+A qualified path is valid source, and the checker resolves every one it meets. This
+reads those resolutions back off the checked tree, so it never guesses that a dotted
+table access is an import: only a path the checker annotated as naming a module or
+a module's type is reported. The fix spells each as an import, planned by
+`nupp.compiler.check.importplan`.
+
+Builtin namespaces keep their qualified spelling, as do the public modules the
+compiler carries, shadowed package roots, compile-time code, a path with a comment
+inside it, and a file that is plain Lua, a declaration file, or generated. See
+[lints.md](docs/reference/lints.md#inline-module-path).
+]]
+module nupp.compiler.check.inlinepath
+
+local cst = require("nupp.compiler.syntax.cst")
+local lints = require("nupp.compiler.lints")
+local state = require("nupp.compiler.check.state")
+local importplan = require("nupp.compiler.check.importplan")
+
+const LINT = "inline-module-path"
+const FIX_TITLE = "import module paths"
+
+local type Use = importplan.Use
+
+--- Visits the authored tree, leaving out compile-time code, which can use compiler
+--- capabilities without loading runtime modules, and any statement an `@allow`
+--- exempts from this lint.
+local function walk(node: any, visit: function(any): nil, lint: lints.Lint): nil
+    if not node or cst.isToken(node) or node.comptimeTok or node.comptimeFunction or node.kind == "comptimeExpr" then
+        return
+    end
+    local allowed = node.allowedLints
+    if allowed and (allowed["*"] or allowed[lint.name] or allowed[lint.code]) then
+        return
+    end
+    visit(node)
+    for _, child in ipairs(node) do
+        walk(child, visit, lint)
+    end
+end
+
+--- The name tokens of a dotted path, in order.
+local function names(node: any): {any}
+    local out = {}
+
+    local function add(value: any): nil
+        if value.kind == "dotIndex" then
+            add(value.obj)
+            out[#out + 1] = value.name
+        elseif value.kind == "name" then
+            out[#out + 1] = value.token
+        elseif value.kind == "tname" then
+            for _, child in ipairs(value) do
+                if cst.isToken(child) and child.kind == "name" then
+                    out[#out + 1] = child
+                elseif cst.isToken(child) and child.kind ~= "." then
+                    break
+                elseif not cst.isToken(child) then
+                    break
+                end
+            end
+        end
+    end
+
+    add(node)
+
+    return out
+end
+
+local function spelling(tokens: {any}, count: integer?): string
+    local parts = {}
+    for index = 1, count or #tokens do
+        parts[#parts + 1] = tokens[index].text
+    end
+
+    return table.concat(parts, ".")
+end
+
+--- The fix's advice for one path.
+local function help(use: Use): string
+    if use.declaration then
+        return ("add `%s` and write `%s`"):format(use.declaration, use.text)
+    end
+    if use.moduleName and not use.member and use.text and not use.text:find("(", 1, true) then
+        return ("write `%s`, which already holds %q"):format(use.text, use.moduleName)
+    end
+
+    return ("write `%s`"):format(use.text)
+end
+
+--- Reports every inline module path in the checked file, each carrying the one fix
+--- that imports them all.
+---
+--- @param c the run's state, once the walk is complete
+export function sweep(c: state.Checker): nil
+    local env: any = c.env
+    local result = c.result
+    local filename = c.filename
+    local source = result.source
+    if not env
+        or type(source) ~= "string"
+        or c.declarationFile
+        or c.opts.generatedSource
+        or filename and (filename:match("%.lua$") or filename:match("%.d%.nupp$"))
+    then
+        return
+    end
+    local lint = lints.get(LINT) as lints.Lint
+    if lints.level(lint, c.lintConfig) == "off" then
+        return
+    end
+    local ownModule = result.moduleName or result.declaredModuleName
+
+    -- Builtin namespaces already have their public names, and so do the public
+    -- modules the compiler carries, including roots without an ambient value such
+    -- as bytes.span. Extension implementations keep the builtin root's identity.
+    local function builtinAccess(moduleName: string?, path: {any}): boolean
+        local root = path[1]
+        local entry = root and env.globals and env.globals[root.text]
+        if entry and root.definition and root.definition == entry.definition then
+            return true
+        end
+        local shipped = moduleName and env.bundled and env.bundled[moduleName]
+
+        return shipped ~= nil
+            and shipped ~= false
+            and env.bundledInternal ~= nil
+            and not env.bundledInternal(moduleName)
+    end
+
+    local shadowedRequire = false
+    for _, token in ipairs(result.tokens) do
+        if token.text == "require" and token.definition and token.definition.lexical then
+            shadowedRequire = true
+        end
+    end
+    local uses: {Use} = {}
+    local covered = {}
+    walk(
+        result.root,
+        function(node: any): nil
+            -- A written module binding already has its name and placement.
+            if not shadowedRequire
+            and node.kind == "localStmt"
+            and not node.pattern
+            and #node.names == 1
+            and node.exprs
+            and #node.exprs == 1
+            then
+                local value = node.exprs[1]
+                local moduleName = value.qualifiedModule
+                if moduleName
+                and moduleName ~= ownModule
+                and #(value.qualifiedMembers or {}) == 0
+                and not builtinAccess(moduleName, names(value))
+                then
+                    local first, last = cst.firstToken(value), cst.lastToken(value)
+                    if first
+                    and last
+                    and source:sub(first.offset, last.offset + #last.text - 1):gsub("%s", "") == moduleName then
+                        covered[first.offset] = true
+                        uses[
+                            #uses + 1
+                        ] = {
+                            moduleName = moduleName,
+                            first = first.offset,
+                            last = last.offset + #last.text - 1,
+                            token = first,
+                            spelled = moduleName,
+                            text = importplan.requireCall(moduleName),
+                        }
+                        return
+                    end
+                end
+            end
+            -- A simple local type alias is already a binding. Keep its name,
+            -- position and documentation and express the import directly.
+            if node.kind == "typeAlias"
+            and not shadowedRequire
+            and node.visibility == "local"
+            and not node.generics
+            and not node.comptimeOnly
+            and not node.annotations
+            then
+                local value = node.value
+                if value
+                and value.kind == "tname"
+                and value.qualifiedTypeModule
+                and value.qualifiedTypeModule ~= ownModule
+                and not value.typeArgs
+                and not builtinAccess(value.qualifiedTypeModule, names(value))
+                then
+                    local path = names(value)
+                    local first, last = cst.firstToken(node), cst.lastToken(node)
+                    if not first or not last then
+                        return
+                    end
+                    local member = value.qualifiedTypeName
+                    local moduleName = value.qualifiedTypeModule
+                    local valueFirst, valueLast = path[1], path[#path]
+                    local written = source:sub(valueFirst.offset, valueLast.offset + #valueLast.text - 1)
+                    local safe = spelling(path) == moduleName .. "." .. member
+                    and written:gsub("%s", "") == spelling(path)
+                    if safe then
+                        for _, token in ipairs(result.tokens) do
+                            if token.offset >= first.offset then
+                                break
+                            end
+                            if token.text == node.name.text then
+                                safe = false
+                                break
+                            end
+                        end
+                    end
+                    if safe and not source:sub(first.offset, last.offset + #last.text - 1):find("--", 1, true) then
+                        covered[path[1].offset] = true
+                        uses[
+                            #uses + 1
+                        ] = {
+                            first = first.offset,
+                            last = last.offset + #last.text - 1,
+                            token = path[1],
+                            spelled = spelling(path),
+                            text = importplan.typeImport(moduleName, member, node.name.text),
+                        }
+                        return
+                    end
+                end
+            end
+            local moduleName, member, count
+            local runtime = false
+            local path = names(node)
+            if node.qualifiedModule then
+                moduleName = node.qualifiedModule
+                local suffix = node.qualifiedMembers or {}
+                count = #path - #suffix
+                if suffix[1] then
+                    local exports = env.resolveModuleExports(env, moduleName)
+                    local value = exports and exports.values and exports.values[suffix[1]]
+                    local declared = exports and exports.types and exports.types[suffix[1]]
+                    if value
+                    and (
+                        value.tag == "typeobject"
+                        or value == declared and value.tag == "nominal" and value.declKind == "struct"
+                    )
+                    then
+                        member = suffix[1]
+                        count = count + 1
+                        runtime = true
+                    end
+                end
+            elseif node.qualifiedTypeModule then
+                moduleName = node.qualifiedTypeModule
+                member = node.qualifiedTypeName
+                count = #path
+                -- Existing lexical module/type aliases already name their imports.
+                if spelling(path) ~= moduleName .. "." .. member then
+                    return
+                end
+            end
+            if not moduleName
+            or moduleName == ownModule
+            or not count
+            or count < 1
+            or not path[count]
+            or builtinAccess(moduleName, path)
+            then
+                return
+            end
+            local first, last = path[1], path[count]
+            if covered[first.offset] then
+                return
+            end
+            -- A comment between name components belongs to the authored path.
+            -- Leave it where it was written rather than deleting or relocating it.
+            local segment = source:sub(first.offset, last.offset + #last.text - 1)
+            if segment:find("--", 1, true) or segment:gsub("%s", "") ~= spelling(path, count) then
+                return
+            end
+            covered[first.offset] = true
+            uses[
+                #uses + 1
+            ] = {
+                moduleName = moduleName,
+                member = member,
+                runtime = runtime,
+                first = first.offset as integer,
+                last = (last.offset + #last.text - 1) as integer,
+                token = first,
+                spelled = spelling(path, count),
+            }
+        end,
+        lint
+    )
+    if #uses == 0 then
+        return
+    end
+    table.sort(uses, function(a: Use, b: Use): boolean
+        return a.first < b.first
+    end)
+    local planned = importplan.plan(source, result.tokens, result.root, env, uses, shadowedRequire)
+    if not planned then
+        return
+    end
+    local fix = c.edits.fix(FIX_TITLE, table.unpack(planned.edits))
+    for _, use in ipairs(uses) do
+        c.diag(LINT, use.token, ("%s is written as a full module path; import it instead"):format(use.spelled), {fix}, {
+            help = help(use)
+        })
+    end
+end

@@ -146,6 +146,13 @@ lints.all = {
         level = "warning",
         summary = "a function opens more than one growable arena"
     ),
+    lints.Lint(
+        name = "inline-module-path",
+        code = "NUPP2520",
+        category = "style",
+        level = "warning",
+        summary = "a project module reached by its full path instead of an import"
+    ),
 }
 
 -- Both spellings reach the same lint: a name is what a person writes, a code is what

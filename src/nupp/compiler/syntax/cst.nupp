@@ -1175,6 +1175,10 @@ record cst.PragmaStmt is cst.Hints
 
     --- The statement it decorates.
     stat: cst.Node?
+
+    --- For an `@allow`, the lint names and codes it silences, `*` for every lint.
+    --- Set by the checker for a lint that judges the tree after the walk.
+    allowedLints: {[string]: boolean}?
 end
 
 ----------------------------------------------------------------------------

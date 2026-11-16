@@ -59,6 +59,7 @@ Every lint has a name and a stable code.
 | `exit-suffix-binding` | `NUPP2517` | suspicious | warning |
 | `prefer-comptime` | `NUPP2518` | performance | off |
 | `one-growable-arena` | `NUPP2519` | suspicious | warning |
+| `inline-module-path` | `NUPP2520` | style | warning |
 
 The name is what you write in configuration and suppressions; the code is what
 survives renaming and what tooling keys on. Either is accepted everywhere.
@@ -582,6 +583,67 @@ src/one-growable-arena.nupp:5:21: warning: NUPP2519 one-growable-arena: this fun
 help: open one growable arena per function and fixed arenas (arena.open) beside it
 ```
 :::
+
+### `inline-module-path`
+
+A declared module, or a type it exports, can be named by its whole dotted path
+anywhere in a file. That is valid source, and it hides what the file depends on
+inside an expression, so the lint asks for an import at the top instead. This
+project also contains `src/app/files.nupp`, which declares `module app.files`.
+
+::: code-group
+```nupp:fragment [src/inline-module-path.nupp]
+local function load(path: string): string?
+    return app.files.read(path)
+end
+
+return load
+```
+
+```text [nupp check output]
+src/inline-module-path.nupp:2:12: warning: NUPP2520 inline-module-path: app.files is written as a full module path; import it instead
+ 2 |     return app.files.read(path)
+   |            ^~~
+help: add `const files = require("app.files")` and write `files`
+```
+:::
+
+The fix, which `nupp check --json` reports under `fixes` and an editor offers as
+a quick fix, writes the imports and shortens every path in the file to its
+binding:
+
+```nupp:fragment
+const files = require("app.files")
+
+local function load(path: string): string?
+    return files.read(path)
+end
+
+return load
+```
+
+The imports follow the `module` declaration and any inner annotations; module
+documentation stays above them. Repeated paths share one binding, and a
+top-level module binding the file already has is reused when it is initialized
+before every use, never assigned and never shadowed. A simple local type alias
+becomes a type selection with the same name and position. A name already used
+anywhere in the file, an inner scope included, gets a numeric suffix. A type
+used only in annotations is selected with `type` and adds no runtime
+dependency; a record or struct used as a value, including construction and
+static methods, is selected as a value, and one used both ways gets both
+selections under one name. The edits are an insertion and one replacement per
+path rather than a rewritten file, so the fix composes with any other.
+
+Only a path the checker resolved to a module is reported. Builtin namespaces and
+the public modules the compiler carries keep their qualified spelling, as do
+ordinary table fields, shadowed package roots, unresolved references, compiler
+intrinsics and compile-time code. A path with a comment inside it is left as
+written. Plain Lua, declaration files and generated source are not linted, and
+a file that assigns the global `require` gets no fix, since the import could not
+be trusted to call the builtin.
+
+To fail a check on this lint without moving the project's level,
+`nupp check --deny inline-module-path` reports it as an error for that run.
 
 ## Categories
 

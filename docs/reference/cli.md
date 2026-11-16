@@ -1068,6 +1068,7 @@ else-if                         style        warning  a conditional chain writte
 erased-projection               suspicious   warning  an associated type was erased because inference did not reach its head
 exhaustiveness                  correctness  warning  a dispatch leaves members of a closed set unhandled
 exit-suffix-binding             suspicious   warning  a binding list takes more than one value from an exit suffix
+inline-module-path              style        warning  a project module reached by its full path instead of an import
 missing-require                 correctness  error    a project module is used without being required
 one-growable-arena              suspicious   warning  a function opens more than one growable arena
 positional-record-construction  style        warning  a record built by field order rather than by naming its fields

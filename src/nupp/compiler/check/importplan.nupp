@@ -1,0 +1,353 @@
+--[[
+Where an inline module path's import goes, what it is called, and the edits that
+put it there.
+
+`nupp.compiler.check.inlinepath` finds the paths; this decides how to spell them
+as imports. The answer is a set of byte-ranged edits into the file as written:
+one insertion carrying every new declaration, and one replacement per path. None
+of it reads the checker's scopes, only the checked tree's annotations and tokens,
+so the edits compose with any other fix that does not touch the same bytes.
+
+A fresh binding must not capture a name the file already uses anywhere, `require`
+must still be the builtin where the import lands, and an existing top-level module
+binding is reused only where it already holds the module at every use.
+]]
+module nupp.compiler.check.importplan
+
+local cst = require("nupp.compiler.syntax.cst")
+local lexer = require("nupp.compiler.syntax.lexer")
+
+--- One inline path, and what replaces it once the plan has run.
+export type Use = {
+    --- Byte offsets of the first and last character replaced.
+    first: integer,
+    last: integer,
+
+    --- Where the diagnostic points.
+    token: any,
+
+    --- The path as written, without trivia.
+    spelled: string,
+
+    --- What replaces the bytes. Set up front for a statement rewritten whole; the
+    --- plan fills it with the binding's name otherwise.
+    text: string?,
+    moduleName: string?,
+    member: string?,
+
+    --- A member selected as a value rather than as an erased type.
+    runtime: boolean?,
+
+    --- The import this use's binding was introduced by, when the plan added one.
+    declaration: string?
+}
+
+--- What the file needs: the edits, applied together.
+export type Plan = {edits: {any}}
+
+local function walk(node: any, visit: function(any): nil): nil
+    if not node or cst.isToken(node) then
+        return
+    end
+    visit(node)
+    for _, child in ipairs(node) do
+        walk(child, visit)
+    end
+end
+
+--- `const {type Name as Alias} = require("module")`, or a value selection.
+export function typeImport(moduleName: string, member: string, alias: string, runtime: boolean?): string
+    local selection = (runtime and "" or "type ") .. member
+    if alias ~= member then
+        selection = selection .. " as " .. alias
+    end
+
+    return "const {" .. selection .. "} = require(" .. string.format("%q", moduleName) .. ")"
+end
+
+--- `require("module")`, the call that binds a module.
+export function requireCall(moduleName: string): string
+    return "require(" .. string.format("%q", moduleName) .. ")"
+end
+
+--- The names a fresh import must not take: every bare name written in the file
+--- outside the paths being replaced, every global, and the leaf of every qualified
+--- declaration, which binds that name within its own body.
+local function occupiedNames(tokens: {any}, root: any, env: any, uses: {Use}): {[string]: boolean}
+    local occupied: {[string]: boolean} = {}
+    local previous = nil
+    local useIndex: integer = 1
+    for _, token in ipairs(tokens) do
+        while uses[useIndex] and uses[useIndex].last < token.offset do
+            useIndex = (useIndex + 1) as integer
+        end
+        local replaced = uses[useIndex] and token.offset >= uses[useIndex].first
+        if not replaced and token.kind == "name" and (not previous or previous.kind ~= ".") then
+            occupied[token.text] = true
+        end
+        previous = token
+    end
+    for name in pairs(env.globals or {}) do
+        occupied[name] = true
+    end
+    for name in pairs(env.globalTypes or {}) do
+        occupied[name] = true
+    end
+    -- Importing Reader must not make `record process.Reader is Reader` resolve its
+    -- contract to the record being declared.
+    walk(root, function(node: any): nil
+        if (node.kind == "recordDecl" or node.kind == "typeAlias" or node.kind == "cdefStruct") and node.name then
+            occupied[node.name.text] = true
+        end
+    end)
+
+    return occupied
+end
+
+--- Whether the file assigns the global `require`. A local declared later is fine;
+--- an assignment to the global could change what the import calls.
+local function assignsRequire(root: any): boolean
+    local found = false
+    walk(root, function(node: any): nil
+        if node.kind == "assignStmt" then
+            for _, lhs in ipairs(node.targets or {}) do
+                if lhs.kind == "name" and lhs.token.text == "require" then
+                    found = true
+                end
+            end
+        end
+    end)
+
+    return found
+end
+
+--- The top-level module bindings a path may reuse, by module: initialized before
+--- every use, never assigned, and the only definition of their name.
+local function reusableBindings(tokens: {any}, root: any, uses: {Use}, shadowedRequire: boolean): {[string]: string}
+    local existing: {[string]: string} = {}
+    local assigned: {[string]: boolean} = {}
+    local definitions: {[string]: {[any]: boolean}} = {}
+    for _, token in ipairs(tokens) do
+        local definition = token.definition
+        if definition and definition.lexical then
+            local set = definitions[token.text] or {}
+            set[definition] = true
+            definitions[token.text] = set
+        end
+    end
+    walk(root, function(node: any): nil
+        local targets = node.kind == "assignStmt" and node.targets
+            or node.kind == "compoundAssign" and {node.target}
+            or {}
+        for _, target in ipairs(targets) do
+            if target.kind == "name" then
+                assigned[target.token.text] = true
+            end
+        end
+    end)
+    for _, block in ipairs(root.blocks or {}) do
+        for _, stat in ipairs(block.stats or {}) do
+            local value = stat.kind == "localStmt" and stat.exprs and #stat.exprs == 1 and stat.exprs[1]
+            local token = stat.kind == "localStmt" and #stat.names == 1 and stat.names[1]
+            local moduleName = value
+                and (
+                    value.requiredModule
+                    or not shadowedRequire and #(value.qualifiedMembers or {}) == 0 and value.qualifiedModule
+                )
+            if stat.kind == "localStmt" and not stat.pattern and moduleName and token then
+                local count = 0
+                for _ in pairs(definitions[token.text] or {}) do
+                    count = count + 1
+                end
+                local last = cst.lastToken(stat)
+                local ready = last ~= nil
+                for _, use in ipairs(uses) do
+                    if not use.text and use.moduleName == moduleName and last and last.offset >= use.first then
+                        ready = false
+                    end
+                end
+                if count == 1 and not assigned[token.text] and ready then
+                    existing[moduleName] = token.text
+                end
+            end
+        end
+    end
+
+    return existing
+end
+
+--- Where new imports go: after the module header and its trailing comment, past
+--- any inner annotations, before executable statements, matching the compiler's
+--- hidden qualified imports. A hashbang or a leading comment stays first, and a
+--- docblock stays with the declaration it documents.
+---
+--- @return the offset, and whether it follows a module header
+local function insertionPoint(source: string, tokens: {any}, root: any): (integer?, boolean)
+    local function afterHeader(token: any): integer
+        local ending = token.offset + #token.text
+        local newline = source:find("\n", ending, true) or #source + 1
+        for _, nextToken in ipairs(tokens) do
+            if nextToken.offset >= ending and nextToken.kind ~= "eof" then
+                if nextToken.offset < newline then
+                    return assert(math.tointeger(ending))
+                end
+                break
+            end
+        end
+
+        return math.min(newline + 1, #source + 1)
+    end
+
+    local insertion: integer = 1
+    local afterModule = false
+    local _, moduleNode = cst.declaredModule(root)
+    if moduleNode then
+        local last = cst.lastToken(moduleNode)
+        if not last then
+            return nil, false
+        end
+        insertion = afterHeader(last)
+        afterModule = true
+    elseif tokens[1] then
+        local first = tokens[1]
+        for index = 1, first.triviaCount do
+            local kind, text, offset = lexer.triviaFields(first, index)
+            if kind == "comment" and text:sub(1, 3) == "---" then
+                break
+            end
+            if kind == "hashbang" or kind == "bom" or kind == "comment" then
+                insertion = offset + #text
+                if source:sub(insertion, insertion) == "\n" then
+                    insertion = insertion + 1
+                end
+            end
+        end
+    end
+    -- Inner annotations are consumed before the chunk's ordered children.
+    local index: integer = 1
+    while tokens[index]
+        and tokens[index].text == "@"
+        and tokens[index + 1]
+        and tokens[index + 1].text == "!"
+        and tokens[index + 2]
+        and (tokens[index + 2].text == "internal" or tokens[index + 2].text == "nofmt") do
+        local after = afterHeader(tokens[index + 2])
+        if after > insertion then
+            insertion = after
+            afterModule = false
+        end
+        index = index + 3
+    end
+
+    return insertion, afterModule
+end
+
+--- The edit inserting `declarations`, laid out as the formatter would: a module
+--- header keeps one blank line after it, and the imports are set off from what
+--- follows them by another.
+local function insertionEdit(source: string, insertion: integer, afterModule: boolean, declarations: {string}): any
+    local text = table.concat(declarations, "\n")
+    if insertion > 1 and source:sub(insertion - 1, insertion - 1) ~= "\n" then
+        return {offset = insertion, length = 0, newText = "\n" .. text .. "\n\n"}
+    end
+    if not afterModule then
+        return {offset = insertion, length = 0, newText = text .. "\n\n"}
+    end
+    -- The blank lines already under the header are replaced rather than added to.
+    local stop = insertion
+    while true do
+        local blank = source:match("^[ \t]*\n", stop)
+        if not blank then
+            break
+        end
+        stop = stop + #blank
+    end
+
+    return {offset = insertion, length = stop - insertion, newText = "\n" .. text .. "\n\n"}
+end
+
+--- Plans the imports `uses` need, sorted by offset. Fills each use's `text`, and its
+--- `declaration` when a new import introduced its binding.
+---
+--- @param source the file as written
+--- @param tokens its tokens, with the checker's definitions on them
+--- @param root its checked tree
+--- @param env the project environment the paths were resolved in
+--- @param uses the inline paths, in source order
+--- @param shadowedRequire whether a lexical `require` is anywhere in the file
+--- @return the edits, or nil when the file cannot safely take an import
+export function plan(source: string, tokens: {any}, root: any, env: any, uses: {Use}, shadowedRequire: boolean): Plan?
+    if assignsRequire(root) then
+        return nil
+    end
+    local occupied = occupiedNames(tokens, root, env, uses)
+
+    local function allocate(preferred: string): string
+        local base = preferred:gsub("[^%w_]", "_")
+        local lexed = lexer.lex(base)
+        if not lexed[1] or lexed[1].kind ~= "name" then
+            base = base .. "Module"
+        end
+        local name = base
+        local suffix = 2
+        while occupied[name] do
+            name = base .. tostring(suffix)
+            suffix = suffix + 1
+        end
+        occupied[name] = true
+
+        return name
+    end
+
+    local existing = reusableBindings(tokens, root, uses, shadowedRequire)
+    local runtimeMembers, typeMembers = {}, {}
+    for _, use in ipairs(uses) do
+        if use.runtime then
+            runtimeMembers[(use.moduleName as string) .. ":" .. (use.member as string)] = true
+        elseif use.member then
+            typeMembers[(use.moduleName as string) .. ":" .. (use.member as string)] = true
+        end
+    end
+    local bindings, introduced, declarations = {}, {}, {}
+    for _, use in ipairs(uses) do
+        if not use.text then
+            local moduleName = use.moduleName as string
+            local key = moduleName .. (use.member and ":" .. use.member or "")
+            if not bindings[key] and not use.member and existing[moduleName] then
+                bindings[key] = existing[moduleName]
+            end
+            if not bindings[key] then
+                local preferred = use.member or moduleName:match("([^.]+)$") or moduleName
+                local alias = allocate(preferred)
+                bindings[key] = alias
+                local declaration
+                if use.member then
+                    declaration = typeImport(moduleName, use.member, alias, runtimeMembers[key])
+                else
+                    declaration = "const " .. alias .. " = " .. requireCall(moduleName)
+                end
+                declarations[#declarations + 1] = declaration
+                introduced[key] = declaration
+                if use.member and runtimeMembers[key] and typeMembers[key] then
+                    declarations[#declarations + 1] = typeImport(moduleName, use.member, alias)
+                end
+            end
+            use.text = bindings[key]
+            use.declaration = introduced[key]
+        end
+    end
+
+    local edits: {any} = {}
+    if #declarations > 0 then
+        local insertion, afterModule = insertionPoint(source, tokens, root)
+        if not insertion then
+            return nil
+        end
+        edits[1] = insertionEdit(source, insertion, afterModule, declarations)
+    end
+    for _, use in ipairs(uses) do
+        edits[#edits + 1] = {offset = use.first, length = use.last - use.first + 1, newText = use.text}
+    end
+
+    return {edits = edits}
+end

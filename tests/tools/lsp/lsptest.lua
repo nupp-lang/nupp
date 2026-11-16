@@ -4900,6 +4900,36 @@ function M.codeActionRewritesElseIf()
     assert(diagnostics and #diagnostics == 0, "the rewritten file checks clean")
 end
 
+-- Formatting leaves module paths alone; the `inline-module-path` lint's fix is
+-- where an editor gets the import, offered at any one of the paths it rewrites.
+function M.codeActionImportsInlineModulePaths()
+    local projectDir = tempProject()
+    writeFile(projectDir .. "/nupp.lua", 'return {include = {"."}}\n')
+    assert(os.execute("mkdir -p '" .. projectDir .. "/app'") == 0)
+    writeFile(
+        projectDir .. "/app/files.nupp",
+        "module app.files\n\nexport function read(path: string): string\n    return path\nend\n"
+    )
+    local source = 'local first = app.files.read("a")\n\nreturn first .. app.files.read("b")\n'
+    local actions, _, rewritten, diagnostics = codeActionSession(
+        projectDir,
+        "main.nupp",
+        source,
+        positionOf(source, 'app.files.read("b")'),
+        "import module paths"
+    )
+    os.execute("rm -rf '" .. projectDir .. "'")
+
+    assert(#actions == 1 and actions[1].kind == "quickfix", "one quick fix for the path under the cursor")
+    assert(actions[1].diagnostics[1].code == "NUPP2520", "the action carries the lint's diagnostic")
+    assert(
+        rewritten == 'const files = require("app.files")\n\nlocal first = files.read("a")\n\n'
+        .. 'return first .. files.read("b")\n',
+        rewritten
+    )
+    assert(diagnostics and #diagnostics == 0, "the rewritten file checks clean")
+end
+
 -- A declaration that names no visibility is refused (NUPP2119) because plain
 -- Lua would have made it a global. Every way out the message names is a fix,
 -- and none of them is preferred over the others: which one is right is what

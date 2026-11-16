@@ -37,6 +37,7 @@ local undocumentedraise = require("nupp.compiler.check.undocumentedraise")
 local unused = require("nupp.compiler.check.unused")
 local discard = require("nupp.compiler.check.discard")
 local privateexport = require("nupp.compiler.check.privateexport")
+local inlinepath = require("nupp.compiler.check.inlinepath")
 local nativeonly = require("nupp.compiler.check.nativeonly")
 local nosuspendMod = require("nupp.compiler.check.nosuspend")
 local aotMod = require("nupp.compiler.check.aot")
@@ -3637,6 +3638,7 @@ function checkMod.check(
     finalizeBoundary(c)
     c.privateExport.sweep()
     c.nativeOnly.sweep(result.root)
+    inlinepath.sweep(c)
     -- These needed the whole file before they could answer, so they answer here and
     -- their diagnostics are put back in source order with everything else. A `@raises`
     -- type is among them: one may name a declaration written below the function that
