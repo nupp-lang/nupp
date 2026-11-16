@@ -7,11 +7,13 @@ local program = require("program")
 local envMod = require("nupp.compiler.project.env")
 local HERE = assert(debug.getinfo(1, "S").source:match("^@(.*)[/\\]"))
 local env = envMod.new(HERE .. "/..")
-local serial = 0
 
-local function run(source)
-    serial = serial + 1
-    local name = "native_records_" .. serial
+-- Each case names its own module. A struct's native layout is keyed by its
+-- module and declaration order for the life of the VM process, and a process
+-- that runs two slices of this suite loads it twice, so a name counted from
+-- the load would give a second struct the identity of a different first one.
+local function run(case, source)
+    local name = "native_records_" .. case
     local tree = parser.parse(source, name .. ".nupp")
     test.eq(#tree.errors, 0, "syntax errors")
     local diagnostics = check.check(tree, name .. ".nupp", env, {moduleName = name})
@@ -24,6 +26,7 @@ local M = {}
 
 function M.recordSlotsRetainValuesAcrossCollectionAndMethodCalls()
     local before, after, yes, no = run(
+        "records",
         [[
 local record Item
     value: number
@@ -51,6 +54,7 @@ end
 
 function M.physicalScalarAndWideFieldsKeepTheirExactValues()
     local small, unsigned, wide, flag, fractional = run(
+        "scalars",
         [[
 local struct Scalars
     small: int8
@@ -77,6 +81,7 @@ end
 
 function M.physicalFloatWritesReadBackThroughTypedFields()
     local first, second = run(
+        "floats",
         [[
 local struct Pair x: float32 y: float64 end
 local value = Pair(1.25, -3.5)
