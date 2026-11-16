@@ -42,12 +42,18 @@ composer.platforms = {
         variable = "SELECTED_LINUX",
         name = "Linux x64",
         timeout = 90,
+        -- A leg's time is its suites' work over its workers: the runner slices a
+        -- heavy suite's cases between them, so no one suite is the floor below
+        -- the ten minutes of the longest single case. Sized from the timings of
+        -- 16 November so that no leg runs much past a quarter of an hour.
+        -- The native core ran one worker each when it ran only on macOS; two fit
+        -- in this runner's memory, as four shared-lane workers do.
         legs = {
             {kind = "gates", title = "native gates"},
-            {kind = "native-core", title = "native core", select = "--group=native-runtime", shards = 3, jobs = 1},
+            {kind = "native-core", title = "native core", select = "--group=native-runtime", shards = 4, jobs = 2},
             lane("shared", GROUPED, 3, 32),
             lane("isolated", GROUPED, 3),
-            lane("shell", GROUPED, 3),
+            lane("shell", GROUPED, 4),
         },
     },
     {
