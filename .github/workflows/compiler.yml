@@ -651,6 +651,13 @@ jobs:
             echo "=== sample $pid"
             sample "$pid" 2 -file /dev/stdout 2>/dev/null | head -60 || true
           done
+          # Each worker names the suite and case it took on its stderr file,
+          # which is what a sample of JIT-compiled Lua cannot say.
+          for err in build/test-runner/.nupp-test-cache/shard-*.err; do
+            [ -f "$err" ] || continue
+            echo "=== $err"
+            grep -E '__suite__:|__case__:' "$err" | tail -4 || true
+          done
 
       - name: Report a crashed worker
         if: failure() && runner.os == 'Linux'
