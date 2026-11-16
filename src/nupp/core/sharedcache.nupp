@@ -121,7 +121,8 @@ export function sweep(root: string): nil
     os.execute(quote(root .. "/scripts/shared-cache") .. " sweep --if-due > /dev/null 2>&1 &")
 end
 
-local windows = package.config:sub(1, 1) == "\\"
+-- The VM sets package.config from its build target; OS is the backstop.
+local windows = package.config:sub(1, 1) == "\\" or os.getenv("OS") == "Windows_NT"
 
 -- Longest argument list handed to one `git hash-object`; cmd refuses a line
 -- past 8191 characters.
@@ -141,6 +142,12 @@ local function lines(command: string): {string}?
     return found
 end
 
+-- Says on stderr why no digest was made, since the caller only sees nil.
+local function refuse(why: string): nil
+    io.stderr:write("nupp: no source digest: ", why, "\n")
+    return nil
+end
+
 -- What `scripts/shared-cache digest` answers, asked of git directly: the
 -- sha256 of one `<blob> <path>` line per listed file, in byte order. On
 -- Windows `io.popen` hands its line to cmd, and a shell script run from there
@@ -155,9 +162,10 @@ export function gitTreeDigest(root: string, paths: {string}): string?
     for _, path in ipairs(paths) do
         words[#words + 1] = spell(path)
     end
-    local listed = lines(table.concat(words, " ") .. quiet)
+    local listing = table.concat(words, " ")
+    local listed = lines(listing .. quiet)
     if not listed then
-        return nil
+        return refuse("cannot start: " .. listing)
     end
     table.sort(listed)
     local files: {string} = {}
@@ -171,7 +179,7 @@ export function gitTreeDigest(root: string, paths: {string}): string?
         end
     end
     if #files == 0 then
-        return nil
+        return refuse(("%d listed, none readable under %s: %s"):format(#listed, root, listing))
     end
     local out: {string} = {}
     local index: integer = 1
@@ -183,9 +191,10 @@ export function gitTreeDigest(root: string, paths: {string}): string?
             size = size + #files[index] + 3
             index = index + 1
         end
-        local blobs = lines(table.concat(batch, " ") .. quiet)
+        local hashing = table.concat(batch, " ")
+        local blobs = lines(hashing .. quiet)
         if not blobs or #blobs ~= index - first then
-            return nil
+            return refuse(("%d of %d hashed: %s"):format(blobs and #blobs or 0, index - first, hashing:sub(1, 300)))
         end
         for offset, blob in ipairs(blobs) do
             out[#out + 1] = blob .. " " .. files[first + offset - 1] .. "\n"
