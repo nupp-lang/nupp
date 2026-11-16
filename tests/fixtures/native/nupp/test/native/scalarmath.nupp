@@ -1,4 +1,4 @@
-module scalarmath
+module nupp.test.native.scalarmath
 
 local function signedAdd(a: int32, b: int32): int32
     return math.i32.add(a, b)
