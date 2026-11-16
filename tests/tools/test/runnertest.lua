@@ -2089,18 +2089,18 @@ function M.scopesKeepDeliveryExplicitAndRejectUnassignedSuites()
     write(dir .. "/tests/shiptest.lua", "return {ships = function() end}\n")
     write(dir .. "/tests/groups.lua", 'return {}, {scopes = {unittest = "unit", shiptest = "delivery"}}\n')
     local json = require("testjson")
-    local ordinary = json.decode(runJson(path, "--jobs=1 --fresh --json"))
+    local ordinary = json.decode(runJson(dir, "--jobs=1 --fresh --json"))
     test.eq(ordinary.total, 1)
     test.eq(ordinary.tests[1].scope, "unit")
-    local delivery = json.decode(runJson(path, "shiptest --jobs=1 --json"))
+    local delivery = json.decode(runJson(dir, "shiptest --jobs=1 --json"))
     test.eq(delivery.total, 1)
     test.eq(delivery.tests[1].scope, "delivery")
-    test.eq(json.decode(runJson(path, "--scope=all --jobs=1 --json")).total, 2)
-    test.eq(json.decode(runJson(path, "--scope=unit --jobs=1 --json")).total, 1)
+    test.eq(json.decode(runJson(dir, "--scope=all --jobs=1 --json")).total, 2)
+    test.eq(json.decode(runJson(dir, "--scope=unit --jobs=1 --json")).total, 1)
     write(dir .. "/tests/groups.lua", 'return {}, {scopes = {unittest = "unit"}}\n')
-    test.matches(run(path, "--list-suites"), "shiptest has no valid scope")
+    test.matches(run(dir, "--list-suites"), "shiptest has no valid scope")
     os.remove(dir .. "/tests/groups.lua")
-    test.eq(json.decode(runJson(path, "--jobs=1 --json")).total, 2)
+    test.eq(json.decode(runJson(dir, "--jobs=1 --json")).total, 2)
     os.execute(("rm -rf %q"):format(dir))
 end
 
@@ -2128,6 +2128,8 @@ function M.windowsShellUsesArgumentVectorsForNativePipes()
 
         local environment = setmetatable(
             {
+                -- The runner's own local, defined above the extracted setup.
+                getinfo = debug.getinfo,
                 package = {
                     config = "\\",
                     loaded = {
