@@ -121,12 +121,19 @@ end
 
 -- The content digest of the files git lists under `paths` in `root`, tracked
 -- or not, ignored ones left out: what changes when any of them does.
+--
+-- On Windows `io.popen` hands the line to cmd, which can neither run a shell
+-- script nor read single quotes, so the script goes to `sh` in double quotes.
 export function treeDigest(root: string, paths: {string}): string?
-    local words = {quote(root .. "/scripts/shared-cache"), "digest", quote(root)}
+    local windows = package.config:sub(1, 1) == "\\"
+    local spell = windows and function(value: string): string
+        return '"' .. value .. '"'
+    end or quote
+    local words = {"sh", spell(root .. "/scripts/shared-cache"), "digest", spell(root)}
     for _, path in ipairs(paths) do
-        words[#words + 1] = quote(path)
+        words[#words + 1] = spell(path)
     end
-    local pipe = io.popen(table.concat(words, " ") .. " 2>/dev/null")
+    local pipe = io.popen(table.concat(words, " ") .. (windows and " 2>nul" or " 2>/dev/null"))
     if not pipe then
         return nil
     end
