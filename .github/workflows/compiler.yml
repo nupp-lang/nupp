@@ -502,6 +502,15 @@ jobs:
         with:
           fetch-depth: 0
 
+      # uritest holds the portable URL parser to node's `URL` as the browser
+      # oracle, so node has to follow the current WHATWG standard. The image's
+      # node 22 predates fixes the parser already has: a trailing `..` under a
+      # non-special host, and a relative reference against an opaque path.
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 26
+
       # This is a parser/checker oracle, not a build dependency. Pinning the
       # source keeps a language change from being conflated with an upstream
       # corpus change, and sparse checkout avoids fetching the rest of Teal.
