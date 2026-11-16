@@ -1,0 +1,156 @@
+#!/bin/sh
+# Build pinned upstream C libraries once per host/compiler/configuration.
+set -eu
+ROOT=$(CDPATH= cd -- "$(dirname "$0")/.." && pwd)
+. "$ROOT/scripts/toolchain.pins"
+die() { printf 'native-libraries: %s\n' "$*" >&2; exit 1; }
+note() { printf 'native-libraries: %s\n' "$*" >&2; }
+if command -v shasum >/dev/null 2>&1; then
+    hash() { shasum -a 256 | cut -d' ' -f1; }
+elif command -v sha256sum >/dev/null 2>&1; then
+    hash() { sha256sum | cut -d' ' -f1; }
+else
+    die 'install shasum or sha256sum'
+fi
+filehash() { hash < "$1"; }
+case "${NUPP_HOST_OFFLINE:-}" in
+    1|true|yes|on|TRUE|YES|ON) OFFLINE=1 ;;
+    ''|0|false|no|off|FALSE|NO|OFF) OFFLINE=0 ;;
+    *) die 'invalid NUPP_HOST_OFFLINE' ;;
+esac
+case "$(uname -s):$(uname -m)" in
+    Darwin:arm64) TARGET=aarch64-apple-darwin; SYSTEM=darwin ;;
+    Darwin:x86_64) TARGET=x86_64-apple-darwin; SYSTEM=darwin ;;
+    Linux:x86_64) TARGET=x86_64-unknown-linux-gnu; SYSTEM=linux ;;
+    Linux:aarch64|Linux:arm64) TARGET=aarch64-unknown-linux-gnu; SYSTEM=linux ;;
+    MINGW*:x86_64|MSYS*:x86_64) TARGET=x86_64-pc-windows-msvc; SYSTEM=windows ;;
+    *) die 'no supported native C-library target for this host' ;;
+esac
+[ "${NUPP_NATIVE_TARGET:-$TARGET}" = "$TARGET" ] || die 'cross compilation needs an explicit target toolchain; refusing host output for another target'
+CC=${NUPP_CC:-cc}
+if [ "$SYSTEM" = windows ]; then CC=${NUPP_CC:-cl}; fi
+command -v "$CC" >/dev/null 2>&1 || die "missing C compiler: $CC"
+command -v cmake >/dev/null 2>&1 || die 'cmake is required'
+JOBS=${NUPP_NATIVE_JOBS:-4}
+case "$JOBS" in ''|*[!0-9]*|0) die 'NUPP_NATIVE_JOBS must be positive' ;; esac
+if [ -n "${NUPP_TOOLCHAIN_DIR:-}" ]; then
+    CACHE=$NUPP_TOOLCHAIN_DIR
+else
+    COMMON=$(git -C "$ROOT" rev-parse --path-format=absolute --git-common-dir 2>/dev/null || true)
+    if [ -n "$COMMON" ]; then CACHE="$(dirname "$COMMON")/.nupp-cache/toolchain"; else CACHE="$ROOT/build/toolchain"; fi
+fi
+mkdir -p "$CACHE"
+CACHE=$(CDPATH= cd -- "$CACHE" && pwd)
+TOOLCHAIN=$({
+    printf '%s\n' "$TARGET" "$CC" "${CFLAGS:-}" "${CPPFLAGS:-}" "${LDFLAGS:-}" "${SDKROOT:-}" \
+        "${MACOSX_DEPLOYMENT_TARGET:-}" "${WindowsSDKVersion:-}" "${VCToolsVersion:-}"
+    "$CC" --version 2>&1 || "$CC" 2>&1 || true
+    cmake --version
+    if [ "$SYSTEM" = darwin ]; then xcrun --show-sdk-version; fi
+    if [ "$SYSTEM" = linux ]; then getconf GNU_LIBC_VERSION 2>/dev/null || true; fi
+    if command -v perl >/dev/null 2>&1; then perl -e 'print "$^V\n"'; fi
+    filehash "$ROOT/scripts/native-libraries"
+} | hash)
+
+archive() {
+    asset=$1 url=$2 expected=$3
+    mkdir -p "$CACHE/archives"
+    archive="$CACHE/archives/$asset"
+    if [ -f "$archive" ] && [ "$(filehash "$archive")" = "$expected" ]; then printf '%s\n' "$archive"; return; fi
+    pending=$(mktemp "$CACHE/archives/.download.XXXXXX")
+    if [ -n "${NUPP_HOST_SOURCE_DIR:-}" ] && [ -f "$NUPP_HOST_SOURCE_DIR/$asset" ]; then
+        cp "$NUPP_HOST_SOURCE_DIR/$asset" "$pending"
+    elif [ "$OFFLINE" = 1 ]; then
+        rm -f "$pending"; die "offline: provide $asset in NUPP_HOST_SOURCE_DIR"
+    else
+        if [ -n "${NUPP_HOST_SOURCE_BASE_URL:-}" ]; then url="${NUPP_HOST_SOURCE_BASE_URL%/}/$asset"; fi
+        note "fetching $asset"
+        if ! curl --fail --location --silent --show-error --output "$pending" "$url"; then rm -f "$pending"; die "cannot fetch $asset"; fi
+    fi
+    actual=$(filehash "$pending")
+    if [ "$actual" != "$expected" ]; then rm -f "$pending"; die "$asset digest $actual, expected $expected"; fi
+    mv "$pending" "$archive"
+    printf '%s\n' "$archive"
+}
+
+valid() {
+    [ -f "$1/identity" ] && [ -s "$1/files.sha256" ] || return 1
+    [ "$(head -n 1 "$1/identity")" = "$2" ] || return 1
+    [ "$(sed -n '2p' "$1/identity")" = "filesSha256=$(filehash "$1/files.sha256")" ] || return 1
+    while read -r expected name; do
+        [ -n "$expected" ] && [ -f "$1/$name" ] && [ "$(filehash "$1/$name")" = "$expected" ] || return 1
+    done < "$1/files.sha256"
+}
+
+# Recursive dependencies run in a separate process; shell variables never alias
+# the caller's component, destination or staging directory.
+build() (
+    component=$1
+    dependencies=''
+    case "$component" in
+        zlib) version=$ZLIB_VERSION; sourceHash=$ZLIB_SHA256; url=$ZLIB_URL; asset="zlib-$version.tar.gz"; sourceName="zlib-$version"; notice=zlib-LICENSE.txt ;;
+        openssl) version=$OPENSSL_VERSION; sourceHash=$OPENSSL_SHA256; url=$OPENSSL_URL; asset="openssl-$version.tar.gz"; sourceName="openssl-$version"; notice=OpenSSL-LICENSE.txt ;;
+        libcurl)
+            version=$LIBCURL_VERSION; sourceHash=$LIBCURL_SHA256; url=$LIBCURL_URL; asset="curl-$version.tar.xz"; sourceName="curl-$version"; notice=libcurl-LICENSE.txt
+            zlib=$(sh "$ROOT/scripts/native-libraries" zlib) || die 'zlib provisioning failed'
+            openssl=$(sh "$ROOT/scripts/native-libraries" openssl) || die 'OpenSSL provisioning failed'
+            dependencies="$(head -n 1 "$zlib/identity") $(head -n 1 "$openssl/identity")"
+            ;;
+        *) die "unknown component $component" ;;
+    esac
+    key=$(printf '%s\n' "$component" "$version" "$sourceHash" "$TOOLCHAIN" "$(filehash "$ROOT/scripts/c-libraries/$component.sh")" "$dependencies" | hash)
+    destination="$CACHE/c-libraries/$component/$TARGET-$key"
+    if valid "$destination" "$key"; then printf '%s\n' "$destination"; exit 0; fi
+    [ ! -e "$destination" ] || die "corrupt cache entry: $destination"
+    mkdir -p "$(dirname "$destination")"
+    lock="$destination.lock"
+    attempts=0
+    until mkdir "$lock" 2>/dev/null; do
+        if valid "$destination" "$key"; then printf '%s\n' "$destination"; exit 0; fi
+        attempts=$((attempts + 1))
+        [ "$attempts" -lt 180 ] || die "build remains locked: $lock"
+        sleep 1
+    done
+    staged=$(mktemp -d "${destination}.stage.XXXXXX")
+    trap 'rm -rf "$staged"; rmdir "$lock"' EXIT
+    trap 'exit 1' HUP INT TERM
+    if valid "$destination" "$key"; then printf '%s\n' "$destination"; exit 0; fi
+    package=$(archive "$asset" "$url" "$sourceHash")
+    tar -xf "$package" -C "$staged"
+    source="$staged/$sourceName"
+    install="$staged/install"
+    mkdir -p "$install/notices"
+    . "$ROOT/scripts/c-libraries/$component.sh"
+    cmp "$license" "$ROOT/host/notices/$notice" || die "$component notice differs from verified source"
+    cp "$license" "$install/notices/$notice"
+    if [ "$SYSTEM" = darwin ]; then
+        for library in "$install"/lib/*.dylib; do
+            [ -L "$library" ] && continue
+            install_name_tool -id "@rpath/$(basename "$library")" "$library"
+            otool -L "$library" | awk 'NR > 1 {print $1}' | while read -r linked; do
+                case "$linked" in
+                    "$staged"/*|"$CACHE/c-libraries/"*) install_name_tool -change "$linked" "@loader_path/$(basename "$linked")" "$library" ;;
+                esac
+            done
+        done
+    fi
+    # Each consumer carries the same exact dependency bytes beside its library.
+    if [ "$component" = libcurl ]; then
+        cp -RP "$zlib/lib/." "$install/lib/"
+        cp -RP "$openssl/lib/." "$install/lib/"
+        cp -RP "$zlib/notices/." "$install/notices/"
+        cp -RP "$openssl/notices/." "$install/notices/"
+        if [ "$SYSTEM" = windows ]; then cp -RP "$zlib/bin/." "$install/bin/"; cp -RP "$openssl/bin/." "$install/bin/"; fi
+    fi
+    # Verify loader aliases too: changing an unversioned symlink must never
+    # redirect a consumer to bytes outside the validated artifact.
+    (cd "$install"; find include lib bin notices \( -type f -o -type l \) 2>/dev/null | LC_ALL=C sort | while IFS= read -r name; do printf '%s %s\n' "$(filehash "$name")" "$name"; done) > "$install/files.sha256"
+    [ -s "$install/files.sha256" ] || die 'empty installed artifact'
+    printf '%s\nfilesSha256=%s\ncomponent=%s\nversion=%s\nsourceSha256=%s\ntarget=%s\ntoolchain=%s\ndependencies=%s\n' \
+        "$key" "$(filehash "$install/files.sha256")" "$component" "$version" "$sourceHash" "$TARGET" "$TOOLCHAIN" "$dependencies" > "$install/identity"
+    mv "$install" "$destination"
+    valid "$destination" "$key" || die 'installed artifact verification failed'
+    printf '%s\n' "$destination"
+)
+[ "$#" -gt 0 ] || die 'usage: scripts/native-libraries zlib|openssl|libcurl ...'
+for component in "$@"; do build "$component"; done
