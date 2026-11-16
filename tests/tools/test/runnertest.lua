@@ -2156,6 +2156,8 @@ function M.windowsShellUsesArgumentVectorsForNativePipes()
             {__index = _G}
         )
         environment._G = environment
+        -- The setup reads the runner's own `getinfo` local, declared above it.
+        environment.getinfo = debug.getinfo
         assert(setfenv(assert(loadstring(setup, "@nupp:test-runner")), environment))()
         local pipe = environment.io.popen("printf 'worker report'", "r")
         if native then
