@@ -76,6 +76,13 @@ runs:
         sha256sum "$generation/runtime" "$generation/compiler.image" build/rust/native-core-object/*/nupp-vm 2>&1 | cut -c1-16,65-
         ls -la ~/.cache/nupp/build-steps 2>&1 | head -8
         git status --porcelain --untracked-files=all -- src templates native runtime scripts bin | head -10
+        writer=$(ls -d build/rust/native-core-object/*/nupp-vm 2>/dev/null | head -n 1)
+        if [ -n "$writer" ]; then
+          begun=$(date +%s)
+          NUPP_VM_AUTO_REBUILD=0 NUPP_COMPILER_ROOT="$PWD" ./bin/nupp run scripts/native-runtime-build.lua "$writer" 2>&1 \
+            | grep -v '^/' || true
+          echo "native core step alone took $(( $(date +%s) - begun ))s"
+        fi
         facilities=$(grep -v '^vector$' build/test-runner/.nupp-vm-program.facilities | paste -sd, -)
         start=$(date +%s)
         PS4='+$(date +%s) ' bash -x ./scripts/toolchain vm-program "$facilities" "$payload" 2>&1 >/dev/null \
