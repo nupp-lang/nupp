@@ -1,10 +1,12 @@
 module nupp.tests.vmstorageconsumers
 
+local bytes = require("bytes")
+
 local probe = {}
 
 function probe.run(): integer
     const Array = table.Array
-    local shared = io.SharedBytes
+    local shared = bytes.SharedBytes
     local values = Array.alloc(ffi.typeof<int32>(), 2)
     do
         local writable = values:write();
@@ -32,11 +34,11 @@ function probe.run(): integer
     assert(region:tostring() == "ABCD" and region:len() == 4)
     local view = region:viewas(ffi.typeof<uint8>())
     assert(#view == 4 and view[1] == 65 and view[4] == 68)
-    local builder = io.Buffer.create()
+    local builder = bytes.Buffer.create()
     builder:put("xy")
     builder:put("z")
     assert(builder:freeze():tostring() == "xyz")
-    local empty = io.Buffer.create()
+    local empty = bytes.Buffer.create()
     assert(empty:freeze():tostring() == "")
     assert(
         not pcall(function(): nil
