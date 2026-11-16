@@ -1,0 +1,152 @@
+name: Windows probe
+
+# Temporary, on a probe branch only: the Windows integration leg up to its
+# native preflight, without waiting on Fast checks.
+on:
+  push:
+    branches:
+      - ci-windows-probe-core-dev
+
+env:
+  NUPP_VM_AUTO_LINK: "0"
+
+jobs:
+  windows:
+    name: Windows x64 probe
+    runs-on: windows-2022
+    timeout-minutes: 240
+    steps:
+      - name: Check out the repository
+        uses: actions/checkout@v5
+
+      # This is a parser/checker oracle, not a build dependency. Pinning the
+      # source keeps a language change from being conflated with an upstream
+      # corpus change, and sparse checkout avoids fetching the rest of Teal.
+      - name: Check out the Teal 0.8.0 tl.lua oracle
+        uses: actions/checkout@v5
+        with:
+          repository: teal-language/tl
+          ref: 8ea89e75751e6cea0547f3838e0e244497d88bd6
+          path: .ci-corpus/teal
+          sparse-checkout: tl.lua
+          sparse-checkout-cone-mode: false
+
+      # After the checkout rather than before it: `actions/checkout` cleans the
+      # workspace, so anything restored first would be removed again before a
+      # step could use it. The key is the toolchain pins, which is everything
+      # the tools are built from; nupp.lua is left out, since it changes several
+      # times a week for reasons that build no tool.
+      - name: Restore the pinned build tools
+        uses: actions/cache@v4
+        with:
+          path: ${{ runner.temp }}/nupp-ci-tools
+          key: >-
+            nupp-tools-${{ runner.os }}-${{ runner.arch }}-${{
+            hashFiles('scripts/toolchain.pins') }}
+
+      # Each entry validates its own content, so an approximate match is useful
+      # here where it would not be above: a lock file that moved on rebuilds the
+      # crates that changed and reuses the rest.
+      - name: Restore the provisioned toolchain
+        uses: actions/cache@v4
+        with:
+          path: .nupp-cache/toolchain
+          key: >-
+            nupp-toolchain-${{ runner.os }}-${{ runner.arch }}-${{
+            hashFiles('scripts/toolchain.pins', 'scripts/toolchain') }}
+          restore-keys: |
+            nupp-toolchain-${{ runner.os }}-${{ runner.arch }}-
+
+      # One identity for the Rust artifacts, shared by every job that builds
+      # them: the lock file, the toolchain file and the native sources. The
+      # feature sets differ between the GPU jobs and the platform gate, and the
+      # store is content-addressed, so a job that asked for a different set
+      # rebuilds what it needs and reuses the rest rather than starting empty.
+      - name: Restore the Rust build outputs
+        uses: actions/cache@v4
+        with:
+          path: build/rust
+          key: >-
+            nupp-rust-${{ runner.os }}-${{ runner.arch }}-${{
+            hashFiles('Cargo.lock', 'Cargo.toml', 'rust-toolchain.toml',
+            'native/**/Cargo.toml', 'scripts/toolchain', 'scripts/toolchain.pins') }}
+          restore-keys: |
+            nupp-rust-${{ runner.os }}-${{ runner.arch }}-
+
+      - name: Restore the content-validated compiler cache
+        uses: actions/cache/restore@v4
+        with:
+          path: build/cache
+          key: >-
+            nupp-buildcache-${{ runner.os }}-${{ runner.arch }}-${{
+            hashFiles('src/**', 'nupp.lua', 'scripts/toolchain.pins') }}
+          restore-keys: |
+            nupp-buildcache-${{ runner.os }}-${{ runner.arch }}-
+
+      # Suite durations are what the process lanes are packed from. A clean
+      # runner without them packs blind and the busiest shard decides the wall
+      # clock, so this is a scheduling input, not a correctness one: an
+      # approximate match is exactly as useful as an exact one.
+      - name: Restore the recorded suite timings
+        uses: actions/cache/restore@v4
+        with:
+          path: build/.nupp-test-times.json
+          key: >-
+            nupp-test-times-${{ runner.os }}-${{ runner.arch }}-${{ github.sha }}
+          restore-keys: |
+            nupp-test-times-${{ runner.os }}-${{ runner.arch }}-
+
+      - name: Install the ABI-compatible Windows Rust toolchain
+        if: runner.os == 'Windows'
+        shell: bash
+        run: |
+          channel=$(sed -n 's/^channel = "\([^"]*\)"$/\1/p' rust-toolchain.toml)
+          rustup toolchain install "${channel}-x86_64-pc-windows-gnu" --profile minimal
+
+      - name: Restore the VM compiler
+        uses: ./.github/actions/vm-cli-restore
+
+      - name: Provision the pinned toolchain
+        shell: bash
+        run: ./scripts/toolchain --all
+
+      - name: Bootstrap the compiler
+        shell: bash
+        run: ./bin/nupp version
+
+      - name: Build the documentation
+        shell: bash
+        run: ./bin/nupp build --target docs
+
+      # Already answered on Linux by the fast gate, which every path through
+      # this graph passes through before reaching here. The other platforms are
+      # asked because a checker answer is not promised to be platform-free.
+      - name: Check the compiler
+        if: runner.os != 'Linux'
+        shell: bash
+        run: ./bin/nupp check
+
+      # The Windows Rust ABI is selected through rustup, then shared by the VM
+      # runtime and its providers. Exercise that contract before the expensive
+      # native and full-suite gates so a test fixture cannot accidentally model
+      # Windows as an invented Unix host.
+      #
+      # Fail close to provisioning, and name the last case if the Windows
+      # loader or native networking layer terminates the test process. Exercise
+      # the nested launcher fixtures here too: in the full suite that process is
+      # one long-lived shard, so a failure otherwise appears twenty minutes later
+      # as many unrelated unrun suites. The broad suite below leaves this group
+      # out rather than running it a second time unchanged.
+      - name: Run the Windows native and launcher preflight
+        if: runner.os == 'Windows'
+        shell: bash
+        env:
+          NUPP_TEST_TRACE_CASES: 1
+        run: |
+          set -euo pipefail
+          bash_path=$(command -v bash)
+          sh_path=$(dirname "$bash_path")/sh.exe
+          test -f "$sh_path"
+          NUPP_TEST_BASH=$(cygpath -w "$bash_path") \
+          NUPP_TEST_SH=$(cygpath -w "$sh_path") \
+          ./bin/nupp test --fresh --scope=all --jobs=1 --group=windows-preflight

@@ -15,6 +15,7 @@ on:
   push:
     branches:
       - "**"
+      - "!ci-windows-probe-core-dev"
     # A pre-release tag (`v0.0.15-vm.1`) names a commit its branch push already
     # tested; running the matrix again over the same commit buys nothing.
     tags:
