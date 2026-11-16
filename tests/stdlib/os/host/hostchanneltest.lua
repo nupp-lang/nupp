@@ -36,6 +36,19 @@ local function luajit()
     return found
 end
 
+-- Git Bash names the temporary directory `/c/Users/...`, which the node suite's
+-- guest, a Windows process, cannot open on its path. This process opens it fine
+-- and its package.config did not report Windows on CI, so jit.os decides, as
+-- nativeDriver does below. Backslashes, because the Windows test shell turns
+-- `C:/` in a command back into `/c/`.
+local function guestDirectory(directory, system)
+    if system == "Windows" then
+        return (directory:gsub("^/(%a)/", "%1:/"):gsub("/", "\\"))
+    end
+
+    return directory
+end
+
 -- The stream scenario's events are Nupp; the emulated guest loads them compiled.
 local function compiledEvents()
     local directory = os.tmpname()
@@ -51,16 +64,7 @@ local function compiledEvents()
     file:write(output)
     file:close()
 
-    -- Git Bash names the temporary directory `/c/Users/...`, which the node
-    -- suite's guest, a Windows process, cannot open on its path. This
-    -- process opens it fine and its package.config did not report Windows
-    -- on CI, so jit.os decides, as nativeDriver does below. Backslashes,
-    -- because the Windows test shell turns `C:/` in a command back into `/c/`.
-    if jit.os == "Windows" then
-        directory = directory:gsub("^/(%a)/", "%1:/"):gsub("/", "\\")
-    end
-
-    return directory
+    return guestDirectory(directory, jit.os)
 end
 
 local function passesNodeSuite(label, file)
@@ -84,6 +88,14 @@ local function passesNodeSuite(label, file)
     check.eq(failed, 0, label .. " failed:\n" .. output)
     check(passed > 0, label .. " ran no test")
     check(exited, "node exited unsuccessfully:\n" .. output)
+end
+
+function M.theGuestGetsADriveLetterPathOnWindows()
+    local shell = "/c/Users/RUNNER~1/AppData/Local/Temp/s5ec.0"
+    check.eq(guestDirectory(shell, "Windows"), "c:\\Users\\RUNNER~1\\AppData\\Local\\Temp\\s5ec.0")
+    check.eq(guestDirectory("D:/a/tmp", "Windows"), "D:\\a\\tmp")
+    check.eq(guestDirectory("/tmp/lua_x", "OSX"), "/tmp/lua_x")
+    check.eq(guestDirectory(shell, "Linux"), shell)
 end
 
 function M.theBrowserChannelKeepsItsContract()
