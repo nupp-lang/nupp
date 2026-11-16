@@ -6,7 +6,9 @@
 -- shadows names it has no use for on purpose. Those are the two lints that ask a
 -- file to be a whole program, so the fragment default turns both off. Leaving
 -- them on would mean every fixture in the suite carried a `return` it is not
--- about, which is a worse fixture and a worse test.
+-- about, which is a worse fixture and a worse test. A fragment also reaches a
+-- module by its full path when that path is what the case is about, which
+-- `inline-module-path` would ask it to spell as an import instead.
 --
 -- A case that is about either lint asks for it back the way a project would, by passing
 -- its own `lints` table -- `opts.lints` replaces this wholesale, the same as it
@@ -15,7 +17,11 @@
 
 local check = require("nupp.compiler.check")
 
-local FRAGMENT_LINTS = {["unused-binding"] = "off", ["discarded-result"] = "off",}
+local FRAGMENT_LINTS = {
+    ["unused-binding"] = "off",
+    ["discarded-result"] = "off",
+    ["inline-module-path"] = "off",
+}
 
 local fragment = {}
 
