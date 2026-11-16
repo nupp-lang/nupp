@@ -103,7 +103,10 @@
         {
           "name": "Check the compiler",
           "compilerModes": ["strict"],
-          "guarantees": ["the compiler type-checks its own sources"]
+          "guarantees": [
+            "the compiler type-checks its own sources",
+            "committed source spells module paths as imports"
+          ]
         }
       ]
     },

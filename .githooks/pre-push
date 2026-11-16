@@ -1,5 +1,6 @@
 #!/bin/sh
-# Refuses a push carrying source the formatter would rewrite.
+# Refuses a push carrying source the formatter would rewrite, or a module
+# path the `inline-module-path` lint would rewrite as an import.
 #
 # The gate exists because the answer is cheap here and expensive everywhere
 # else. `fmttreetest` asks the same question, but only in CI, twenty-odd
@@ -64,9 +65,32 @@ done
 
 # shellcheck disable=SC2086
 unformatted=$(./bin/nupp fmt --check $present || true)
-[ -n "$unformatted" ] || exit 0
+if [ -n "$unformatted" ]; then
+    printf 'nupp: this push carries source the formatter would rewrite:\n\n' >&2
+    printf '%s\n' "$unformatted" >&2
+    printf '\nRun `nupp fmt --write` on them and amend, or push with --no-verify.\n' >&2
+    exit 1
+fi
 
-printf 'nupp: this push carries source the formatter would rewrite:\n\n' >&2
-printf '%s\n' "$unformatted" >&2
-printf '\nRun `nupp fmt --write` on them and amend, or push with --no-verify.\n' >&2
-exit 1
+# Import spelling is the `inline-module-path` lint's question rather than the
+# formatter's, and like formatting it has one answer, which the lint's fix
+# writes. It is asked of the project's own modules -- the include roots in
+# nupp.lua -- since a file outside them is checked on its own, and a test
+# fixture there may be wrong on purpose. Only this lint refuses the push: a
+# type error is CI's to report.
+modules=""
+for file in $present; do
+    case "$file" in
+        *.d.nupp) ;;
+        src/*|tests/tools/test/runner/*|evals/lib/*) modules="$modules $file" ;;
+    esac
+done
+[ -n "$modules" ] || exit 0
+
+# shellcheck disable=SC2086
+if ./bin/nupp check --json $modules 2>/dev/null | grep -q '"code":"NUPP2520"'; then
+    printf 'nupp: this push spells module paths that should be imports:\n\n' >&2
+    ./bin/nupp check --deny inline-module-path $modules >&2 || true
+    printf '\nApply the fix `nupp check --json` offers, or push with --no-verify.\n' >&2
+    exit 1
+fi

@@ -426,8 +426,8 @@ jobs:
     needs: [classify, build-linux]
     if: needs.classify.outputs.fast-checks == 'true'
     runs-on: ubuntu-24.04
-    # Formatting the tree takes twenty minutes when a compiler change has
-    # emptied the format cache, and the check four.
+    # Formatting the tree takes twenty minutes when a formatter or parser change
+    # has emptied the format cache, and the check four.
     timeout-minutes: 60
     steps:
       - name: Check out the repository
@@ -459,8 +459,10 @@ jobs:
             exit 1
           fi
 
+      # Import spelling is the `inline-module-path` lint's question rather than
+      # the formatter's, so the tree is held to it here.
       - name: Check the compiler
-        run: ./bin/nupp check
+        run: ./bin/nupp check --deny inline-module-path
 
       # Saved whatever the two steps above concluded. The entries validate
       # their own content, so a stale one is a miss and cannot change an
