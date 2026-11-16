@@ -1137,6 +1137,47 @@ function M.checkRefusesAManifestItCannotLoad()
     os.execute("rm -rf '" .. dir .. "'")
 end
 
+-- `--deny` refuses a lint for one run without moving the project's level, so one
+-- project passes an ordinary check and fails a denying one, whether the project or
+-- a file is asked about. A name that is no lint is a usage error, not a no-op.
+function M.checkDenyRaisesALintForOneRun()
+    local dir = os.tmpname()
+    os.remove(dir)
+    assert(os.execute("mkdir -p '" .. dir .. "/src'") == 0)
+
+    local function write(name, text)
+        local file = assert(io.open(dir .. "/" .. name, "wb"))
+        file:write(text)
+        file:close()
+    end
+
+    write("nupp.lua", 'return {include = {"src"}}\n')
+    write(
+        "src/main.nupp",
+        "local function pick(first: boolean, second: boolean): string\n"
+        .. "    if first then\n        return \"first\"\n    else\n"
+        .. "        if second then\n            return \"second\"\n        end\n    end\n"
+        .. "    return \"neither\"\nend\n\nreturn pick\n"
+    )
+    for _, named in ipairs({"", " src/main.nupp"}) do
+        local output, code = captureStatusAt(dir, "check" .. named)
+        assert(code == 0, "a lint at its default level passes: " .. output)
+        assert(output:find("warning: NUPP2510 else-if", 1, true), output)
+        local denied, deniedCode = captureStatusAt(dir, "check --deny else-if" .. named)
+        assert(deniedCode == 1, "a denied lint fails the run: " .. denied)
+        assert(denied:find("error: NUPP2510 else-if", 1, true), denied)
+        local report = json.decode((captureJsonAt(dir, "check --json --deny style" .. named)))
+        assert(report.ok == false, "a category denies its lints")
+        assert(report.diagnostics[1].code == "NUPP2510" and report.diagnostics[1].severity == "error")
+        local again, againCode = captureStatusAt(dir, "check" .. named)
+        assert(againCode == 0 and again:find("warning: NUPP2510", 1, true), "and the next run is unmoved: " .. again)
+    end
+    local unknown, code = captureStatusAt(dir, "check --deny no-such-lint")
+    assert(code == 2, "an unknown lint is a usage error: " .. unknown)
+    assert(unknown:find("no-such-lint names no lint or category", 1, true), unknown)
+    os.execute("rm -rf '" .. dir .. "'")
+end
+
 function M.initListsItsTemplatesAsJson()
     local output, ok = captureJsonAt(HERE, "init --list --json")
     assert(ok, "--list --json succeeds: " .. output)

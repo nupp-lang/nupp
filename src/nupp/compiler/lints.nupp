@@ -225,4 +225,43 @@ function lints.level(lint: lints.Lint, config: {[string]: string}?): string
     return level
 end
 
+--- Raises every lint `denied` names to an error, for a run that refuses a lint without
+--- moving the project's configuration. Moving the configuration would change what
+--- every module was checked under, and the next ordinary check would redo them all.
+---
+--- The diagnostics are copied rather than changed, since what a check reports is also
+--- what the next check replays.
+---
+--- @param diagnostics what a check reported
+--- @param denied lint names, codes or categories, or nil
+--- @return the diagnostics, with each denied lint's severity raised to error
+function lints.deny(diagnostics: {any}, denied: {string}?): {any}
+    if not denied or #denied == 0 then
+        return diagnostics
+    end
+    local named: {[string]: boolean} = {}
+    for _, key in ipairs(denied) do
+        named[key] = true
+    end
+    local out: {any} = {}
+    for index, diagnostic in ipairs(diagnostics) do
+        local lint = byKey[diagnostic.lint or ""] or byKey[diagnostic.code or ""]
+        if lint
+            and diagnostic.severity ~= "error"
+            and (named[lint.name] or named[lint.code] or named[lint.category])
+        then
+            local raised = {}
+            for key, value in pairs(diagnostic) do
+                raised[key] = value
+            end
+            raised.severity = "error"
+            out[index] = raised
+        else
+            out[index] = diagnostic
+        end
+    end
+
+    return out
+end
+
 export = lints

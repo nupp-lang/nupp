@@ -29,6 +29,7 @@ local requires = require("nupp.tools.build.requires")
 local hash = require("nupp.compiler.hash")
 local incremental = require("nupp.compiler.project.incremental")
 local diagnosticMod = require("nupp.compiler.diagnostics")
+local lints = require("nupp.compiler.lints")
 local fs = require("nupp.compiler.fs")
 local cache = require("nupp.tools.build.cache")
 local fingerprint = require("nupp.compiler.project.fingerprint")
@@ -1119,7 +1120,12 @@ local function buildModules(root: string, outDir: string, config: Config, target
     --- The graph to check through, when an earlier phase already opened one. A
     --- build given none opens its own, so there is one way a session is built
     --- rather than two that could drift.
-    session: modules.Session?): modules.Result?, string?
+    session: modules.Session?,
+
+    --- Lints reported as errors for this run, by name, code or category. Raised where
+    --- the diagnostics are reported, not where they are recorded, so the next run
+    --- replays what the checker said.
+    deny: {string}?): modules.Result?, string?
     local report = reporter or progress.new("never")
     local opened = session or openSession(root, outDir, config, target, newState.dependencies, reporter)
     local inc = opened.inc
@@ -2091,6 +2097,7 @@ local function buildModules(root: string, outDir: string, config: Config, target
             end
         end
     end
+    errors = lints.deny(errors, deny)
     local fatal, checkFailed = false, false
     for _, e in ipairs(errors) do
         if isFatal(e) then

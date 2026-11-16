@@ -73,6 +73,11 @@ type project.BuildOptions = {
     --- same terms, saying "checked" where a build says "built".
     progress: string?,
 
+    --- Lints, by name, code or category, reported as errors for this run. Applied to
+    --- what is reported rather than to the configuration modules are checked under,
+    --- so a run that asks reuses what an ordinary one worked out.
+    deny: {string}?,
+
     --- Every diagnostic, instead of printing them.
     diagnostics: {any}?,
 
@@ -535,7 +540,8 @@ local function buildOne(root: string?, opts: project.BuildOptions?): integer
         report,
         nil,
         nil,
-        session
+        session,
+        opts.deny
     )
     -- Everything from here writes to the same stream the step line is on, so it comes
     -- off the screen once rather than before each of a dozen messages.

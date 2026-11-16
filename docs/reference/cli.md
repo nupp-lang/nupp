@@ -496,6 +496,7 @@ Options:
   --platform NAME  Check one configured binary platform, or all.
   --progress[=WHEN], -q, --quiet
                    When to report progress and timing.
+  --deny LINT      Report a lint, or a lint category, as an error.
   --format FORMAT, --json, --text
                    Select the report representation.
   --schema         Print the JSON Schema of JSON output and exit.
@@ -507,6 +508,11 @@ Options:
 In a `.nupp` file unknown variables are errors and module exports need
 annotations; a `.lua` file is checked as plain Lua. `--target` names a manifest
 target and cannot be combined with explicit files.
+
+`--deny` takes what the `lints` table in `nupp.lua` takes -- a lint's name, its
+code, or a category -- and may be repeated. It raises what this run reports and
+not what the project's modules are checked under, so a denying run and an
+ordinary one reuse each other's work. See [lints.md](lints.md) for the names.
 
 A clean project writes nothing and exits 0. With
 `local shout: number = greet("world")` added to `src/greet.nupp`:

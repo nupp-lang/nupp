@@ -85,6 +85,13 @@ local function run(options: any): integer
         return usageError("--target and --platform cannot be combined with source files")
     end
     local asJson = values.format == "json"
+    local lints = require("nupp.compiler.lints")
+    local deny: {string} = values.deny
+    for _, key in ipairs(deny) do
+        if not lints.get(key) and not lints.categories[key] then
+            return usageError(("--deny %s names no lint or category; see `nupp lints`"):format(key))
+        end
+    end
     -- Nothing is narrated at a program: it gets `timing` in the document it asked for.
     -- Naming --progress explicitly overrules that, which is how somebody watching a
     -- --json check sees it move.
@@ -111,7 +118,8 @@ local function run(options: any): integer
             platform = values.platform,
             diagnostics = asJson and diagnostics or nil,
             produced = asJson and produced or nil,
-            progress = progressMode
+            progress = progressMode,
+            deny = deny
         })
         if not produced.timing then
             local total = progress.now() - started
@@ -215,6 +223,7 @@ local function run(options: any): integer
                 diagnostics = asJson and diagnostics or nil,
                 produced = produced,
                 progress = progressMode,
+                deny = deny,
             })
             if produced.timing then
                 timing = produced.timing
@@ -260,7 +269,7 @@ local function run(options: any): integer
             end
             failed = true
         else
-            local diags = check.check(result, path, env as {[string]: any})
+            local diags = lints.deny(check.check(result, path, env as {[string]: any}), deny)
             if asJson then
                 for _, diagnostic in ipairs(diags) do
                     diagnostics[#diagnostics + 1] = diagnostic
@@ -323,6 +332,10 @@ local record Check
         value = "WHEN"
     )
     progress: string?
+
+    --- Report a lint, or a lint category, as an error.
+    @cli(value = "LINT")
+    deny: {string} = {}
 
     --- Select the report representation.
     @cli(value = "FORMAT", constantaliases = {json = "json", text = "text"})
