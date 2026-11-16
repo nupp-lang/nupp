@@ -1039,7 +1039,8 @@ function M.meetsTheOtherExecutor()
     local ready = assert(io.open(%q, "wb"))
     ready:write("ready")
     ready:close()
-    local deadline = os.clock() + 5
+    -- Windows workers take about six seconds to start, so wait a minute.
+    local deadline = os.clock() + 60
     repeat
         local found = io.open(%q, "rb")
         if found then
