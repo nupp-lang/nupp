@@ -120,17 +120,22 @@ class Routing(unittest.TestCase):
         with patch.dict(os.environ, {"NUPP_VM_EMIT_CACHE": "older-compiler-cache"}):
             self.assertEqual(cli.compiler_environment(None)["NUPP_VM_EMIT_CACHE"], "")
 
-    def test_lowering_caches_are_separated_by_executing_image_not_source(self):
+    def test_lowering_caches_are_keyed_by_the_executing_runtime(self):
+        # One cache directory serves every generation; what an emit kept is
+        # replayed only for the same interpreter, which the emit is told.
         with tempfile.TemporaryDirectory() as temp:
-            image = Path(temp) / "compiler.image"
-            env = {"NUPP_VM_EMIT_CACHE": str(Path(temp) / "cache"), "NO_AOT": "1"}
-            image.write_bytes(b"old lowering")
-            old = cli.emission_environment(image, env)
-            image.write_bytes(b"new integer lowering")
-            new = cli.emission_environment(image, env)
-            self.assertNotEqual(old["NUPP_VM_EMIT_CACHE"], new["NUPP_VM_EMIT_CACHE"])
-            self.assertEqual(env["NUPP_VM_EMIT_CACHE"], str(Path(temp) / "cache"))
+            package = Path(temp)
+            env = {"NUPP_VM_EMIT_CACHE": str(package / "cache"), "NO_AOT": "1"}
+            (package / "runtime").write_bytes(b"old interpreter")
+            old = cli.emission_environment(cli.runtime_identity(package), env)
+            (package / "runtime").write_bytes(b"new interpreter")
+            new = cli.emission_environment(cli.runtime_identity(package), env)
+            self.assertNotEqual(old[cli.RUNTIME_IDENTITY_VARIABLE], new[cli.RUNTIME_IDENTITY_VARIABLE])
+            self.assertEqual(old["NUPP_VM_EMIT_CACHE"], new["NUPP_VM_EMIT_CACHE"])
+            self.assertNotIn(cli.RUNTIME_IDENTITY_VARIABLE, env)
             self.assertEqual(new["NO_AOT"], "1")
+            (package / cli.RUNTIME_IDENTITY_FILE).write_text("recorded identity\n")
+            self.assertEqual(cli.runtime_identity(package), "recorded identity")
 
     def test_old_installed_checker_falls_back_to_verified_seed_without_rust_execution(self):
         with tempfile.TemporaryDirectory() as temp:
@@ -138,6 +143,9 @@ class Routing(unittest.TestCase):
             packages = root / "packages"
             packages.mkdir()
             (packages / "current").write_text("old")
+            for name in ("old", "seed"):
+                (root / name).mkdir()
+                (root / name / "runtime").write_bytes(name.encode())
             calls = []
             def step(command, env=None, what=""):
                 calls.append((command, env))
@@ -169,6 +177,8 @@ class Routing(unittest.TestCase):
                 image = out / "compiler.image"
                 built = root / "built-runtime"
                 built.write_bytes(b"current native runtime")
+                (root / "seed").mkdir()
+                (root / "seed/runtime").write_bytes(b"seed runtime")
                 commands = []
                 def step(command, env=None, what=""):
                     commands.append((command, env))
@@ -181,7 +191,7 @@ class Routing(unittest.TestCase):
                         patch.object(cli, "execution_seed", return_value=root / "seed"), \
                         patch.object(cli, "selected", return_value=root / "installed-aot"), \
                         patch.object(cli, "emit_with", side_effect=emit) as warm, \
-                        patch.object(cli, "root_extras", return_value=""), patch.object(cli, "pin"), \
+                        patch.object(cli, "root_extras", return_value=""), \
                         patch.object(cli, "run_step", side_effect=step), \
                         patch.object(cli, "native_runtime_object", return_value=root / "core.o") as core, \
                         patch.object(cli, "cargo", return_value=built) as cargo, patch.object(cli, "install"):
@@ -264,7 +274,7 @@ PLATFORM=darwin; RUST_TOOL_MATERIAL=fixture; KEY=fixture
 CC=cc; CXX=c++; RUSTC=rustc
 export ROOT
 select_rust_tools() { :; }
-python3() { printf '%s/core.o\n' "$ROOT"; test ! -f "$ROOT/fail-core"; }
+build_native_core_object() { printf '%s/core.o\n' "$ROOT"; test ! -f "$ROOT/fail-core"; }
 rust_environment_material() { printf fixture; }
 rust_sources_digest() { printf fixture; }
 sha256() { sha256_stdin < "$1"; }
@@ -320,6 +330,8 @@ printf '%s\n' "$RUST_VM_AOT_TOOL_OUT"
     def test_cold_lowering_image_uses_seed_not_cargo_execution(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
+            (root / "seed").mkdir()
+            (root / "seed/runtime").write_bytes(b"seed runtime")
             def step(command, *args):
                 self.assertEqual(command[:3], [str(root / "seed/runtime"), "run", str(root / "seed/compiler.image")])
                 Path(command[-1]).write_bytes(b"new image")
