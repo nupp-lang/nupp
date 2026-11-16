@@ -790,8 +790,11 @@ EOF
     [ -f "$object_tool" ] || die "the native object writer is missing from $out"
     # Run from the compiler image. A compiler older than that command runs the
     # same module as a script, which checks its whole closure from source first.
-    NUPP_VM_AUTO_REBUILD=0 NUPP_COMPILER_ROOT="$ROOT" "$ROOT/bin/nupp" __native-core "$object_tool" \
-        || NUPP_VM_AUTO_REBUILD=0 NUPP_COMPILER_ROOT="$ROOT" \
+    # On Windows ROOT is the MSYS path /d/a/..., which native git and the VM's
+    # file calls cannot open, so the build is handed the native spelling.
+    compiler_root=$(native_path "$ROOT")
+    NUPP_VM_AUTO_REBUILD=0 NUPP_COMPILER_ROOT="$compiler_root" "$ROOT/bin/nupp" __native-core "$object_tool" \
+        || NUPP_VM_AUTO_REBUILD=0 NUPP_COMPILER_ROOT="$compiler_root" \
             "$ROOT/bin/nupp" run "$ROOT/scripts/native-runtime-build.lua" "$object_tool" \
         || die "cannot build the Nupp execution core"
 }
