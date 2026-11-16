@@ -51,8 +51,8 @@ composer.platforms = {
         legs = {
             {kind = "gates", title = "native gates"},
             {kind = "native-core", title = "native core", select = "--group=native-runtime", shards = 4, jobs = 2},
-            lane("shared", GROUPED, 3, 32),
-            lane("isolated", GROUPED, 3),
+            lane("shared", GROUPED, 4, 32),
+            lane("isolated", GROUPED, 4),
             lane("shell", GROUPED, 4),
         },
     },
