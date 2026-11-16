@@ -6,6 +6,34 @@ local stable = require("nupp.compiler.stable")
 local buildLibraries = require("nupp.tools.build.libraries")
 local reuse = {}
 
+--- Prefixes of variables a CI service sets for its own bookkeeping, which it
+--- changes from one step or job to the next: GitHub Actions names each step's
+--- output, environment and summary files under these, and its run and job ids.
+--- Digesting them meant a test build recorded in one step was never found by
+--- the next, or by another job restoring the same build.
+const TRANSPORT_PREFIXES = {"GITHUB_", "ACTIONS_", "RUNNER_"}
+
+--- The CI variables under those prefixes that do describe the machine.
+const MACHINE_VARIABLES: {[string]: boolean} = {RUNNER_OS = true, RUNNER_ARCH = true}
+
+--- Whether `name` is transport the build cannot read: an agent's per-call id or
+--- a CI service's bookkeeping.
+local function transport(name: string): boolean
+    if name == "CODEX_TOOL_CALL_ID" or name == "INVOCATION_ID" or name == "JOURNAL_STREAM" then
+        return true
+    end
+    if MACHINE_VARIABLES[name] then
+        return false
+    end
+    for _, prefix in ipairs(TRANSPORT_PREFIXES) do
+        if name:sub(1, #prefix) == prefix then
+            return true
+        end
+    end
+
+    return false
+end
+
 -- This is a completed test build, above the module cache. Dependency resolution
 -- and generators still run before lookup; native providers and the host are
 -- refreshed before accepting a hit. Unknown input surfaces use the normal build.
@@ -44,9 +72,10 @@ function reuse.input(
     end
     local values = {}
     for item in environment:gmatch("([^%z]+)") do
-        -- An agent changes this transport ID on every tool call. It cannot
-        -- affect source compilation; native drivers still validate their inputs.
-        if item:match("^([^=]+)=") ~= "CODEX_TOOL_CALL_ID" then
+        -- Transport cannot affect source compilation; native drivers still
+        -- validate their inputs.
+        local name = item:match("^([^=]+)=")
+        if not (name and transport(name)) then
             values[#values + 1] = item
         end
     end

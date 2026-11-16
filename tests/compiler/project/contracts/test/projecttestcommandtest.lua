@@ -188,10 +188,18 @@ function M.testBuildReuseSurvivesSeparateCliProcessesAndToolCallIds()
     })
     local nupp = require("helpers.paths").root .. "/bin/nupp"
 
+    -- GitHub Actions names each step's files and its run under these, so a
+    -- build recorded in one step was never found by the next.
     local function run(id, setting)
         local code, output = process.capture({nupp, "test"}, {
             cwd = dir,
-            env = {CODEX_TOOL_CALL_ID = id, NUPP_TEST_REUSE_INPUT = setting}
+            env = {
+                CODEX_TOOL_CALL_ID = id,
+                GITHUB_OUTPUT = "/tmp/" .. id .. "/output",
+                GITHUB_RUN_ID = id,
+                ACTIONS_RUNTIME_TOKEN = id,
+                NUPP_TEST_REUSE_INPUT = setting,
+            }
         })
         testAssert.eq(code, 0, output)
         testAssert.eq(output, "ok\n")
