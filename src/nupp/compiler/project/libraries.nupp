@@ -1,0 +1,222 @@
+module nupp.compiler.project.libraries
+
+local fs = require("nupp.compiler.fs")
+local files = require("io.internal.files")
+local targetLayout = require("nupp.compiler.targetlayout")
+
+export type Binding = {
+    name: string,
+    reference: string,
+    path: string?,
+    error: string?,
+    dependencies: {string},
+    override: string?
+}
+
+export type Plan = {bindings: {[string]: Binding}}
+
+local function rooted(root: string, path: string): string
+    if path:match("^[/\\]") or path:match("^%a:[/\\]") then
+        return fs.absolute(path)
+    end
+    return fs.absolute(fs.join(root, path))
+end
+
+--- Returns the shared-library filename for a target triple or the current host.
+export function filename(name: string, target: string?): string
+    local platform = (target or targetLayout.hostKey() or ""):lower()
+    if platform:find("windows", 1, true) then
+        return name .. ".dll"
+    elseif platform:find("darwin", 1, true) or platform == "osx" then
+        return "lib" .. name .. ".dylib"
+    end
+
+    return "lib" .. name .. ".so"
+end
+
+local function regularFile(path: string): boolean
+    return files.stat(path) == "file"
+end
+
+local function completedDependencies(root: string, outDir: string): {[string]: any}
+    local text = fs.readFile(rooted(root, fs.join(outDir, ".nupp-state.json")))
+    if not text then
+        return {}
+    end
+    local json = require("serde.json")
+    local state, invalid = json.decodevalue(text, json.NULL)
+    if invalid ~= nil or type(state) ~= "table" or type(state.dependencies) ~= "table" then
+        return {}
+    end
+
+    return state.dependencies
+end
+
+--- Resolves project library inputs without building or copying them.
+---
+--- Missing files remain on their bindings until a target actually uses them.
+export function resolve(root: string, config: any, options: any?): Plan
+    options = options or {}
+    local target = options.target
+    local hostTarget = targetLayout.hostKey()
+    local getenv = options.getenv or os.getenv
+    local outDir = options.outDir or (config.build or {}).outDir or "build"
+    local configured = config.libraries or {}
+    local native = {}
+    for name, dependency in pairs(config.dependencies or {}) do
+        if dependency.kind == "c" or dependency.kind == "cargo" then
+            native[name] = dependency
+        end
+    end
+    local records = options.dependencies
+    if records == nil and next(native) ~= nil then
+        records = completedDependencies(root, outDir)
+    end
+    records = records or {}
+    local bindings: {[string]: Binding} = {}
+
+    local function reference(path: string): string
+        return options.packaged and "@lib/" .. fs.basename(path) or path
+    end
+
+    for name, library in pairs(configured) do
+        local base = library.name or name
+        local expected = filename(base, target)
+        local override = library.env and getenv(library.env) or nil
+        local binding: Binding = {
+            name = name,
+            reference = name,
+            dependencies = library.dependencies or {},
+            override = override,
+        }
+        local tried: {string} = {}
+        if override ~= nil and override ~= "" then
+            local path = rooted(root, override)
+            tried[#tried + 1] = library.env .. "=" .. path
+            if regularFile(path) then
+                binding.path, binding.reference = path, reference(path)
+            end
+        else
+            for _, directory in ipairs(library.search or {}) do
+                local path = rooted(root, fs.join(directory, expected))
+                tried[#tried + 1] = path
+                if regularFile(path) then
+                    binding.path, binding.reference = path, reference(path)
+                    break
+                end
+            end
+        end
+        if binding.path == nil then
+            binding.error = (
+                "cannot resolve native library %q (%s); searched %s"
+            ):format(name, expected, #tried > 0 and table.concat(tried, ", ") or "no configured search directories")
+        end
+        bindings[name] = binding
+    end
+
+    for name, dependency in pairs(native) do
+        local record = records[name]
+        if record and record.usage ~= nil and record.usage ~= "target" then
+            record = nil
+        end
+        local binding: Binding = {name = name, reference = name, dependencies = {}}
+        for _, child in ipairs(dependency.dependencies or {}) do
+            local childRecord = records[child]
+            local childDependency = native[child]
+            if childDependency
+                and childRecord
+                and (childRecord.usage == nil or childRecord.usage == "target")
+                and (childRecord.runtimeOutput or childRecord.staticOutput == nil and childRecord.output)
+            then
+                binding.dependencies[#binding.dependencies + 1] = child
+            end
+        end
+        local path = record and (record.runtimeOutput or (record.staticOutput == nil and record.output)) or nil
+        if record and record.staticOutput and options.standalone then
+            binding.reference = "<default>"
+        elseif record and record.reference and record.reference:sub(1, 1) ~= "@" then
+            binding.reference = record.reference
+        elseif path ~= nil then
+            path = rooted(root, path)
+            if regularFile(path) then
+                binding.path, binding.reference = path, reference(path)
+            else
+                binding.error = ("native library %q has no built shared file at %s"):format(name, path)
+            end
+        elseif record and record.staticOutput then
+            binding.error = (
+                "native library %q provides only static linkage; use a standalone binary or a shared dependency"
+            ):format(name)
+        else
+            local base = dependency.library or name
+            base = base:gsub("%-", "_")
+            local produced = dependency.output or fs.join(outDir, "lib/" .. filename(base, target))
+            local at = rooted(root, produced)
+            if regularFile(at) then
+                binding.path, binding.reference = at, reference(at)
+            else
+                binding.error = ("native library %q has not been built; expected %s"):format(name, at)
+            end
+        end
+        if dependency.kind == "cargo" and target ~= nil then
+            local actual = dependency.target or hostTarget
+            local sameWindowsAbi = actual ~= nil
+                and actual:match("^[^-]+") == target:match("^[^-]+")
+                and actual:find("windows", 1, true)
+                and target:find("windows", 1, true)
+            if actual ~= nil and actual ~= target and not sameWindowsAbi then
+                binding.error = (
+                    "native Cargo library %q targets %s, not %s; set dependencies.%s.target explicitly"
+                ):format(name, actual, target, name)
+            end
+        end
+        bindings[name] = binding
+    end
+
+    local ownErrors: {[string]: string} = {}
+    for name, binding in pairs(bindings) do
+        if binding.error then
+            ownErrors[name] = binding.error
+        end
+    end
+    local dependencyProblem: function(string, {[string]: boolean}): string?
+    dependencyProblem = function(name: string, visiting: {[string]: boolean}): string?
+        local binding = bindings[name]
+        if binding == nil then
+            return "unknown native library " .. name
+        end
+        if ownErrors[name] then
+            return ownErrors[name]
+        end
+        if visiting[name] then
+            return nil
+        end
+        visiting[name] = true
+        for _, child in ipairs(binding.dependencies) do
+            local problem = dependencyProblem(child, visiting)
+            if problem then
+                visiting[name] = nil
+                return ("native library %q requires %q: %s"):format(name, child, problem)
+            end
+        end
+        visiting[name] = nil
+
+        return nil
+    end
+    for name, binding in pairs(bindings) do
+        binding.error = dependencyProblem(name, {})
+    end
+
+    return {bindings = bindings}
+end
+
+--- Returns the stable resolution facts that a cached check depends on.
+export function fingerprint(bindings: {[string]: Binding}): string
+    local parts: {string} = {}
+    for name, binding in pairs(bindings) do
+        parts[#parts + 1] = name .. "\0" .. binding.reference .. "\0" .. (binding.error or "")
+    end
+    table.sort(parts)
+
+    return table.concat(parts, "\0")
+end

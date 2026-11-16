@@ -124,6 +124,8 @@ export type Definition = {
     mutatesSelfPaths: {[string]: boolean}?,
     cdef: boolean?,
     cdefIdentity: string?,
+    nativeLibraryName: string?,
+    nativeLibraryProblem: string?,
     comptimeFunction: boolean?,
     comptimeOnly: boolean?,
     associated: boolean?,

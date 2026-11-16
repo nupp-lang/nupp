@@ -50,6 +50,16 @@ function M.compilerChangeSelectsEveryPlatformAndFixpoint()
     })
 end
 
+function M.linuxOnlyDropsEveryNonLinuxJob()
+    local selection = classifier().linuxOnly(classifier().classify({"src/nupp/compiler/check/callexpr.nupp"}))
+    for _, name in ipairs({"macos-integration", "windows-integration", "gpu-windows"}) do
+        test(not selection.jobs[name], name .. " should be dropped")
+    end
+    for _, name in ipairs({"fast-checks", "linux-integration", "fixpoint", "gpu-linux"}) do
+        test(selection.jobs[name], name .. " should stay")
+    end
+end
+
 -- Frozen whole-language emission still consumes the live graph's guest APIs.
 -- Graph work must retain the shared-lane and compiler-rebuild obligations.
 function M.graphChangesKeepFrozenToolchainChecks()

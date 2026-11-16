@@ -3,6 +3,7 @@ module nupp.tools.build.testbuild
 local fs = require("nupp.compiler.fs")
 local deps = require("nupp.tools.build.deps")
 local stable = require("nupp.compiler.stable")
+local buildLibraries = require("nupp.tools.build.libraries")
 local reuse = {}
 
 -- This is a completed test build, above the module cache. Dependency resolution
@@ -56,6 +57,7 @@ function reuse.input(
         stable(config),
         stable(state.dependencies),
         stable(state.generators),
+        buildLibraries.input(config._nativeLibraryBindings or {}, state.nativeLibraries or {}, digest),
         table.concat(values, "\0"),
         tostring(jit and jit.os),
         tostring(jit and jit.arch)

@@ -5221,13 +5221,22 @@ function lower.emit(
                 end
             end
         elseif k == "cdefFunc" then
+            if node.nativeLibraryProblem then
+                error("NUPP2912: " .. node.nativeLibraryProblem, 0)
+            end
+            if node.nativeLibraryName then
+                f.nativeLibraries[node.nativeLibraryName] = true
+            end
             local metadata = require("nupp.compiler.vm.metadata")
             local signature = metadata.foreignSignature(node)
             -- The binding's temporaries are freed before the name is declared, so
             -- a module of many declarations holds one register for each.
             local mark = f.nregs
             local library = f:reg()
-            if node.fromLib then
+            local linked = node.nativeLibraryName ~= nil and node.resolvedLibrary == "<default>"
+            if node.resolvedLibrary and not linked then
+                f:op("K", library, f:const("str", node.resolvedLibrary))
+            elseif node.fromLib and not linked then
                 exprAs(f, {kind = "string", token = node.fromLib}, "v", library)
             else
                 f:op("Nil", library)

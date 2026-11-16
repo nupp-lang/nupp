@@ -13,6 +13,7 @@ const {type Resource} = require("nupp.tools.build.manifest")
 local hash = require("nupp.compiler.hash")
 local process = require("nupp.compiler.process")
 local fs = require("nupp.compiler.fs")
+local stable = require("nupp.compiler.stable")
 local deps = require("nupp.tools.build.deps")
 local modulesMod = require("nupp.tools.build.modules")
 
@@ -150,7 +151,13 @@ end
 --- `NUPP_VM_CLI_IMAGE` names another or nothing. Beside it is the interpreter
 --- running that image (`fingerprint.runtimeidentity`), which the image's digest
 --- does not cover.
-local function programKey(mainName: string, embedded: string?, modules: {[string]: any}?, coverage: boolean): string?
+local function programKey(
+    mainName: string,
+    embedded: string?,
+    modules: {[string]: any}?,
+    coverage: boolean,
+    config: Config
+): string?
     local compilerRoot = require("nupp.compiler.project.env").compilerRoot()
     if modules == nil or compilerRoot == nil then
         return nil
@@ -160,11 +167,12 @@ local function programKey(mainName: string, embedded: string?, modules: {[string
     local parts: {
         string
     } = {
-        "vm-program/4",
+        "vm-program/5",
         mainName,
         digest(embedded or ""),
         fingerprint.graphFingerprint(digest),
         fingerprint.runtimeidentity(),
+        stable(config._nativeLibraryBindings or {}),
     }
     -- An instrumented image is a different program; an ordinary key is unchanged.
     if coverage then
@@ -195,7 +203,7 @@ local function programPayload(
     target: Target,
     builtOutDir: string?,
     modules: {[string]: any}?
-): string?, string?, {string}?, {string}?
+): string?, string?, {string}?, {string}?, {string}?
     local outDir = builtOutDir or target.outDir or "build"
     local mainName, mainPath = entryModule(root, outDir, target)
     local resources, unreachable, resourceErr = carriedResources(root, config, target, mainName, mainPath, outDir)
@@ -263,18 +271,24 @@ local function programPayload(
     -- one that carries the compiler -- and an unchanged target lowers to the same
     -- image, so the last one is kept beside the output under the key it was
     -- emitted for.
-    local key = programKey(mainName, embedded, modules, coverage ~= nil)
+    local key = programKey(mainName, embedded, modules, coverage ~= nil, config)
     local cached = join(root, join(outDir, ".nupp-vm-program"))
     if key ~= nil and fs.readFile(cached .. ".key") == key then
         local kept = fs.readFile(cached .. ".image")
         local keptFacilities = fs.readFile(cached .. ".facilities")
-        if kept ~= nil and keptFacilities ~= nil then
+        local keptLibraries = fs.readFile(cached .. ".libraries")
+        if kept ~= nil and keptFacilities ~= nil and keptLibraries ~= nil then
             local facilities: {string} = {}
             for facility in keptFacilities:gmatch("[^\n]+") do
                 facilities[#facilities + 1] = facility
             end
 
-            return kept, nil, unreachable, facilities
+            local libraries: {string} = {}
+            for library in keptLibraries:gmatch("[^\n]+") do
+                libraries[#libraries + 1] = library
+            end
+
+            return kept, nil, unreachable, facilities, libraries
         end
     end
     -- A changed target still lowers only what changed: each module's lowering
@@ -296,7 +310,7 @@ local function programPayload(
         end
         os.remove(record)
     end
-    local ok: boolean, image: any, facilities: any = pcall(
+    local ok: boolean, image: any, facilities: any, libraries: any = pcall(
         require("nupp.tools.vm.project").program,
         root,
         config as table,
@@ -324,10 +338,11 @@ local function programPayload(
         -- stale image served under a current key.
         fs.writeFile(cached .. ".image", payload)
         fs.writeFile(cached .. ".facilities", table.concat(facilities as {string}, "\n") .. "\n")
+        fs.writeFile(cached .. ".libraries", table.concat(libraries as {string}, "\n") .. "\n")
         fs.writeFile(cached .. ".key", key as string)
     end
 
-    return payload, nil, unreachable, facilities as {string}
+    return payload, nil, unreachable, facilities as {string}, libraries as {string}
 end
 
 --- Where a
