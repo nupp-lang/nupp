@@ -3,6 +3,8 @@
 Verified on 2026-09-19 with Apple M5 Pro, macOS 26.6 (25G72), Metal,
 Rust 1.98.0, WGPU/Naga 30.0.1 and the workspace Cargo.lock. The durable
 Cargo example was also run in release mode. These are untimed correctness checks.
+This is a historical record. The unused Rust GPU crate and its Cargo example
+have since been removed; the recorded logs and shaders remain as evidence.
 
 `typed/counted.nupp` covers implicit-one-step loops with signed `int32`
 bounds or exact signed-32-bit literals: evaluation once in source order,
@@ -20,7 +22,7 @@ modules passed `spirv-val`, and every WGSL module passed Naga validation before
 execution. `shader-hashes.json` identifies those validated shader bytes;
 `validators.log`, `spirv-pass.log` and `wgsl-pass.log` preserve the results.
 
-From the repository root, generate and check the WGSL route with:
+The historical WGSL route was generated and checked with:
 
 ```sh
 mkdir -p /private/tmp/nupp-counted-wgsl
@@ -33,9 +35,9 @@ cargo run --locked -p nupp-native-gpu --example counted_wgsl -- \
     /private/tmp/nupp-counted-wgsl
 ```
 
-The Linux/Vulkan and Windows/DX12 GPU conformance scripts now run both the
-native binding oracle and this WGSL oracle. Their normal typed build supplies
-the native binding and provider.
+Current Linux/Vulkan and Windows/DX12 conformance runs use the pinned
+wgpu-native C provider and `tests/stdlib/io/gpu/gpudevicetest.lua`. They no
+longer run the removed Cargo example.
 
 ## Continuing-expression translation finding
 
@@ -59,7 +61,7 @@ The MSL computes the saved comparison for the conditional increment, then
 recomputes `counter == last` **after** incrementing for the final break. This
 changes the answer. `wgsl-failure.log` and `spirv-failure.log` preserve the
 first failures. `workspace-repro.log` confirms that the durable workspace-locked
-example reproduces the same result. To reproduce after generating the four shaders above:
+example reproduced the same result. The historical reproduction command was:
 
 ```sh
 repro=$(mktemp -d)

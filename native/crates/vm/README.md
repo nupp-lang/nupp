@@ -2365,7 +2365,7 @@ module that did became:
   LuaJIT embedding's host channel is not linked, and the VM embedding has
   none yet. `nupp.host.internal.values` serves only the LuaJIT embedding and
   the browser, so the VM never loads it.
-- **GPU** stays LuaJIT's. The VM's `nativegpu` reports no device (`available`
+- **GPU (historical, 2026-10-15)** stayed LuaJIT's. The VM's `nativegpu` reported no device (`available`
   false, `open` refuses by name, an empty cost record). Porting the LuaJIT
   provider is not mechanical: the `nuppNativeGpu*` entry points live in the
   LuaJIT host library (`native/crates/native` over `native/crates/gpu`), which
@@ -2373,7 +2373,10 @@ module that did became:
   binding of a native library lands; the provider and the bindings
   `aot/gpubinding` generates pack out-parameters and uniform blocks with
   `ffi`; and "GPU compute on the VM" replaces `gpu.Buffer` with storage
-  residency, so a port of the buffer API would be thrown away.
+  residency, so a port of the buffer API would be thrown away. This describes
+  the old host: the live provider now calls pinned wgpu-native through its C
+  ABI (`src/nupp/runtime/provider/gpudevice.nupp`), and the unused Rust GPU
+  workspace crate has been removed.
 
 `tests/memory-smoke.py` runs a fixture over SoA rows, fields, columns, slices
 and copies, heap arrays, regions (slices, views, typed views, builders,

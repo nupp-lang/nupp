@@ -14,11 +14,6 @@
 # The C that build scripts compile is instrumented through CFLAGS: the cc
 # crate reads it (the AOT runtime, ring).
 #
-# One crate is left out, the same one for both sanitizers: nupp-native-gpu
-# drives a Vulkan/Metal driver through wgpu. The driver is an uninstrumented
-# system library that races by design from ThreadSanitizer's point of view, and
-# the tests need an adapter this job does not provision.
-#
 # LeakSanitizer is Linux-only. On macOS the address leg still runs, with leak
 # detection off, and says so.
 

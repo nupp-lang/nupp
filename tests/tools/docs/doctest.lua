@@ -7321,7 +7321,7 @@ local VERSION_SOURCES = {
     ["Coverage report"] = {"src/nupp/tools/coverage.nupp", "export const SCHEMA_VERSION = (%d+)"},
     ["Test report"] = {"src/nupp/tools/cli/test.nupp", "schemaVersion = {%s*type = \"integer\",%s*enum = {(%d+)}"},
     ["Bench record"] = {"src/debug/bench.nupp", "export const schema = (%d+)"},
-    ["GPU cost records"] = {"native/crates/gpu/src/costs.rs", "values%[\"schemaVersion\"%] = json!%((%d+)%)"},
+    ["GPU cost records"] = {"src/nupp/runtime/provider/gpucosts.nupp", "values%.schemaVersion = (%d+)"},
 }
 
 function M.theVersionsRegistryMatchesTheConstants()
