@@ -30,6 +30,7 @@ local record Scope is own.Closeable
         name: string
     ): Task<R...> borrows (self)
     work: function<A..., R...>(borrows self: Scope, body: function(A...): R..., ...: A...): Task<R...> borrows (self)
+    worker: function<A..., R...>(borrows self: Scope, body: function(A...): R..., ...: A...): Task<R...> borrows (self)
     cancel: function(borrows self: Scope, reason: string?): nil
     close: function(takes self: Scope): nil
 end

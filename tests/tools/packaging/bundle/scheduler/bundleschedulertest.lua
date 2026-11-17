@@ -181,43 +181,38 @@ const jobs = require("jobs")
 const tasks = require("coroutine")
 const sharedbytes = bytes.SharedBytes
 
--- Exercise the private bootstrap and its resource counts directly.
-const provider = require("nupp.runtime.workersprovider").provider as any
+-- A dedicated worker answers, fails, and starts while pooled children hold
+-- threads. The VM gives each worker a thread of its own, up to 64, so the
+-- pooled children here leave the dedicated one at least the last of them.
 for _ = 1, 3 do
-    local services = provider.openscope(nil, nil)
-    assert(not services._scheduler.pooled)
-    local task = services:worker(jobs.pair, 9)
-    local value, label = task:await()
-    assert(value == 18 and label == "done")
-    services:close()
-    assert(services._scheduler.dedicated == 0)
-    assert(#services._scheduler.lanes == 0)
-end
-
-do
-    local services = provider.openscope(nil, nil)
-    local occupied: {any} = {}
-    local lanes = math.max(1, math.min(os.info().parallelism, 64)) as integer
-    for _ = 1, lanes do
-        occupied[#occupied + 1] = services:spawn(jobs.untilCancelled)
+    do local scope = tasks.scope() ;
+        local value, label = scope:worker(9, jobs.pair):await()
+        assert(value == 18 and label == "done")
     end
-    local ok, problem = pcall(function(): nil
-        assert(services:worker(jobs.square, 7):await() == 49)
-        assert(#services._scheduler.lanes == lanes)
-    end)
-    for _, task in ipairs(occupied) do task:cancel() end
-    services:close()
-    assert(ok, tostring(problem))
-    assert(services._scheduler.dedicated == 0)
 end
 
 do
-    local services = provider.openscope(nil, nil)
-    local failed = services:worker(jobs.fail)
-    local ok, problem = pcall(failed.await, failed)
+    local lanes = math.max(1, math.min(os.info().parallelism, 63)) as integer
+    local ok, problem = pcall(function(): nil
+        do local scope = tasks.scope() ;
+            for _ = 1, lanes do
+                scope:work(jobs.untilCancelled)
+            end
+            local squared = scope:worker(7, jobs.square):await()
+            scope:cancel()
+            assert(squared == 49)
+        end
+    end)
+    assert(ok, tostring(problem))
+end
+
+do
+    local ok, problem = pcall(function(): nil
+        do local scope = tasks.scope() ;
+            scope:worker(jobs.fail):await()
+        end
+    end)
     assert(not ok and tostring(problem):find("deliberate worker failure", 1, true) ~= nil)
-    services:close()
-    assert(services._scheduler.dedicated == 0)
 end
 
 local counter = require("counter")

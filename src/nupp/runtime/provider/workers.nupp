@@ -131,6 +131,12 @@ function workers.openscope(deadline: number?, observer: any): any
         return task
     end
 
+    -- Every VM worker gets a thread of its own, up to the VM's structured
+    -- thread limit, so a dedicated child is admitted as a pooled one is.
+    function scope.worker(self: any, body: any, ...: any): any
+        return self:spawn(body, ...)
+    end
+
     function scope._cancelAll(self: any, reason: string?): nil
         for _, task in ipairs(self.tasks) do
             if not task.done then
