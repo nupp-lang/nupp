@@ -72,7 +72,12 @@ return rows[1].x
 ]]
     local parsed = checked(source, env)
     local image = program.image(parsed, "short-names", "short-names.nupp")
-    assert(image:find("_allocate", 1, true), "the VM retains the existing private allocation operation")
+    -- The columnar form lowers to the VM's layout allocation, not the library
+    -- function that only raises without that lowering.
+    assert(
+        program.names(image, "nupp.vm.arraylayout") and program.names(image, "allocate"),
+        "the VM retains the existing private allocation operation"
+    )
     test.eq(program.run(parsed, "short-names", "short-names.nupp"), 17)
 end
 
