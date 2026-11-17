@@ -186,6 +186,53 @@ function M.cliRunLoadsACarriedRootWithoutACompiledLibrary()
     end)
 end
 
+function M.cliRunChecksCycleModulesAgainInEitherRequireOrder()
+    withProject(
+        {
+            ["nupp.lua"] = 'return {include = {"src"}}\n',
+            [
+                "src/m.nupp"
+            ] = [[
+module m
+const d = require("d")
+export const K: integer = 7
+export function f(): integer
+    return K + d.one()
+end
+]],
+            [
+                "src/d.nupp"
+            ] = [[
+module d
+export function one(): integer
+    return 1
+end
+export function late(): integer
+    const u: any = require("u")
+    return u.g() as integer
+end
+]],
+            ["src/u.nupp"] = [[
+module u
+const m = require("m")
+export function g(): integer
+    return m.K + m.f()
+end
+]],
+            ["fails.nupp"] = 'local m = require("m")\nlocal u = require("u")\nprint("loaded", m.K, u.g())\n',
+            ["loads.nupp"] = 'local u = require("u")\nlocal m = require("m")\nprint("loaded", m.K, u.g())\n',
+        },
+        function(dir)
+            local process = require("nupp.compiler.process")
+            for _, entry in ipairs({"fails.nupp", "loads.nupp"}) do
+                local code, output = process.capture({ROOT .. "/bin/nupp", "run", entry}, {cwd = dir})
+                testAssert.eq(code, 0, output)
+                testAssert.eq(output, "loaded\t7\t15\n", entry)
+            end
+        end
+    )
+end
+
 function M.loadsLjppFromProjectRoots()
     withProject(
         {
