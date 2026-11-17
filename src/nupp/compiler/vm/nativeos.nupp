@@ -265,7 +265,13 @@ export function foreign(owner: any, site: any, expected: string?): any
     local params, snapshot = {}, {}
     for index, parameter in ipairs(signature.params) do
         local mode = signature.paramModes and signature.paramModes[index] or "plain"
-        need(mode == "plain" or mode == "borrows", "foreign parameter ownership")
+        -- Checking has already enforced call-duration exclusivity and consumed
+        -- arguments. These modes erase to the same physical C parameter.
+        -- Retained pointers still require their separate lifetime boundary.
+        need(
+            mode == "plain" or mode == "borrows" or mode == "exclusive" or mode == "takes",
+            "foreign parameter ownership"
+        )
         params[index] = foreignKind(parameter)
     end
     local fixed = #params
