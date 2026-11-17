@@ -42,3 +42,6 @@ export RUSTC RUSTDOC
 # The collector's walk from a Rust helper back to compiled frames, which
 # follows a different stack discipline on Win64.
 "$CARGO" test --locked --package nupp-vm --no-default-features --features aot-linked --lib root_walk_tests
+# Direct OS loading does not need the linked interpreter core or marshalling.
+# This includes Unicode paths, last-owner unload and Windows adjacent imports.
+CC="$NUPP_CC" "$CARGO" test --locked --package nupp-vm --no-default-features --features c-headers --lib library::tests -- --test-threads=1
