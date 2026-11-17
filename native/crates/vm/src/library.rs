@@ -273,6 +273,7 @@ mod tests {
             "{}",
             String::from_utf8_lossy(&probe.stdout)
         );
+        assert!(String::from_utf8_lossy(&probe.stdout).contains("1 passed"));
         let path = adjacent.join("parent.dll").canonicalize().unwrap();
         assert_ne!(std::env::current_dir().unwrap(), adjacent);
         let library = unsafe { Library::open(path.as_os_str(), false) }.unwrap();
@@ -380,6 +381,10 @@ __attribute__((destructor)) static void unloaded(void) { if (state) ++*state; }
             let name = c"malloc";
             #[cfg(windows)]
             let name = c"GetCurrentProcessId";
+            #[cfg(unix)]
+            // Leave an unrelated OS lookup's error unread: success alone
+            // does not clear it, so symbol() must clear it before dlsym.
+            libc::dlsym(library.0, c"nupp_unread_loader_error".as_ptr());
             assert!(!library.symbol(name).unwrap().is_null());
             assert!(Library::open(OsStr::new("nupp-missing-library-73921"), false).is_err());
             assert!(!library.symbol(name).unwrap().is_null());
