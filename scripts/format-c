@@ -1,0 +1,40 @@
+#!/bin/sh
+set -eu
+
+case "$#:${1-}" in
+    1:--check|1:--write) mode=$1 ;;
+    *)
+        printf 'Usage: %s --check|--write\n' "$0" >&2
+        exit 2
+        ;;
+esac
+
+cd "$(git rev-parse --show-toplevel)"
+
+# Add newly authored or adopted Nupp-owned files here. Keep legacy, generated
+# and vendored sources out of the rollout.
+set --
+for file in \
+    native/markdown/definition-list.c \
+    native/markdown/definition-list.h \
+    native/markdown/markdown.c \
+    native/markdown/markdown.h \
+    tests/fixtures/markdown/ownership.c \
+    tests/fixtures/markdown/probe.c
+do
+    if [ -f "$file" ]; then
+        set -- "$@" "$file"
+    fi
+done
+
+if [ "$#" -eq 0 ]; then
+    set -- --assume-filename=rollout.c --dump-config
+    exec >/dev/null
+elif [ "$mode" = --check ]; then
+    set -- --dry-run --Werror "$@"
+else
+    set -- -i "$@"
+fi
+
+exec pipx run --spec clang-format==22.1.8 --pip-args=--only-binary=:all: \
+    clang-format --style=file:.clang-format "$@"

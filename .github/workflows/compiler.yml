@@ -123,6 +123,9 @@ jobs:
         with:
           fetch-depth: 0
 
+      - name: Check C formatting
+        run: ./scripts/format-c --check
+
       - name: Restore the provisioned toolchain
         uses: actions/cache/restore@v4
         with:

@@ -1,0 +1,14 @@
+BasedOnStyle: LLVM
+ColumnLimit: 80
+IndentWidth: 2
+ContinuationIndentWidth: 4
+TabWidth: 8
+UseTab: ForIndentation
+BreakBeforeBraces: Linux
+PointerAlignment: Right
+AllowShortBlocksOnASingleLine: Never
+AllowShortFunctionsOnASingleLine: None
+AllowShortIfStatementsOnASingleLine: Never
+AllowShortLoopsOnASingleLine: false
+SeparateDefinitionBlocks: Always
+SortIncludes: Never

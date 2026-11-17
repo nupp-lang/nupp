@@ -19,6 +19,10 @@
       "selectedBy": "always",
       "steps": [
         {
+          "name": "Check C formatting",
+          "guarantees": ["adopted Nupp C sources and headers match the pinned formatter"]
+        },
+        {
           "name": "Classify the affected surfaces",
           "guarantees": ["every change selects the jobs that can observe it"]
         },
