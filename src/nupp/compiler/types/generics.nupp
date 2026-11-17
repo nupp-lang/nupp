@@ -2278,11 +2278,12 @@ instantiateNominal = function(n: T.Nominal, map: Bindings): T.Nominal
     inst.methodEntries = {}
     inst.methodDispatchEntries = {}
     inst.staticEntries = {}
-    for name in pairs(n.overloadedMethods or {}) do
-        inst.overloadedMethods[name] = true
+    -- A name with a single body is kept as false, and stays so.
+    for name, overloaded in pairs(n.overloadedMethods or {}) do
+        inst.overloadedMethods[name] = overloaded == true
     end
-    for name in pairs(n.overloadedStatics or {}) do
-        inst.overloadedStatics[name] = true
+    for name, overloaded in pairs(n.overloadedStatics or {}) do
+        inst.overloadedStatics[name] = overloaded == true
     end
     for name, entries in pairs(n.methodEntries or {}) do
         local specialized = {}

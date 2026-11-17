@@ -633,6 +633,47 @@ function M.roundTripsPrivateMemberTypes()
     testAssert.eq(loaded.writeByname._count, T.integer, "private member write type")
 end
 
+-- A minimal record with one method, `read`, and one static, `of`.
+local function withMethod(name, overloaded, declaration)
+    local signature = T.func({T.string}, {T.string})
+    local holder = indexed(name, "/project/sample.nupp")
+    holder.byname = {read = signature}
+    holder.writeByname = {}
+    holder.staticByname = {of = signature}
+    holder.staticWriteByname = {}
+    holder.fieldOrder = {}
+    holder.methodEntries = {
+        read = {{signature = signature, member = 1, parameterKey = "text", definition = {name = "read"}, declaration = declaration}},
+    }
+    holder.methodDispatchEntries = holder.methodEntries
+    holder.staticEntries = {}
+    holder.overloadedMethods = {read = overloaded}
+    holder.overloadedStatics = {of = overloaded}
+    holder.defaultEntries = {}
+
+    return holder
+end
+
+-- A declaration keeps every method and static name it has seen, as false when
+-- it has one body. A reader that took those for overloaded refused to read the
+-- method as a field value, which a single body is.
+function M.aSingleBodyNameStaysSingleAcrossAnImage()
+    local loaded = roundTrip(withMethod("Single", false))
+    testAssert.eq(loaded.overloadedMethods.read == true, false, "single-body method")
+    testAssert.eq(loaded.overloadedStatics.of == true, false, "single-body static")
+    local several = roundTrip(withMethod("Several", true))
+    testAssert.eq(several.overloadedMethods.read, true, "overloaded method")
+    testAssert.eq(several.overloadedStatics.of, true, "overloaded static")
+    -- An application copies the marks, and copies false as false.
+    local element = T.typevar("Element", "interface-image:single-element")
+    local generic = withMethod("SingleBox", false)
+    generic.typeParams = {element}
+    generic.paramKinds = {"type"}
+    local applied = generics.instantiate(generic, {[element] = T.integer})
+    testAssert.eq(applied.overloadedMethods.read == true, false, "an application's single-body method")
+    testAssert.eq(applied.overloadedStatics.of == true, false, "an application's single-body static")
+end
+
 function M.decodesApplicationsThroughGenerics()
     local element = T.typevar("Element", "interface-image:box-element")
     local box = indexed("Box", "/project/sample.nupp")

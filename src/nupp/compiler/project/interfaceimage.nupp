@@ -20,7 +20,7 @@ local members = require("nupp.compiler.types.members")
 local reflection = require("nupp.compiler.reflection")
 local T = require("nupp.compiler.types")
 
-export const SCHEMA = 10
+export const SCHEMA = 11
 
 --- What `interfaceimage.encode` is told about the run it encodes for.
 export type EncodeOptions = {
@@ -87,6 +87,21 @@ local function sortedNames(values: any): {string}
     local names: {string} = {}
     for name in pairs(values or {}) do
         names[#names + 1] = name
+    end
+    table.sort(names)
+
+    return names
+end
+
+-- The names a declaration's overload table marks as overloaded. A name with a
+-- single body is kept in it as false, which a reader must not take for one
+-- marked true.
+local function overloadedNames(values: any): {string}
+    local names: {string} = {}
+    for name, overloaded in pairs(values or {}) do
+        if overloaded then
+            names[#names + 1] = name
+        end
     end
     table.sort(names)
 
@@ -547,8 +562,8 @@ export function encode(semantics: {[string]: any}, options: EncodeOptions?): (an
             out.methodEntries = methodGroups(t.methodEntries)
             out.methodDispatchEntries = methodGroups(t.methodDispatchEntries)
             out.staticEntries = methodGroups(t.staticEntries)
-            out.overloadedMethods = sortedNames(t.overloadedMethods)
-            out.overloadedStatics = sortedNames(t.overloadedStatics)
+            out.overloadedMethods = overloadedNames(t.overloadedMethods)
+            out.overloadedStatics = overloadedNames(t.overloadedStatics)
             out.defaultEntries = {}
             for _, slot in ipairs(sortedNames(t.defaultEntries)) do
                 local entry = t.defaultEntries[slot]
