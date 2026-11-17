@@ -62,16 +62,17 @@ composer.platforms = {
         name = "macOS arm64",
         -- Three cores and seven gigabytes: shared workers are recycled after
         -- fewer suites, and shell suites, which start children of their own,
-        -- run two at a time. Five legs and no more, because five macOS jobs
-        -- is what an account runs at once: a sixth leg waits for a runner
-        -- rather than shortening anything.
+        -- run two at a time. Five macOS jobs is what an account runs at once,
+        -- so a sixth leg waits for a runner; the shell lane is still split in
+        -- two, because as one leg it ran past the timeout (17 November), and
+        -- its second half starts as soon as the short native gates leg ends.
         timeout = 150,
         legs = {
             {kind = "gates", title = "native gates"},
             {kind = "native-core", title = "native core", select = "--group=native-runtime", jobs = 1},
             lane("shared", GROUPED, 1, 15),
             lane("isolated", GROUPED, 1),
-            lane("shell", GROUPED, 1, 0, 2),
+            lane("shell", GROUPED, 2, 0, 2),
         },
     },
     {
