@@ -683,6 +683,15 @@ function M.aMethodEntryKeepsThatItHasABody()
     testAssert.eq(bare.methodEntries.read[1].declaration, nil, "an entry without a body gained one")
 end
 
+-- `table.Array.destroy` is followed through the module each name in it is bound
+-- to, so a restored definition has to keep the module its binding holds.
+function M.aDefinitionKeepsTheModuleItsBindingHolds()
+    local sample = semantic("sample", T.string)
+    sample.exports.valueDefs = {value = {name = "value", requiredModule = "nupp.array"}}
+    local decoded = assert(interfaceimage.decode(assert(encode({sample = sample}))))
+    testAssert.eq(decoded.sample.exports.valueDefs.value.requiredModule, "nupp.array", "required module")
+end
+
 function M.decodesApplicationsThroughGenerics()
     local element = T.typevar("Element", "interface-image:box-element")
     local box = indexed("Box", "/project/sample.nupp")

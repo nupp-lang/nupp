@@ -421,6 +421,56 @@ function M.aCachedEmitWritesWhatAnEmitFromNothingWrites()
     remove(dir)
 end
 
+-- Emits `consumer`, edits it, and emits it again through the cache, which
+-- restores `provider` from its interface rather than checking it. The consumer
+-- is checked against the restored declarations, and the image has to be the
+-- one an emit from nothing writes. `consumer` makes the source, given a
+-- number the edit changes.
+local function restoredProviderMatches(provider, consumer, what)
+    local dir = tempProject()
+    write(dir .. "/src/provider.nupp", provider)
+    write(dir .. "/src/consumer.nupp", consumer(1))
+    local ok, problem = pcall(function()
+        project.emitCached(dir, "consumer", "", "src", dir .. "/cache")
+        write(dir .. "/src/consumer.nupp", consumer(2))
+        local expected = project.emit(dir, "consumer", "", "src")
+        local image = project.emitCached(dir, "consumer", "", "src", dir .. "/cache")
+        assert(emitcache.last().stats.restored > 0, what .. ": the provider's interface was not restored")
+        same(expected, image, what)
+    end)
+    remove(dir)
+    assert(ok, problem)
+end
+
+-- A cleanup named through an alias of a library binding is the function the
+-- library declares, whether the library was checked or restored.
+function M.aCleanupNamedThroughAnAliasMatchesItsDeclaration()
+    restoredProviderMatches(
+        [[
+module provider
+const heap = table.Array
+export function stamp(takes frame: affine(table.Array<uint8>, table.Array.destroy), value: integer): affine(table.Array<uint8>, heap.destroy)
+    local writable = frame:write()
+    writable[1] = value % 256
+    own.drop(writable)
+    return frame
+end
+]],
+        function(n)
+            return ([[
+module consumer
+local provider = require("provider")
+export function run(): integer
+    local frame = table.Array.alloc(ffi.typeof<uint8>(), 8)
+    table.Array.destroy(provider.stamp(frame, %d))
+    return 0
+end
+]]):format(n)
+        end,
+        "aliased cleanup"
+    )
+end
+
 function M.aLeafEditLowersOnlyTheLeaf()
     local dir = tempProject()
     local _, cold = cached(dir)

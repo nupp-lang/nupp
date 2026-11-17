@@ -20,7 +20,7 @@ local members = require("nupp.compiler.types.members")
 local reflection = require("nupp.compiler.reflection")
 local T = require("nupp.compiler.types")
 
-export const SCHEMA = 12
+export const SCHEMA = 13
 
 --- What `interfaceimage.encode` is told about the run it encodes for.
 export type EncodeOptions = {
@@ -135,6 +135,10 @@ local function copyDefinition(definition: any): any?
         deprecated = definition.deprecated,
         comptimeOnly = definition.comptimeOnly,
         moduleName = definition.moduleName,
+        -- The module a binding holds, which a qualified name is followed
+        -- through: `table.Array.destroy` reaches the cleanup `nupp.array`
+        -- declares only by way of the module `Array` is bound to.
+        requiredModule = definition.requiredModule,
         namespacePath = definition.namespacePath,
         scalarIntrinsic = definition.scalarIntrinsic,
         associated = definition.associated,
