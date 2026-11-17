@@ -10,8 +10,13 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import time
 import urllib.request
 import zipfile
+
+# How long a producer whose rename lost waits for the winner to be complete.
+WINNER_WAIT_TRIES = 40
+WINNER_WAIT_SECONDS = 0.25
 
 ROOT = Path(__file__).resolve().parent.parent
 
@@ -119,9 +124,16 @@ def provision(target, cache, source, offline):
         try:
             staging.rename(destination)
         except OSError:
-            if not valid(destination, record):
+            # Windows refuses the rename while another producer's rename of the
+            # same destination is still in flight, before its winner is whole.
+            for _ in range(WINNER_WAIT_TRIES):
+                if valid(destination, record):
+                    break
+                time.sleep(WINNER_WAIT_SECONDS)
+            else:
                 raise
     return destination / record["library"]
+
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
