@@ -178,6 +178,9 @@ function M.theBenchmarkProgramsStayWithinTheirBytecodeBudgets()
         local out = run(ROOT, "bc --json " .. file)
         local ok, report = pcall(json.decode, out)
         assert(ok and type(report) == "table" and report.functions, file .. " did not report bytecode: " .. out)
+        -- A benchmark that no longer compiles lists no functions, which is a
+        -- total of zero and under any budget.
+        assert(report.ok == true and #report.functions > 0, file .. " did not compile: " .. out)
         local total = 0
         for _, fn in ipairs(report.functions) do
             total = total + #fn.instructions
