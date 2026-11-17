@@ -58,7 +58,7 @@ pub(crate) struct Instance {
     // then the library.
     _owner: Option<Box<dyn std::any::Any>>,
     #[cfg(all(feature = "native-ffi", not(target_family = "wasm")))]
-    _library: Option<libloading::Library>,
+    _library: Option<crate::library::Library>,
 }
 impl Drop for Instance {
     fn drop(&mut self) {
@@ -249,7 +249,7 @@ fn bind(
     declaration: &str,
     library_path: Option<String>,
     owner: Option<Box<dyn std::any::Any>>,
-    #[cfg(all(feature = "native-ffi", not(target_family = "wasm")))] library: Option<libloading::Library>,
+    #[cfg(all(feature = "native-ffi", not(target_family = "wasm")))] library: Option<crate::library::Library>,
 ) -> Result<Rc<Instance>, String> {
     if vm.extensions.modules.contains_key(expected) {
         return Err(format!("module {expected} is already registered in this VM"));
@@ -450,10 +450,10 @@ fn resolve_library(vm: &Interp, name: &str) -> Result<String, String> {
 /// against `declaration`.
 #[cfg(all(feature = "native-ffi", not(target_family = "wasm")))]
 fn load_library(vm: &mut Interp, module: &str, library: &str, path: &str, declaration: &str) -> Result<Rc<Instance>, String> {
-    let opened = unsafe { libloading::Library::new(path) }
+    let opened = unsafe { crate::library::Library::open(std::ffi::OsStr::new(path), false) }
         .map_err(|e| format!("cannot load native extension {library:?} for {module}: {e}"))?;
-    let entry: abi::Entry = unsafe { opened.get::<abi::Entry>(abi::ENTRY_SYMBOL) }
-        .map(|s| *s)
+    let entry: abi::Entry = unsafe { opened.symbol(CStr::from_bytes_with_nul(abi::ENTRY_SYMBOL).unwrap()) }
+        .map(|s| unsafe { std::mem::transmute::<*mut c_void, abi::Entry>(s) })
         .map_err(|_| format!("native library {library:?} is not a Nupp extension: it exports no nupp_extension_v1"))?;
     let descriptor = unsafe { entry() };
     // The library stays open while the instance lives; a check that fails

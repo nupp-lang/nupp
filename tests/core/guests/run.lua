@@ -253,7 +253,7 @@ local CASES = {
     {"affineconstructors", 0x7FFF0000000000FF},
     {"absentffi", 0x7FFF000000000007},
     {"guestffi", 0x7FFF000000001FFF},
-    {"cbridge", 0x7FFF000000000007},
+    {"cbridge", 0x7FFF00000000003F},
     {"nullablepointers", 0x7FFF000000000007},
     {"compressioncodec", 0x7FFF000000000009},
     {"cryptocodec", 0x7FFF000000000004},

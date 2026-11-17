@@ -16,6 +16,8 @@ pub mod os_glue;
 pub mod opcodes;
 mod storage;
 mod foreign;
+#[cfg(any(feature = "c-headers", all(feature = "native-ffi", not(target_family = "wasm"))))]
+mod library;
 pub mod simd;
 mod native_simd;
 mod dominance;

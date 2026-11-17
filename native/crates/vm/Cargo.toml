@@ -33,9 +33,9 @@ markdown = ["dep:pulldown-cmark"]
 # running. Remove once the stage-zero pin has moved past the removal.
 regex = []
 # Optional in-process C declaration inspection for compiler hosts.
-c-headers = ["dep:libloading", "dep:serde_json"]
+c-headers = ["dep:serde_json"]
 # Dynamic native C calls and callback trampolines.
-native-ffi = ["dep:libffi", "dep:libloading"]
+native-ffi = ["dep:libffi"]
 # The typed tier: Cranelift lowering of the bytecode (P5). Off, the crate is
 # the interpreter alone, which is what the browser build and a bootstrap
 # without Cranelift need.
@@ -54,7 +54,6 @@ opstats = []
 allocation-metrics = ["dep:serde_json"]
 
 [dependencies]
-libloading = { version = "0.8.9", optional = true }
 serde_json = { version = "1", optional = true }
 nupp-native-platform = { path = "../platform", features = ["uuid"] }
 nupp-native-checksum = { path = "../checksum" }

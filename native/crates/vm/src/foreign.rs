@@ -1015,7 +1015,7 @@ pub(crate) mod native {
     /// a function returned holds it, so the platform unloads it only once the
     /// library object is closed and the last of those is closed too.
     struct Native {
-        library: libloading::Library,
+        library: crate::library::Library,
         label: String,
     }
     struct Binding {
@@ -1162,7 +1162,7 @@ pub(crate) mod native {
         #[cfg(windows)]
         {
             use std::sync::OnceLock;
-            static LIBRARIES: OnceLock<Vec<libloading::os::windows::Library>> = OnceLock::new();
+            static LIBRARIES: OnceLock<Vec<crate::library::Library>> = OnceLock::new();
             if label != "the default native namespace" {
                 return None;
             }
@@ -1175,13 +1175,12 @@ pub(crate) mod native {
                     "gdi32.dll",
                 ]
                 .iter()
-                .filter_map(|name| unsafe { libloading::os::windows::Library::new(name) }.ok())
+                .filter_map(|name| unsafe { crate::library::Library::open(std::ffi::OsStr::new(name), false) }.ok())
                 .collect()
             });
             libraries.iter().find_map(|library| {
-                unsafe { library.get::<*mut c_void>(symbol.to_bytes_with_nul()) }
+                unsafe { library.symbol(symbol) }
                     .ok()
-                    .map(|symbol| *symbol)
                     .filter(|address| !address.is_null())
             })
         }
@@ -1239,48 +1238,10 @@ pub(crate) mod native {
         } else {
             format!("native library \"{name}\"")
         };
-        let library: Result<libloading::Library, String> = if path.is_empty() {
-            #[cfg(unix)]
-            {
-                Ok(libloading::os::unix::Library::this().into())
-            }
-            #[cfg(windows)]
-            {
-                libloading::os::windows::Library::this()
-                    .map(Into::into)
-                    .map_err(|e| e.to_string())
-            }
-            #[cfg(not(any(unix, windows)))]
-            {
-                Err("this platform has no default native namespace".to_string())
-            }
+        let library = if path.is_empty() {
+            unsafe { crate::library::Library::this() }
         } else {
-            #[cfg(unix)]
-            {
-                use libloading::os::unix::{Library, RTLD_GLOBAL, RTLD_LOCAL, RTLD_NOW};
-                let flags = RTLD_NOW | if global { RTLD_GLOBAL } else { RTLD_LOCAL };
-                unsafe { Library::open(Some(&path), flags) }
-                    .map(Into::into)
-                    .map_err(|e| e.to_string())
-            }
-            #[cfg(windows)]
-            {
-                use libloading::os::windows::{LOAD_WITH_ALTERED_SEARCH_PATH, Library};
-                // Project paths are absolute. Search beside that DLL for its
-                // imports without changing the process-wide DLL search path.
-                let flags = if std::path::Path::new(&path).is_absolute() {
-                    LOAD_WITH_ALTERED_SEARCH_PATH
-                } else {
-                    0
-                };
-                unsafe { Library::load_with_flags(&path, flags) }
-                    .map(Into::into)
-                    .map_err(|e| e.to_string())
-            }
-            #[cfg(not(any(unix, windows)))]
-            {
-                unsafe { libloading::Library::new(&path) }.map_err(|e| e.to_string())
-            }
+            unsafe { crate::library::Library::open(std::ffi::OsStr::new(&path), global) }
         };
         let library = library.unwrap_or_else(|problem| {
             let alias = if path != name && !name.starts_with('@') {
@@ -1366,12 +1327,8 @@ pub(crate) mod native {
         assert_ne!(std::env::current_dir().unwrap(), adjacent);
         let mut vm = Interp::new();
         let library = open_library(&mut vm, path.to_str().unwrap().as_bytes(), false);
-        let value = unsafe {
-            library
-                .library
-                .get::<unsafe extern "C" fn() -> i32>(b"parent_value\0")
-        }
-        .unwrap();
+        let address = unsafe { library.library.symbol(c"parent_value") }.unwrap();
+        let value: unsafe extern "C" fn() -> i32 = unsafe { std::mem::transmute(address) };
         assert_eq!(unsafe { value() }, 73);
     }
 
@@ -1537,10 +1494,9 @@ pub(crate) mod native {
         let address = unsafe {
             library
                 .library
-                .get::<*mut c_void>(symbol.as_bytes_with_nul())
+                .symbol(&symbol)
         }
         .ok()
-        .map(|symbol| *symbol)
         .filter(|address| !address.is_null())
         .or_else(|| default_namespace_fallback(&library.label, &symbol))
         .unwrap_or_else(|| {

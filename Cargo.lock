@@ -1080,7 +1080,6 @@ dependencies = [
  "crc32fast",
  "libc",
  "libffi",
- "libloading",
  "nupp-counter-extension",
  "nupp-extension",
  "nupp-native-abi",

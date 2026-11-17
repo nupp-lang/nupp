@@ -16,6 +16,7 @@ const context = require("nupp.runtime.core.context")
 
 cdef function dlopen(borrows path: voidptr, mode: int64): voidptr
 cdef function dlsym(borrows library: voidptr, borrows name: voidptr): voidptr
+cdef function dlerror(): voidptr
 cdef function strlen(borrows text: voidptr): uint64
 cdef function malloc(bytes: uint64): voidptr
 cdef function free(takes block: voidptr)
@@ -203,10 +204,16 @@ local function openLibrary(key: voidptr): uint64
         native.store64(name, 16, 0x63657269645f7463ULL)
         native.store64(name, 24, 0x79726f74ULL)
         local process = dlopen(native.pointer(0ULL), LOAD_NOW)
+        if native.address(process) == 0ULL then
+            free(name)
+            error("foreign loader cannot open its process")
+        end
+        local _ = dlerror()
         local marker = dlsym(process, name)
+        local failed = native.address(dlerror()) ~= 0ULL
         free(name)
         local _ = dlclose(process)
-        if native.address(marker) == 0ULL then
+        if failed or native.address(marker) == 0ULL then
             -- The frozen reference transport still anchors its own @ paths.
             return native.address(dlopen(key, LOAD_NOW))
         end
@@ -242,20 +249,36 @@ local function resolve(key: voidptr, count: int64): uint64
         if kept ~= 0ULL then
             return kept
         end
-        local library: uint64 = 0ULL
-        if native.load8(key, 0) == 0 then
-            library = native.address(dlopen(native.pointer(0ULL), LOAD_NOW))
-        else
-            library = openLibrary(key)
+        local libraryBytes = native.index(strlen(key)) + 1
+        local library = cache(key, libraryBytes, 0ULL)
+        local opened = library == 0ULL
+        if opened then
+            if native.load8(key, 0) == 0 then
+                library = native.address(dlopen(native.pointer(0ULL), LOAD_NOW))
+            else
+                library = openLibrary(key)
+            end
         end
         if library == 0ULL then
             error("foreign call: its library cannot be loaded")
         end
-        local symbol = native.offset(key, native.index(strlen(key)) + 1)
+        local symbol = native.offset(key, libraryBytes)
+        local _ = dlerror()
         local address = native.address(dlsym(native.pointer(library), symbol))
-        if address == 0ULL then
+        local failed = native.address(dlerror()) ~= 0ULL
+        if failed or address == 0ULL then
+            if opened then
+                local _ = dlclose(native.pointer(library))
+            end
             error("foreign call: its symbol is not in its library")
         end
+        -- The bridge's symbol table and generated call sites live for the
+        -- process. Their code and any returned data therefore pin this loader
+        -- reference for the process too; unloading cannot be quiescent earlier.
+        -- Cache the owner as well as its symbols so each library opens once.
+        -- shortcut: a full fixed table retains uncached owners, grow the table
+        -- with the bridge if programs exceed its current symbol capacity.
+        local _ = cache(key, libraryBytes, library)
         return cache(key, count, address)
     end
 end

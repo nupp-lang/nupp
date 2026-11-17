@@ -3,7 +3,16 @@ module nupp.core.catalogcbridge
 -- Both spellings resolve against the artifact, independent of the process cwd.
 cdef function nuppBridgeFixture(left: uint64, right: uint64): uint64 from"@lib/libnuppbridgefixture.dylib"
 cdef function nuppBridgeMissing(): int32 from"@lib/libnuppbridgeabsent.dylib"
+cdef function nuppBridgeMissingSymbol(): int32 from"@lib/libnuppbridgefixture.dylib"
 local score = 0
+-- A failed first lookup rolls back its fresh owner. A later successful call
+-- opens the library again, without inheriting the failed dlsym's error.
+local missing, detail = pcall(function(): any
+    return nuppBridgeMissingSymbol()
+end)
+if not missing and tostring(detail):find("symbol", 1, true) ~= nil then
+    score = score + 8
+end
 if nuppBridgeFixture(0x55ULL, 0xaaULL) == 0xffULL then
     score = score + 1
 end
@@ -15,5 +24,15 @@ local ok, problem = pcall(function(): any
 end)
 if not ok and tostring(problem):find("library", 1, true) ~= nil then
     score = score + 4
+end
+-- A failed lookup in an already owned library must not unload cached code.
+missing, detail = pcall(function(): any
+    return nuppBridgeMissingSymbol()
+end)
+if not missing and tostring(detail):find("symbol", 1, true) ~= nil then
+    score = score + 16
+end
+if nuppBridgeFixture(0x55ULL, 0xaaULL) == 0xffULL then
+    score = score + 32
 end
 export const result = score

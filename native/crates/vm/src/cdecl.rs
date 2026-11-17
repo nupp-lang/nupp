@@ -1,7 +1,7 @@
 //! Optional compiler-host service over libclang's stable C declaration API.
 //! It parses in memory and never starts a compiler or executes C declarations.
 //! ABI definitions: https://clang.llvm.org/doxygen/group__CINDEX.html
-use libloading::Library;
+use crate::library::Library;
 use serde_json::{Value as Json, json};
 use std::{
     collections::{BTreeMap, BTreeSet, HashMap},
@@ -61,7 +61,7 @@ macro_rules! api {
         impl Api {
             #[allow(non_snake_case)]
             unsafe fn from_library(library: Library) -> Result<Self, String> {
-                $(let $name = *unsafe { library.get::<unsafe extern "C" fn($($arg),*) -> $ret>(concat!(stringify!($name), "\0").as_bytes()) }.map_err(|e| e.to_string())?;)*
+                $(let $name = unsafe { std::mem::transmute::<*mut c_void, unsafe extern "C" fn($($arg),*) -> $ret>(library.symbol(CStr::from_bytes_with_nul_unchecked(concat!(stringify!($name), "\0").as_bytes()))?) };)*
                 Ok(Self { _library: library, $($name,)* })
             }
         }
@@ -155,7 +155,7 @@ impl Api {
         let mut errors = Vec::new();
         for path in candidates {
             match unsafe {
-                Library::new(&path)
+                Library::open(&path, false)
                     .map_err(|e| e.to_string())
                     .and_then(|lib| Self::from_library(lib))
             } {
