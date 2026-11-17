@@ -726,8 +726,10 @@ function M.anInterruptedCheckLeavesNoWorkers()
         return
     end
 
+    -- No `--`: dash, which is /bin/sh on Linux, reads it as a pid and refuses
+    -- the call. A negative pid after the signal already names a process group.
     local function kill(signal, pid)
-        return os.execute(("kill -%d -- %d 2>/dev/null"):format(signal, pid))
+        return os.execute(("kill -%d %d 2>/dev/null"):format(signal, pid))
     end
 
     local lookup = assert(io.popen("command -v perl"))
