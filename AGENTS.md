@@ -202,6 +202,24 @@ reports it is usually already testing somebody else's commit. `git push
   If a documentation command starts rebuilding the compiler solely to verify
   Markdown or CSS, stop it and use an existing build or inspect the source and
   assets. Report any verification you could not complete.
+- A change that behaves differently from one platform to another is verified
+  on those platforms before it is pushed, not by waiting on CI. A CI run takes
+  hours where a local run of the affected suites takes minutes. That covers:
+  - processes, shells and command quoting;
+  - paths and line endings;
+  - files and permissions;
+  - the native layer, FFI and C dependencies;
+  - toolchain and provisioning scripts;
+  - the test runner and the CI scripts themselves.
+
+  Use whatever the machine has for the other platforms, whether a container, a
+  virtual machine or a remote host. Look for a local skill or README describing
+  that machine's setup; how to set one up is machine-specific and stays out of
+  this repository. Run the suites that cover the change on each platform it can
+  reach. A change that cannot behave differently, such as most checker,
+  compiler and library work, does not need this. A failure that appears only
+  under emulation (x86-64 on ARM, for one) is checked against CI before the
+  code is changed for it.
 - `./bin/nupp fixpoint` verifies that the compiler image rebuilds itself
   byte-identically, starting from the pinned stage-zero image.
 - What CI runs for a change is decided by `.github/scripts/classify-changes.lua`
