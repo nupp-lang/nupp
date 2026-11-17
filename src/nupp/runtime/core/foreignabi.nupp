@@ -1,0 +1,433 @@
+module nupp.runtime.core.foreignabi
+
+-- Direct upstream libffi C API. This module owns no Nupp values. The caller
+-- roots its arguments and owns the stable signature storage through the call.
+-- The artifact carries the verified upstream library, never a system fallback.
+const native = require("nupp.runtime.vm.intrinsics")
+
+cdef function ffi_get_default_abi(): uint32 from"@/lib/libnuppffi"
+cdef function ffi_get_closure_size(): uint64 from"@/lib/libnuppffi"
+cdef function ffi_prep_cif(
+    cif: voidptr,
+    abi: uint32,
+    count: uint32,
+    result: voidptr,
+    arguments: voidptr
+): int32 from"@/lib/libnuppffi"
+cdef function ffi_prep_cif_var(
+    cif: voidptr,
+    abi: uint32,
+    fixed: uint32,
+    count: uint32,
+    result: voidptr,
+    arguments: voidptr
+): int32 from"@/lib/libnuppffi"
+cdef function ffi_call(cif: voidptr, fn: voidptr, result: voidptr, arguments: voidptr) from"@/lib/libnuppffi"
+cdef function ffi_closure_alloc(bytes: uint64, code: voidptr): voidptr from"@/lib/libnuppffi"
+cdef function ffi_prep_closure_loc(
+    closure: voidptr,
+    cif: voidptr,
+    fn: voidptr,
+    data: voidptr,
+    code: voidptr
+): int32 from"@/lib/libnuppffi"
+cdef function ffi_closure_free(closure: voidptr) from"@/lib/libnuppffi"
+cdef function malloc(bytes: uint64): voidptr
+cdef function free(block: voidptr)
+cdef function pthread_self(): uint64
+cdef function dlopen(path: voidptr, flags: int64): voidptr
+cdef function dlsym(library: voidptr, name: voidptr): voidptr
+cdef function dlclose(library: voidptr): int32
+
+-- ffi_cif is 32 bytes on AAPCS64 and 40 on Darwin ARM64 (its extra
+-- nfixedargs field). The independent header probe checks these bounds and
+-- ffi_type's offsets before claiming a target. Neither layout is guessed
+-- from the closure size or a different libffi release.
+export const CIF_BYTES: int64 = 40
+export const TYPE_BYTES: int64 = 24
+export const STRUCT: uint64 = 0x28ULL -- '(' in the checked descriptor
+const END_STRUCT: uint64 = 0x29ULL
+const VARIADIC: uint64 = 0x2eULL
+const WORD: int64 = 8
+-- shortcut: cap signatures at 4 KiB/63 arguments and nesting at 64;
+-- raise these together with a larger checked workspace/stack budget.
+const MAX_DESCRIPTOR: int64 = 4096
+const MAX_DEPTH: int64 = 64
+const PARSER_STACK_BYTES: int64 = 1024 -- 64 frames of (parent, child index)
+
+local struct Reader
+    bytes: uint64
+    limit: int64
+    at: int64
+    nodes: uint64
+    elements: uint64
+    stack: uint64
+    fixed: uint32
+    total: uint32
+end
+
+-- Workspace: cif, type pointers, argument pointers, scalar words, result
+-- word, then one ffi_type and bounded element-pointer space per byte.
+export function arguments(count: int64): int64
+    return CIF_BYTES + count * WORD
+end
+
+export function scalars(count: int64): int64
+    return CIF_BYTES + count * WORD * 2
+end
+
+export function answer(count: int64): int64
+    return CIF_BYTES + count * WORD * 3
+end
+
+export function bytes(length: int64, count: int64): int64
+    if length <= 0 or length > MAX_DESCRIPTOR or count < 0 or count > 63 then
+        error("foreign call: its signature exceeds the core limit")
+    end
+    return answer(count) + WORD + length * (TYPE_BYTES + WORD * 2) + PARSER_STACK_BYTES
+end
+
+local function letter(r: Reader*): uint64
+    @unsafe do
+        if r.at >= r.limit then
+            error("foreign call: its signature is incomplete")
+        end
+        return native.word(native.load8(native.pointer(r.bytes), r.at))
+    end
+end
+
+-- Where the type at `at` ends, including nested structs and fixed arrays
+-- flattened by the checker. No ABI classification takes place here.
+export function after(source: voidptr, at: int64, limit: int64): int64
+    local next = at + 1
+    if at >= limit then
+        error("foreign call: its signature is incomplete")
+    end
+    if native.word(native.load8(source, at)) ~= STRUCT then
+        return next
+    end
+    local depth: int64 = 1
+    while next < limit and depth > 0 do
+        local code = native.word(native.load8(source, next))
+        if code == STRUCT then
+            depth = depth + 1
+        elseif code == END_STRUCT then
+            depth = depth - 1
+        end
+        next = next + 1
+    end
+    if depth ~= 0 then
+        error("foreign call: its struct signature is incomplete")
+    end
+
+    return next
+end
+
+-- ffi_type is {size_t size; ushort alignment, type; ffi_type **elements}.
+-- Scalar codes and widths come from the checked C declaration. libffi owns
+-- layout and ABI classification for complete recursive struct descriptions.
+-- The answer is an address in the caller's stable workspace, never in the
+-- local Reader. Keeping that address as a word does not escape the Reader.
+local function node(r: Reader*, promoted: boolean): uint64
+    @unsafe do
+        local code = letter(r)
+        r.at = r.at + 1
+        local result = native.pointer(r.nodes)
+        r.nodes = r.nodes + native.word(TYPE_BYTES)
+        native.store64(result, 0, 0ULL)
+        native.store64(result, 8, 0ULL)
+        native.store64(result, 16, 0ULL)
+        if code == STRUCT then
+            local count: int64 = 0
+            local at = r.at
+            while at < r.limit and native.word(native.load8(native.pointer(r.bytes), at)) ~= END_STRUCT do
+                count = count + 1
+                at = after(native.pointer(r.bytes), at, r.limit)
+            end
+            if count == 0 or at >= r.limit then
+                error("foreign call: its struct signature is empty or incomplete")
+            end
+            local elements = native.pointer(r.elements)
+            r.elements = r.elements + native.word((count + 1) * WORD)
+            native.store64(elements, count * WORD, 0ULL)
+            native.store32(result, 8, 0x000d0000)
+            native.store64(result, 16, native.address(elements))
+            return native.address(result)
+        end
+        local size: uint64 = 8ULL
+        local kind: uint64 = 0ULL
+        if code == 0x76ULL then -- void
+            size = 1ULL
+        elseif code == 0x62ULL or code == 0x43ULL then -- bool, uint8
+            kind, size = 5ULL, 1ULL
+        elseif code == 0x63ULL then -- int8
+            kind, size = 6ULL, 1ULL
+        elseif code == 0x48ULL then -- uint16
+            kind, size = 7ULL, 2ULL
+        elseif code == 0x68ULL then -- int16
+            kind, size = 8ULL, 2ULL
+        elseif code == 0x75ULL then -- uint32
+            kind, size = 9ULL, 4ULL
+        elseif code == 0x69ULL then -- int32
+            kind, size = 10ULL, 4ULL
+        elseif code == 0x4cULL then -- uint64
+            kind = 11ULL
+        elseif code == 0x6cULL then -- int64
+            kind = 12ULL
+        elseif code == 0x66ULL then -- float32
+            kind, size = 2ULL, 4ULL
+            if promoted then
+                kind, size = 3ULL, 8ULL
+            end
+        elseif code == 0x64ULL then -- float64
+            kind = 3ULL
+        elseif code == 0x70ULL or code == 0x73ULL then -- pointer, string
+            kind = 14ULL
+        else
+            error("foreign call: its signature kind is unsupported")
+        end
+        if promoted and kind >= 5ULL and kind <= 8ULL then
+            kind, size = 10ULL, 4ULL
+        end
+        native.store64(result, 0, size)
+        native.store32(result, 8, native.index(size | (kind << 16ULL)))
+        return native.address(result)
+    end
+end
+
+-- shortcut: the core linker budgets acyclic helper calls; use a bounded
+-- explicit stack until recursive helper graphs have checked stack budgets.
+local function readType(r: Reader*, promoted: boolean): uint64
+    @unsafe do
+        local root = node(r, promoted)
+        local current = root
+        local depth: int64 = 0
+        local stack = native.pointer(r.stack)
+        local pending = native.load32(native.pointer(current), 8) >> 16 == 13
+        while pending or depth > 0 do
+            if pending then
+                if depth >= MAX_DEPTH then
+                    error("foreign call: its struct signature is too deep")
+                end
+                local frame = native.offset(stack, depth * 16)
+                native.store64(frame, 0, current)
+                native.storeIndex(frame, 8, 0)
+                depth = depth + 1
+                current = node(r, false)
+                pending = native.load32(native.pointer(current), 8) >> 16 == 13
+            else
+                if native.load32(native.pointer(current), 8) >> 16 == 0 then
+                    error("foreign call: a struct member is void")
+                end
+                local frame = native.offset(stack, (depth - 1) * 16)
+                local parent = native.load64(frame, 0)
+                local index = native.loadIndex(frame, 8)
+                local elements = native.loadPointer(native.pointer(parent), 16)
+                native.store64(elements, index * WORD, current)
+                index = index + 1
+                if letter(r) == END_STRUCT then
+                    r.at = r.at + 1
+                    depth = depth - 1
+                    current = parent
+                    pending = false
+                else
+                    native.storeIndex(frame, 8, index)
+                    current = node(r, false)
+                    pending = native.load32(native.pointer(current), 8) >> 16 == 13
+                end
+            end
+        end
+        return root
+    end
+end
+
+-- Answers a type address inside caller-owned workspace, following the core's
+-- raw-address convention. Its lifetime never exceeds that workspace's owner.
+export function prepare(workspace: voidptr, source: voidptr, length: int64, count: int64): uint64
+    local reader = Reader(0ULL, 0, 0, 0ULL, 0ULL, 0ULL, 0, 0)
+    local workBytes = bytes(length, count)
+    local nodes = native.offset(workspace, answer(count) + WORD)
+    @unsafe do
+        local r = reader as Reader*
+        r.bytes = native.address(source)
+        r.limit = length
+        r.nodes = native.address(nodes)
+        r.elements = native.address(native.offset(nodes, length * TYPE_BYTES))
+        r.stack = native.address(native.offset(workspace, workBytes - PARSER_STACK_BYTES))
+        local result = native.pointer(readType(r, false))
+        local fixed: int64 = count
+        local variadic = false
+        local index: int64 = 0
+        while r.at < length do
+            if letter(r) == VARIADIC then
+                if variadic or index == 0 then
+                    error("foreign call: its variadic signature is invalid")
+                end
+                fixed, variadic = index, true
+                r.at = r.at + 1
+            else
+                if index >= count then
+                    error("foreign call: its argument count differs")
+                end
+                local argument = native.pointer(readType(r, variadic))
+                if native.load32(argument, 8) >> 16 == 0 then
+                    error("foreign call: an argument is void")
+                end
+                native.store64(workspace, CIF_BYTES + index * WORD, native.address(argument))
+                index = index + 1
+            end
+        end
+        if index ~= count then
+            error("foreign call: its argument count differs")
+        end
+        local abi = ffi_get_default_abi()
+        local status: int32 = 0
+        local types = native.offset(workspace, CIF_BYTES)
+        -- shortcut: core numeric width casts are not lowered yet; use checked
+        -- scalar casts when that lowering exists. Bounds were checked above;
+        -- these exact-width fields preserve the C API's unsigned-int ABI.
+        native.store32(r, native.fieldOffset<Reader>("fixed"), fixed)
+        native.store32(r, native.fieldOffset<Reader>("total"), count)
+        if variadic then
+            status = ffi_prep_cif_var(workspace, abi, r.fixed, r.total, result, types)
+        else
+            status = ffi_prep_cif(workspace, abi, r.total, result, types)
+        end
+        if status ~= 0 then
+            error("foreign call: libffi refused its signature")
+        end
+        return native.address(result)
+    end
+end
+
+export function invoke(workspace: voidptr, fn: uint64, result: voidptr, count: int64): nil
+    @unsafe do
+        ffi_call(workspace, native.pointer(fn), result, native.offset(workspace, arguments(count)))
+    end
+end
+
+-- Collector registrations contain only C storage, never a managed pointer.
+-- The fixed libffi dispatcher uses these offsets too (s0.select). Codes,
+-- cif/type storage and userdata remain owned until the entry is quiescent.
+export const CLOSURE_BYTES: int64 = 56
+export const CLOSURE_NEXT: int64 = 0
+export const CLOSURE_ALLOCATION: int64 = 8
+export const CLOSURE_CODE: int64 = 16
+export const CLOSURE_THREAD: int64 = 24
+export const CLOSURE_SELF: int64 = 32
+export const CLOSURE_WORDS: int64 = 40
+export const CLOSURE_FAILED: int64 = 48
+
+export function collector(words: int64, dispatcher: voidptr, head: voidptr): uint64
+    -- shortcut: only integer/pointer structs of 3..64 words have an active
+    -- collector contract; checked managed callback reentry remains refused.
+    if words < 3 or words > 64 then
+        error("foreign collector: its struct word count is unsupported")
+    end
+    local length = words * 2 + 6
+    local workBytes = bytes(length, 3)
+    @unsafe do
+        local thread = pthread_self()
+        local previous = native.load64(head, 0)
+        local known = previous
+        while known ~= 0ULL do
+            local entry = native.pointer(known)
+            if native.load64(entry, CLOSURE_WORDS) == native.word(words)
+                and native.load64(entry, CLOSURE_THREAD) == thread
+                and native.load64(entry, CLOSURE_CODE) ~= 0ULL
+            then
+                return known
+            end
+            known = native.load64(entry, CLOSURE_NEXT)
+        end
+        local registration = malloc(native.word(CLOSURE_BYTES + workBytes + length))
+        if native.address(registration) == 0ULL then
+            error("foreign collector: allocation failed")
+        end
+        -- Publish ownership before any operation that can raise. Even a
+        -- caught preparation failure is reclaimed with the entry's services.
+        native.store64(registration, CLOSURE_NEXT, previous)
+        native.store64(registration, CLOSURE_ALLOCATION, 0ULL)
+        native.store64(registration, CLOSURE_CODE, 0ULL)
+        native.store64(registration, CLOSURE_WORDS, native.word(words))
+        native.store64(registration, CLOSURE_THREAD, thread)
+        native.store64(registration, CLOSURE_FAILED, 0ULL)
+        native.store64(head, 0, native.address(registration))
+        local workspace = native.offset(registration, CLOSURE_BYTES)
+        local descriptor = native.offset(workspace, workBytes)
+        native.store8(descriptor, 0, 0x75ULL)
+        local at: int64 = 1
+        local index: int64 = 0
+        while index < 2 do
+            native.store8(descriptor, at, STRUCT)
+            at = at + 1
+            local word: int64 = 0
+            while word < words do
+                native.store8(descriptor, at, 0x4cULL)
+                at, word = at + 1, word + 1
+            end
+            native.store8(descriptor, at, END_STRUCT)
+            at, index = at + 1, index + 1
+        end
+        native.store8(descriptor, at, 0x70ULL)
+        local _ = prepare(workspace, descriptor, length, 3)
+        -- Publish the callable pointer only after the whole entry is ready.
+        -- A caught setup failure must not make a later request reuse it.
+        local codeSlot = native.offset(workspace, answer(3))
+        local closure = ffi_closure_alloc(ffi_get_closure_size(), codeSlot)
+        if native.address(closure) == 0ULL then
+            error("foreign collector: executable closure allocation failed")
+        end
+        native.store64(registration, CLOSURE_ALLOCATION, native.address(closure))
+        -- Closure signatures need no ffi_call scalar argument slots. Reuse
+        -- that storage for the NUL-ended pthread_self lookup name.
+        local symbol = native.offset(workspace, scalars(3))
+        native.store64(symbol, 0, 0x5f64616572687470ULL)
+        native.store64(symbol, 8, 0x666c6573ULL)
+        local process = dlopen(native.pointer(0ULL), 2)
+        if native.address(process) == 0ULL then
+            error("foreign collector: process lookup failed")
+        end
+        local self = dlsym(process, symbol)
+        local _ = dlclose(process)
+        native.store64(registration, CLOSURE_SELF, native.address(self))
+        local code = native.loadPointer(codeSlot, 0)
+        if native.address(self) == 0ULL
+            or ffi_prep_closure_loc(closure, workspace, dispatcher, registration, code) ~= 0
+        then
+            error("foreign collector: libffi refused its entry")
+        end
+        native.store64(registration, CLOSURE_CODE, native.address(code))
+        return native.address(registration)
+    end
+end
+
+export function failed(head: uint64): boolean
+    local next = head
+    local refused = false
+    while next ~= 0ULL do
+        local registration = native.pointer(next)
+        if native.load64(registration, CLOSURE_FAILED) ~= 0ULL then
+            refused = true
+            native.store64(registration, CLOSURE_FAILED, 0ULL)
+        end
+        next = native.load64(registration, CLOSURE_NEXT)
+    end
+
+    return refused
+end
+
+export function close(head: uint64): nil
+    local next = head
+    @unsafe do
+        while next ~= 0ULL do
+            local registration = native.pointer(next)
+            next = native.load64(registration, CLOSURE_NEXT)
+            local allocation = native.loadPointer(registration, CLOSURE_ALLOCATION)
+            if native.address(allocation) ~= 0ULL then
+                ffi_closure_free(allocation)
+            end
+            free(registration)
+        end
+    end
+end

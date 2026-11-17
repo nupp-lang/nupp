@@ -14,6 +14,7 @@ repeated here so the release notices remain complete in one place.
 | [Lunajson](https://github.com/grafi-tt/lunajson) | `1.2.3` | MIT | [notices/lunajson-LICENSE.txt](notices/lunajson-LICENSE.txt) |
 | Rust dependency graph | `Cargo.lock` | Mixed permissive licenses | [notices/Rust-dependencies.html](notices/Rust-dependencies.html) |
 | [libffi](https://sourceware.org/libffi/) | as `libffi-sys` 4.2.2 bundles it | MIT | [notices/libffi-LICENSE.txt](notices/libffi-LICENSE.txt) |
+| [libffi core C API](https://github.com/libffi/libffi) | `3.8.0` | MIT | [notices/libffi-core-LICENSE.txt](notices/libffi-core-LICENSE.txt) |
 | [LuaJIT](https://luajit.org/) | `1edc3e52b67eaf6ce5f809be8e17d6862594b8bc` | MIT | [notices/LuaJIT-COPYRIGHT.txt](notices/LuaJIT-COPYRIGHT.txt) |
 | [wgpu-native](https://github.com/gfx-rs/wgpu-native) | `v29.0.1.1` | MIT or Apache-2.0, plus dependency licenses | [MIT](notices/wgpu-native-LICENSE.MIT.txt), [Apache-2.0](notices/wgpu-native-LICENSE.APACHE.txt), [dependencies](notices/wgpu-native-Rust-dependencies.html) |
 | [zlib](https://zlib.net/) | `1.4` | zlib | [notices/zlib-LICENSE.txt](notices/zlib-LICENSE.txt) |

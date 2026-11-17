@@ -262,7 +262,7 @@ local CASES = {
     -- The packaged test runner over real suites, its loadfile and dofile
     -- served chunks compiled here (SOURCES).
     {"testrunner", 0},
-    {"ffiaggregates", 0x7FFF0000003FFFFF},
+    {"ffiaggregates", 0x7FFF00001FFFFFFF},
     {"runnerresiduals", 0x7FFF00000000007F},
     -- Library calls spreading `...` through the library function's value.
     {"spreadlibrary", 0x7FFF0000000003FF},
@@ -1100,6 +1100,37 @@ end
 
 -- The bridge and its ABI/scratch guard, built once with cargo.
 local function tools(selectedCases)
+    -- Kernel FFI imports are artifact-relative on both transports. Stage the
+    -- verified upstream sidecar before any jobs/shards start, with its notice.
+    local provisionStatus, provisionOutput = shell("sh " .. quote(ROOT .. "/scripts/native-libraries") .. " libffi")
+    assert(provisionStatus == 0, "libffi provisioning failed: " .. provisionOutput)
+    local ffiPrefix = assert(provisionOutput:match("([^\r\n]+)\r?\n?$"), "libffi provisioning returned no path")
+    local copyStatus, copyOutput = shell(
+        "mkdir -p " .. quote(
+            OUT .. "/lib"
+        ) .. " " .. quote(
+            OUT .. "/notices"
+        ) .. " && cp -RP " .. quote(ffiPrefix .. "/notices/.") .. " " .. quote(OUT .. "/notices/")
+    )
+    assert(copyStatus == 0, "libffi notice staging failed: " .. copyOutput)
+    local libraries = require("nupp.tools.build.libraries")
+    local digest = require("nupp.compiler.project.fingerprint").contentDigest(true)
+    local staged, _, problem = libraries.stage(
+        ROOT,
+        "build/core-guests",
+        {
+            libffi = {
+                name = "libffi",
+                reference = "@lib/libnuppffi",
+                path = ffiPrefix .. "/lib/libnuppffi",
+                dependencies = {}
+            }
+        },
+        {"libffi"},
+        {},
+        digest
+    )
+    assert(staged, "libffi sidecar staging failed: " .. tostring(problem))
     for _, case in ipairs(selectedCases) do
         if case[1] == "cbridge" then
             -- Build once before jobs/shards start. Re-linking the same dylib

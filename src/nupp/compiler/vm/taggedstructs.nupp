@@ -8,7 +8,7 @@ module nupp.compiler.vm.taggedstructs
 -- itself, a reference into its parent's bytes, as the language states.
 --
 -- The layout is Apple arm64's, the one target the core runs on and whose C
--- convention the generic foreign call speaks (guestforeign).
+-- layout the checker verifies before libffi classifies its foreign calls.
 const taggedvalues = require("nupp.compiler.vm.taggedvalues")
 const corelibrary = require("nupp.compiler.vm.corelibrary")
 const layouts = require("nupp.compiler.targetlayout")
@@ -37,15 +37,7 @@ const KINDS: {
 const POINTER_KIND = 7
 -- `integer` takes the width the layout gives it.
 const INTEGER_KINDS: {[integer]: integer} = {[4] = 6, [8] = 8}
--- The most members a homogeneous floating-point aggregate has.
-const HFA_MEMBERS = 4
--- The descriptor's aggregate codes (guestforeign): an aggregate of N
--- binary32 or binary64 members, or any other composite of its bytes.
-const HFA32 = "F"
-const HFA64 = "D"
-const COMPOSITE = "A"
-const COMPOSITE_END = ";"
--- Composites past this alignment have no word-at-a-time placement here.
+-- The active core has natural C layouts up to eight-byte alignment.
 const MAX_ALIGNMENT = 8
 
 -- The type behind ownership and constant wrappers.
@@ -249,55 +241,56 @@ export function construct(ctx: any, node: any, declared: any, names: {string}, v
     return result
 end
 
--- Gathers the members of `t` as their aggregate codes, answering false once
--- one is not a float: the homogeneous floating-point aggregate test.
-local function floats(t: any, into: {string}): boolean
-    t = bare(t)
+-- Full recursive C types, so libffi classifies structs from their actual
+-- members. A size-only descriptor loses mixed floating/integer ABI classes.
+const CODES: {
+    [string]: string
+} = {
+    uint8 = "C",
+    int8 = "c",
+    uint16 = "H",
+    int16 = "h",
+    uint32 = "u",
+    int32 = "i",
+    uint64 = "L",
+    int64 = "l",
+    integer = "l",
+    boolean = "b",
+    float32 = "f",
+    float64 = "d",
+    number = "d"
+}
+
+local function describe(given: any, depth: integer): string
+    need(depth < 64, "a foreign struct signature is too deep")
+    local t = need(bare(given), "a foreign struct member has no type")
     local declared = origin(t)
     if declared then
+        need(declared.cdefKind ~= "union", "a union is not passed by value")
+        local measured = layout(declared)
+        need(measured.alignment <= MAX_ALIGNMENT, "a struct aligned past eight bytes is not passed by value")
+        for _, field in ipairs(measured.fields) do
+            need(field.bitWidth == nil, "a bitfield struct is not passed by value")
+        end
+        local codes = {"("}
         for _, name in ipairs(declared.fieldOrder or {}) do
-            if not floats(declared.byname[name], into) then
-                return false
-            end
+            codes[#codes + 1] = describe(declared.byname[name], depth + 1)
         end
-        return true
+        need(#codes > 1, "an empty struct is not passed by value")
+        codes[#codes + 1] = ")"
+        return table.concat(codes)
     elseif t.tag == "carray" then
-        for _ = 1, t.count as integer do
-            if not floats(t.elem, into) then
-                return false
-            end
-        end
-        return true
-    elseif t.tag == "float32" or t.tag == "float64" or t.tag == "number" then
-        into[#into + 1] = t.tag == "float32" and HFA32 or HFA64
-        return true
+        return string.rep(describe(t.elem, depth + 1), t.count)
+    elseif pointer(t) then
+        return "p"
     end
 
-    return false
+    return need(CODES[t.tag], "a foreign struct member is not a supported C type: " .. tostring(t.tag))
 end
 
--- The descriptor code of a struct passed or answered by value, or nil for a
--- type that is not a struct. A homogeneous aggregate of at most four floats
--- of one width travels in float registers; anything else by its bytes.
 export function aggregate(t: any): string?
-    local declared = origin(t)
-    if not declared then
+    if origin(t) == nil then
         return nil
     end
-    need(declared.cdefKind ~= "union", "a union is not passed by value")
-    local measured = layout(declared)
-    need(measured.alignment <= MAX_ALIGNMENT, "a struct aligned past eight bytes is not passed by value")
-    local leaves: {string} = {}
-    if floats(declared, leaves) and #leaves <= HFA_MEMBERS then
-        local first = leaves[1]
-        local same = true
-        for _, leaf in ipairs(leaves) do
-            same = same and leaf == first
-        end
-        if same then
-            return first .. tostring(#leaves)
-        end
-    end
-
-    return COMPOSITE .. tostring(measured.size) .. COMPOSITE_END
+    return describe(t, 0)
 end

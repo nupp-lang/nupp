@@ -155,7 +155,8 @@ local record Os
     --- calling convention passes its arguments: the function, then x0-x7,
     --- d0-d7, the first sixteen words of the stack and x8. Answers x0 and
     --- leaves x0, x1 and d0-d3 in their words. The selector writes it where
-    --- it is called; the core's guest foreign calls make it (guestforeign).
+    --- it is called. Checked static kernel calls retain this primitive;
+    --- guest C calls use libffi instead.
     @vmHelperEffects(mayCollect = false, mayPark = false, mayRaise = false, pure = false)
     foreignCall: function(block: voidptr): uint64
 
@@ -164,9 +165,9 @@ local record Os
     @vmHelperEffects(mayCollect = false, mayPark = false, mayRaise = false, pure = false)
     foreignCells: function(): voidptr
 
-    --- The address of a C visitor f(item, parent, record) the selector writes
-    --- in place: it keeps the struct `item` points at in the record's next
-    --- place and answers 1, or answers 0 once none is left (guestforeign).
+    --- The fixed libffi handler void(cif, result, arguments, userdata).
+    --- The selector writes this raw copy/thread guard in place. It is not
+    --- itself a visitor: foreignabi prepares the signature-specific closure.
     @vmHelperEffects(mayCollect = false, mayPark = false, mayRaise = false, pure = false)
     foreignCollector: function(): voidptr
 end

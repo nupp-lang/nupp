@@ -69,6 +69,11 @@ cdef struct L3
     c: int64
 end
 
+cdef struct MixedFloat
+    tag: int32
+    value: float64
+end
+
 cdef struct Collected
     base: uint64
     count: uint64
@@ -141,6 +146,9 @@ cdef function l3_spill(
     t: int32
 ): int64 from"libnuppffiaggregates.dylib"
 cdef function l3_make(a: int64, b: int64, c: int64): L3 from"libnuppffiaggregates.dylib"
+cdef function mixed_float(value: MixedFloat, scale: float64): MixedFloat from"libnuppffiaggregates.dylib"
+cdef function walk_cursor(borrows visit: voidptr, borrows data: Collected*): uint32 from"libnuppffiaggregates.dylib"
+cdef function walk_thread(borrows visit: voidptr, borrows data: Collected*): uint32 from"libnuppffiaggregates.dylib"
 cdef function div(n: int32, d: int32): Quotient
 cdef function ldiv(n: int64, d: int64): LongQuotient
 cdef function memcpy(borrows target: L3*, borrows source: L3*, count: uint64): voidptr
@@ -215,12 +223,35 @@ do
     -- once no place is left.
     local base = malloc(4 * 24)
     local kept = Collected(base, 0, 4, 3)
-    local walked = walk_l3(hostcalls.collector(), kept, 3)
+    local walked = walk_l3(hostcalls.collector(3), kept, 3)
     local second = L3(0, 0, 0)
     memmove(second, base + 24, 24)
     check(walked == 1 and kept.count == 3 and second.a == 2 and second.b == 20 and second.c == 200)
     local short = Collected(base, 0, 2, 3)
-    check(walk_l3(hostcalls.collector(), short, 3) == 0 and short.count == 2)
+    check(walk_l3(hostcalls.collector(3), short, 3) == 0 and short.count == 2)
+    -- A stable signature owns one closure per entry, shared by repeated walks.
+    check(hostcalls.collector(3) == hostcalls.collector(3))
+    local mixedFloat = mixed_float(MixedFloat(7, 2.5), 2.0)
+    check(mixedFloat.tag == 8 and mixedFloat.value == 5.0)
+    -- The compiler's actual libclang visitor shape: two 32-byte cursors.
+    local cursors = Collected(base, 0, 1, 4)
+    check(walk_cursor(hostcalls.collector(4), cursors) == 1 and cursors.count == 1)
+    local ok, message = pcall(function(): any
+        return hostcalls.collector(2)
+    end)
+    check(not ok and string.find(tostring(message), "word count", 1, true) ~= nil)
+    local wrong = Collected(base, 0, 1, 4)
+    ok, message = pcall(function(): any
+        return walk_l3(hostcalls.collector(3), wrong, 1)
+    end)
+    check(not ok and wrong.count == 0 and string.find(tostring(message), "record shape", 1, true) ~= nil)
+    local threaded = Collected(base, 0, 1, 3)
+    ok, message = pcall(function(): any
+        return walk_thread(hostcalls.collector(3), threaded)
+    end)
+    check(not ok and threaded.count == 0 and string.find(tostring(message), "wrong thread", 1, true) ~= nil)
+    -- Refusal did not poison the registration for a later walk.
+    check(walk_l3(hostcalls.collector(3), threaded, 1) == 1 and threaded.count == 1)
     free(base)
 end
 

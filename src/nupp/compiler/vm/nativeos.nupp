@@ -24,7 +24,8 @@ local definitions = {
     -- Not imports: routines the selector writes where they are called
     -- (nupp.compiler.s0.select). The generic foreign call takes a block of
     -- words and answers x0; the next answers the address of the table above,
-    -- and the collector the address of a C visitor the selector writes.
+    -- and the collector the address of the fixed libffi handler the selector
+    -- writes. Upstream closures own the visitor's signature-specific ABI.
     foreignCall = {routine = "call", params = {"voidptr"}, result = "uint64", cResult = "uint64"},
     foreignCells = {routine = "cells", params = {}, result = "voidptr", cResult = "voidptr"},
     foreignCollector = {routine = "collector", params = {}, result = "voidptr", cResult = "voidptr"},
@@ -350,8 +351,8 @@ export function routine(declaration: any): string?
     return name and "routine\0" .. name or nil
 end
 
--- The generic foreign call's block (nupp.compiler.s0.select's `CALL_`
--- words, and guestforeign's): the function, x0-x7, d0-d7, the C stack's
+-- The static kernel foreign call's block (nupp.compiler.s0.select's `CALL_`
+-- words): the function, x0-x7, d0-d7, the C stack's
 -- first words, and the address x8 passes; in bytes.
 const BLOCK_FUNCTION = 0
 const BLOCK_INTEGERS = 8

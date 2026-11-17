@@ -12,8 +12,8 @@ cache and token replay, so the checker cannot tell the two apart.
 libclang is opened once, globally, from NUPP_LIBCLANG or the places the
 VM's service looks, so the declarations below, which name no library, find
 it. A walk over a cursor's children hands each child to the core's
-collector (nupp.runtime.hostcalls), a C visitor the selector writes,
-which keeps them in memory this module allocates.
+collector (nupp.runtime.hostcalls), a libffi closure with a fixed core
+handler, which keeps them in memory this module allocates.
 ]]
 module nupp.compiler.corecdecl
 
@@ -275,7 +275,7 @@ local function children(cursor: Cursor): {Cursor}
     while true do
         local base = malloc(limit * CURSOR_BYTES)
         local record = Collected(base, 0, limit, CURSOR_WORDS)
-        clang_visitChildren(cursor, hostcalls.collector(), record)
+        clang_visitChildren(cursor, hostcalls.collector(4), record)
         local count = record.count as integer
         if count < limit then
             local out: {Cursor} = {}

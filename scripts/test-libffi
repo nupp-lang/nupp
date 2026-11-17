@@ -1,0 +1,14 @@
+#!/bin/sh
+# Pinned headers/runtime/layout and closure probe. No Rust tool is an input.
+set -eu
+ROOT=$(CDPATH= cd -- "$(dirname "$0")/.." && pwd)
+OUT=${NUPP_LIBFFI_EVIDENCE:-"$ROOT/build/libffi"}
+mkdir -p "$OUT"
+prefix=$(sh "$ROOT/scripts/native-libraries" libffi)
+CC=${NUPP_CC:-cc}
+"$CC" -std=c11 -O2 -Wall -Wextra -Werror -I"$prefix/include" \
+    "$ROOT/scripts/c-libraries/libffi-probe.c" "$prefix/lib/libnuppffi" \
+    -Wl,-rpath,"$prefix/lib" -o "$OUT/libffi-layout"
+"$OUT/libffi-layout" > "$OUT/abi.json"
+cp "$prefix/identity" "$OUT/libffi.identity"
+cat "$OUT/abi.json"

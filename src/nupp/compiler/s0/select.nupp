@@ -40,7 +40,7 @@ const ROUTINE_COLLECTOR: string = "routine\0collector"
 -- The generic foreign call's scalar fast path: the function, then the
 -- arguments, which all go in registers, as a call's own operands.
 const ROUTINE_REGISTERS: string = "routine\0call\0registers"
--- The generic foreign call's block of words (nupp.runtime.core.guestforeign):
+-- The static kernel foreign call's block of words (nativeos.foreignBlock):
 -- the function, then x0-x7, d0-d7, the first words of the C stack and the
 -- address x8 passes for a result returned in memory. The call answers x0 and
 -- leaves the registers a result comes back in at their words: x0 and x1,
@@ -665,15 +665,11 @@ function selector.run(f: ir.Function, a: allocate.Allocation): selector.Code
         end
     end
 
-    -- The collector: x0 answers the address of a C function written here
-    -- and jumped over, f(item, parent, record), which keeps the struct
-    -- `item` points at, the record's words a struct, in the record's next
-    -- place and answers VISIT_CONTINUE, or answers VISIT_BREAK once no
-    -- place is left. It is the visitor a C walk such as libclang's
-    -- clang_visitChildren is given, whose structs AAPCS64 passes by
-    -- reference; it uses x9-x14 and no stack.
+    -- One fixed libffi handler: void(cif, result, void **args, userdata).
+    -- libffi owns every user-signature ABI entry. This leaf copies raw C
+    -- words only: no managed entry, allocation, parking or unwind. Userdata
+    -- offsets are foreignabi.CLOSURE_*; its entry owner frees after quiescence.
     local function foreignCollector(): nil
-        -- A word the branch to a later place is written into.
         local function hole(): integer
             emit(0)
             return #code.words
@@ -681,11 +677,32 @@ function selector.run(f: ir.Function, a: allocate.Allocation): selector.Code
 
         emit(arm.adr(0, 8))
         local skip = hole()
+        emit(arm.sub_imm(64, 31, 31, 32, 0))
+        emit(arm.str(8, LINK, 31, 0))
+        emit(arm.str(8, 1, 31, 8))
+        emit(arm.str(8, 2, 31, 16))
+        emit(arm.str(8, 3, 31, 24))
+        -- Refuse another OS thread before dereferencing caller-owned data.
+        emit(arm.ldr(8, 16, 3, 32))
+        emit(arm.blr(16))
+        emit(arm.ldr(8, 3, 31, 24))
+        emit(arm.ldr(8, 10, 3, 24))
+        emit(arm.cmp_reg(64, 0, 10))
+        local wrongThread = hole()
+        emit(arm.ldr(8, 2, 31, 16))
+        emit(arm.ldr(8, 0, 2, 0)) -- args[0] points at item bytes
+        emit(arm.ldr(8, 2, 2, 16))
+        emit(arm.ldr(8, 2, 2, 0)) -- *(void **)args[2] is the record
+        emit(arm.cmp_imm(64, 2, 0, 0))
+        local nullRecord = hole()
+        emit(arm.ldr(8, 11, 2, COLLECT_WORDS_AT))
+        emit(arm.ldr(8, 10, 3, 40))
+        emit(arm.cmp_reg(64, 11, 10))
+        local wrongShape = hole()
         emit(arm.ldr(8, 9, 2, COLLECT_COUNT_AT))
         emit(arm.ldr(8, 10, 2, COLLECT_LIMIT_AT))
         emit(arm.cmp_reg(64, 9, 10))
         local full = hole()
-        emit(arm.ldr(8, 11, 2, COLLECT_WORDS_AT))
         emit(arm.ldr(8, 12, 2, COLLECT_BASE_AT))
         emit(arm.madd(64, 13, 9, 11, ZERO))
         emit(arm.add_reg(64, 12, 12, 13, 3))
@@ -700,12 +717,24 @@ function selector.run(f: ir.Function, a: allocate.Allocation): selector.Code
         code.words[copied] = arm.b_cond(HIGHER_SAME, (#code.words + 1 - copied) * 4)
         emit(arm.add_imm(64, 9, 9, 1, 0))
         emit(arm.str(8, 9, 2, COLLECT_COUNT_AT))
-        emit(arm.movz(32, 0, VISIT_CONTINUE, 0))
-        local answer = #code.words + 1
+        emit(arm.movz(64, 0, VISIT_CONTINUE, 0))
+        local success = hole()
+        local bad = #code.words + 1
+        emit(arm.movz(64, 10, 1, 0))
+        emit(arm.str(8, 10, 3, 48)) -- owning Nupp boundary raises later
+        local stop = #code.words + 1
+        emit(arm.movz(64, 0, VISIT_BREAK, 0))
+        local done = #code.words + 1
+        emit(arm.ldr(8, 1, 31, 8))
+        emit(arm.str(8, 0, 1, 0)) -- libffi requires ffi_arg for a narrow result
+        emit(arm.ldr(8, LINK, 31, 0))
+        emit(arm.add_imm(64, 31, 31, 32, 0))
         emit(arm.ret(LINK))
-        code.words[full] = arm.b_cond(HIGHER_SAME, (#code.words + 1 - full) * 4)
-        emit(arm.movz(32, 0, VISIT_BREAK, 0))
-        emit(arm.b((answer - (#code.words + 1)) * 4))
+        code.words[wrongThread] = arm.b_cond(1, (bad - wrongThread) * 4)
+        code.words[nullRecord] = arm.b_cond(0, (bad - nullRecord) * 4)
+        code.words[wrongShape] = arm.b_cond(1, (bad - wrongShape) * 4)
+        code.words[full] = arm.b_cond(HIGHER_SAME, (stop - full) * 4)
+        code.words[success] = arm.b((done - success) * 4)
         code.words[skip] = arm.b((#code.words + 1 - skip) * 4)
     end
 

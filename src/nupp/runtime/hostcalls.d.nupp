@@ -52,12 +52,15 @@ local record hostcalls
     uservalue: function(u: any): any
 
     --- The address of a C visitor f(item, parent, record) for a walk that
-    --- passes each struct it visits by reference, such as libclang's
-    --- clang_visitChildren. The record is four words: where it keeps the
+    --- passes integer/pointer structs of `words` words by value, such as
+    --- libclang's clang_visitChildren. The record is four words: where it keeps the
     --- structs, how many it has kept, how many fit, and the words each
     --- takes. It keeps a copy of each and answers 1, or answers 0, which
     --- stops such a walk, once none fits.
-    collector: function(): voidptr
+    --- The pointer lives until this core entry closes. C must finish all
+    --- calls before returning; it cannot retain it. Only the creating OS
+    --- thread may call it. No managed callback, unwind or park crosses C.
+    collector: function(words: integer): voidptr
 end
 
 return hostcalls

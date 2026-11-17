@@ -9,6 +9,7 @@ on:
       - 'scripts/toolchain.pins'
       - 'scripts/native-libraries'
       - 'scripts/c-libraries/**'
+      - 'scripts/test-libffi'
       - 'tests/fixtures/c-libraries/**'
       - 'tests/tools/toolchain/clibraries.test.mjs'
       - 'host/notices/*LICENSE*'
@@ -98,4 +99,42 @@ jobs:
             build/c-libraries/abi.json
             build/c-libraries/timing.json
             build/c-libraries/*.identity
+          if-no-files-found: error
+  libffi:
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name != github.repository
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - {runner: macos-15, target: aarch64-apple-darwin}
+          - {runner: macos-15-intel, target: x86_64-apple-darwin}
+          - {runner: ubuntu-24.04, target: x86_64-unknown-linux-gnu}
+          - {runner: ubuntu-24.04-arm, target: aarch64-unknown-linux-gnu}
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/cache@v4
+        with:
+          path: .nupp-c-library-cache
+          key: libffi-${{ matrix.target }}-${{ hashFiles('scripts/toolchain.pins', 'scripts/native-libraries', 'scripts/c-libraries/libffi.sh', 'scripts/c-libraries/libffi-probe.c') }}
+      - name: Verify pinned libffi headers, calls and closures without Rust
+        shell: bash
+        env:
+          NUPP_NATIVE_TARGET: ${{ matrix.target }}
+          NUPP_TOOLCHAIN_DIR: ${{ github.workspace }}/.nupp-c-library-cache
+        run: |
+          mkdir -p build/no-rust-tools
+          for tool in cargo rustc rustup cargo-c; do
+            printf '#!/bin/sh\necho "Unexpected Rust tool invocation" >&2\nexit 99\n' > "build/no-rust-tools/$tool"
+            chmod +x "build/no-rust-tools/$tool"
+          done
+          export PATH="$PWD/build/no-rust-tools:$PATH"
+          sh scripts/test-libffi
+      - uses: actions/upload-artifact@v4
+        with:
+          name: libffi-abi-${{ matrix.target }}
+          path: |
+            build/libffi/abi.json
+            build/libffi/libffi.identity
           if-no-files-found: error

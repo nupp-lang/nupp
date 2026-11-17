@@ -2,6 +2,8 @@
 // structs by value in each of the ways AAPCS64 and Apple pass them. The
 // guest runner builds it with cc into a directory DYLD_LIBRARY_PATH names.
 #include <stdint.h>
+#include <pthread.h>
+#include <stdlib.h>
 
 typedef struct { float x, y; } F2;
 typedef struct { float x, y, z; } F3;
@@ -12,6 +14,12 @@ typedef struct { int32_t a, b; } I2;
 typedef struct { int8_t a; int16_t b; int32_t c; } Mixed;
 typedef struct { int64_t a; int32_t b; } L12;
 typedef struct { int64_t a, b, c; } L3;
+typedef struct { int32_t tag; double value; } MixedFloat;
+typedef struct { int32_t kind, extra; void *data[3]; } Cursor;
+
+MixedFloat mixed_float(MixedFloat value, double scale) {
+    return (MixedFloat){value.tag + 1, value.value * scale};
+}
 
 // Homogeneous aggregates of floats, in s and d registers both ways.
 F2 f2_scale(F2 p, float k) { return (F2){p.x * k, p.y * k}; }
@@ -66,4 +74,26 @@ unsigned walk_l3(Visitor visit, void *data, int64_t count) {
         }
     }
     return 1;
+}
+
+typedef unsigned (*CursorVisitor)(Cursor item, Cursor parent, void *data);
+unsigned walk_cursor(CursorVisitor visit, void *data) {
+    Cursor item = {7, 8, {(void *)(uintptr_t)9, (void *)(uintptr_t)10, (void *)(uintptr_t)11}};
+    Cursor parent = {0};
+    return visit(item, parent, data);
+}
+
+typedef struct { Visitor visit; void *data; unsigned result; } ThreadCall;
+static void *foreign_thread(void *data) {
+    ThreadCall *call = data;
+    call->result = call->visit((L3){1, 2, 3}, (L3){0, 0, 0}, call->data);
+    return NULL;
+}
+unsigned walk_thread(Visitor visit, void *data) {
+    ThreadCall call = {visit, data, 2};
+    pthread_t thread;
+    if (pthread_create(&thread, NULL, foreign_thread, &call)) return 3;
+    /* Never return stack-owned callback data without quiescence. */
+    if (pthread_join(thread, NULL)) abort();
+    return call.result;
 }

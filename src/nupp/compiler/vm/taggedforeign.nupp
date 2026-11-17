@@ -8,8 +8,8 @@ module nupp.compiler.vm.taggedforeign
 -- The descriptor is the result's kind and each argument's, one letter each,
 -- those past a variadic function's declared ones after VARIADIC; then a NUL,
 -- the library ("" for the program's own symbols), a NUL and the symbol. A
--- struct passed or answered by value is its aggregate code (taggedstructs)
--- in place of a letter.
+-- struct passed or answered by value is its full recursive member type
+-- description (taggedstructs) in place of a letter.
 const taggedvalues = require("nupp.compiler.vm.taggedvalues")
 const taggedstructs = require("nupp.compiler.vm.taggedstructs")
 const nativeos = require("nupp.compiler.vm.nativeos")

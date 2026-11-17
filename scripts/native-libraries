@@ -89,6 +89,10 @@ build() (
     dependencies=''
     case "$component" in
         zlib) version=$ZLIB_VERSION; sourceHash=$ZLIB_SHA256; url=$ZLIB_URL; asset="zlib-$version.tar.gz"; sourceName="zlib-$version"; notice=zlib-LICENSE.txt ;;
+        libffi)
+            version=$LIBFFI_VERSION; sourceHash=$LIBFFI_SHA256; url=$LIBFFI_URL; asset="libffi-$version.tar.gz"; sourceName="libffi-$version"; notice=libffi-core-LICENSE.txt
+            dependencies="layout=$(filehash "$ROOT/scripts/c-libraries/libffi-probe.c")"
+            ;;
         openssl) version=$OPENSSL_VERSION; sourceHash=$OPENSSL_SHA256; url=$OPENSSL_URL; asset="openssl-$version.tar.gz"; sourceName="openssl-$version"; notice=OpenSSL-LICENSE.txt ;;
         libcurl)
             version=$LIBCURL_VERSION; sourceHash=$LIBCURL_SHA256; url=$LIBCURL_URL; asset="curl-$version.tar.xz"; sourceName="curl-$version"; notice=libcurl-LICENSE.txt
@@ -156,5 +160,5 @@ build() (
     valid "$destination" "$key" || die 'installed artifact verification failed'
     printf '%s\n' "$destination"
 )
-[ "$#" -gt 0 ] || die 'usage: scripts/native-libraries zlib|openssl|libcurl ...'
+[ "$#" -gt 0 ] || die 'usage: scripts/native-libraries zlib|openssl|libcurl|libffi ...'
 for component in "$@"; do build "$component"; done

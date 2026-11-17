@@ -22,6 +22,7 @@ const frames = require("nupp.runtime.core.frames")
 const guestentry = require("nupp.runtime.core.guestentry")
 const instances = require("nupp.runtime.core.instances")
 const stacks = require("nupp.runtime.core.stacks")
+const foreignabi = require("nupp.runtime.core.foreignabi")
 
 -- The Services fields the collector roots, from `running` through
 -- `stringmeta`.
@@ -32,6 +33,9 @@ export struct Services
     scope: servicescope.ServiceScope
     heap: uint64
     arena: uint64
+    -- Raw libffi registrations, released only after foreign calls quiesce.
+    -- Outside the rooted value range: none of their fields is a Nupp value.
+    foreignClosures: uint64
     -- The value error() raised that no protected call has taken yet, or 0,
     -- and the level it was raised at: 1 cites where error was called, 2 that
     -- function's caller, 0 nothing.
@@ -208,6 +212,7 @@ export function prepare(base: voidptr, bytes: uint64): uint64
     end
     native.store64(services, native.fieldOffset<Services>("heap"), 0ULL)
     native.store64(services, native.fieldOffset<Services>("arena"), 0ULL)
+    native.store64(services, native.fieldOffset<Services>("foreignClosures"), 0ULL)
     native.store64(services, native.fieldOffset<Services>("storage"), 0ULL)
     native.store64(services, native.fieldOffset<Services>("storagebytes"), 0ULL)
     native.store64(services, native.fieldOffset<Services>("pool"), 0ULL)
@@ -413,6 +418,8 @@ end
 -- Destroys the heap and unmaps its arena, then the frame stacks, pool and
 -- storage; nothing when open never ran.
 export function close(services: voidptr): nil
+    foreignabi.close(native.load64(services, native.fieldOffset<Services>("foreignClosures")))
+    native.store64(services, native.fieldOffset<Services>("foreignClosures"), 0ULL)
     local address = native.load64(services, native.fieldOffset<Services>("heap"))
     if address == 0ULL then
         unmapEntry(services, native.fieldOffset<Services>("pool"))
