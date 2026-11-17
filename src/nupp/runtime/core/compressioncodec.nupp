@@ -181,6 +181,12 @@ export record State is own.Closeable
         assert(not self.closed and not self.failed, "compression stream is closed or failed")
         assert(not self.ended, "compression stream has finished")
         assert(not self.finishing or flush == finishflush, "compression finish has started")
+        -- zlib needs more than six bytes when starting a sync-flush marker.
+        -- A smaller nonempty window can keep producing fresh empty markers.
+        assert(
+            not self.encoding or flush ~= syncflush or room == 0 or room >= 7,
+            "compression sync flush needs at least seven output bytes"
+        )
         -- Callers slice their rooted ranges before entering this bounded step.
         assert(count <= 65536 and room <= 65536, "compression step exceeds workspace limit")
         if flush == finishflush then

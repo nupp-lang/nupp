@@ -126,6 +126,41 @@ local function roundtrip(format: string, bytes: string, level: int32): boolean
     return okay
 end
 
+-- A tiny caller window must not turn sync flush into an endless sequence
+-- of empty markers. Reject it before touching C, then allow a valid retry.
+local function syncFlushBounds(): nil
+    local output = malloc(7ULL)
+    do
+        local state = codec.create("gzip", true, 6)
+        local ok = pcall(function(): nil
+            local _ = state:advance(nil, 0, output, 1, codec.syncflush)
+        end)
+        assert(not ok, "undersized sync flush was accepted")
+        local progress: integer = codec.needoutput
+        for _ = 1, 16 do
+            local _, _, nextProgress, status = state:advance(nil, 0, output, 7, codec.syncflush)
+            assert(status == 0)
+            progress = nextProgress
+            if progress == codec.needinput then
+                break
+            end
+        end
+        assert(progress == codec.needinput, "sync flush did not finish in a bounded window")
+        for _ = 1, 16 do
+            local _, _, nextProgress, status = state:advance(nil, 0, output, 7, codec.finishflush)
+            assert(status == 0)
+            progress = nextProgress
+            if progress == codec.finished then
+                break
+            end
+        end
+        assert(progress == codec.finished, "flushed stream did not finish")
+    end
+    free(output)
+end
+
+syncFlushBounds()
+
 local expected = read("input.bin")
 local score = 0
 for _, format in ipairs({"gzip", "zlib", "deflate-raw"}) do
