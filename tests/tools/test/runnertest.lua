@@ -1030,6 +1030,12 @@ function M.processAndSharedWorkersRunAtTheSameTime()
     local shellMarker = dir .. "/shell-ready"
     local sharedMarker = dir .. "/shared-ready"
 
+    -- Each side waits on the wall clock, and long enough for the other to start.
+    -- The shell lane joins once the Nupp workers have claimed their pieces, and
+    -- its process worker boots after that: on a loaded four-core runner the two
+    -- together have taken over five seconds. The wait ends when the marker
+    -- appears, so the bound costs nothing when the lanes overlap. `os.clock` is
+    -- CPU time across every thread of the process, not elapsed time.
     local function suite(marker, other, shell)
         return (
             [=[
@@ -1039,14 +1045,14 @@ function M.meetsTheOtherExecutor()
     local ready = assert(io.open(%q, "wb"))
     ready:write("ready")
     ready:close()
-    local deadline = os.clock() + 5
+    local deadline = os.time() + 60
     repeat
         local found = io.open(%q, "rb")
         if found then
             found:close()
             return
         end
-    until os.clock() >= deadline
+    until os.time() >= deadline
     error("the other executor did not start")
 end
 return M
