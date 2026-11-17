@@ -4,6 +4,7 @@
 #include "definition-list.h"
 #include <cmark-gfm-core-extensions.h>
 #include <houdini.h>
+#include <node.h>
 #include <render.h>
 #include <setjmp.h>
 #include <stdint.h>
@@ -242,6 +243,37 @@ static void compatible_html(cmark_syntax_extension *ext, cmark_html_renderer *re
     }
     cmark_strbuf_put(html, (const unsigned char *)literal, (bufsize_t)size);
 }
+/* Pinned cmark stores each inline HTML literal as a view of the block's
+ * normalized text. Cmark's source line can omit newlines in link destinations.
+ * Use the view's exact byte position before get_literal converts it to a string. */
+static size_t inline_html_line(cmark_node *node) {
+    const cmark_chunk *literal = &node->as.literal;
+    uintptr_t address = (uintptr_t)literal->data;
+    for (const cmark_node *owner = node->parent; owner; owner = owner->parent) {
+        const unsigned char *text = owner->content.ptr;
+        uintptr_t base = (uintptr_t)text;
+        size_t size = (size_t)owner->content.size;
+        if (address < base || address - base >= size) continue;
+        size_t offset = (size_t)(address - base);
+        size_t line = (size_t)owner->start_line;
+        size_t scan = owner->type == CMARK_NODE_PARAGRAPH ? size : offset;
+        if (scan > active->remaining) longjmp(active->failure, 1);
+        active->remaining -= scan;
+        size_t before = 0, after = 0;
+        for (size_t at = 0; at < scan; at++) {
+            if (text[at] != '\n') continue;
+            if (at < offset) before++;
+            else after++;
+        }
+        /* Paragraph finalization can remove leading reference definitions
+         * without moving the node's recorded first line. */
+        if (owner->type == CMARK_NODE_PARAGRAPH &&
+            (size_t)owner->end_line + 1 > line + before + after)
+            line = (size_t)owner->end_line + 1 - before - after;
+        return line + before;
+    }
+    return (size_t)cmark_node_get_start_line(node);
+}
 static void compatible_text(cmark_node *root, cmark_syntax_extension *raw,
                             const char *token, size_t marker, const char *plain, size_t base) {
     cmark_iter *iter = cmark_iter_new(root);
@@ -255,11 +287,12 @@ static void compatible_text(cmark_node *root, cmark_syntax_extension *raw,
             (type == CMARK_NODE_TEXT && strchr(cmark_node_get_literal(node), '"')) ||
             (type == CMARK_NODE_BLOCK_QUOTE && cmark_node_get_type(cmark_node_last_child(node)) == CMARK_NODE_HTML_BLOCK))
             cmark_node_set_syntax_extension(node, raw);
-        if (type == CMARK_NODE_HTML_INLINE) {
+        if (type == CMARK_NODE_HTML_INLINE &&
+            memchr(node->as.literal.data, '\n', (size_t)node->as.literal.len)) {
+            size_t line = inline_html_line(node);
             const char *literal = cmark_node_get_literal(node);
             size_t size = strlen(literal), to = 0;
             char *copy = allocate(size + 1, 2);
-            size_t line = (size_t)cmark_node_get_start_line(node);
             for (size_t at = 0; at < size; at++) {
                 if (literal[at] == '\n') {
                     unsigned char ending = line < active->lines ? active->line_endings[line] : 0;

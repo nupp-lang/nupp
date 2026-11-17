@@ -66,7 +66,13 @@ digests are recorded; they are not a cross-toolchain binary reproducibility clai
 
 Supported native SDK targets are macOS ARM64/x64, Linux ARM64/x64 and Windows
 x64 MSVC. The frozen Windows VM also builds matching MinGW static archives.
-The frozen VM embeds these C archives. The standalone core guest runner
+The frozen VM links these C archives for the single-file compiler release.
+Its existing `nupp.vm.markdown` builtin validates guest input, calls C, and
+copies the returned bytes. The VM’s generic foreign loader needs a separate
+shared library for non-system symbols, so that route would change the
+standalone release.
+
+The standalone core guest runner
 provisions the pinned build when it selects a Markdown case. The core package
 carries the shared module as a native sidecar. To test an explicit module, set
 `NUPP_MARKDOWN_LIBRARY` to its path. Each module embeds its matching upstream

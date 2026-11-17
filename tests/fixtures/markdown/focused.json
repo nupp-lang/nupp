@@ -668,5 +668,35 @@
     "name": "raw_html_keeps_attribute_bytes",
     "hex": "78203c6120646174612d687265663d272f615e62273e20277465787427203c2f613e",
     "expected": "<p>x <a data-href='/a^b'> 'text' </a></p>\n"
+  },
+  {
+    "name": "inline_html_after_multiline_link",
+    "hex": "5b785d282f75726c0a29203c620d0a69643d793e207a0a",
+    "expected": "<p><a href=\"/url\">x</a> <b\r\nid=y> z</p>\n"
+  },
+  {
+    "name": "inline_html_after_multiline_image",
+    "hex": "215b785d282f696d670d0a29203c620a69643d793e207a0a",
+    "expected": "<p><img src=\"/img\" alt=\"x\" /> <b\nid=y> z</p>\n"
+  },
+  {
+    "name": "inline_html_after_reference",
+    "hex": "5b7265665d3a202f75726c0d0a78203c620a69643d793e205b7265665d0a",
+    "expected": "<p>x <b\nid=y> <a href=\"/url\">ref</a></p>\n"
+  },
+  {
+    "name": "nested_inline_html_after_multiline_link",
+    "hex": "3e205b785d282f75726c0a3e2029203c620d0a3e2069643d793e207a0a",
+    "expected": "<blockquote>\n<p><a href=\"/url\">x</a> <b\r\nid=y> z</p>\n</blockquote>\n"
+  },
+  {
+    "name": "term_inline_html_after_multiline_link",
+    "hex": "5b785d282f75726c0a29203c620d0a69643d793e207a0a3a20446566696e6974696f6e0a",
+    "expected": "<dl>\n<dt><a href=\"/url\">x</a> <b\r\nid=y> z</dt>\n<dd>Definition</dd>\n</dl>\n"
+  },
+  {
+    "name": "repeated_literal_in_code_and_html",
+    "hex": "603c620a69643d793e60203c620d0a69643d793e207a0a",
+    "expected": "<p><code>&lt;b id=y&gt;</code> <b\r\nid=y> z</p>\n"
   }
 ]
