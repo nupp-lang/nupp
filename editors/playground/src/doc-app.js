@@ -184,7 +184,7 @@ const styles = `
   --pg-syntax-property: var(--nuppdoc-syntax-property, #425f3c);
   --pg-syntax-punctuation: var(--nuppdoc-syntax-punctuation, #3c5156);
   --pg-syntax-variable: var(--nuppdoc-syntax-variable, #6e5032);
-  --pg-font: var(--nuppdoc-font, Inter, ui-sans-serif, system-ui, sans-serif);
+  --pg-font: var(--nuppdoc-font, ui-sans-serif, system-ui, sans-serif);
   --pg-font-mono: var(--nuppdoc-font-mono, ui-monospace, monospace);
   position: relative;
   display: block;
