@@ -139,6 +139,7 @@ local function step(
     local progress = needinput
     if status == 1 then
         progress = finished
+        status = 0
     elseif written == room then
         progress = needoutput
     end

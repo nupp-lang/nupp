@@ -93,7 +93,22 @@ local function roundtrip(format: string, bytes: string, level: int32): boolean
                 1,
                 codec.finishflush
             )
-            assert(status == 0 and used >= 0 and used <= #bytes - consumed and made >= 0 and made <= 1)
+            if not (status == 0 and used >= 0 and used <= #bytes - consumed and made >= 0 and made <= 1) then
+                error(
+                    "encoder "
+                    .. format
+                    .. " level="
+                    .. level
+                    .. " status="
+                    .. status
+                    .. " used="
+                    .. used
+                    .. " made="
+                    .. made
+                    .. " consumed="
+                    .. consumed
+                )
+            end
             consumed, progress = consumed + used, nextProgress
             if made == 1 then
                 local _ = memmove(byte, output, 1ULL)
