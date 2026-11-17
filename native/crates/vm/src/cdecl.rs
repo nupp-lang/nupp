@@ -82,6 +82,8 @@ api! {
     clang_disposeTokens(Handle, *mut Token, c_uint) -> ();
     clang_getCanonicalCursor(Cursor) -> Cursor;
     clang_isCursorDefinition(Cursor) -> c_uint;
+    clang_getCursorDefinition(Cursor) -> Cursor;
+    clang_Cursor_isNull(Cursor) -> c_int;
     clang_getCursorReferenced(Cursor) -> Cursor;
     clang_createIndex(c_int, c_int) -> Handle;
     clang_disposeIndex(Handle) -> ();
@@ -577,7 +579,15 @@ impl Model {
                 json!({"kind":"pointer", "to":self.ty(api,pointee,depth+1)?, "const":(api.clang_isConstQualifiedType)(pointee) != 0})
             }
             105 => {
-                let cursor = (api.clang_getTypeDeclaration)(ty);
+                // libclang 22 and later answer a record type with the declaration it
+                // was first written with, which may be a forward one without fields.
+                let declared = (api.clang_getTypeDeclaration)(ty);
+                let definition = (api.clang_getCursorDefinition)(declared);
+                let cursor = if (api.clang_Cursor_isNull)(definition) != 0 {
+                    declared
+                } else {
+                    definition
+                };
                 let id = self.id(api, cursor);
                 let name = api.text((api.clang_getCursorSpelling)(cursor));
                 let kind = if cursor.kind == 3 { "union" } else { "struct" };

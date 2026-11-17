@@ -112,6 +112,8 @@ cdef function clang_getTokenExtent(borrows unit: voidptr, token: Token): Range
 cdef function clang_disposeTokens(borrows unit: voidptr, tokens: uint64, count: uint32)
 cdef function clang_getCanonicalCursor(cursor: Cursor): Cursor
 cdef function clang_isCursorDefinition(cursor: Cursor): uint32
+cdef function clang_getCursorDefinition(cursor: Cursor): Cursor
+cdef function clang_Cursor_isNull(cursor: Cursor): int32
 cdef function clang_getCursorReferenced(cursor: Cursor): Cursor
 cdef function clang_createIndex(excluded: int32, diagnostics: int32): voidptr
 cdef function clang_disposeIndex(borrows index: voidptr)
@@ -817,7 +819,13 @@ typeModel = function(model: Model, given: Type, depth: integer): any
             const = clang_isConstQualifiedType(pointee) ~= 0
         })
     elseif kind == TYPE_RECORD then
+        -- libclang 22 and later answer a record type with the declaration it
+        -- was first written with, which may be a forward one without fields.
         local cursor = clang_getTypeDeclaration(t)
+        local definition = clang_getCursorDefinition(cursor)
+        if clang_Cursor_isNull(definition) == 0 then
+            cursor = definition
+        end
         local id = identify(model, cursor)
         local name = spelling(cursor)
         local known = model.structs[id]
