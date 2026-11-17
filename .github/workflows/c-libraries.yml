@@ -49,6 +49,9 @@ jobs:
             if ($line -match '^(PATH|INCLUDE|LIB|LIBPATH|WindowsSDKVersion|VCToolsVersion)=(.*)$') {
               Add-Content $env:GITHUB_ENV "$($Matches[1])=$($Matches[2])"
             }
+            if ($line -match '^VCToolsInstallDir=(.*)$') {
+              Add-Content $env:GITHUB_ENV "NUPP_NATIVE_MSVC_BIN=$([IO.Path]::Combine($Matches[1], 'bin', 'Hostx64', 'x64'))"
+            }
           }
           $nativePerl = $null
           foreach ($candidate in (Get-Command perl.exe -All)) {
@@ -68,7 +71,8 @@ jobs:
           NUPP_TOOLCHAIN_DIR: ${{ github.workspace }}/.nupp-c-library-cache
         run: |
           if [ "$RUNNER_OS" = Windows ]; then
-            export PATH="$(cygpath -u "$NUPP_NATIVE_PERL_BIN"):$PATH"
+            # Git also ships link.exe; OpenSSL must call the MSVC linker.
+            export PATH="$(cygpath -u "$NUPP_NATIVE_MSVC_BIN"):$(cygpath -u "$NUPP_NATIVE_PERL_BIN"):$PATH"
           fi
           mkdir -p build/no-rust-tools
           for tool in cargo rustc rustup cargo-c; do
