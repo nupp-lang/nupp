@@ -93,6 +93,19 @@ end
 -- and cases of {function, arguments, expected result}.
 local UNITS = {
     {
+        name = "loaderunits",
+        modules = {"loaderunits", "unitentry"},
+        entries = {{"loaderunits", "plain", 2}, {"loaderunits", "slashed", 2}},
+        cases = function()
+            return {
+                {"plain", {0x55, 0xaa}, 256},
+                {"plain", {0xffff, 0x1234}, 60876},
+                {"slashed", {0x55, 0xaa}, 256},
+                {"slashed", {0xffff, 0x1234}, 60876}
+            }
+        end
+    },
+    {
         name = "mappingunits",
         modules = {"mappingunits", "mappingentry", "unitentry"},
         observeLanding = true,
@@ -1447,6 +1460,38 @@ for _, unit in ipairs(UNITS) do
     if next(only) and not only[unit.name] then
         goto continue
     end
+    local relocated, cbridge
+    if unit.name == "loaderunits" then
+        local status, built = shell("sh " .. quote(ROOT .. "/scripts/core-bridge") .. " --test")
+        assert(status == 0, built)
+        cbridge = assert(built:match("([^\r\n]+)\r?\n?$"))
+        relocated = BUILD .. "/relocated loader é"
+        assert(
+            os.execute(
+                "mkdir -p " .. quote(
+                    BUILD .. "/lib"
+                ) .. " " .. quote(relocated .. "/lib") .. " " .. quote(BUILD .. "/unrelated-cwd")
+            ) == 0
+        )
+        local _, platform = shell("uname -s")
+        local flags = platform:find("Darwin", 1, true) and "-dynamiclib" or "-shared -fPIC"
+        status, built = shell(
+            (
+                "%s %s -o %s %s"
+            ):format(
+                quote(os.getenv("NUPP_CC") or "cc"),
+                flags,
+                quote(BUILD .. "/lib/libnuppbridgefixture.dylib"),
+                quote(ROOT .. "/tests/core/bridge-ffi.c")
+            )
+        )
+        assert(status == 0, built)
+        assert(
+            os.execute(
+                "cp " .. quote(BUILD .. "/lib/libnuppbridgefixture.dylib") .. " " .. quote(relocated .. "/lib/")
+            ) == 0
+        )
+    end
     local fixtures, fixtureNames = {}, {}
     for _, name in ipairs(unit.modules) do
         local named = unit.paths and unit.paths[name]
@@ -1511,6 +1556,14 @@ for _, unit in ipairs(UNITS) do
         end
         local bundle = BUILD .. "/" .. unit.name .. "-" .. mode .. ".bundle"
         write(bundle, result.bundle)
+        local runs = {{tool, bundle, "", "bridge"}}
+        if relocated then
+            local moved = relocated .. "/" .. unit.name .. "-" .. mode .. ".bundle"
+            write(moved, result.bundle)
+            runs[
+                #runs + 1
+            ] = {cbridge .. "/nupp-core", moved, "cd " .. quote(BUILD .. "/unrelated-cwd") .. " && ", "C relocated"}
+        end
         print(
             (
                 "%s %s: built in %ds, %d owners, %d selected"
@@ -1520,29 +1573,61 @@ for _, unit in ipairs(UNITS) do
             if refused[case[1]] or index[case[1]] == nil then
                 goto nextcase
             end
-            local input, output = bundle .. ".in", bundle .. ".out"
-            local values = {index[case[1]]}
-            for _, value in ipairs(case[2]) do
-                values[#values + 1] = value
-            end
-            write(input, words(values))
-            os.remove(output)
-            local stdin = case[4] and " < " .. quote(case[4]) or ""
-            local status, text = shell(
-                ("%s %s %s %s%s"):format(quote(tool), quote(bundle), quote(input), quote(output), stdin)
-            )
-            local bytes = read(output)
-            local label = ("%s %s %s(%s)"):format(unit.name, mode, case[1], table.concat(case[2], ", "))
-            if status ~= 0 or not bytes or #bytes ~= 16 then
-                failures = failures + 1
-                print("FAIL " .. label .. ": bridge " .. tostring(status) .. " " .. text)
-            else
-                local value, failure = decode(bytes, 1), decode(bytes, 2)
-                if value ~= case[3] or failure ~= 0 then
+            for _, run in ipairs(runs) do
+                -- A relocated run cannot pass by finding the original image.
+                local original = BUILD .. "/lib/libnuppbridgefixture.dylib"
+                if run[4] == "C relocated" then
+                    assert(os.rename(original, original .. ".away"))
+                end
+                local input, output = run[2] .. ".in", run[2] .. ".out"
+                local values = {index[case[1]]}
+                for _, value in ipairs(case[2]) do
+                    values[#values + 1] = value
+                end
+                write(input, words(values))
+                os.remove(output)
+                local stdin = case[4] and " < " .. quote(case[4]) or ""
+                local status, text = shell(
+                    run[3] .. ("%s %s %s %s%s"):format(quote(run[1]), quote(run[2]), quote(input), quote(output), stdin)
+                )
+                local bytes = read(output)
+                local label = ("%s %s %s %s(%s)"):format(unit.name, mode, run[4], case[1], table.concat(case[2], ", "))
+                if status ~= 0 or not bytes or #bytes ~= 16 then
                     failures = failures + 1
-                    print(("FAIL %s: expected %d, got %d (error %d)"):format(label, case[3], value, failure))
+                    print("FAIL " .. label .. ": bridge " .. tostring(status) .. " " .. text)
                 else
-                    passed = passed + 1
+                    local value, failure = decode(bytes, 1), decode(bytes, 2)
+                    if value ~= case[3] or failure ~= 0 then
+                        failures = failures + 1
+                        print(("FAIL %s: expected %d, got %d (error %d)"):format(label, case[3], value, failure))
+                    else
+                        passed = passed + 1
+                        if run[4] == "C relocated" then
+                            local expected = run[2] .. ".expected"
+                            write(expected, words({case[3], 0}))
+                            local checked, report = shell(
+                                run[
+                                    3
+                                ] .. (
+                                    "CORE_TEST_BUNDLE=%s CORE_TEST_INPUT=%s CORE_TEST_EXPECTED=%s %s --ignored --exact abi::generated_entry_preserves_c_abi_and_output --test-threads=1"
+                                ):format(
+                                    quote(run[2]),
+                                    quote(input),
+                                    quote(expected),
+                                    quote(cbridge .. "/nupp-core-guard")
+                                )
+                            )
+                            if checked == 0 and report:find("1 passed; 0 failed; 0 ignored;", 1, true) then
+                                passed = passed + 1
+                            else
+                                failures = failures + 1
+                                print("FAIL " .. label .. ": C ABI guard " .. report)
+                            end
+                        end
+                    end
+                end
+                if run[4] == "C relocated" then
+                    assert(os.rename(original .. ".away", original))
                 end
             end
             ::nextcase::

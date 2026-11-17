@@ -29,6 +29,11 @@ const FOREIGN_PREFIX: string = "foreign\0"
 const LOAD_NOW: integer = 2
 -- The trap a call of a foreign symbol that did not resolve takes.
 const MISSING_SYMBOL: integer = 0xf0
+const PROCESS_LIBRARY: string = "library\0"
+const LOADER_ERROR: string = "symbol\0\0dlerror"
+-- shortcut: anchored kernel paths fit the OS's 4 KiB path extent; use dynamic
+-- storage if a supported loader accepts longer complete paths.
+const ARTIFACT_PATH_BYTES: integer = 4096
 -- The routines the sink names rather than imports (nativeos): the generic
 -- foreign call, and the address of the bridge's symbol table, whose import
 -- slot follows the prefix.
@@ -575,6 +580,117 @@ function selector.run(f: ir.Function, a: allocate.Allocation): selector.Code
         cell(arm.str(8, 0, 16, 0), key)
     end
 
+    -- The process namespace owns its loader reference for the generated code's
+    -- lifetime, just like every named library cached below.
+    local function processLibrary(tableAt: integer, openSlot: string): nil
+        emit(arm.ldr(8, 16, 22, tableAt))
+        cell(arm.ldr(8, 0, 16, 0), PROCESS_LIBRARY)
+        local kept = #code.words + 1
+        emit(arm.cbnz(64, 0, 0))
+        constant(0, 0, 64)
+        constant(1, LOAD_NOW, 64)
+        load(openSlot, 0, tableAt, PROCESS_LIBRARY)
+        code.words[kept] = arm.cbnz(64, 0, (#code.words + 1 - kept) * 4)
+        emit(arm.cbnz(64, 0, 8))
+        emit(arm.brk(MISSING_SYMBOL))
+    end
+
+    -- Bootstrap dlerror through the supplied dlsym, without adding an ABI slot.
+    -- The same cached function clears before a lookup and reads its error after.
+    local function loaderError(tableAt: integer, openSlot: string, symbolSlot: string): nil
+        emit(arm.ldr(8, 16, 22, tableAt))
+        cell(arm.ldr(8, 0, 16, 0), LOADER_ERROR)
+        local kept = #code.words + 1
+        emit(arm.cbnz(64, 0, 0))
+        processLibrary(tableAt, openSlot)
+        local bytes = pushText("dlerror")
+        emit(arm.add_imm(64, 1, 31, 0, 0))
+        load(symbolSlot, bytes, tableAt, LOADER_ERROR)
+        emit(arm.cbnz(64, 0, 8))
+        emit(arm.brk(MISSING_SYMBOL))
+        code.words[kept] = arm.cbnz(64, 0, (#code.words + 1 - kept) * 4)
+        emit(arm.blr(0))
+    end
+
+    local function lookup(tableAt: integer, openSlot: string, symbolSlot: string, libraryKey: string, name: string): nil
+        loaderError(tableAt, openSlot, symbolSlot)
+        emit(arm.ldr(8, 16, 22, tableAt))
+        cell(arm.ldr(8, 0, 16, 0), libraryKey)
+        local bytes = pushText(name)
+        emit(arm.add_imm(64, 1, 31, 0, 0))
+        callSlot(symbolSlot)
+        popStack(bytes)
+        emit(arm.sub_imm(64, 31, 31, 16, 0))
+        emit(arm.str(8, 0, 31, 0))
+        loaderError(tableAt, openSlot, symbolSlot)
+        emit(arm.cmp_imm(64, 0, 0, 0))
+        emit(arm.ldr(8, 0, 31, 0))
+        emit(arm.csel(64, 0, 0, 31, target.EQ))
+        popStack(16)
+    end
+
+    -- Raw kernel cdefs have no managed frame to construct a path in. Copy the
+    -- C startup's immutable artifact directory and the literal suffix on the C
+    -- stack. No cwd change, heap allocation, provider wrapper or ABI change.
+    local function openArtifact(library: string, tableAt: integer, openSlot: string, symbolSlot: string): nil
+        processLibrary(tableAt, openSlot)
+        lookup(tableAt, openSlot, symbolSlot, PROCESS_LIBRARY, "nupp_core_artifact_directory")
+        local absent = #code.words + 1
+        emit(arm.cbz(64, 0, 0))
+        emit(arm.ldr(8, 9, 0, 0))
+        local unset = #code.words + 1
+        emit(arm.cbz(64, 9, 0))
+        local relative = library:sub(2):gsub("^/+", "")
+        local bytes = pushText(relative)
+        emit(arm.sub_imm(64, 31, 31, ARTIFACT_PATH_BYTES >> 12, 1))
+        emit(arm.add_imm(64, 10, 31, 0, 0))
+        constant(11, ARTIFACT_PATH_BYTES - #relative - 2, 64)
+        local copyRoot = #code.words + 1
+        emit(arm.ldr(1, 12, 9, 0))
+        local ended = #code.words + 1
+        emit(arm.cbz(32, 12, 0))
+        local full = #code.words + 1
+        emit(arm.cbz(64, 11, 0))
+        emit(arm.str(1, 12, 10, 0))
+        emit(arm.add_imm(64, 9, 9, 1, 0))
+        emit(arm.add_imm(64, 10, 10, 1, 0))
+        emit(arm.sub_imm(64, 11, 11, 1, 0))
+        emit(arm.b((copyRoot - #code.words - 1) * 4))
+        code.words[ended] = arm.cbz(32, 12, (#code.words + 1 - ended) * 4)
+        constant(12, 0x2f, 32)
+        emit(arm.str(1, 12, 10, 0))
+        emit(arm.add_imm(64, 10, 10, 1, 0))
+        emit(arm.add_imm(64, 13, 31, ARTIFACT_PATH_BYTES >> 12, 1))
+        local copySuffix = #code.words + 1
+        emit(arm.ldr(1, 12, 13, 0))
+        emit(arm.str(1, 12, 10, 0))
+        emit(arm.add_imm(64, 13, 13, 1, 0))
+        emit(arm.add_imm(64, 10, 10, 1, 0))
+        emit(arm.cbnz(32, 12, (copySuffix - #code.words - 1) * 4))
+        emit(arm.add_imm(64, 0, 31, 0, 0))
+        constant(1, LOAD_NOW, 64)
+        callSlot(openSlot)
+        local loaded = #code.words + 1
+        emit(arm.b(0))
+        code.words[full] = arm.cbz(64, 11, (#code.words + 1 - full) * 4)
+        constant(0, 0, 64)
+        code.words[loaded] = arm.b((#code.words + 1 - loaded) * 4)
+        emit(arm.add_imm(64, 31, 31, ARTIFACT_PATH_BYTES >> 12, 1))
+        popStack(bytes)
+        local done = #code.words + 1
+        emit(arm.b(0))
+        local fallback = #code.words + 1
+        code.words[absent] = arm.cbz(64, 0, (fallback - absent) * 4)
+        code.words[unset] = arm.cbz(64, 9, (fallback - unset) * 4)
+        -- The frozen reference transport's existing import anchors @ itself.
+        bytes = pushText(library)
+        emit(arm.add_imm(64, 0, 31, 0, 0))
+        constant(1, LOAD_NOW, 64)
+        callSlot(openSlot)
+        popStack(bytes)
+        code.words[done] = arm.b((#code.words + 1 - done) * 4)
+    end
+
     -- A foreign call's symbol in x0, as a C call answers it. The bridge's
     -- table (x22's import `table`) keeps each symbol and library once
     -- resolved; the first call loads the library with dlopen, the program
@@ -595,23 +711,28 @@ function selector.run(f: ir.Function, a: allocate.Allocation): selector.Code
         local opened = #code.words + 1
         emit(arm.cbnz(64, 1, 0))
         local bytes: integer = 0
-        if library == "" then
+        if library:sub(1, 1) == "@" then
+            openArtifact(library, tableAt, openSlot, symbolSlot)
+            emit(arm.ldr(8, 16, 22, tableAt))
+            cell(arm.str(8, 0, 16, 0), libraryKey)
+        elseif library == "" then
             emit(arm.movz(64, 0, 0, 0))
+            constant(1, LOAD_NOW, 64)
+            load(openSlot, 0, tableAt, libraryKey)
         else
             bytes = pushText(library)
             emit(arm.add_imm(64, 0, 31, 0, 0))
+            constant(1, LOAD_NOW, 64)
+            load(openSlot, bytes, tableAt, libraryKey)
         end
-        constant(1, LOAD_NOW, 64)
-        load(openSlot, bytes, tableAt, libraryKey)
         emit(arm.mov_reg(64, 1, 0))
         code.words[opened] = arm.cbnz(64, 1, (#code.words + 1 - opened) * 4)
         -- A library that did not load leaves x0 zero.
         local missing = #code.words + 1
         emit(arm.cbz(64, 1, 0))
-        emit(arm.mov_reg(64, 0, 1))
-        bytes = pushText(symbol)
-        emit(arm.add_imm(64, 1, 31, 0, 0))
-        load(symbolSlot, bytes, tableAt, symbolKey)
+        lookup(tableAt, openSlot, symbolSlot, libraryKey, symbol)
+        emit(arm.ldr(8, 16, 22, tableAt))
+        cell(arm.str(8, 0, 16, 0), symbolKey)
         local done = #code.words + 1
         code.words[cached] = arm.cbnz(64, 0, (done - cached) * 4)
         code.words[missing] = arm.cbz(64, 1, (done - missing) * 4)
