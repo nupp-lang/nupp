@@ -331,9 +331,10 @@ const INVALID_ARGUMENT = 22
 const INVALID_ARGUMENT_TEXT = "Invalid argument"
 
 -- `File:seek` for the bootstrap VM's handles, whose methods are fields of a
--- plain table. A read-only handle holds the file's bytes and its cursor, so
--- the seek is exact. A writable handle keeps its cursor in the frozen host,
--- which offers no seek, so it answers Lua's failure results instead.
+-- plain table. Only a read-only handle has one: it holds the file's bytes and
+-- its cursor, so the seek is exact. A writable handle keeps its cursor in the
+-- frozen host, which offers no seek, so it has no `seek` method at all and a
+-- caller can tell, rather than one that always fails.
 local function bridgeSeek(file: any, whence: any, offset: any): (integer?, string?, integer?)
     local origin = whence == nil and "cur" or whence
     if type(origin) ~= "string" or not SEEK_ORIGINS[origin] then
@@ -346,15 +347,12 @@ local function bridgeSeek(file: any, whence: any, offset: any): (integer?, strin
     if luaType(file) == "closed file" then
         error("attempt to use a closed file", 2)
     end
-    local data: any = rawget(file, "_data")
-    if type(data) ~= "string" then
-        return nil, "this host's writable files cannot seek", INVALID_ARGUMENT
-    end
+    local data: string = rawget(file, "_data") as string
     local base: integer = 0
     if origin == "cur" then
         base = math.tointeger(rawget(file, "_at")) as integer
     elseif origin == "end" then
-        base = #(data as string)
+        base = #data
     end
     local target = base + amount
     if target < 0 then
@@ -375,7 +373,7 @@ local function decorateFile(file: any): any
             -- The bootstrap VM answers its handles as plain tables.
             rawset(file, "reader", fileReader)
             rawset(file, "writer", fileWriter)
-            if rawget(file, "seek") == nil then
+            if rawget(file, "seek") == nil and type(rawget(file, "_data")) == "string" then
                 rawset(file, "seek", bridgeSeek)
             end
         end
