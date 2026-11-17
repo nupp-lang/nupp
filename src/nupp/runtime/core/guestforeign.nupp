@@ -215,7 +215,7 @@ local function openLibrary(key: voidptr): uint64
         local _ = dlclose(process)
         if failed or native.address(marker) == 0ULL then
             -- The frozen reference transport still anchors its own @ paths.
-            return native.address(dlopen(key, LOAD_NOW))
+            return native.address(os.dlopen(key, LOAD_NOW))
         end
         local directory = native.loadPointer(marker, 0)
         if native.address(directory) == 0ULL then
