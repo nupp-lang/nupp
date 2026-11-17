@@ -37,7 +37,9 @@ old_sha=$(sha "$ADVANCE_FIXTURE/old.image")
 jq -n '{format:"nupp-bootstrap-seed-1",hosts:{}}' > scripts/bootstrap-seeds.json
 hosts=(aarch64-apple-darwin x86_64-pc-windows-gnu x86_64-unknown-linux-gnu)
 for host in "${hosts[@]}"; do
-    printf 'pinned runtime for %s\n' "$host" > "$ADVANCE_FIXTURE/$host-runtime"
+    # A script, so Git for Windows reports it executable: NTFS keeps no mode bit,
+    # and the archive's runtime member must carry one.
+    printf '#!/bin/sh\n# pinned runtime for %s\n' "$host" > "$ADVANCE_FIXTURE/$host-runtime"
     runtime_sha=$(sha "$ADVANCE_FIXTURE/$host-runtime")
     jq --arg host "$host" --arg runtime "$runtime_sha" --arg image "$old_sha" \
         '.hosts[$host]={url:("https://github.com/test/nupp/releases/download/v0.0.15-native-api-seed.5/"+$host+".tar.gz"),sha256:$image,runtimeSha256:$runtime,imageSha256:$image}' \
