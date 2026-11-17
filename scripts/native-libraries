@@ -111,7 +111,11 @@ build() (
         [ "$attempts" -lt 180 ] || die "build remains locked: $lock"
         sleep 1
     done
-    staged=$(mktemp -d "${destination}.stage.XXXXXX")
+    # Keep build paths short: MSVC's file tracker still rejects deep paths even
+    # when the filesystem itself supports long names. Identity stays in the
+    # destination and lock, not in every compiler scratch path.
+    mkdir -p "$CACHE/.build"
+    staged=$(mktemp -d "$CACHE/.build/$component.XXXXXX")
     trap 'rm -rf "$staged"; rmdir "$lock"' EXIT
     trap 'exit 1' HUP INT TERM
     if valid "$destination" "$key"; then printf '%s\n' "$destination"; exit 0; fi
