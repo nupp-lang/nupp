@@ -35,13 +35,16 @@ static void mark(cmark_syntax_extension *ext, cmark_node *node, enum role role)
 
 static int is(cmark_syntax_extension *ext, cmark_node *node, enum role role)
 {
-  return node && cmark_node_get_syntax_extension(node) == ext && data(node)->role == role;
+  return node && cmark_node_get_syntax_extension(node) == ext &&
+         data(node)->role == role;
 }
 
-static int contain(cmark_syntax_extension *ext, cmark_node *node, cmark_node_type child)
+static int contain(cmark_syntax_extension *ext, cmark_node *node,
+                   cmark_node_type child)
 {
-  return is(ext, node, TERM) ? (child & CMARK_NODE_TYPE_MASK) == CMARK_NODE_TYPE_INLINE
-                             : child != CMARK_NODE_DOCUMENT;
+  return is(ext, node, TERM)
+             ? (child & CMARK_NODE_TYPE_MASK) == CMARK_NODE_TYPE_INLINE
+             : child != CMARK_NODE_DOCUMENT;
 }
 
 static int inlines(cmark_syntax_extension *ext, cmark_node *node)
@@ -58,7 +61,8 @@ static int end_line(cmark_node *node)
       end++;
     }
   }
-  return end > cmark_node_get_end_line(node) ? end : cmark_node_get_end_line(node);
+  return end > cmark_node_get_end_line(node) ? end
+                                             : cmark_node_get_end_line(node);
 }
 
 static int has_term(cmark_syntax_extension *ext, cmark_node *term)
@@ -73,14 +77,15 @@ static int has_term(cmark_syntax_extension *ext, cmark_node *term)
   cmark_parser *probe = cmark_parser_new_with_mem(CMARK_OPT_UNSAFE, mem);
   cmark_parser_feed(probe, text, strlen(text));
   cmark_node *root = cmark_parser_finish(probe);
-  int found = cmark_node_get_type(cmark_node_last_child(root)) == CMARK_NODE_PARAGRAPH;
+  int found =
+      cmark_node_get_type(cmark_node_last_child(root)) == CMARK_NODE_PARAGRAPH;
   cmark_node_free(root);
   cmark_parser_free(probe);
   return found;
 }
 
-static int match(cmark_syntax_extension *ext, cmark_parser *parser, unsigned char *input, int len,
-                 cmark_node *node)
+static int match(cmark_syntax_extension *ext, cmark_parser *parser,
+                 unsigned char *input, int len, cmark_node *node)
 {
   (void)len;
   if (is(ext, node, LIST)) {
@@ -104,20 +109,23 @@ static int match(cmark_syntax_extension *ext, cmark_parser *parser, unsigned cha
   if (cmark_parser_get_indent(parser) < data(node)->padding) {
     return 0;
   }
-  cmark_parser_advance_offset(parser, (const char *)input, data(node)->padding, 1);
+  cmark_parser_advance_offset(parser, (const char *)input, data(node)->padding,
+                              1);
   return 1;
 }
 
-static cmark_node *open_block(cmark_syntax_extension *ext, int indented, cmark_parser *parser,
-                              cmark_node *parent, unsigned char *input, int len)
+static cmark_node *open_block(cmark_syntax_extension *ext, int indented,
+                              cmark_parser *parser, cmark_node *parent,
+                              unsigned char *input, int len)
 {
   int start = cmark_parser_get_first_nonspace(parser);
   int indent = cmark_parser_get_indent(parser);
   if (indented || start >= len || input[start] != ':') {
     return NULL;
   }
-  cmark_node *term =
-      cmark_node_get_type(parent) == CMARK_NODE_PARAGRAPH ? parent : cmark_node_last_child(parent);
+  cmark_node *term = cmark_node_get_type(parent) == CMARK_NODE_PARAGRAPH
+                         ? parent
+                         : cmark_node_last_child(parent);
   cmark_node *list = NULL;
   int loose;
   if (is(ext, parent, LIST) && is(ext, term, DEFINITION)) {
@@ -140,14 +148,15 @@ static cmark_node *open_block(cmark_syntax_extension *ext, int indented, cmark_p
     if (is(ext, owner, LIST)) {
       list = owner;
       /* Finalize the open paragraph before reclassifying it. */
-      cmark_node *next = cmark_parser_add_child(parser, parent == term ? term : list,
-                                                CMARK_NODE_CUSTOM_BLOCK, start + 1);
+      cmark_node *next =
+          cmark_parser_add_child(parser, parent == term ? term : list,
+                                 CMARK_NODE_CUSTOM_BLOCK, start + 1);
       mark(ext, term, TERM);
       mark(ext, next, DEFINITION);
       list = next;
     } else {
-      list = cmark_parser_add_child(parser, parent == term ? term : owner, CMARK_NODE_CUSTOM_BLOCK,
-                                    start + 1);
+      list = cmark_parser_add_child(parser, parent == term ? term : owner,
+                                    CMARK_NODE_CUSTOM_BLOCK, start + 1);
       mark(ext, list, LIST);
       mark(ext, term, TERM);
       cmark_node_append_child(list, term);
@@ -157,7 +166,8 @@ static cmark_node *open_block(cmark_syntax_extension *ext, int indented, cmark_p
   if (is(ext, list, DEFINITION)) {
     definition = list;
   } else {
-    definition = cmark_parser_add_child(parser, list, CMARK_NODE_CUSTOM_BLOCK, start + 1);
+    definition = cmark_parser_add_child(parser, list, CMARK_NODE_CUSTOM_BLOCK,
+                                        start + 1);
     mark(ext, definition, DEFINITION);
   }
   data(definition)->loose = loose;
@@ -189,7 +199,8 @@ static void tags(cmark_node *node, const char *enter, const char *leave)
 static void render_list(cmark_syntax_extension *ext, cmark_node *node)
 {
   int loose = 0;
-  for (cmark_node *dd = cmark_node_first_child(node); dd; dd = cmark_node_next(dd)) {
+  for (cmark_node *dd = cmark_node_first_child(node); dd;
+       dd = cmark_node_next(dd)) {
     if (!is(ext, dd, DEFINITION)) {
       continue;
     }
@@ -197,29 +208,34 @@ static void render_list(cmark_syntax_extension *ext, cmark_node *node)
       loose = 1;
     }
     cmark_node *last = cmark_node_last_child(dd);
-    if (last && data(dd)->blank_line && cmark_node_get_start_line(last) > data(dd)->blank_line) {
+    if (last && data(dd)->blank_line &&
+        cmark_node_get_start_line(last) > data(dd)->blank_line) {
       loose = 1;
     }
-    for (cmark_node *p = cmark_node_first_child(dd); p; p = cmark_node_next(p)) {
+    for (cmark_node *p = cmark_node_first_child(dd); p;
+         p = cmark_node_next(p)) {
       cmark_node *next = cmark_node_next(p);
-      if (next && cmark_node_get_start_line(next) > cmark_node_get_end_line(p) + 1) {
-        loose = 1;
+      if (next &&
+          cmark_node_get_start_line(next) > cmark_node_get_end_line(p) + 1) {
+	loose = 1;
       }
     }
   }
   cmark_node_set_on_enter(node, "<dl>\n");
   cmark_node_set_on_exit(node, "</dl>\n");
-  for (cmark_node *child = cmark_node_first_child(node); child; child = cmark_node_next(child)) {
+  for (cmark_node *child = cmark_node_first_child(node); child;
+       child = cmark_node_next(child)) {
     if (is(ext, child, TERM)) {
       tags(child, "<dt>", "</dt>\n");
     } else {
       tags(child, "<dd>", "</dd>\n");
       if (!loose) {
-        for (cmark_node *p = cmark_node_first_child(child); p; p = cmark_node_next(p)) {
-          if (cmark_node_get_type(p) == CMARK_NODE_PARAGRAPH) {
-            tags(p, "", "");
-          }
-        }
+	for (cmark_node *p = cmark_node_first_child(child); p;
+	     p = cmark_node_next(p)) {
+	  if (cmark_node_get_type(p) == CMARK_NODE_PARAGRAPH) {
+	    tags(p, "", "");
+	  }
+	}
       }
     }
   }
@@ -230,7 +246,8 @@ static void process(cmark_syntax_extension *ext, cmark_node *node)
   /* Split around ordinary blocks, preserving their original position. */
   cmark_node *tail = node;
   cmark_node *segment = node;
-  for (cmark_node *child = cmark_node_first_child(node), *next; child; child = next) {
+  for (cmark_node *child = cmark_node_first_child(node), *next; child;
+       child = next) {
     next = cmark_node_next(child);
     if (!is(ext, child, TERM) && !is(ext, child, DEFINITION)) {
       cmark_node_insert_after(tail, child);
@@ -238,11 +255,11 @@ static void process(cmark_syntax_extension *ext, cmark_node *node)
       segment = NULL;
     } else if (segment != node) {
       if (!segment) {
-        cmark_mem *mem = cmark_syntax_extension_get_private(ext);
-        segment = cmark_node_new_with_mem(CMARK_NODE_CUSTOM_BLOCK, mem);
-        mark(ext, segment, LIST);
-        cmark_node_insert_after(tail, segment);
-        tail = segment;
+	cmark_mem *mem = cmark_syntax_extension_get_private(ext);
+	segment = cmark_node_new_with_mem(CMARK_NODE_CUSTOM_BLOCK, mem);
+	mark(ext, segment, LIST);
+	cmark_node_insert_after(tail, segment);
+	tail = segment;
       }
       cmark_node_append_child(segment, child);
     }
@@ -259,7 +276,8 @@ static void process(cmark_syntax_extension *ext, cmark_node *node)
   render_list(ext, node);
 }
 
-static cmark_node *postprocess(cmark_syntax_extension *ext, cmark_parser *parser, cmark_node *root)
+static cmark_node *postprocess(cmark_syntax_extension *ext,
+                               cmark_parser *parser, cmark_node *root)
 {
   (void)parser;
   cmark_iter *iter = cmark_iter_new(root);
@@ -276,7 +294,8 @@ static cmark_node *postprocess(cmark_syntax_extension *ext, cmark_parser *parser
 
 cmark_syntax_extension *nupp_definition_list_new(cmark_mem *mem)
 {
-  cmark_syntax_extension *ext = cmark_syntax_extension_new("nupp_definition_list");
+  cmark_syntax_extension *ext =
+      cmark_syntax_extension_new("nupp_definition_list");
   cmark_syntax_extension_set_private(ext, mem, NULL);
   cmark_syntax_extension_set_can_contain_func(ext, contain);
   cmark_syntax_extension_set_contains_inlines_func(ext, inlines);

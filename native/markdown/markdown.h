@@ -17,7 +17,8 @@ NUPP_MD_API nupp_markdown *nupp_markdown_new(void);
  * Budget caps cumulative allocations, including parser, tree and HTML.
  * Zero means success; negative values mean resource/input/ownership failure.
  * No input pointer is retained. A document may be rendered only once. */
-NUPP_MD_API int nupp_markdown_render(nupp_markdown *, const char *, size_t, size_t);
+NUPP_MD_API int nupp_markdown_render(nupp_markdown *, const char *, size_t,
+                                     size_t);
 NUPP_MD_API const char *nupp_markdown_text(const nupp_markdown *);
 /* A bounded suffix, for C-string-only foreign callers preserving embedded NUL.
  * Copy each segment before freeing the document; size remains authoritative. */

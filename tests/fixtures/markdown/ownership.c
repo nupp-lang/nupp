@@ -32,7 +32,8 @@ int main(void)
   for (size_t budget = 0; budget < 65536; budget = budget ? budget * 2 : 1) {
     nupp_markdown *doc = nupp_markdown_new();
     assert(doc);
-    int status = nupp_markdown_render(doc, "Term\n: first\n\n    - child\n", 25, budget);
+    int status =
+        nupp_markdown_render(doc, "Term\n: first\n\n    - child\n", 25, budget);
     if (status) {
       assert(status == -1);
       assert(!nupp_markdown_text(doc));
@@ -67,10 +68,8 @@ int main(void)
   nupp_markdown_free(NULL);
 
 #ifdef _WIN32
-  HANDLE threads[2] = {
-    CreateThread(NULL, 0, concurrent, NULL, 0, NULL),
-    CreateThread(NULL, 0, concurrent, NULL, 0, NULL)
-  };
+  HANDLE threads[2] = {CreateThread(NULL, 0, concurrent, NULL, 0, NULL),
+                       CreateThread(NULL, 0, concurrent, NULL, 0, NULL)};
   assert(threads[0] && threads[1]);
   assert(WaitForMultipleObjects(2, threads, TRUE, INFINITE) == WAIT_OBJECT_0);
   CloseHandle(threads[0]);
