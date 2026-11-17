@@ -76,6 +76,8 @@ function M.completedTestBuildReusesTheArtifactAndChecksItsBytes()
     })
     local modules = require("nupp.tools.build.modules")
     local original = modules.session
+    -- An extensionless `output` gains the host's suffix, so Windows writes out/tests.exe.
+    local artifact = fixture.executableName(dir .. "/out/tests")
 
     local function build()
         local produced = {}
@@ -85,20 +87,20 @@ function M.completedTestBuildReusesTheArtifactAndChecksItsBytes()
 
     local ok, why = pcall(function()
         assert(not build().testBuildReused)
-        local first = read(dir .. "/out/tests")
+        local first = read(artifact)
         modules.session = function()
             error("an unchanged test build entered the checker")
         end
         assert(build().testBuildReused)
         modules.session = original
-        testAssert.eq(read(dir .. "/out/tests"), first)
-        fixture.write(dir .. "/out/tests", "broken")
+        testAssert.eq(read(artifact), first)
+        fixture.write(artifact, "broken")
         assert(not build().testBuildReused)
-        testAssert.eq(read(dir .. "/out/tests"), first)
+        testAssert.eq(read(artifact), first)
         assert(build().testBuildReused)
         fixture.write(dir .. "/src/main.lua", "return 18\n")
         assert(not build().testBuildReused)
-        assert(read(dir .. "/out/tests") ~= first)
+        assert(read(artifact) ~= first)
         assert(build().testBuildReused)
         fixture.write(dir .. "/fixture", "second")
         assert(not build().testBuildReused)
@@ -205,7 +207,12 @@ function M.testBuildReuseSurvivesSeparateCliProcessesAndToolCallIds()
         testAssert.eq(code, 0, output)
         testAssert.eq(output, "ok\n")
 
-        return select(3, require("io.internal.files").stat(dir .. "/out/tests"))
+        -- An extensionless `output` gains the host's suffix; a missing file must
+        -- not compare equal to itself and pass as a reuse.
+        local modified = select(3, require("io.internal.files").stat(fixture.executableName(dir .. "/out/tests")))
+        assert(modified ~= nil, "the test build wrote its artifact")
+
+        return modified
     end
 
     local ok, why = pcall(function()
