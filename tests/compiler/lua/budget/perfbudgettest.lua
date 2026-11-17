@@ -150,8 +150,13 @@ end
 -- optparser moved on 2026-11-04 with no edit to it: a record's declaration is
 -- callable at run time, through a construction handler built once in the
 -- module chunk (about 20 instructions for each of its two records).
+-- aos did not compile from 26fc4b859 until its fields became float at
+-- 2a4f7b6cb, so it missed both changes above. It came back at 620: its six
+-- numeric loops take the overflow-safe lowering, about 22 instructions each
+-- as frames' one loop does, and its three integer products are int64
+-- multiplications through the wide helper since e63969a6a.
 local BYTECODE = {
-    ["aos"] = 508,
+    ["aos"] = 682,
     ["frames"] = 69,
     ["optparser"] = 800,
     ["presize"] = 160,
