@@ -1133,6 +1133,7 @@ local function tools(selectedCases)
         digest
     )
     assert(staged, "libffi sidecar staging failed: " .. tostring(problem))
+    local needsMarkdown = false
     for _, case in ipairs(selectedCases) do
         if case[1] == "cbridge" then
             -- Build once before jobs/shards start. Re-linking the same dylib
@@ -1148,7 +1149,28 @@ local function tools(selectedCases)
                 ) .. " && mv " .. quote(library .. ".pending") .. " " .. quote(library)
             )
             assert(status == 0, "artifact-relative fixture build failed: " .. output)
+        elseif case[1] == "markdown" or case[1] == "clihosts" then
+            needsMarkdown = true
         end
+    end
+    local override = os.getenv("NUPP_MARKDOWN_LIBRARY")
+    if needsMarkdown and (not override or override == "") then
+        local status, output = shell("sh " .. quote(ROOT .. "/scripts/toolchain") .. " cmark")
+        assert(status == 0, "Markdown provider build failed: " .. output)
+        local prefix = assert(output:match("([^\r\n]+)\r?\n?$"), "Markdown provider build returned no path")
+        local filename = require("nupp.compiler.project.libraries").filename("nupp_markdown")
+        local library = prefix .. (filename:sub(-4) == ".dll" and "/bin/" or "/lib/") .. filename
+        local destination = OUT .. "/lib/" .. filename
+        status, output = shell(
+            "mkdir -p " .. quote(
+                OUT .. "/lib"
+            ) .. " && cp " .. quote(
+                library
+            ) .. " " .. quote(
+                destination .. ".pending"
+            ) .. " && mv " .. quote(destination .. ".pending") .. " " .. quote(destination)
+        )
+        assert(status == 0, "Markdown provider staging failed: " .. output)
     end
     local transport = os.getenv("NUPP_CORE_TRANSPORT") or "rust"
     if transport == "c" then

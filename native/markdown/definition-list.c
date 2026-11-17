@@ -72,29 +72,28 @@ static cmark_node *open_block(cmark_syntax_extension *ext, int indented,
     if (indented || start >= len || input[start] != ':') return NULL;
     cmark_node *term = cmark_node_get_type(parent) == CMARK_NODE_PARAGRAPH ? parent : cmark_node_last_child(parent);
     cmark_node *list = NULL;
+    int loose;
     if (is(ext, parent, LIST) && is(ext, term, DEFINITION)) {
         list = parent;
         cmark_node *last = term;
         while (cmark_node_last_child(last)) last = cmark_node_last_child(last);
-        data(list)->loose |= cmark_parser_get_line_number(parser) > end_line(last) + 1;
+        loose = cmark_parser_get_line_number(parser) > end_line(last) + 1;
     } else {
         if (!term || cmark_node_get_type(term) != CMARK_NODE_PARAGRAPH ||
             cmark_node_get_syntax_extension(term)) return NULL;
         if (!has_term(ext, term)) return NULL;
         cmark_node *owner = cmark_node_parent(term);
-        int loose = cmark_parser_get_line_number(parser) > end_line(term) + 1;
+        loose = cmark_parser_get_line_number(parser) > end_line(term) + 1;
         if (is(ext, owner, LIST)) {
             list = owner;
             /* Finalize the open paragraph before reclassifying it. */
             cmark_node *next = cmark_parser_add_child(parser, parent == term ? term : list, CMARK_NODE_CUSTOM_BLOCK, start + 1);
             mark(ext, term, TERM);
             mark(ext, next, DEFINITION);
-            data(list)->loose |= loose;
             list = next;
         } else {
             list = cmark_parser_add_child(parser, parent == term ? term : owner, CMARK_NODE_CUSTOM_BLOCK, start + 1);
             mark(ext, list, LIST);
-            data(list)->loose = loose;
             mark(ext, term, TERM);
             cmark_node_append_child(list, term);
         }
@@ -105,6 +104,7 @@ static cmark_node *open_block(cmark_syntax_extension *ext, int indented,
         definition = cmark_parser_add_child(parser, list, CMARK_NODE_CUSTOM_BLOCK, start + 1);
         mark(ext, definition, DEFINITION);
     }
+    data(definition)->loose = loose;
     int spaces = 0;
     while (start + 1 + spaces < len && input[start + 1 + spaces] == ' ') spaces++;
     int after = spaces > 4 ? 1 : spaces;
@@ -123,7 +123,7 @@ static void tags(cmark_node *node, const char *enter, const char *leave) {
     cmark_node_set_on_exit(node, leave);
 }
 static void render_list(cmark_syntax_extension *ext, cmark_node *node) {
-    int loose = data(node)->loose;
+    int loose = 0;
     for (cmark_node *dd = cmark_node_first_child(node); dd; dd = cmark_node_next(dd)) {
         if (!is(ext, dd, DEFINITION)) continue;
         if (data(dd)->loose) loose = 1;
@@ -163,7 +163,6 @@ static void process(cmark_syntax_extension *ext, cmark_node *node) {
                 cmark_mem *mem = cmark_syntax_extension_get_private(ext);
                 segment = cmark_node_new_with_mem(CMARK_NODE_CUSTOM_BLOCK, mem);
                 mark(ext, segment, LIST);
-                data(segment)->loose = data(node)->loose;
                 cmark_node_insert_after(tail, segment);
                 tail = segment;
             }

@@ -66,17 +66,15 @@ digests are recorded; they are not a cross-toolchain binary reproducibility clai
 
 Supported native SDK targets are macOS ARM64/x64, Linux ARM64/x64 and Windows
 x64 MSVC. The frozen Windows VM also builds matching MinGW static archives.
-The frozen VM embeds these C archives. The standalone core binds
-`nuppmarkdown` to `NUPP_MARKDOWN_LIBRARY`; its package carries the shared module
-as a normal native sidecar. The module contains the matching upstream parser
-and table implementation, so no independently versioned cmark DLL is loaded.
-
-For a standalone core case on macOS:
+The frozen VM embeds these C archives. The standalone core guest runner
+provisions the pinned build when it selects a Markdown case. The core package
+carries the shared module as a native sidecar. To test an explicit module, set
+`NUPP_MARKDOWN_LIBRARY` to its path. Each module embeds its matching upstream
+parser and table implementation.
 
 ```sh
-export NUPP_MARKDOWN_LIBRARY="$(./scripts/toolchain cmark)/lib/libnupp_markdown.dylib"
 cd tests/core/guests
-../../../bin/nupp run run.lua markdown clihosts
+NUPP_COMPILER_ROOT="$PWD/../../.." ../../../bin/nupp run run.lua markdown clihosts
 ```
 
 The five-target C library workflow blocks Rust tools, checks cold/warm

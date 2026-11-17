@@ -3,6 +3,7 @@
 #include "markdown.h"
 #include "definition-list.h"
 #include <cmark-gfm-core-extensions.h>
+#include <houdini.h>
 #include <render.h>
 #include <setjmp.h>
 #include <stdint.h>
@@ -33,6 +34,7 @@ struct nupp_markdown {
     char *text;
     unsigned char *line_endings;
     size_t lines;
+    bufsize_t image_alt;
     int unterminated_line;
     int used;
 };
@@ -124,15 +126,103 @@ static void table_html(cmark_node *root) {
     }
     cmark_iter_free(iter);
 }
+static void escape_text(cmark_strbuf *html, const char *text, size_t size, int attribute) {
+    char byte = attribute ? '\'' : '"';
+    while (size) {
+        const char *next = memchr(text, byte, size);
+        size_t span = next ? (size_t)(next - text) : size;
+        houdini_escape_html0(html, (const unsigned char *)text, (bufsize_t)span, 0);
+        if (!next) break;
+        cmark_strbuf_puts(html, attribute ? "&#39;" : "\"");
+        text = next + 1;
+        size -= span + 1;
+    }
+}
+static void escape_url(cmark_strbuf *html, const char *text) {
+    for (const char *caret; (caret = strchr(text, '^')); text = caret + 1) {
+        houdini_escape_href(html, (const unsigned char *)text, (bufsize_t)(caret - text));
+        cmark_strbuf_putc(html, '^');
+    }
+    houdini_escape_href(html, (const unsigned char *)text, (bufsize_t)strlen(text));
+}
+static void image_alt_quotes(cmark_strbuf *html) {
+    bufsize_t start = active->image_alt, size = html->size - start;
+    if (!memchr(html->ptr + start, '\'', (size_t)size)) return;
+    char *alt = allocate(1, (size_t)size + 1);
+    memcpy(alt, html->ptr + start, (size_t)size);
+    cmark_strbuf_truncate(html, start);
+    for (const char *part = alt, *quote; ; part = quote + 1) {
+        quote = strchr(part, '\'');
+        if (!quote) { cmark_strbuf_puts(html, part); break; }
+        cmark_strbuf_put(html, (const unsigned char *)part, (bufsize_t)(quote - part));
+        cmark_strbuf_puts(html, "&#39;");
+    }
+    release(alt);
+}
+static void link_html(cmark_html_renderer *renderer, cmark_node *node, cmark_event_type event) {
+    cmark_strbuf *html = renderer->html;
+    int image = cmark_node_get_type(node) == CMARK_NODE_IMAGE;
+    if (event == CMARK_EVENT_ENTER) {
+        cmark_strbuf_puts(html, image ? "<img src=\"" : "<a href=\"");
+        escape_url(html, cmark_node_get_url(node));
+        if (image) {
+            cmark_strbuf_puts(html, "\" alt=\"");
+            active->image_alt = html->size;
+            renderer->plain = node;
+            return;
+        }
+    } else if (image) image_alt_quotes(html);
+    else { cmark_strbuf_puts(html, "</a>"); return; }
+    const char *title = cmark_node_get_title(node);
+    if (*title) {
+        cmark_strbuf_puts(html, "\" title=\"");
+        escape_text(html, title, strlen(title), 1);
+    }
+    cmark_strbuf_puts(html, image ? "\" />" : "\">");
+}
+static void newline(cmark_strbuf *html) {
+    if (html->size && html->ptr[html->size - 1] != '\n') cmark_strbuf_putc(html, '\n');
+}
+static void code_html(cmark_strbuf *html, cmark_node *node, int block) {
+    if (block) {
+        newline(html);
+        cmark_strbuf_puts(html, "<pre><code");
+        const char *info = cmark_node_get_fence_info(node);
+        size_t lang = info ? strcspn(info, " ") : 0;
+        if (lang) {
+            cmark_strbuf_puts(html, " class=\"language-");
+            escape_text(html, info, lang, 1);
+            cmark_strbuf_putc(html, '"');
+        }
+        cmark_strbuf_putc(html, '>');
+    } else cmark_strbuf_puts(html, "<code>");
+    const char *code = cmark_node_get_literal(node);
+    escape_text(html, code, strlen(code), 0);
+    cmark_strbuf_puts(html, block ? "</code></pre>\n" : "</code>");
+}
 /* Upstream adds line breaks around raw HTML blocks. The prior renderer
  * emits only the block's source line breaks, including inside containers. */
-static void raw_html(cmark_syntax_extension *ext, cmark_html_renderer *renderer,
+static void compatible_html(cmark_syntax_extension *ext, cmark_html_renderer *renderer,
                      cmark_node *node, cmark_event_type event, int options) {
     (void)ext;
     cmark_strbuf *html = renderer->html;
-    if (cmark_node_get_type(node) == CMARK_NODE_BLOCK_QUOTE) {
+    cmark_node_type type = cmark_node_get_type(node);
+    if (type == CMARK_NODE_LINK || type == CMARK_NODE_IMAGE) {
+        link_html(renderer, node, event);
+        return;
+    }
+    if (type == CMARK_NODE_CODE || type == CMARK_NODE_CODE_BLOCK) {
+        code_html(html, node, type == CMARK_NODE_CODE_BLOCK);
+        return;
+    }
+    if (type == CMARK_NODE_TEXT) {
+        const char *literal = cmark_node_get_literal(node);
+        escape_text(html, literal, strlen(literal), 0);
+        return;
+    }
+    if (type == CMARK_NODE_BLOCK_QUOTE) {
         if (event == CMARK_EVENT_ENTER) {
-            if (html->size && html->ptr[html->size - 1] != '\n') cmark_strbuf_putc(html, '\n');
+            newline(html);
             cmark_strbuf_puts(html, "<blockquote>\n");
         } else cmark_strbuf_puts(html, "</blockquote>\n");
         return;
@@ -156,15 +246,16 @@ static void compatible_text(cmark_node *root, cmark_syntax_extension *raw,
                             const char *token, size_t marker, const char *plain, size_t base) {
     cmark_iter *iter = cmark_iter_new(root);
     cmark_event_type event;
-    int image = 0;
     while ((event = cmark_iter_next(iter)) != CMARK_EVENT_DONE) {
         cmark_node *node = cmark_iter_get_node(iter);
         cmark_node_type type = cmark_node_get_type(node);
-        if (event == CMARK_EVENT_ENTER && (type == CMARK_NODE_HTML_BLOCK ||
-            (type == CMARK_NODE_BLOCK_QUOTE && cmark_node_get_type(cmark_node_last_child(node)) == CMARK_NODE_HTML_BLOCK)))
+        if (event != CMARK_EVENT_ENTER) continue;
+        if (type == CMARK_NODE_HTML_BLOCK || type == CMARK_NODE_LINK || type == CMARK_NODE_IMAGE ||
+            type == CMARK_NODE_CODE || type == CMARK_NODE_CODE_BLOCK ||
+            (type == CMARK_NODE_TEXT && strchr(cmark_node_get_literal(node), '"')) ||
+            (type == CMARK_NODE_BLOCK_QUOTE && cmark_node_get_type(cmark_node_last_child(node)) == CMARK_NODE_HTML_BLOCK))
             cmark_node_set_syntax_extension(node, raw);
-        if (type == CMARK_NODE_IMAGE) image += event == CMARK_EVENT_ENTER ? 1 : -1;
-        if (event == CMARK_EVENT_ENTER && type == CMARK_NODE_HTML_INLINE) {
+        if (type == CMARK_NODE_HTML_INLINE) {
             const char *literal = cmark_node_get_literal(node);
             size_t size = strlen(literal), to = 0;
             char *copy = allocate(size + 1, 2);
@@ -181,7 +272,7 @@ static void compatible_text(cmark_node *root, cmark_syntax_extension *raw,
             cmark_node_set_literal(node, copy);
             release(copy);
         }
-        if (event == CMARK_EVENT_ENTER && token && cmark_node_get_type(node) == CMARK_NODE_CODE_BLOCK) {
+        if (token && type == CMARK_NODE_CODE_BLOCK) {
             const char *info = cmark_node_get_fence_info(node);
             if (info && contains(info, strlen(info), token, marker)) {
                 size_t size = strlen(info), from = 0, to = 0;
@@ -196,29 +287,13 @@ static void compatible_text(cmark_node *root, cmark_syntax_extension *raw,
                 release(copy);
             }
         }
-        if (image || event != CMARK_EVENT_ENTER || cmark_node_get_type(node) != CMARK_NODE_TEXT ||
-            !strchr(cmark_node_get_literal(node), '"')) continue;
-        /* Keep pulldown's text spelling, while upstream still escapes markup
-         * and quotes in attributes. Never unescape the rendered document. */
-        char *escaped = cmark_render_html_with_mem(node, CMARK_OPT_UNSAFE, NULL, &memory);
-        size_t from = 0, to = 0;
-        while (escaped[from]) {
-            if (!strncmp(escaped + from, "&quot;", 6)) { escaped[to++] = '"'; from += 6; }
-            else escaped[to++] = escaped[from++];
-        }
-        escaped[to] = 0;
-        /* Table cells permit HTML_INLINE, but not CUSTOM_INLINE. The value
-         * was escaped by upstream above; this cannot introduce HTML syntax. */
-        if (!cmark_node_set_type(node, CMARK_NODE_HTML_INLINE) || !cmark_node_set_literal(node, escaped))
-            longjmp(active->failure, 1);
-        release(escaped);
     }
     cmark_iter_free(iter);
 }
 static char *render(const char *input, size_t bytes, cmark_syntax_extension *definition,
                     cmark_syntax_extension *raw,
                     const char *token, size_t marker, const char *plain, size_t base, unsigned char *html) {
-    cmark_parser *parser = cmark_parser_new_with_mem(CMARK_OPT_UNSAFE | CMARK_OPT_TABLE_PREFER_STYLE_ATTRIBUTES, &memory);
+    cmark_parser *parser = cmark_parser_new_with_mem(CMARK_OPT_UNSAFE | CMARK_OPT_SOURCEPOS, &memory);
     cmark_parser_attach_syntax_extension(parser, definition);
     cmark_parser_attach_syntax_extension(parser, cmark_find_syntax_extension("table"));
     cmark_parser_feed(parser, input, bytes);
@@ -291,8 +366,8 @@ int nupp_markdown_render(nupp_markdown *doc, const char *input, size_t bytes, si
     doc->remaining = budget;
     cmark_gfm_core_extensions_ensure_registered();
     cmark_syntax_extension *definition = nupp_definition_list_new(&memory);
-    cmark_syntax_extension *raw = cmark_syntax_extension_new("nupp_raw_html");
-    cmark_syntax_extension_set_html_render_func(raw, raw_html);
+    cmark_syntax_extension *raw = cmark_syntax_extension_new("nupp_compatible_html");
+    cmark_syntax_extension_set_html_render_func(raw, compatible_html);
     int status = -1;
     if (!setjmp(doc->failure)) {
         const char *source = input ? input : "";

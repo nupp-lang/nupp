@@ -1021,7 +1021,11 @@ local function checkedProject(root: string): any
                 include = {"src", "build/core-guest-programs/source", "tests/tools/test/runner"},
                 build = {outDir = "build/core-guest-programs/out"},
                 libraries = {
-                    nuppmarkdown = {name = "nupp_markdown", env = "NUPP_MARKDOWN_LIBRARY"},
+                    nuppmarkdown = {
+                        name = "nupp_markdown",
+                        env = "NUPP_MARKDOWN_LIBRARY",
+                        search = {"build/core-guests/lib"}
+                    },
                     nuppzlib = {name = "z", env = "NUPP_ZLIB_LIBRARY"},
                     nuppcrypto = {name = "crypto", env = "NUPP_CRYPTO_LIBRARY"},
                     nuppssl = {name = "ssl", env = "NUPP_SSL_LIBRARY", dependencies = {"nuppcrypto"}},

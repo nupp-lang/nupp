@@ -613,5 +613,60 @@
     "name": "empty_definition_boundary",
     "hex": "5465726d0a3a200a0a20202d2d2d0a",
     "expected": "<dl>\n<dt>Term</dt>\n<dd></dd>\n</dl>\n<hr />\n"
+  },
+  {
+    "name": "tight_after_loose",
+    "hex": "410a0a3a206f6e650a0a2320427265616b0a0a420a3a2074776f0a",
+    "expected": "<dl>\n<dt>A</dt>\n<dd>\n<p>one</p>\n</dd>\n</dl>\n<h1>Break</h1>\n<dl>\n<dt>B</dt>\n<dd>two</dd>\n</dl>\n"
+  },
+  {
+    "name": "loose_after_tight",
+    "hex": "410a3a206f6e650a0a2320427265616b0a0a420a0a3a2074776f0a",
+    "expected": "<dl>\n<dt>A</dt>\n<dd>one</dd>\n</dl>\n<h1>Break</h1>\n<dl>\n<dt>B</dt>\n<dd>\n<p>two</p>\n</dd>\n</dl>\n"
+  },
+  {
+    "name": "consecutive_loose_definitions",
+    "hex": "410a3a206f6e650a0a3a2074776f0a",
+    "expected": "<dl>\n<dt>A</dt>\n<dd>\n<p>one</p>\n</dd>\n<dd>\n<p>two</p>\n</dd>\n</dl>\n"
+  },
+  {
+    "name": "inline_html_mixed_line_endings",
+    "hex": "78203c610a687265663d783e203c620d0a69643d793e207a0a",
+    "expected": "<p>x <a\nhref=x> <b\r\nid=y> z</p>\n"
+  },
+  {
+    "name": "inline_code_quotes",
+    "hex": "6063616e27746020616e64206061202262222063600a",
+    "expected": "<p><code>can't</code> and <code>a \"b\" c</code></p>\n"
+  },
+  {
+    "name": "fenced_code_quotes",
+    "hex": "60606073796d276c616e670a61202262222069736e2774202f0a6060600a",
+    "expected": "<pre><code class=\"language-sym&#39;lang\">a \"b\" isn't /\n</code></pre>\n"
+  },
+  {
+    "name": "fence_language_tab",
+    "hex": "606060666f6f096261720a780a6060600a",
+    "expected": "<pre><code class=\"language-foo\tbar\">x\n</code></pre>\n"
+  },
+  {
+    "name": "href_literal_caret",
+    "hex": "5b785d282f615e6229205b785d282f6125354562290a",
+    "expected": "<p><a href=\"/a^b\">x</a> <a href=\"/a%5Eb\">x</a></p>\n"
+  },
+  {
+    "name": "generated_attributes",
+    "hex": "5b785d283c6127623e2022612762222920215b6127625d283c615e623e202261276222290a",
+    "expected": "<p><a href=\"a&#x27;b\" title=\"a&#39;b\">x</a> <img src=\"a^b\" alt=\"a&#39;b\" title=\"a&#39;b\" /></p>\n"
+  },
+  {
+    "name": "alt_escapes_quotes",
+    "hex": "215b610a27203c6220783d2779273e5d28696d67290a",
+    "expected": "<p><img src=\"img\" alt=\"a &#39; &lt;b x=&#39;y&#39;&gt;\" /></p>\n"
+  },
+  {
+    "name": "raw_html_keeps_attribute_bytes",
+    "hex": "78203c6120646174612d687265663d272f615e62273e20277465787427203c2f613e",
+    "expected": "<p>x <a data-href='/a^b'> 'text' </a></p>\n"
   }
 ]
