@@ -28,6 +28,13 @@ local function shell(command)
     return {SHELL, "-c", command}
 end
 
+-- A command line for the platform's own shell, cmd.exe on Windows. The Windows
+-- test runner otherwise hands a test's command lines to Git Bash through a
+-- stand-in that is not a process handle, and these cases are about the handle.
+local function platformCommand(command)
+    return (rawget(_G, "__NUPP_TEST_CMD_MARKER") or "") .. command
+end
+
 function M.beforeAll()
     process = require("io")
     buffers = require("bytes")
@@ -242,7 +249,7 @@ end
 
 function M.shellAndArgumentVectorsReturnTheSamePublicProcess()
     local public = ready()
-    for _, command in ipairs({"echo unified-process", shell("printf unified-process")}) do
+    for _, command in ipairs({platformCommand("echo unified-process"), shell("printf unified-process")}) do
         local child = assert(public.popen(command, "r"))
         test.eq(io.type(child), "file")
         if rawget(_G, "jit") ~= nil then
@@ -325,7 +332,7 @@ function M.writeModeAcceptsStringsNumbersAndLuaBuffering()
     local public = ready()
     local windows = package.config:sub(1, 1) == "\\"
     local command = windows and 'findstr /x "written42" > NUL' or 'IFS= read -r line; test "$line" = written42'
-    local child = assert(public.popen(command, "w"))
+    local child = assert(public.popen(platformCommand(command), "w"))
     assert(child:setvbuf("full", 64))
     test.eq(child:write("written", 42, "\n"), child)
     assert(child:flush())
