@@ -674,6 +674,15 @@ function M.aSingleBodyNameStaysSingleAcrossAnImage()
     testAssert.eq(applied.overloadedStatics.of == true, false, "an application's single-body static")
 end
 
+-- An interface's method entry with a body is one its implementers inherit; the
+-- body stays with its module, but the reader has to be told there is one.
+function M.aMethodEntryKeepsThatItHasABody()
+    local loaded = roundTrip(withMethod("Bodied", false, {kind = "functionDecl"}))
+    assert(loaded.methodEntries.read[1].declaration ~= nil, "the entry lost its body")
+    local bare = roundTrip(withMethod("Bare", false))
+    testAssert.eq(bare.methodEntries.read[1].declaration, nil, "an entry without a body gained one")
+end
+
 function M.decodesApplicationsThroughGenerics()
     local element = T.typevar("Element", "interface-image:box-element")
     local box = indexed("Box", "/project/sample.nupp")

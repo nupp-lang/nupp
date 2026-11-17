@@ -20,7 +20,7 @@ local members = require("nupp.compiler.types.members")
 local reflection = require("nupp.compiler.reflection")
 local T = require("nupp.compiler.types")
 
-export const SCHEMA = 11
+export const SCHEMA = 12
 
 --- What `interfaceimage.encode` is told about the run it encodes for.
 export type EncodeOptions = {
@@ -429,6 +429,7 @@ export function encode(semantics: {[string]: any}, options: EncodeOptions?): (an
                 member = entry.member,
                 parameterKey = entry.parameterKey,
                 definition = copyDefinition(entry.definition),
+                implemented = entry.declaration ~= nil,
             }
         end
 
@@ -1347,10 +1348,13 @@ export function decode(image: any, options: DecodeOptions?): (any?, string?)
             }
         end
 
+        -- The body an entry was declared with stays with the module that declared
+        -- it; a reader is told only that there was one, which is what makes an
+        -- interface's overload one an implementer need not write.
         local function decodeMethodEntry(entry: any): any
             return {
                 signature = edge(entry.signature),
-                declaration = nil,
+                declaration = entry.implemented and {implemented = true} or nil,
                 member = entry.member,
                 parameterKey = entry.parameterKey,
                 definition = entry.definition,
