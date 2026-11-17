@@ -29,6 +29,10 @@ const tables = require("nupp.runtime.core.coretables")
 cdef function dlopen(borrows path: voidptr, mode: int64): voidptr
 cdef function dlsym(borrows library: voidptr, borrows name: voidptr): voidptr
 cdef function strlen(borrows text: voidptr): uint64
+cdef function malloc(bytes: uint64): voidptr
+cdef function free(takes block: voidptr)
+cdef function memcpy(exclusive target: voidptr, borrows source: voidptr, bytes: uint64): voidptr
+cdef function dlclose(borrows library: voidptr): int32
 
 -- The block's words (`CALL_` in src/nupp/compiler/s0/select.nupp):
 -- the function, x0-x7, d0-d7, the C stack's first STACK_WORDS words, then
@@ -230,6 +234,54 @@ local function cache(key: voidptr, count: int64, address: uint64): uint64
     end
 end
 
+-- The C bootstrap supplies only its initial artifact directory, as immutable
+-- startup metadata. Nupp constructs artifact-relative names and calls the OS
+-- loader itself; no C wrapper owns path or library policy.
+local function openLibrary(key: voidptr): uint64
+    @unsafe do
+        if native.load8(key, 0) ~= 0x40 then
+            return native.address(dlopen(key, LOAD_NOW))
+        end
+        local name = malloc(32ULL)
+        if native.address(name) == 0ULL then
+            error("foreign loader allocation failed")
+        end
+        -- The NUL-terminated name "nupp_core_artifact_directory".
+        native.store64(name, 0, 0x726f635f7070756eULL)
+        native.store64(name, 8, 0x6166697472615f65ULL)
+        native.store64(name, 16, 0x63657269645f7463ULL)
+        native.store64(name, 24, 0x79726f74ULL)
+        local process = dlopen(native.pointer(0ULL), LOAD_NOW)
+        local marker = dlsym(process, name)
+        free(name)
+        local _ = dlclose(process)
+        if native.address(marker) == 0ULL then
+            -- The frozen reference transport still anchors its own @ paths.
+            return native.address(dlopen(key, LOAD_NOW))
+        end
+        local directory = native.loadPointer(marker, 0)
+        if native.address(directory) == 0ULL then
+            error("foreign loader has no artifact directory")
+        end
+        local rootBytes, libraryBytes = strlen(directory), strlen(key)
+        local relative: int64 = 1
+        while native.word(relative) < libraryBytes and native.load8(key, relative) == 0x2f do
+            relative = relative + 1
+        end
+        local suffixBytes = libraryBytes - native.word(relative) + 1ULL
+        local path = malloc(rootBytes + suffixBytes + 1ULL)
+        if native.address(path) == 0ULL then
+            error("foreign loader allocation failed")
+        end
+        local _ = memcpy(path, directory, rootBytes)
+        native.store8(path, native.index(rootBytes), 0x2fULL)
+        local _ = memcpy(native.offset(path, native.index(rootBytes) + 1), native.offset(key, relative), suffixBytes)
+        local library = dlopen(path, LOAD_NOW)
+        free(path)
+        return native.address(library)
+    end
+end
+
 -- The address of the function the descriptor's library and symbol name,
 -- the `count` bytes at `key`: the library's name ("" for the program
 -- itself), a NUL and the symbol, which a NUL ends.
@@ -243,7 +295,7 @@ local function resolve(key: voidptr, count: int64): uint64
         if native.load8(key, 0) == 0 then
             library = native.address(dlopen(native.pointer(0ULL), LOAD_NOW))
         else
-            library = native.address(dlopen(key, LOAD_NOW))
+            library = openLibrary(key)
         end
         if library == 0ULL then
             error("foreign call: its library cannot be loaded")

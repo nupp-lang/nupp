@@ -253,6 +253,7 @@ local CASES = {
     {"affineconstructors", 0x7FFF0000000000FF},
     {"absentffi", 0x7FFF000000000007},
     {"guestffi", 0x7FFF000000001FFF},
+    {"cbridge", 0x7FFF000000000007},
     {"runnersmall", 0x7FFF00000000001F},
     {"runnerchunks", 0x7FFF00000000007F},
     -- The packaged test runner over real suites, its loadfile and dofile
@@ -548,6 +549,7 @@ local STRESS = {
     affineconstructors = true,
     absentffi = true,
     guestffi = true,
+    cbridge = true,
     ffiaggregates = true,
     runnerresiduals = true,
     spreadlibrary = true,
@@ -1090,7 +1092,32 @@ local function check(ok, label)
 end
 
 -- The bridge and its ABI/scratch guard, built once with cargo.
-local function tools()
+local function tools(selectedCases)
+    for _, case in ipairs(selectedCases) do
+        if case[1] == "cbridge" then
+            -- Build once before jobs/shards start. Re-linking the same dylib
+            -- in every job races readers against the linker's partial output.
+            local library = OUT .. "/lib/libnuppbridgefixture.dylib"
+            local status, output = shell(
+                "mkdir -p " .. quote(
+                    OUT .. "/lib"
+                ) .. " && cc -dynamiclib -o " .. quote(
+                    library .. ".pending"
+                ) .. " " .. quote(
+                    TESTS .. "/bridge-ffi.c"
+                ) .. " && mv " .. quote(library .. ".pending") .. " " .. quote(library)
+            )
+            assert(status == 0, "artifact-relative fixture build failed: " .. output)
+        end
+    end
+    local transport = os.getenv("NUPP_CORE_TRANSPORT") or "rust"
+    if transport == "c" then
+        local status, output = shell("sh " .. quote(ROOT .. "/scripts/core-bridge") .. " --test")
+        assert(status == 0, "C bridge contract build failed: " .. output)
+        local prefix = assert(output:match("([^\r\n]+)\r?\n?$"), "C bridge build returned no path")
+        return prefix .. "/nupp-core", prefix .. "/nupp-core-guard"
+    end
+    assert(transport == "rust", "unknown core transport: " .. transport)
     local target = ROOT .. "/build/core-bridge"
     local manifest = quote(ROOT .. "/native/crates/core-bridge/Cargo.toml")
     local status, output = shell(
@@ -1505,12 +1532,16 @@ local function main()
         end
     end
     for _, name in ipairs(arg) do
+        local matched = false
         for _, case in ipairs(CASES) do
             if case[1] == name then
                 selectedCases[#selectedCases + 1] = case
+                matched = true
             end
         end
+        assert(matched, "unknown core guest selection: " .. tostring(name))
     end
+    assert(#selectedCases > 0, "empty core guest selection")
     -- A shard runs the cases it is given with the tools and sources its
     -- parent prepared (see `shards`).
     local shard = os.getenv("NUPP_GUEST_SHARD")
@@ -1554,7 +1585,7 @@ local function main()
     local bridge, guard = os.getenv("NUPP_GUEST_BRIDGE"), os.getenv("NUPP_GUEST_GUARD")
     if not shard then
         timing.phase = "tools"
-        bridge, guard = tools()
+        bridge, guard = tools(selectedCases)
         if shards(selectedCases, bridge, guard) then
             return
         end

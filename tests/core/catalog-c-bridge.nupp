@@ -1,0 +1,19 @@
+module nupp.core.catalogcbridge
+
+-- Both spellings resolve against the artifact, independent of the process cwd.
+cdef function nuppBridgeFixture(left: uint64, right: uint64): uint64 from"@lib/libnuppbridgefixture.dylib"
+cdef function nuppBridgeMissing(): int32 from"@lib/libnuppbridgeabsent.dylib"
+local score = 0
+if nuppBridgeFixture(0x55ULL, 0xaaULL) == 0xffULL then
+    score = score + 1
+end
+if nuppBridgeFixture(0xffffffffffffffffULL, 0x1234ULL) == 0xffffffffffffedcbULL then
+    score = score + 2
+end
+local ok, problem = pcall(function(): any
+    return nuppBridgeMissing()
+end)
+if not ok and tostring(problem):find("library", 1, true) ~= nil then
+    score = score + 4
+end
+export const result = score

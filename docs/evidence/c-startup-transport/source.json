@@ -1,0 +1,26 @@
+{
+  "sha256": {
+    "native/core-bridge/main.c": "1de21ad8d19eb4b604aa3ed01dfe913843c2857b8d144317260532cccbc47123",
+    "native/core-bridge/io.c": "da68a540a435ab126c2a9c16a444a3771db1d845d4ce9ff98626ee2517ee3330",
+    "native/core-bridge/transport.h": "15eb0411a8cf7ffbad29389f64b12c7926b7228dd5f39cbd8389560f351cadd1",
+    "native/core-bridge/guard.c": "08c69719a90d45ee6836633427b0d1e96c8e4b67eed3f13eca05dd254a197a5c",
+    "scripts/core-bridge": "cc10dc2a798809f569e64b914b7b4583a0d38ae052bb9d9ad21535006c065c71",
+    "tests/core/bridge-contracts.c": "2d73d5ca11ae7608d84305f21459715241f4a955bdbdc7686a70b14e7e4ae127",
+    "tests/core/bridge-abi-aarch64.S": "b29cc947c2f91d5024a3fc5522762757366253860d7fe2ba301536a389809636",
+    "tests/core/bridge-ffi.c": "dcdf477dbae1633540bf7ec1f9c248b34ec1ff689f79997ae6e3986bd69d3187",
+    "src/nupp/runtime/core/guestforeign.nupp": "3263124692d5309f44f52917e64fa9397f484c25133b4481c1cc7a9a0b541b76",
+    "src/nupp/compiler/vm/nativeos.nupp": "6639cbe72d7824a7ca9195cbf6cea13e082121bb97e0e5e9e121444aa67068d8",
+    "tests/core/catalog-c-bridge.nupp": "472e3a34e0e913b9ffdaaffafa2bce65ffdfb467914adbbbcc13583bddde00bf"
+  },
+  "nonblankLines": {
+    "native/core-bridge/main.c": 177,
+    "native/core-bridge/io.c": 186,
+    "native/core-bridge/transport.h": 10,
+    "native/core-bridge/guard.c": 107,
+    "scripts/core-bridge": 27,
+    "tests/core/bridge-contracts.c": 94,
+    "tests/core/bridge-abi-aarch64.S": 161,
+    "tests/core/bridge-ffi.c": 3
+  },
+  "ownedTotal": 765
+}

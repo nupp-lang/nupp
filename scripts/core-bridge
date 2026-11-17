@@ -1,0 +1,27 @@
+#!/bin/sh
+# Build the opaque C startup transport and its independent ABI/scratch guard.
+set -eu
+ROOT=$(CDPATH= cd -- "$(dirname "$0")/.." && pwd)
+CC=${NUPP_CC:-cc}
+OUT=${NUPP_CORE_BRIDGE_DIR:-"$ROOT/build/c-core-bridge"}
+mkdir -p "$OUT"
+case "$(uname -s):$(uname -m)" in
+    Darwin:arm64) export_flag=-Wl,-export_dynamic; libs='' ;;
+    Linux:aarch64) export_flag=-rdynamic; libs=-ldl ;;
+    *) printf 'core-bridge: ARM64 macOS or Linux is required\n' >&2; exit 1 ;;
+esac
+common="$ROOT/native/core-bridge"
+"$CC" -std=c11 -O2 -g -Wall -Wextra -Werror -pthread "$export_flag" \
+    "$common/main.c" "$common/io.c" $libs -o "$OUT/nupp-core.pending"
+"$CC" -std=c11 -O2 -g -Wall -Wextra -Werror -pthread "$export_flag" \
+    "$common/guard.c" "$common/io.c" \
+    "$ROOT/tests/core/bridge-abi-aarch64.S" $libs -o "$OUT/nupp-core-guard.pending"
+mv "$OUT/nupp-core.pending" "$OUT/nupp-core"
+mv "$OUT/nupp-core-guard.pending" "$OUT/nupp-core-guard"
+if [ "${1:-}" = --test ]; then
+    "$CC" -std=c11 -O2 -g -Wall -Wextra -Werror -pthread "$export_flag" \
+        "$ROOT/tests/core/bridge-contracts.c" "$common/io.c" \
+        "$ROOT/tests/core/bridge-abi-aarch64.S" $libs -o "$OUT/nupp-core-contracts"
+    "$OUT/nupp-core-contracts" >&2
+fi
+printf '%s\n' "$OUT"
