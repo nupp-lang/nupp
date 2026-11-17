@@ -29,7 +29,6 @@ native-runtime = ["nupp-vm/native-runtime"]
 compression = ["nupp-vm/compression"]
 net = ["nupp-vm/net"]
 http = ["nupp-vm/http"]
-regex = ["nupp-vm/regex"]
 markdown = ["nupp-vm/markdown"]
 c-headers = ["nupp-vm/c-headers"]
 

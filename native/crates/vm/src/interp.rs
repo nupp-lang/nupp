@@ -400,7 +400,7 @@ pub const MAX_RESULTS: usize = 128;
 
 /// Builtin-name prefixes whose primitives a VM provider is written over, and
 /// the module each set is installed as.
-pub const PROVIDER_FAMILIES: &[(&str, &str)] = &[("ncompression.", "nupp.vm.compression"), ("nnet.", "nupp.vm.net"), ("nhttp.", "nupp.vm.http"), ("nuri.", "nupp.vm.uri"), ("nregex.", "nupp.vm.regex"), ("nmarkdown.", "nupp.vm.markdown")];
+pub const PROVIDER_FAMILIES: &[(&str, &str)] = &[("ncompression.", "nupp.vm.compression"), ("nnet.", "nupp.vm.net"), ("nhttp.", "nupp.vm.http"), ("nuri.", "nupp.vm.uri"), ("nmarkdown.", "nupp.vm.markdown")];
 
 pub struct Interp {
     pub(crate) clock: crate::clock::Clock,
@@ -1211,7 +1211,6 @@ impl Interp {
         crate::supervision::install(self);
         crate::snapshot::install(self);
         crate::strbuf::install(self);
-        crate::nregex::install(self);
         let package = self.new_table(); self.registered.push(package);
         { let loaded = self.new_table(); self.registered.push(loaded); self.loaded_table = loaded; let k = self.intern("loaded"); self.set_index(package, k, loaded); }
         { let preload = self.new_table(); self.registered.push(preload); let k = self.intern("preload"); self.set_index(package, k, preload); // Its first line is the directory separator, which sources read to tell

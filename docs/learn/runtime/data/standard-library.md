@@ -95,9 +95,6 @@ intrinsic namespaces and the declared modules:
   coroutine runs while something is parked.
 - [](os) provides monotonic and wall clocks. [](coroutine) owns sleeps and
   deadlines.
-- [](nupp.text.regex) matches regular expressions where Lua patterns are not enough.
-  It is not yet importable from an application: it sits under the private
-  `nupp` root until it gets a public path.
 
 See [gpu.md](../../performance/ahead-of-time/gpu.md) for GPU kernels, and [workers.md](../concurrency/workers.md) for the worker
 scheduler and sendable values.

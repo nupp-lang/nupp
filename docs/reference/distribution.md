@@ -125,7 +125,7 @@ the artifact key.
 
 `scripts/toolchain vm-runtime FACILITIES` builds the runtime a binary is
 stamped onto, linking only the optional native facilities the program's image
-reaches: compression, networking, HTTP, regular expressions, Markdown, and C
+reaches: compression, networking, HTTP, Markdown, and C
 header parsing. A program with vector code is built differently, with
 `scripts/toolchain vm-program FACILITIES PAYLOAD`: its image is compiled ahead
 of time into a runtime that carries no code generator and runs only that image.

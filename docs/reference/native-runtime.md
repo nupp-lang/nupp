@@ -37,7 +37,6 @@ files, paths, clocks, UUIDs and processes; the optional facilities are:
 | `compression` | compression | `flate2` |
 | `net` | sockets and TLS | Tokio and `socket2`, with Rustls for TLS |
 | `http` | the HTTP client and URI | Reqwest over Tokio and Rustls, and the `url` crate |
-| `regex` | `nupp.text.regex` | the `regex` crate |
 | `markdown` | Markdown rendering | `pulldown-cmark` |
 | `c-headers` | reading C headers at compile time | the C declaration reader |
 

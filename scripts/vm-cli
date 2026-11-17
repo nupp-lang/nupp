@@ -648,7 +648,7 @@ def linked_runtime(image, out, target):
     os.replace(out / "aot-tool.new", out / "aot-tool")
     obj = out / "compiler.o"
     run_step([str(out / "aot-tool"), "aot", str(image), str(obj), "--frames"], None, "AOT of the root image")
-    features = "aot-linked,c-headers,native-ffi,compression,net,http,regex,markdown,native-runtime"
+    features = "aot-linked,c-headers,native-ffi,compression,net,http,markdown,native-runtime"
     env = {"NUPP_AOT_OBJECT": str(obj), "NUPP_NATIVE_RUNTIME_OBJECT": str(core)}
     # The objects are read by the build script, which reruns when they are
     # newer than its last run (not when a compiler source is: the launcher

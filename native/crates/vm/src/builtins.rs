@@ -87,9 +87,9 @@ pub const NAMES: &[&str] = &[
     "snapshot.discard",
     "package.extensionLoader", "extension.load",
     "sharing.share", "sharing.address",
-    // Regular expressions (`crate::nregex::BUILTINS`, in that order).
-    "nregex.compile", "nregex.isMatch", "nregex.find", "nregex.captures", "nregex.groups", "nregex.replace",
-    "nregex.escape", "nregex.findAll",
+    // Retired ABI slots: linked objects carry numeric ids, so later ids stay fixed.
+    "retired.0", "retired.1", "retired.2", "retired.3",
+    "retired.4", "retired.5", "retired.6", "retired.7",
     // Markdown (`crate::nmarkdown`).
     "nmarkdown.render",
     "vm.hotPatch",
@@ -762,7 +762,7 @@ fn classify(name: &str) -> Special {
     if name == "vm.hotPatch" { return Special::VmHotpatch; }
     if name.starts_with("simd.") || name.starts_with("storage.") || name.starts_with("wide.") || name.starts_with("scalar.u64.")
         || matches!(name, "math.type" | "math.tointeger" | "math.sin" | "math.cos" | "math.tan" | "math.asin" | "math.acos" | "math.atan" | "math.atan2" | "math.exp" | "math.ldexp" | "math.random" | "math.randomseed" | "math.cosh" | "math.sinh" | "math.tanh" | "math.deg" | "math.rad" | "math.log10" | "math.pow" | "table.new" | "cleanup.describe" | "file.setvbuf" | "file.flush")
-        || name.starts_with("files.") || name.starts_with("path.") || name.starts_with("nfiles.") || name.starts_with("ncompression.") || name.starts_with("nnet.") || name.starts_with("nhttp.") || name.starts_with("nregex.") || name.starts_with("nmarkdown.") || name == "nuri.parse" || name.starts_with("utf8.") || name.starts_with("terminal.") || name.starts_with("scalar.") || name.starts_with("sharing.") { return Special::Tail; }
+        || name.starts_with("files.") || name.starts_with("path.") || name.starts_with("nfiles.") || name.starts_with("ncompression.") || name.starts_with("nnet.") || name.starts_with("nhttp.") || name.starts_with("nmarkdown.") || name == "nuri.parse" || name.starts_with("utf8.") || name.starts_with("terminal.") || name.starts_with("scalar.") || name.starts_with("sharing.") { return Special::Tail; }
     Special::Plain
 }
 
@@ -1281,7 +1281,6 @@ pub fn call(it: &mut Interp, id: u32, args: &[Value]) -> Outs {
             if name.starts_with("nnet.") { return crate::nnet::call(it, name, args); }
             if name.starts_with("nhttp.") { return crate::nhttp::call(it, name, args); }
             if *name == "nuri.parse" { return crate::nhttp::parse_uri(it, args); }
-            if name.starts_with("nregex.") { return crate::nregex::call(it, name, args); }
             if name.starts_with("nmarkdown.") { return crate::nmarkdown::call(it, name, args); }
             if name.starts_with("utf8.") { return crate::utf8lib::call(it, name, args); }
             if name.starts_with("terminal.") { return terminal(name, args); }

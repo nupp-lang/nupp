@@ -97,8 +97,6 @@ local MODULES: {[string]: {
     ["nupp.serde.internal.value"] = {kind = "common"},
     ["nupp.serde.internal.view"] = {kind = "common"},
     ["utf8"] = {kind = "common"},
-    ["nupp.text.regex"] = {kind = "common"},
-    ["nupp.text.internal.regexhost"] = {kind = "common"},
     ["nupp.derive"] = facility("runtime", "runtime.io_internal_bytes"),
     ["io.cli"] = {kind = "common"},
     ["nupp.runtime.standardio"] = {kind = "common"},

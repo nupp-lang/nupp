@@ -217,7 +217,7 @@ traversal, and the project root before removing anything.
 Compiler-provided native APIs do not appear in `dependencies`. A binary is its
 program image stamped onto a VM runtime, and that runtime links only the
 optional native facilities the image reaches -- compression, networking, HTTP
-and URI parsing, regular expressions, Markdown, and C header parsing -- and none
+and URI parsing, Markdown, and C header parsing -- and none
 it does not. A program that reaches none of them is stamped onto the plain
 runtime. A program with vector code gets a runtime of its own instead, with its
 image compiled ahead of time into it.

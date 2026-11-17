@@ -170,7 +170,6 @@ function probe.run(): integer
             "tlsDestroy"
         },
         ["nupp.vm.process"] = {"spawn", "poll", "kill", "read", "write", "closeStream", "reap", "waitReady"},
-        ["nupp.vm.regex"] = {"compile", "isMatch", "find", "captures", "groups", "replace", "escape", "findAll"},
         [
             "nupp.vm.tasks"
         ] = {
