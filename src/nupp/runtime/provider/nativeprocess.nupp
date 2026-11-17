@@ -6,6 +6,12 @@ local provider = {}
 const SIGNAL_BASE = 128
 const INT32_MIN = -2147483648
 const INT32_MAX = 2147483647
+-- What CreateProcess reports for a program that is not there.
+const ERROR_FILE_NOT_FOUND = 2
+-- Rust searches PATH itself on Windows and reports a miss with this message
+-- alone, carrying no OS error, where Unix's exec answers ENOENT. No Unix
+-- failure reads this way, so it needs no platform test.
+const WINDOWS_PROGRAM_NOT_FOUND = "program not found"
 
 -- Older VM hosts report a failed start by its reason alone; the core also
 -- returns the platform error code.
@@ -27,6 +33,8 @@ function provider.spawn(_: any, options: shared.SpawnOptions): (any?, any?, any?
         local legacy = tonumber(problem:match("%(os error (%-?%d+)%)$"))
         if legacy ~= nil and legacy ~= 0 and legacy >= INT32_MIN and legacy <= INT32_MAX then
             code = legacy as integer
+        elseif problem == WINDOWS_PROGRAM_NOT_FOUND then
+            code = ERROR_FILE_NOT_FOUND
         end
     end
 

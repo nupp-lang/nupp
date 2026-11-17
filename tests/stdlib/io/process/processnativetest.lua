@@ -418,6 +418,7 @@ function M.theNativeAdapterRetainsLegacyAndExplicitSystemErrors()
         {reason = "Access is denied. (os error 5)", expected = 5},
         {reason = "host reason (os error 2)", explicit = 13, expected = 13},
         {reason = "missing program"},
+        {reason = "program not found", expected = 2},
         {reason = "host reason (os error 2) extra"},
         {reason = "host reason (os error 0)"},
         {reason = "host reason (os error 2.5)"},
