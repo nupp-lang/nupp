@@ -154,7 +154,18 @@ function M.open(options)
     local function program(name)
         if not programs[name] then
             local quoted = "'" .. name:gsub("'", "'\"'\"'") .. "'"
-            local pipe = io.popen("command -v " .. quoted .. " 2>/dev/null", "r")
+            local lookup = "command -v " .. quoted .. " 2>/dev/null"
+            if package.config:sub(1, 1) == "\\" then
+                -- Git Bash answers in its own spelling, `/usr/bin/sh` or the
+                -- `/c/...` the test shell rewrites drive paths to, and neither
+                -- names a file to a Windows `io.open`. `cygpath -m` gives the
+                -- drive path; the file on disk carries the `.exe` Bash leaves off.
+                lookup = "p=$("
+                    .. lookup
+                    .. ") || exit 0; case $p in /*) p=$(cygpath -m \"$p\");"
+                    .. " [ -f \"$p.exe\" ] && p=$p.exe;; esac; printf '%s\\n' \"$p\""
+            end
+            local pipe = io.popen(lookup, "r")
             local path = pipe and pipe:read("*l")
             if pipe then
                 pipe:close()
