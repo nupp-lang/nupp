@@ -616,6 +616,23 @@ function M.anApplicationMadeWhileItsDeclarationIsOpenIsCompleted()
     testAssert.eq(table.concat(early.fieldOrder, ","), "value,extra", "the completed field order")
 end
 
+-- The reflected graph an image is built on leaves private members out; their
+-- types travel beside it, so a reader that may read them, and the lowering
+-- that lays out the record's slots, see what the declaring module's check saw.
+function M.roundTripsPrivateMemberTypes()
+    local counter = indexed("Counter", "/project/sample.nupp")
+    counter.byname = {label = T.string, _count = T.integer}
+    counter.writeByname = {label = T.string, _count = T.integer}
+    counter.fieldOrder = {"label", "_count"}
+    counter.fieldDefs = {label = {name = "label"}, _count = {name = "_count"}}
+    counter.writeFieldDefs = counter.fieldDefs
+    counter.privateFields = {_count = true}
+    local loaded = roundTrip(counter)
+    testAssert.eq(loaded.privateFields._count, true, "private marker")
+    testAssert.eq(loaded.byname._count, T.integer, "private member read type")
+    testAssert.eq(loaded.writeByname._count, T.integer, "private member write type")
+end
+
 function M.decodesApplicationsThroughGenerics()
     local element = T.typevar("Element", "interface-image:box-element")
     local box = indexed("Box", "/project/sample.nupp")

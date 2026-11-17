@@ -16,10 +16,11 @@ foreign-output contracts and the rest. None of it reaches the public descriptor.
 module nupp.compiler.project.interfaceimage
 
 local generics = require("nupp.compiler.types.generics")
+local members = require("nupp.compiler.types.members")
 local reflection = require("nupp.compiler.reflection")
 local T = require("nupp.compiler.types")
 
-export const SCHEMA = 9
+export const SCHEMA = 10
 
 --- What `interfaceimage.encode` is told about the run it encodes for.
 export type EncodeOptions = {
@@ -487,6 +488,19 @@ export function encode(semantics: {[string]: any}, options: EncodeOptions?): (an
             out.hasAffineFields = t.affineFields ~= nil
             out.defaults = t.defaults or {}
             out.privateFields = t.privateFields or {}
+            -- The private members' types, which the reflected graph leaves out: a
+            -- module that may read them, and the lowering that lays out the
+            -- record's slots, see them as the declaring module's check did.
+            out.privateMembers = {}
+            if t.privateFields ~= nil then
+                for _, field in ipairs(members.view(t).ordered) do
+                    if t.privateFields[field.name] then
+                        out.privateMembers[
+                            #out.privateMembers + 1
+                        ] = {name = field.name, read = intern(field.readType), write = intern(field.writeType),}
+                    end
+                end
+            end
             out.fieldBorrowSources = t.fieldBorrowSources or {}
             out.borrowedRootFields = t.borrowedRootFields or {}
             out.affineFields = t.affineFields or {}
@@ -1234,6 +1248,14 @@ export function decode(image: any, options: DecodeOptions?): (any?, string?)
             local definition = nominal.fieldDefs[field.name]
             if definition ~= nil then
                 definition.annotations = decodeAnnotations(field.annotations)
+            end
+        end
+        for _, field in ipairs(node.privateMembers or {}) do
+            if field.read then
+                nominal.byname[field.name] = edge(field.read)
+            end
+            if field.write then
+                nominal.writeByname[field.name] = edge(field.write)
             end
         end
         nominal.staticByname, nominal.staticWriteByname = {}, {}
