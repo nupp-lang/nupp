@@ -995,7 +995,7 @@
       "suite": "pegmaterializetest",
       "class": "retired",
       "facilities": "load,getinfo,lua-generator",
-      "reason": "nupp.peg was removed with LPeg (2026-10-16): no PEG language feature or runtime remains to test, and the suite was deleted; matching beyond Lua patterns is nupp.text.regex, covered by tests/regextest.nupp and the VM regex tests"
+      "reason": "nupp.peg was removed with LPeg (2026-10-16): no PEG language feature or runtime remains to test, and the suite was deleted"
     },
     {
       "suite": "perfbudgettest",

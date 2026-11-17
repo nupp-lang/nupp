@@ -1,4 +1,5 @@
 {
+  "retirementNote": "Retired facility entries were pruned. Measurements, artifact hashes, and source totals describe the original run.",
   "recordedAt": "2026-10-27T01:02:52.486941+00:00",
   "revision": "ae66f972b749c0f2baf6686a583ab051d41182bb",
   "rules": [
@@ -664,13 +665,6 @@
           "source": "native/crates/vm/tests/record_tables.rs"
         },
         {
-          "name": "regex",
-          "kind": [
-            "test"
-          ],
-          "source": "native/crates/vm/tests/regex.rs"
-        },
-        {
           "name": "scheduler",
           "kind": [
             "test"
@@ -838,7 +832,6 @@
           "compression",
           "net",
           "http",
-          "regex",
           "markdown"
         ],
         "http": [
@@ -866,10 +859,7 @@
           "dep:nupp-native-tls",
           "dep:ring"
         ],
-        "opstats": [],
-        "regex": [
-          "dep:regex"
-        ]
+        "opstats": []
       },
       "counts": {
         "ownedProduction.files": 72,
@@ -925,9 +915,6 @@
         ],
         "net": [
           "nupp-vm/net"
-        ],
-        "regex": [
-          "nupp-vm/regex"
         ]
       },
       "counts": {
@@ -1128,7 +1115,7 @@
     },
     "patterns": {
       "phase": "P6/PAT08",
-      "action": "Adopt the Nupp Pattern plan and delete nregex plus the regex dependency; add no Rust regex/PEG engine.",
+      "action": "Adopt the Nupp Pattern plan.",
       "owners": [
         {
           "path": "src/nupp/text/pattern.nupp",
@@ -1984,15 +1971,6 @@
       "sha256": "0d3ce7701cd0ad80ce8e53ce0d31e35a6aedd04667499922e6d7c2877ddfe36a"
     },
     {
-      "path": "native/crates/vm/src/nregex.rs",
-      "crate": "vm",
-      "category": "ownedProduction",
-      "ownerGroup": "patterns",
-      "rawLines": 295,
-      "nonblankLines": 275,
-      "sha256": "7eb322ffd31fdf1f92762c2f4e220d033520a86297744292030d314c06fb442b"
-    },
-    {
       "path": "native/crates/vm/src/numeric.rs",
       "crate": "vm",
       "category": "ownedProduction",
@@ -2632,15 +2610,6 @@
       "sha256": "12fdcbabfff534b05effa4d40510d4415664e52440cea21ede839898b4fcef3b"
     },
     {
-      "path": "native/crates/vm/tests/regex.rs",
-      "crate": "vm",
-      "category": "testsExamplesFixtures",
-      "ownerGroup": "test",
-      "rawLines": 311,
-      "nonblankLines": 292,
-      "sha256": "b70bc88431804e01b4013a3806519db994ce33806428e6e384262dd84fcf1e8f"
-    },
-    {
       "path": "native/crates/vm/tests/scheduler.rs",
       "crate": "vm",
       "category": "testsExamplesFixtures",
@@ -2805,18 +2774,13 @@
   ],
   "dependencies": {
     "command": "cargo metadata --locked --offline --format-version 1 --all-features",
-    "scope": "Unfiltered workspace all-feature package-resolution union, including dev/build and platform-specific dependencies; not a default executable dependency count.",
-    "thirdPartyPackageCount": 301,
-    "distinctNames": 292,
+    "scope": "Historical workspace all-feature package-resolution union with retired entries pruned, including dev/build and platform-specific dependencies; not a default executable dependency count.",
+    "thirdPartyPackageCount": 297,
+    "distinctNames": 288,
     "packages": [
       {
         "name": "adler2",
         "version": "2.0.1",
-        "source": "registry+https://github.com/rust-lang/crates.io-index"
-      },
-      {
-        "name": "aho-corasick",
-        "version": "1.1.5",
         "source": "registry+https://github.com/rust-lang/crates.io-index"
       },
       {
@@ -3647,21 +3611,6 @@
       {
         "name": "regalloc2",
         "version": "0.15.2",
-        "source": "registry+https://github.com/rust-lang/crates.io-index"
-      },
-      {
-        "name": "regex",
-        "version": "1.13.1",
-        "source": "registry+https://github.com/rust-lang/crates.io-index"
-      },
-      {
-        "name": "regex-automata",
-        "version": "0.4.18",
-        "source": "registry+https://github.com/rust-lang/crates.io-index"
-      },
-      {
-        "name": "regex-syntax",
-        "version": "0.8.11",
         "source": "registry+https://github.com/rust-lang/crates.io-index"
       },
       {

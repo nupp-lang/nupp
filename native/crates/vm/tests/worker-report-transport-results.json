@@ -1,4 +1,5 @@
 {
+  "retirementNote": "Retired facility entries were pruned. Measurements, artifact hashes, and source totals describe the original run.",
   "schemaVersion": 1,
   "date": "2026-10-17",
   "status": "Implementation accepted; first ordinary full serial attempt canceled incomplete; replacement baseline pending",
@@ -34,7 +35,7 @@
     "jitOptimization": "none",
     "compiledFunctions": 6580,
     "refusedFunctions": 0,
-    "cargoFeatures": "aot-linked,c-headers,native-ffi,compression,net,http,regex,markdown",
+    "cargoFeatures": "aot-linked,c-headers,native-ffi,compression,net,http,markdown",
     "rustc": "1.98.0 (88d9e12ae 2026-08-18)",
     "defaultRuntimePolicyChanged": false,
     "customAotTestRunnerActivated": false,

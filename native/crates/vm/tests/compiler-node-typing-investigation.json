@@ -1,4 +1,5 @@
 {
+  "retirementNote": "Retired facility entries were pruned. Measurements, artifact hashes, and source totals describe the original run.",
   "date": "2026-10-17",
   "recordedAtUtc": "2026-10-17T13:11:55.076197+00:00",
   "status": "Completed local experiment; rejected at the fixed 5% root-cycle gate",
@@ -47,7 +48,7 @@
     "runtimeAbi": 4,
     "jitOpt": "none",
     "noJit": "1",
-    "features": "aot-linked,c-headers,native-ffi,compression,net,http,regex,markdown",
+    "features": "aot-linked,c-headers,native-ffi,compression,net,http,markdown",
     "driver": {
       "path": "/Users/dowling/projects/nupp-wt/node-typing-scratch/node-gate-driver/node-gates.py",
       "sha256": "1693ae312d7a48b90553ceefc8703cb8479d49c131bcc0363dcb17621917f20a"

@@ -1,11 +1,12 @@
 {
+  "retirementNote": "Retired facility entries were pruned. Measurements, artifact hashes, and source totals describe the original run.",
   "phase": "P2 bootstrap capability seed; full P2 acceptance remains open",
   "source": "4e6e9d449519f799e122526cacf505fd1f016b0a",
   "architecture": "Shared Nupp instruction handlers; no Rust guest execution loop; existing Nupp graph owns semantic lowering.",
   "runtime": {
     "path": "build/native-p2-finish/final-seed-runtime3",
     "sha256": "023c81cffa4c108a3ac846c869e1084db4eebaf8b7a16b9a34f7a0ae88cc6fec",
-    "features": "native-runtime,c-headers,native-ffi,compression,net,http,regex,markdown; no default features",
+    "features": "native-runtime,c-headers,native-ffi,compression,net,http,markdown; no default features",
     "targetDirectory": "build/native-p2-finish/seed-target"
   },
   "compiler": {

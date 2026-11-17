@@ -1,4 +1,5 @@
 {
+  "retirementNote": "Retired facility entries were pruned. Measurements, artifact hashes, and source totals describe the original run.",
   "schemaVersion": 1,
   "experiment": "Primary image raw SHA256 backend",
   "date": "2026-10-17",
@@ -107,7 +108,7 @@
     }
   },
   "features": {
-    "runtime": "--no-default-features --features aot-linked,c-headers,native-ffi,compression,net,http,regex,markdown; JIT_OPT=none; ABI4; all6580 functions",
+    "runtime": "--no-default-features --features aot-linked,c-headers,native-ffi,compression,net,http,markdown; JIT_OPT=none; ABI4; all6580 functions",
     "objectReuseEligibility": {
       "path": "/Users/dowling/projects/nupp-wt/primary-image-hash-scratch/native-link-plan-1/object-reuse-eligibility.json",
       "bytes": 9224,

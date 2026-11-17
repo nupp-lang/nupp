@@ -1,4 +1,5 @@
 {
+  "retirementNote": "Retired facility entries were pruned. Measurements, artifact hashes, and source totals describe the original run.",
   "schemaVersion": 1,
   "date": "2026-10-17",
   "status": "Fixed performance and combined correctness accepted for codegen-experiment against the known 43-failure baseline",
@@ -48,7 +49,6 @@
         "compression",
         "net",
         "http",
-        "regex",
         "markdown"
       ],
       "defaultFeatures": false

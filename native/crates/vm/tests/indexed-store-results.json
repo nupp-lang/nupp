@@ -1,4 +1,5 @@
 {
+  "retirementNote": "Retired facility entries were pruned. Measurements, artifact hashes, and source totals describe the original run.",
   "schemaVersion": 1,
   "date": "2026-10-17",
   "scope": "Isolated indexed-store repair on macOS AArch64; native correctness, freshly emitted canonical compiler AOT, linked smoke and ordinary public focused cases.",
@@ -338,8 +339,7 @@
         "http",
         "jit",
         "markdown",
-        "net",
-        "regex"
+        "net"
       ],
       "rootCliAotRuntimeIsProgramRuntime": false
     },

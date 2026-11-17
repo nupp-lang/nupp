@@ -1,4 +1,5 @@
 {
+  "retirementNote": "Retired facility entries were pruned. Measurements, artifact hashes, and source totals describe the original run.",
   "schemaVersion": 1,
   "date": "2026-10-17",
   "status": "Composed901c correctness accepted; separate CLI36 failed35/36",
@@ -143,10 +144,9 @@
         "http",
         "markdown",
         "native-ffi",
-        "net",
-        "regex"
+        "net"
       ],
-      "featureCount": 9,
+      "featureCount": 8,
       "emptyLinkedSidecarSha256": "6819f806184351369c048faf267f5e559966e917f12863a57cc4ada9e3968d6f"
     },
     "interpreterOnlyAllTargets": {
@@ -484,7 +484,7 @@
     "nativeSourceKey": "8a427b1f4002ffd4",
     "toolKey": "40c39f0309fe4a99",
     "actualRuntimeKey": "261be464d687bf21",
-    "actualRuntimeFeatures": "aot-linked,native-ffi,c-headers,compression,http,jit,markdown,net,regex",
+    "actualRuntimeFeatures": "aot-linked,native-ffi,c-headers,compression,http,jit,markdown,net",
     "allThreeRuntimeBodiesByteIdentical": true,
     "legacyDev": {
       "key": "9adf6ee0aed334f3",
