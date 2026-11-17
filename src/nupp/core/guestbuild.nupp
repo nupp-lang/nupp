@@ -364,6 +364,8 @@ local CASES: {[string]: {
     -- `cdef function` calls through the generic foreign call.
     guestffi = {fixture = "catalog-guest-ffi", version = 8},
     cbridge = {fixture = "catalog-c-bridge", version = 8},
+    compressioncodec = {fixture = "catalog-compression-codec", version = 8, follow = true},
+    cryptocodec = {fixture = "catalog-crypto-codec", version = 8, follow = true},
     -- Library behaviors the test runner's suites lean on.
     runnersmall = {fixture = "catalog-runner-small", version = 8},
     -- A plain Lua chunk the host compiles, as the runner's suites are.
@@ -1016,6 +1018,16 @@ local function checkedProject(root: string): any
             config = {
                 include = {"src", "build/core-guest-programs/source", "tests/tools/test/runner"},
                 build = {outDir = "build/core-guest-programs/out"},
+                libraries = {
+                    nuppzlib = {name = "z", env = "NUPP_ZLIB_LIBRARY"},
+                    nuppcrypto = {name = "crypto", env = "NUPP_CRYPTO_LIBRARY"},
+                    nuppssl = {name = "ssl", env = "NUPP_SSL_LIBRARY", dependencies = {"nuppcrypto"}},
+                    nuppcurl = {
+                        name = "curl",
+                        env = "NUPP_CURL_LIBRARY",
+                        dependencies = {"nuppssl", "nuppcrypto", "nuppzlib"}
+                    },
+                },
             }
         })
     end

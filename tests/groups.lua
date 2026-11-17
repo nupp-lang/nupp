@@ -283,7 +283,9 @@ end
 scopes.advancestage0test = "delivery"
 scopes.opensslpintest = "delivery"
 scopes.libcurlpintest = "delivery"
+scopes.compressionnativeprovidertest = "integration"
 scopes.nativeforeignmodetest = "integration"
+scopes.nativecodecabittest = "integration"
 
 -- The owned native backend's own cases (nupp.compiler.s0).
 for name in ("s0allocationtest s0arm64test s0framepairtest s0oracletest s0readertest s0selectiontest"):gmatch("%S+") do

@@ -1,0 +1,49 @@
+module nupp.core.catalogcryptocodec
+
+const crypto = require("nupp.runtime.core.cryptocodec")
+cdef function malloc(size: uint64): voidptr
+cdef function free(takes block: voidptr)
+cdef function memcpy(exclusive target: voidptr, source: string, count: uint64): voidptr
+cdef function memcmp(borrows left: voidptr, right: string, count: uint64): int32
+
+local function expected(hex: string): string
+    return (hex:gsub("..", function(pair: string): string
+        return string.char(assert(tonumber(pair, 16)))
+    end))
+end
+
+local input, output = malloc(128ULL), malloc(64ULL)
+local _ = memcpy(input, "a", 1ULL)
+do
+    local digest = crypto.digest("SHA256")
+    digest:update(input, 1ULL)
+    local _ = memcpy(input, "bc", 2ULL)
+    digest:update(input, 2ULL)
+    assert(digest:finish(output, 64ULL) == 32)
+    assert(memcmp(output, expected("ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad"), 32ULL) == 0)
+end
+do
+    local digest = crypto.digest("SHA256")
+    digest:update(nil, 0ULL)
+    local _ = digest:finish(output, 64ULL)
+    assert(memcmp(output, expected("e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"), 32ULL) == 0)
+end
+local _ = memcpy(input, "key", 3ULL)
+do
+    local mac = crypto.hmac("SHA256", input, 3ULL)
+    local _ = memcpy(input, "The quick ", 10ULL)
+    mac:update(input, 10ULL)
+    local _ = memcpy(input, "brown fox jumps over the lazy dog", 33ULL)
+    mac:update(input, 33ULL)
+    assert(mac:finish(output, 64ULL) == 32)
+    assert(memcmp(output, expected("f7bc83f430538424b13298e6aa6fb143ef4d59a14946175997479dbc2d1a3cd8"), 32ULL) == 0)
+end
+do
+    local mac = crypto.hmac("SHA256", nil, 0ULL)
+    mac:update(nil, 0ULL)
+    local _ = mac:finish(output, 64ULL)
+    assert(memcmp(output, expected("b613679a0814d9ec772f95d778c35fc5ff1697c493715653c6c712144292c5ad"), 32ULL) == 0)
+end
+free(input)
+free(output)
+export const result = 4

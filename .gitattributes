@@ -1,4 +1,5 @@
 host/notices/*.txt text eol=lf
+tests/fixtures/compression-codec/*.bin -text
 
 # `nupp fmt` writes LF and `nupp fmt --check` holds this tree to what it writes,
 # so a checkout that translates line endings has an unformatted tree by the time

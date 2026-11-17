@@ -161,7 +161,12 @@ invokeScalar = function(t: any): nil
         -- Fixed-width numbers are integers and floats at run time.
         or fixedwidths[t.tag] == true
         -- Storage and views of it are values on the core's heap.
-        or t.tag == "carray" or t.tag == "ptr" or t.tag == "ctype" or t.tag == "intersection" or t.tag == "typeobject"
+        or t.tag == "carray"
+        or t.tag == "ptr"
+        or t.tag == "voidptr"
+        or t.tag == "ctype"
+        or t.tag == "intersection"
+        or t.tag == "typeobject"
         -- A C value, which a plain Lua chunk may name, is a value too.
         or t.tag == "cdata"
         -- A metatable (what `setmetatable` answers its table as) is a table.

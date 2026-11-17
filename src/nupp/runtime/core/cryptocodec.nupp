@@ -1,0 +1,221 @@
+@!internal
+module nupp.runtime.core.cryptocodec
+
+-- Opaque upstream contexts; Nupp owns their lifetime and every borrowed range.
+cdef struct OutputLength
+    value: uint32
+end
+cdef struct MacLength
+    value: uint64
+end
+cdef struct Parameter
+    key: voidptr?
+    data_type: uint32
+    data: voidptr?
+    data_size: uint64
+    return_size: uint64
+end
+cdef function OpenSSL_version_num(): uint64 from"nuppcrypto"
+cdef function EVP_MD_fetch(
+    borrows context: voidptr?,
+    algorithm: string,
+    borrows properties: voidptr?
+): voidptr? from"nuppcrypto"
+cdef function EVP_MD_free(takes algorithm: voidptr) from"nuppcrypto"
+cdef function EVP_MD_get_size(borrows algorithm: voidptr): int32 from"nuppcrypto"
+cdef function EVP_MD_CTX_new(): voidptr? from"nuppcrypto"
+cdef function EVP_MD_CTX_free(takes context: voidptr) from"nuppcrypto"
+cdef function EVP_DigestInit_ex2(
+    exclusive context: voidptr,
+    borrows algorithm: voidptr,
+    borrows parameters: voidptr?
+): int32 from"nuppcrypto"
+cdef function EVP_DigestUpdate(
+    exclusive context: voidptr,
+    borrows input: voidptr?,
+    count: uint64
+): int32 from"nuppcrypto"
+cdef function EVP_DigestFinal_ex(
+    exclusive context: voidptr,
+    exclusive output: voidptr,
+    exclusive count: OutputLength*
+): int32 from"nuppcrypto"
+cdef function EVP_MAC_fetch(
+    borrows context: voidptr?,
+    algorithm: string,
+    borrows properties: voidptr?
+): voidptr? from"nuppcrypto"
+cdef function EVP_MAC_free(takes algorithm: voidptr) from"nuppcrypto"
+cdef function EVP_MAC_CTX_new(borrows algorithm: voidptr): voidptr? from"nuppcrypto"
+cdef function EVP_MAC_CTX_free(takes context: voidptr) from"nuppcrypto"
+cdef function EVP_MAC_init(
+    exclusive context: voidptr,
+    borrows key: voidptr?,
+    bytes: uint64,
+    borrows parameters: Parameter*
+): int32 from"nuppcrypto"
+cdef function EVP_MAC_update(exclusive context: voidptr, borrows input: voidptr?, count: uint64): int32 from"nuppcrypto"
+cdef function EVP_MAC_final(
+    exclusive context: voidptr,
+    exclusive output: voidptr,
+    exclusive count: MacLength*,
+    room: uint64
+): int32 from"nuppcrypto"
+cdef function EVP_MAC_CTX_get_mac_size(borrows context: voidptr): uint64 from"nuppcrypto"
+cdef function strdup(value: string): voidptr?
+cdef function free(takes value: voidptr)
+
+export function version(): uint64
+    local value = OpenSSL_version_num()
+    assert(value == 0x30500090ULL, "OpenSSL header/library version mismatch")
+    return value
+end
+
+export record Digest is own.Closeable
+    @private context: voidptr?
+    @private algorithm: voidptr?
+    @private finalized: boolean = false
+    @readonly size: integer
+
+    function close(takes self): nil
+        if self.context ~= nil then
+            EVP_MD_CTX_free(self.context)
+            self.context = nil
+        end
+        if self.algorithm ~= nil then
+            EVP_MD_free(self.algorithm)
+            self.algorithm = nil
+        end
+    end
+
+    function update(exclusive self, borrows input: voidptr?, count: uint64): nil
+        assert(self.context ~= nil, "digest is closed")
+        assert(not self.finalized, "digest is finalized")
+        assert(count == 0ULL or input ~= nil, "digest input is missing")
+        assert(EVP_DigestUpdate(self.context, input, count) == 1, "digest update failed")
+    end
+
+    function finish(exclusive self, exclusive output: voidptr, room: uint64): integer
+        assert(self.context ~= nil, "digest is closed")
+        assert(not self.finalized, "digest is finalized")
+        assert(room >= self.size, "digest output is too small")
+        self.finalized = true
+        local count = OutputLength()
+        assert(EVP_DigestFinal_ex(self.context, output, count) == 1, "digest finish failed")
+        assert(count.value == self.size, "digest output length mismatch")
+
+        return self.size
+    end
+end
+
+local sizes: {[string]: integer} = {MD5 = 16, SHA1 = 20, SHA256 = 32, SHA384 = 48, SHA512 = 64}
+
+export function digest(algorithm: string): Digest
+    local _ = version()
+    local size = sizes[algorithm]
+    assert(size ~= nil, "unsupported digest")
+    -- Establish cleanup before the first foreign allocation, including failures
+    -- in later managed allocations or symbol resolution.
+    local result: Digest = Digest(context = nil, algorithm = nil, size = size)
+    result.algorithm = EVP_MD_fetch(nil, algorithm, nil)
+    assert(result.algorithm ~= nil, "digest algorithm is unavailable")
+    result.context = EVP_MD_CTX_new()
+    assert(result.context ~= nil, "digest allocation failed")
+    assert(EVP_MD_get_size(result.algorithm) == size, "digest size mismatch")
+    assert(EVP_DigestInit_ex2(result.context, result.algorithm, nil) == 1, "digest initialization failed")
+
+    return result
+end
+
+export record Mac is own.Closeable
+    @private context: voidptr?
+    @private algorithm: voidptr?
+    @private finalized: boolean = false
+    @readonly size: integer
+
+    function close(takes self): nil
+        if self.context ~= nil then
+            EVP_MAC_CTX_free(self.context)
+            self.context = nil
+        end
+        if self.algorithm ~= nil then
+            EVP_MAC_free(self.algorithm)
+            self.algorithm = nil
+        end
+    end
+
+    function update(exclusive self, borrows input: voidptr?, count: uint64): nil
+        assert(self.context ~= nil, "MAC is closed")
+        assert(not self.finalized, "MAC is finalized")
+        assert(count == 0ULL or input ~= nil, "MAC input is missing")
+        assert(EVP_MAC_update(self.context, input, count) == 1, "MAC update failed")
+    end
+
+    function finish(exclusive self, exclusive output: voidptr, room: uint64): integer
+        assert(self.context ~= nil, "MAC is closed")
+        assert(not self.finalized, "MAC is finalized")
+        assert(room >= self.size, "MAC output is too small")
+        self.finalized = true
+        local count = MacLength()
+        assert(EVP_MAC_final(self.context, output, count, room) == 1, "MAC finish failed")
+        assert(count.value == self.size, "MAC output length mismatch")
+
+        return self.size
+    end
+end
+
+local record CString is own.Closeable
+    @private value: voidptr?
+    function close(takes self): nil
+        if self.value ~= nil then
+            free(self.value)
+            self.value = nil
+        end
+    end
+end
+
+local function cstring(text: string): CString
+    local result: CString = CString(value = nil)
+    result.value = strdup(text)
+    assert(result.value ~= nil, "MAC parameter allocation failed")
+    return result
+end
+
+export function hmac(algorithm: string, borrows key: voidptr?, bytes: uint64): Mac
+    local _ = version()
+    assert(algorithm == "SHA256" or algorithm == "SHA384" or algorithm == "SHA512", "unsupported MAC digest")
+    assert(bytes == 0ULL or key ~= nil, "MAC key is missing")
+    local size = sizes[algorithm]
+    assert(size ~= nil, "unsupported MAC digest")
+    local result: Mac = Mac(context = nil, algorithm = nil, size = size)
+    result.algorithm = EVP_MAC_fetch(nil, "HMAC", nil)
+    assert(result.algorithm ~= nil, "HMAC is unavailable")
+    result.context = EVP_MAC_CTX_new(result.algorithm)
+    assert(result.context ~= nil, "MAC allocation failed")
+    local parameters = carray(Parameter, 2)
+    local name = cstring("digest")
+    local value = cstring(algorithm)
+    @unsafe do
+        parameters[0].key = name.value
+        parameters[0].data_type = 4
+        parameters[0].data = value.value
+        parameters[0].data_size = #algorithm
+        parameters[0].return_size = 0xffffffffffffffffULL
+    end
+    -- NULL requests key reuse. A fresh empty-key context needs a non-null
+    -- address even though the key length is zero.
+    local initialized: int32 = 0
+    if key == nil then
+        initialized = EVP_MAC_init(result.context, value.value, bytes, parameters)
+    else
+        initialized = EVP_MAC_init(result.context, key, bytes, parameters)
+    end
+    @unsafe do
+        parameters[0].key = nil
+        parameters[0].data = nil
+    end
+    assert(initialized == 1, "MAC initialization failed")
+    assert(EVP_MAC_CTX_get_mac_size(result.context) == result.size, "MAC size mismatch")
+
+    return result
+end

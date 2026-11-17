@@ -1,0 +1,26 @@
+local byteapi = require("bytes")
+local io = require("io")
+local test = require("assert")
+local M = {}
+
+local function read(path: string): string
+    local file = assert(io.open(path, "rb"))
+    local bytes = file:read("*a")
+    file:close()
+    return bytes as string
+end
+
+-- These are shared facade checks on the frozen VM. The compressioncodec core
+-- guest runs the new checked-FFI implementation against this same corpus.
+function M.independentBlockKindsMatchTheFacadeAtOneByteBoundaries(): nil
+    local directory = "tests/fixtures/compression-codec/"
+    local expected = read(directory .. "input.bin")
+    for _, format in ipairs({"gzip", "zlib", "deflate-raw"}) do
+        for _, kind in ipairs({"stored", "fixed", "dynamic"}) do
+            local bytes = read(directory .. format .. "-" .. kind .. ".bin")
+            test(byteapi.compress(format):decompress(bytes, {workspacebytes = 1}) == expected)
+        end
+    end
+end
+
+return M

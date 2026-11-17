@@ -254,6 +254,8 @@ local CASES = {
     {"absentffi", 0x7FFF000000000007},
     {"guestffi", 0x7FFF000000001FFF},
     {"cbridge", 0x7FFF000000000007},
+    {"compressioncodec", 0x7FFF000000000009},
+    {"cryptocodec", 0x7FFF000000000004},
     {"runnersmall", 0x7FFF00000000001F},
     {"runnerchunks", 0x7FFF00000000007F},
     -- The packaged test runner over real suites, its loadfile and dofile
@@ -550,6 +552,8 @@ local STRESS = {
     absentffi = true,
     guestffi = true,
     cbridge = true,
+    compressioncodec = true,
+    cryptocodec = true,
     ffiaggregates = true,
     runnerresiduals = true,
     spreadlibrary = true,
@@ -620,6 +624,7 @@ local SETUP = {
         "d=$(mktemp -d '%s/ffi.XXXXXX') && cc -dynamiclib -o \"$d/libnuppffiaggregates.dylib\" '%s' "
         .. "&& export DYLD_LIBRARY_PATH=\"$d\"; "
     ):format(OUT, TESTS .. "/ffi-aggregates.c"),
+    compressioncodec = ("export NUPP_CODEC_FIXTURES='%s/tests/fixtures/compression-codec'; "):format(ROOT),
     -- The runner-chunks case's chunk is kept by its path under the
     -- checkout, as the runner's are.
     runnerchunks = ("cd %s && export NUPP_CORE_CHUNKS=%s/build/core-guests/chunks; "):format(ROOT, ROOT),

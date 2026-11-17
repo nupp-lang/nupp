@@ -125,6 +125,7 @@ local function member(declared: any, name: string): any
     need(placed and placed.bitWidth == nil, "a struct field is a bitfield or is not declared: " .. name)
     local t = need(bare(declared.byname[name]), "a struct field has no type")
     local reached: any = {offset = placed.offset, size = placed.size}
+    reached.nullablePointer = t.tag == "union" and t.hasNil and pointer(t)
     if origin(t) then
         reached.nested = origin(t)
     elseif t.tag == "carray" then
@@ -173,13 +174,29 @@ local function load(ctx: any, node: any, object: integer, field: any): integer
     end
     local cell = view(ctx, node, object, field.kind, field.offset, 1)
 
-    return ctx.emit(node, "GetIdx", {cell, integerConstant(ctx, node, 0)}, "tagged") as integer
+    local value = ctx.emit(node, "GetIdx", {cell, integerConstant(ctx, node, 0)}, "tagged") as integer
+    if field.nullablePointer then
+        local zero = integerConstant(ctx, node, 0)
+        local absent = ctx.emit(node, "Eq", {value, zero}, "tagged")
+        local none = ctx.emit(node, "Nil", {}, "tagged")
+        return ctx.select(node, absent, none, value)
+    end
+
+    return value
 end
 
 -- Writes `value` to field `field` of `object`: a scalar converted as C
 -- converts it, a nested struct's or fixed array's bytes copied.
 local function store(ctx: any, node: any, object: integer, field: any, value: integer): nil
     local held = ctx.hold(value)
+    if field.nullablePointer then
+        -- C stores a null address as zero, while the checked nullable field
+        -- exposes nil. Keep ordinary uint64 fields numeric, including zero.
+        local none = ctx.emit(node, "Nil", {}, "tagged")
+        local absent = ctx.emit(node, "Eq", {ctx.readHeld(held), none}, "tagged")
+        local zero = integerConstant(ctx, node, 0)
+        ctx.write(held, ctx.select(node, absent, zero, ctx.readHeld(held)))
+    end
     if field.nested or field.element then
         local bytes = view(ctx, node, object, UINT8, field.offset, field.size)
         local size = integerConstant(ctx, node, field.size)

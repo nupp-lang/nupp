@@ -1,0 +1,132 @@
+module nupp.core.catalogcompressioncodec
+
+const codec = require("nupp.runtime.core.compressioncodec")
+cdef struct Byte
+    value: uint8
+end
+cdef function memmove(exclusive target: Byte*, borrows source: voidptr, count: uint64): voidptr
+cdef function malloc(size: uint64): voidptr
+cdef function free(takes block: voidptr)
+cdef function memcpy(exclusive target: voidptr, source: string, count: uint64): voidptr
+cdef function memcmp(borrows left: voidptr, right: string, count: uint64): int32
+
+local function read(name: string): string
+    local directory = assert(os.getenv("NUPP_CODEC_FIXTURES"))
+    local file = assert(io.open(directory .. "/" .. name, "rb"))
+    local bytes = file:read("*a")
+    file:close()
+
+    return bytes
+end
+
+local function decode(
+    format: string,
+    bytes: string,
+    expected: string,
+    inputWidth: integer,
+    outputWidth: integer
+): boolean
+    local input = malloc((#bytes + 1) as uint64)
+    local output = malloc((#expected + 64) as uint64)
+    local consumed: integer = 0
+    local written: integer = 0
+    local progress: integer = codec.needinput
+    local status: int32 = 0
+    local matches = true
+    do
+        local state = codec.create(format, false, 6)
+        local iterations = 0
+        while progress ~= codec.finished and status == 0 and iterations < (#bytes + #expected) * 2 + 64 do
+            local count: integer = #bytes - consumed
+            if count > inputWidth then
+                count = inputWidth
+            end
+            local room: integer = #expected + 64 - written
+            if room > outputWidth then
+                room = outputWidth
+            end
+            -- Reuse the same addresses with new bytes each step. The provider
+            -- must neither retain a range nor rely on pointer arithmetic here.
+            local _ = memcpy(input, bytes:sub(consumed + 1, consumed + count), count as uint64)
+            local used, made, nextProgress, nextStatus = state:advance(
+                input,
+                math.u32.wrap(count),
+                output,
+                math.u32.wrap(room),
+                codec.noflush
+            )
+            assert(used >= 0 and used <= count and made >= 0 and made <= room, "codec exceeded supplied range")
+            if written + made > #expected
+                or memcmp(output, expected:sub(written + 1, written + made), made as uint64) ~= 0
+            then
+                matches = false
+            end
+            consumed, written = consumed + used, written + made
+            progress, status = nextProgress, nextStatus
+            iterations = iterations + 1
+            if used == 0 and made == 0 then
+                break
+            end
+        end
+    end
+    free(input)
+    free(output)
+
+    return matches and status == 0 and progress == codec.finished and consumed == #bytes and written == #expected
+end
+
+local function roundtrip(format: string, bytes: string, level: int32): boolean
+    local input = malloc((#bytes + 1) as uint64)
+    local output = malloc(1ULL)
+    local byte = Byte()
+    local chunks: {string} = {}
+    local consumed: integer = 0
+    local progress: integer = codec.needinput
+    do
+        local state = codec.create(format, true, level)
+        for _ = 1, #bytes + 2048 do
+            local _ = memcpy(input, bytes:sub(consumed + 1), (#bytes - consumed) as uint64)
+            local used, made, nextProgress, status = state:advance(
+                input,
+                math.u32.wrap(#bytes - consumed),
+                output,
+                1,
+                codec.finishflush
+            )
+            assert(status == 0 and used >= 0 and used <= #bytes - consumed and made >= 0 and made <= 1)
+            consumed, progress = consumed + used, nextProgress
+            if made == 1 then
+                local _ = memmove(byte, output, 1ULL)
+                chunks[#chunks + 1] = string.char(byte.value)
+            end
+            if progress == codec.finished then
+                break
+            end
+        end
+    end
+    local okay = consumed == #bytes and progress == codec.finished and decode(format, table.concat(chunks), bytes, 3, 5)
+    free(input)
+    free(output)
+
+    return okay
+end
+
+local expected = read("input.bin")
+local score = 0
+for _, format in ipairs({"gzip", "zlib", "deflate-raw"}) do
+    assert(roundtrip(format, "", 6), "empty stream encoding failed")
+    assert(roundtrip(format, expected, 0), "stored stream encoding failed")
+    assert(roundtrip(format, expected, 9), "compressed stream encoding failed")
+    for _, kind in ipairs({"stored", "fixed", "dynamic"}) do
+        local bytes = read(format .. "-" .. kind .. ".bin")
+        assert(decode(format, bytes, expected, 1, 1), "one-byte differential decode failed")
+        assert(decode(format, bytes, expected, 65536, 65536), "whole-span differential decode failed")
+        assert(not decode(format, bytes:sub(1, #bytes - 1), expected, 7, 11), "truncation was accepted")
+        if format ~= "deflate-raw" then
+            local corrupt = bytes:sub(1, #bytes - 1) .. string.char(bytes:byte(#bytes) ~ 1)
+            assert(not decode(format, corrupt, expected, 13, 17), "corrupt trailer was accepted")
+        end
+        score = score + 1
+    end
+end
+export const result = score

@@ -42,6 +42,22 @@ local function fixture(argument)
     )
 end
 
+function M.dynamicSignaturesCarryOpaquePointersAsValues()
+    local compiled = source(
+        [[
+local function identity(value: voidptr?): voidptr?
+    return value
+end
+return identity(nil)
+]]
+    )
+    local output = contracts.normalize(compiled, 8)
+    semantic.semantic(output)
+    local signature = output.signatures[output.catalog[2].signature + 1]
+    test.eq(signature.params[1], "value")
+    test.eq(signature.result, "value")
+end
+
 local function checkedModules(entryLast, third, fourth)
     local inputs = {
         {name = "core.catalog.main", path = "=core_catalog_main.nupp", text = "return true"},
@@ -752,12 +768,18 @@ function M.programSizeBoundsAdmitTheLimitAndRefuseOnePast()
     test.eq(bounds.signatures, 65536)
     test.eq(schema.describe(8).limits.owners, bounds.owners)
     local past = "invalid bounded integer " .. (bounds.owners + 1) .. " (at most " .. bounds.owners .. ")"
-    refuses(function()
-        contracts.normalize({graphs = filled(bounds.owners + 1), header = {}, catalog = {}}, 8)
-    end, past)
-    refuses(function()
-        contracts.normalize({graphs = filled(bounds.owners), header = {}, catalog = {}}, 8)
-    end, "plain semantic table required")
+    refuses(
+        function()
+            contracts.normalize({graphs = filled(bounds.owners + 1), header = {}, catalog = {}}, 8)
+        end,
+        past
+    )
+    refuses(
+        function()
+            contracts.normalize({graphs = filled(bounds.owners), header = {}, catalog = {}}, 8)
+        end,
+        "plain semantic table required"
+    )
 
     local function catalog(owners, modules, signatures)
         return {
@@ -771,28 +793,46 @@ function M.programSizeBoundsAdmitTheLimitAndRefuseOnePast()
         }
     end
 
-    refuses(function()
-        semantic.catalog(catalog(bounds.owners + 1, 1, 1))
-    end, past)
-    refuses(function()
-        semantic.catalog(catalog(bounds.owners, 1, 1))
-    end, "complete semantic graph table required")
+    refuses(
+        function()
+            semantic.catalog(catalog(bounds.owners + 1, 1, 1))
+        end,
+        past
+    )
+    refuses(
+        function()
+            semantic.catalog(catalog(bounds.owners, 1, 1))
+        end,
+        "complete semantic graph table required"
+    )
     local one = catalog(1, bounds.modules + 1, 1)
-    refuses(function()
-        semantic.catalog(one)
-    end, "invalid bounded integer " .. (bounds.modules + 1))
+    refuses(
+        function()
+            semantic.catalog(one)
+        end,
+        "invalid bounded integer " .. (bounds.modules + 1)
+    )
     one.modules = filled(bounds.modules)
-    refuses(function()
-        semantic.catalog(one)
-    end, "complete semantic module table required")
+    refuses(
+        function()
+            semantic.catalog(one)
+        end,
+        "complete semantic module table required"
+    )
     one = catalog(1, 1, bounds.signatures + 1)
-    refuses(function()
-        semantic.catalog(one)
-    end, "invalid bounded integer " .. (bounds.signatures + 1))
+    refuses(
+        function()
+            semantic.catalog(one)
+        end,
+        "invalid bounded integer " .. (bounds.signatures + 1)
+    )
     one.signatures = filled(bounds.signatures)
-    refuses(function()
-        semantic.catalog(one)
-    end, "bounded source text required")
+    refuses(
+        function()
+            semantic.catalog(one)
+        end,
+        "bounded source text required"
+    )
 end
 
 return M
