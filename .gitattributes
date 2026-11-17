@@ -1,4 +1,4 @@
-host/notices/*.txt text eol=lf
+host/notices/** text eol=lf
 tests/fixtures/compression-codec/*.bin -text
 
 # `nupp fmt` writes LF and `nupp fmt --check` holds this tree to what it writes,
