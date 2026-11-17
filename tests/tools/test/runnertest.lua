@@ -1360,7 +1360,7 @@ end}
     local observer = (
         [=[
 return {observesFailure = function()
-    local deadline = os.time() + 10
+    local deadline = os.time() + 60
     repeat
         local file = io.open(%q, "rb")
         local text = file and file:read("*a") or ""
@@ -1386,8 +1386,14 @@ end}
     for _, selection in ipairs(selections) do
         write(dir .. "/tests/aearlytest.lua", selection.marker .. failure)
         write(dir .. "/tests/zwaittest.lua", selection.marker .. observer)
+        -- The suite costs put the observer first, so both workers start at once.
+        -- The case costs keep each one-case suite whole: without them the planner
+        -- slices both by cost alone, and in the isolated lane every empty slice is
+        -- a fresh process the failing case queues behind. On a loaded runner, two
+        -- of those outlasted the observer.
         write(dir .. "/build/.nupp-test-times.json", [[
-{"version":2,"suites":{"zwaittest":2000,"aearlytest":1000}}
+{"version":2,"suites":{"zwaittest":2000,"aearlytest":1000},
+"cases":{"zwaittest":{"observesFailure":2000},"aearlytest":{"fails":1000}}}
 ]])
         local outputPath = dir .. "/report.out"
         local command = (
