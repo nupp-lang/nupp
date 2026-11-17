@@ -69,11 +69,9 @@ composer.platforms = {
         -- two, because as one leg it ran past the timeout (17 November), and
         -- its second half starts as soon as the short native gates leg ends.
         timeout = 150,
+        -- A push runs no macOS unless asked (the classifier's withoutMacos).
         -- The lanes run only in a full macOS run: nightly, or when one is asked
-        -- for (MACOS_FULL). Main's runs draw on the same five runners, and a
-        -- push's lanes waited for them long enough to be cancelled. The short
-        -- legs stay on every push, because the native core is built for this
-        -- target first.
+        -- for (MACOS_FULL); a manual run without that asks for the short legs.
         legs = {
             {kind = "gates", title = "native gates"},
             {kind = "native-core", title = "native core", select = "--group=native-runtime", jobs = 1},

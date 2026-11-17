@@ -287,6 +287,19 @@ function classifier.linuxOnly(selection)
     return selection
 end
 
+--- A push leaves macOS out unless asked: five macOS runners serve every branch
+--- of the organization, and a dozen task branches each queuing the macOS legs
+--- held the trunk's own behind them. A change is tested on a Mac before it is
+--- pushed (AGENTS.md); the nightly run and an explicit request still run it.
+function classifier.withoutMacos(selection)
+    if selection.jobs["macos-integration"] then
+        selection.jobs["macos-integration"] = nil
+        selection.reasons["macos-integration"] = "a push runs macOS only when asked ([ci macos]); nightly runs it"
+    end
+
+    return selection
+end
+
 --- The selection as one JSON object, hand-encoded because this runs before any
 --- rock tree exists. Only booleans and short identifier-shaped strings are
 --- emitted, so the escaping this omits cannot arise.
@@ -329,6 +342,9 @@ if invokedDirectly then
     local selection = classifier.classify(paths)
     if os.getenv("NUPP_CI_LINUX_ONLY") == "true" then
         classifier.linuxOnly(selection)
+    end
+    if os.getenv("NUPP_CI_NO_MACOS") == "true" then
+        classifier.withoutMacos(selection)
     end
     io.stdout:write(classifier.encode(selection), "\n")
     for _, name in ipairs(classifier.jobs) do

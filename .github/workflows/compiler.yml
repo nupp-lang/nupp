@@ -246,6 +246,15 @@ jobs:
           NUPP_CI_LINUX_ONLY: >-
             ${{ vars.NUPP_LINUX_ONLY == 'true'
             && github.event_name != 'schedule' }}
+          # A push leaves macOS out unless its commit asks for it, and so does a
+          # pull request without `ci:macos`. The change was already tested on a
+          # Mac before it was pushed (AGENTS.md, Verification); the nightly run
+          # is the macOS backstop.
+          NUPP_CI_NO_MACOS: >-
+            ${{ (github.event_name == 'push'
+            && !contains(github.event.head_commit.message, '[ci macos]'))
+            || (github.event_name == 'pull_request'
+            && !contains(github.event.pull_request.labels.*.name, 'ci:macos')) }}
         run: luajit .github/scripts/classify-changes.lua < changed-paths.txt
 
       # The classifier and the workflow have to agree about which jobs exist.

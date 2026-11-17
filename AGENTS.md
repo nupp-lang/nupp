@@ -216,8 +216,11 @@ reports it is usually already testing somebody else's commit. `git push
   virtual machine or a remote host. Look for a local skill or README describing
   that machine's setup; how to set one up is machine-specific and stays out of
   this repository. Run the suites that cover the change on each platform it can
-  reach. A change that cannot behave differently, such as most checker,
-  compiler and library work, does not need this. A failure that appears only
+  reach. CI does not run macOS for a push: a change is tested on a Mac before
+  it is pushed, and the nightly run is the backstop. Put `[ci macos]` in a
+  commit message to ask for it anyway. A change that cannot behave
+  differently, such as most checker, compiler and library work, does not need
+  this. A failure that appears only
   under emulation (x86-64 on ARM, for one) is checked against CI before the
   code is changed for it.
 - `./bin/nupp fixpoint` verifies that the compiler image rebuilds itself
