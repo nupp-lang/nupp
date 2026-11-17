@@ -1,4 +1,21 @@
 #!/bin/sh
-# sccache creates a startup notification socket under TMPDIR on macOS.
-# Keep that socket short without changing the build's own temporary directory.
-TMPDIR=/private/tmp exec sccache "$@"
+# Compile through sccache, and through the compiler alone when sccache fails.
+#
+# sccache exits 2 when its own server cannot start or reach its cache, which
+# a compiler never does: rustc exits 1 for an error and 101 for a crash. A
+# shared cache that refuses a request (the Actions cache has answered "over
+# the account limit") then costs this compile its cache, not the build its
+# result. SCCACHE_IGNORE_SERVER_IO_ERROR covers requests, not startup.
+#
+# sccache creates a startup notification socket under TMPDIR on macOS (the
+# one system with /private/tmp); keep that path short without changing the
+# build's own temporary directory.
+if [ -d /private/tmp ]; then
+    TMPDIR=/private/tmp sccache "$@"
+else
+    sccache "$@"
+fi
+status=$?
+[ "$status" -eq 2 ] || exit "$status"
+echo "sccache-wrapper: sccache failed; compiling without it" >&2
+exec "$@"

@@ -524,7 +524,7 @@ base.pop('RUSTC_WRAPPER', None)
 wrapper = str(root / 'scripts/sccache-wrapper')
 def same_wrapper(actual, expected):
     return actual == expected or (os.path.isabs(actual or '') and os.path.isabs(expected) and Path(actual).resolve() == Path(expected).resolve())
-for system, expected in [('Darwin', wrapper), ('Linux', 'sccache')]:
+for system, expected in [('Darwin', wrapper), ('Linux', wrapper), ('MINGW64_NT-10.0', 'sccache')]:
     for explicit in [None, '', 'custom-cache']:
         env = dict(base, FAKE_SYSTEM=system)
         if explicit is not None:
@@ -542,7 +542,7 @@ module = runpy.run_path('scripts/vm-cli-real', run_name='wrapper_test')
 call = module['cargo']
 seen = []
 call.__globals__['run_step'] = lambda command, env, what: seen.append(env)
-for platform, expected in [('darwin', wrapper), ('linux', 'sccache'), ('win32', 'sccache')]:
+for platform, expected in [('darwin', wrapper), ('linux', wrapper), ('win32', 'sccache')]:
     for explicit in [None, '', 'custom-cache']:
         env = dict(base)
         if explicit is not None:

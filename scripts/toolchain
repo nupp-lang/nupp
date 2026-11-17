@@ -538,8 +538,8 @@ select_rust_tools() {
     # dependency once. It changes no output, so it is not part of any cache key.
     if [ "${RUSTC_WRAPPER+x}" != x ] && command -v sccache >/dev/null 2>&1; then
         case "$(uname -s 2>/dev/null)" in
-            Darwin) RUSTC_WRAPPER="$ROOT/scripts/sccache-wrapper" ;;
-            *) RUSTC_WRAPPER=sccache ;;
+            MINGW* | MSYS* | CYGWIN*) RUSTC_WRAPPER=sccache ;;
+            *) RUSTC_WRAPPER="$ROOT/scripts/sccache-wrapper" ;;
         esac
         export RUSTC_WRAPPER
     fi
