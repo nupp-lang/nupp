@@ -58,3 +58,8 @@ LIBCURL_URL=https://github.com/curl/curl/releases/download/curl-8_23_0/curl-8.23
 LIBFFI_VERSION=3.8.0
 LIBFFI_SHA256=7da3e2d9a171eb0a038f592ecad3ff2bb2550f3496d87b3b29ad0cf4430c0db4
 LIBFFI_URL=https://github.com/libffi/libffi/releases/download/v3.8.0/libffi-3.8.0.tar.gz
+
+# Upstream C release; source, headers and libraries travel as one artifact.
+LIBUV_VERSION=1.53.0
+LIBUV_SHA256=cb0d6dd2128d5a95bd242c6cc982a24fe608fa93da57b6b4ec763b0018c53e64
+LIBUV_URL=https://dist.libuv.org/dist/v1.53.0/libuv-v1.53.0.tar.gz

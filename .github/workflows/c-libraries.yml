@@ -5,12 +5,14 @@ on:
     paths: &inputs
       - '.github/workflows/c-libraries.yml'
       - '.github/scripts/test-c-libraries.sh'
+      - '.github/scripts/test-libuv.sh'
       - 'scripts/toolchain'
       - 'scripts/toolchain.pins'
       - 'scripts/native-libraries'
       - 'scripts/c-libraries/**'
       - 'scripts/test-libffi'
       - 'tests/fixtures/c-libraries/**'
+      - 'tests/fixtures/libuv/**'
       - 'tests/tools/toolchain/clibraries.test.mjs'
       - 'host/notices/*LICENSE*'
   pull_request:
@@ -92,6 +94,7 @@ jobs:
           done
           export PATH="$PWD/build/no-rust-tools:$PATH"
           sh .github/scripts/test-c-libraries.sh
+          sh .github/scripts/test-libuv.sh
       - uses: actions/upload-artifact@v4
         with:
           name: c-library-abi-${{ matrix.target }}
@@ -99,6 +102,10 @@ jobs:
             build/c-libraries/abi.json
             build/c-libraries/timing.json
             build/c-libraries/*.identity
+            build/libuv/abi.json
+            build/libuv/timing.json
+            build/libuv/libuv.identity
+            build/libuv/libuv-files.sha256
           if-no-files-found: error
   libffi:
     if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name != github.repository
