@@ -1,0 +1,18 @@
+{
+  "sourceCommit": "b588b03c0b482c7a00894a9b4b03c1b032ad7b1c",
+  "target": "aarch64-apple-darwin",
+  "checks": 1273,
+  "failed": 0,
+  "seconds": 688,
+  "modes": [
+    "normal",
+    "spill"
+  ],
+  "forcedCollection": false,
+  "compilerImageSha256": "92c36c1405c26b9d781afdfcf2f49e1241f1cfeaec2b4641353598b4a8baed52",
+  "compilerRuntimeSha256": "6b2322034264b2d6f9113de73f032691f1c0f27fe397a034ed813e669636b766",
+  "sourceSha256": {
+    "src/nupp/runtime/core/compressioncodec.nupp": "571cde594735571f89dbdefee6f7b220fff5e70109503362d776a994141d0a9c",
+    "tests/core/catalog-compression-codec.nupp": "1ad319520162bde3e56f3d6632bc78254be334b35e8149b2066e03322731ea98"
+  }
+}
