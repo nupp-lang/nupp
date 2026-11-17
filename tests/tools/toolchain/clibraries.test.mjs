@@ -11,7 +11,13 @@ import {spawn, spawnSync} from 'node:child_process';
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../..');
 const digest = file => crypto.createHash('sha256').update(fs.readFileSync(file)).digest('hex');
 const shellPath = file => file.replaceAll('\\', '/');
-const nativePath = file => process.platform === 'win32' ? file.replace(/^\/([a-z])\//i, (_, drive) => `${drive.toUpperCase()}:/`) : file;
+const nativePath = file => {
+  if (process.platform !== 'win32') return file;
+  // MSYS mount aliases such as /tmp are not necessarily drive-root paths.
+  const result = spawnSync('cygpath', ['-w', file], {encoding: 'utf8'});
+  assert.equal(result.status, 0, result.stderr);
+  return result.stdout.trim();
+};
 function fixture(t) {
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'nupp-c-library-pins-'));
   t.after(() => fs.rmSync(directory, {recursive: true, force: true}));
