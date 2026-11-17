@@ -293,6 +293,54 @@ function M.aDeadBuildersLockIsTaken()
     remove(dir)
 end
 
+-- Leaves LOCK claimed under the pid of the shell that then becomes the launcher,
+-- by a holder that identified as somebody else: what a container killed while it
+-- held the lock leaves for the next one, whose launcher may have the same pid.
+-- Taking it for alive is a launcher waiting on itself until its limit runs out.
+local function underReusedPid(dir, lock, env)
+    local started = os.time()
+    local out = capture(
+        (
+            [[cd '%s' && %s %s sh -c '
+            mkdir -p "%s"
+            printf "%%s\n" "$$" > "%s/pid"
+            printf "%%s\n" "a holder in another container" > "%s/identity"
+            exec ./bin/nupp check' 2>&1]]
+        ):format(dir, ENV, env or "", lock, lock, lock)
+    )
+
+    return out, os.time() - started
+end
+
+function M.aLockLeftUnderTheSamePidByAnotherHolderIsTaken()
+    local dir = plantedTree()
+    edit(dir)
+    local out, took = underReusedPid(dir, ".nupp/vm-cli-build.lock", "NUPP_VM_BUILD_LOCK_WAIT=30")
+    assert(builds(dir) == 1 and out:find("RAN gen1 check", 1, true), "the launcher waited on itself: " .. out)
+    assert(took < 20, "the abandoned lock was taken only after " .. took .. "s")
+    remove(dir)
+end
+
+-- The first build of a checkout, from the stage zero, has a lock of its own, and
+-- a builder that is gone left that build for the next command to finish.
+function M.anAbandonedBootstrapLockIsTakenOver()
+    local dir, plant = plantedTree()
+    assert(os.execute(("rm -rf '%s/.nupp/vm-cli'"):format(dir)) == 0)
+    plant(
+        "scripts/bootstrap-compiler",
+        [[
+ROOT=$(cd "$(dirname "$0")/.." && pwd)
+echo bootstrap >> "$ROOT/builds.log"
+cd "$ROOT" && python3 -c 'import sys; sys.path.insert(0, "scripts"); from generation import generation; generation(".nupp/vm-cli", "boot")'
+]]
+    )
+    local out, took = underReusedPid(dir, ".nupp/vm-cli-bootstrap.lock")
+    assert(out:find("RAN boot check", 1, true), "the abandoned bootstrap was not taken over: " .. out)
+    assert(readFile(dir .. "/builds.log") == "bootstrap\n", "the takeover did not bootstrap once")
+    assert(took < 20, "the abandoned lock was taken only after " .. took .. "s")
+    remove(dir)
+end
+
 function M.anExplicitImageBypassesTheRebuild()
     local dir = plantedTree()
     edit(dir)

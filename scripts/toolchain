@@ -474,7 +474,8 @@ verify_notice() {
 # Two commands wanting the same component start together often enough -- a test
 # suite runs the launcher many times -- and they would otherwise be two makes
 # writing one source tree. `mkdir` is the lock because it is atomic wherever
-# this runs; the pid in it tells a held lock from one a killed build left.
+# this runs; its holder's claim (`scripts/lock-owner`) tells a held lock from
+# one a killed build left, even when that build's pid has come round again.
 LOCK=""
 release_lock() { [ -n "$LOCK" ] && rm -rf "$LOCK"; LOCK=""; return 0; }
 
@@ -495,8 +496,7 @@ take_lock() {
     waited=0
     mkdir -p "$CACHE"
     while ! mkdir "$lock" 2>/dev/null; do
-        holder=$(cat "$lock/pid" 2>/dev/null || true)
-        if [ -z "$holder" ] || ! kill -0 "$holder" 2>/dev/null; then
+        if ! holder=$(sh "$ROOT/scripts/lock-owner" holder "$lock"); then
             rm -rf "$lock"
             continue
         fi
@@ -516,7 +516,7 @@ take_lock() {
             return 0
         fi
     done
-    printf '%s\n' "$$" > "$lock/pid"
+    sh "$ROOT/scripts/lock-owner" claim "$lock" "$$"
     LOCK=$lock
     trap 'release_lock' EXIT
     trap 'release_lock; exit 130' INT

@@ -40,12 +40,29 @@ fi
 # A checkout with no VM CLI yet builds one when a VM stage-zero image is pinned:
 # the seed lowers these sources, then the emitted image lowers them once more
 # on that same verified runner (`scripts/vm-cli build --seed image`).
-# Concurrent commands wait for the one building.
-if [ -z "${NUPP_VM_CLI_IMAGE:-}" ] \
-    && [ ! -e "$ROOT/.nupp/vm-cli/current" ] \
-    && grep -q '^STAGE0_IMAGE_SHA256=..*' "$ROOT/scripts/toolchain.pins" 2>/dev/null; then
+# Concurrent commands wait for the one building, under a lock directory its
+# builder claims (`scripts/lock-owner`); a builder that is gone left the build
+# unfinished, and the next command takes it over.
+VM_BOOTSTRAP_LOCK="$ROOT/.nupp/vm-cli-bootstrap.lock"
+vm_cli_bootstrap() {
     mkdir -p "$ROOT/.nupp"
-    if mkdir "$ROOT/.nupp/vm-cli-bootstrap.lock" 2>/dev/null; then
+    until mkdir "$VM_BOOTSTRAP_LOCK" 2>/dev/null; do
+        while [ -d "$VM_BOOTSTRAP_LOCK" ]; do
+            if ! sh "$ROOT/scripts/lock-owner" holder "$VM_BOOTSTRAP_LOCK" >/dev/null; then
+                rm -rf "$VM_BOOTSTRAP_LOCK"
+                continue 2
+            fi
+            sleep 2
+        done
+        return 0
+    done
+    sh "$ROOT/scripts/lock-owner" claim "$VM_BOOTSTRAP_LOCK" "$$"
+    trap 'rm -rf "$VM_BOOTSTRAP_LOCK"' EXIT
+    trap 'rm -rf "$VM_BOOTSTRAP_LOCK"; exit 130' INT
+    trap 'rm -rf "$VM_BOOTSTRAP_LOCK"; exit 143' TERM
+    bootstrap_status=0
+    # The build this command took over may have finished just before it did.
+    if [ ! -e "$ROOT/.nupp/vm-cli/current" ]; then
         echo "nupp: no VM compiler in this checkout; building one from the pinned stage zero" >&2
         # NUPP_VM_AUTO_LINK=0 skips linking the image's compiled code here too,
         # as it does for the rebuild below: an interpreter-only runtime.
@@ -53,11 +70,15 @@ if [ -z "${NUPP_VM_CLI_IMAGE:-}" ] \
         [ "${NUPP_VM_AUTO_LINK:-1}" != 0 ] || no_aot=--no-aot
         sh "$ROOT/scripts/bootstrap-compiler" $no_aot >&2
         bootstrap_status=$?
-        rm -rf "$ROOT/.nupp/vm-cli-bootstrap.lock"
-        [ "$bootstrap_status" -eq 0 ] || exit "$bootstrap_status"
-    else
-        while [ -d "$ROOT/.nupp/vm-cli-bootstrap.lock" ]; do sleep 2; done
     fi
+    rm -rf "$VM_BOOTSTRAP_LOCK"
+    trap - EXIT INT TERM
+    [ "$bootstrap_status" -eq 0 ] || exit "$bootstrap_status"
+}
+if [ -z "${NUPP_VM_CLI_IMAGE:-}" ] \
+    && [ ! -e "$ROOT/.nupp/vm-cli/current" ] \
+    && grep -q '^STAGE0_IMAGE_SHA256=..*' "$ROOT/scripts/toolchain.pins" 2>/dev/null; then
+    vm_cli_bootstrap
 fi
 # The installed VM compiler is rebuilt when its sources change, the way build/
 # is below: a compiler source newer than `.nupp/vm-cli/stamp`, which every
@@ -69,8 +90,8 @@ fi
 # linked generation stays selected until its linked replacement is ready.
 # NUPP_VM_AUTO_LINK=0 explicitly selects an interpreter-only rebuild.
 #
-# One rebuild at a time per checkout, under a lock directory holding the
-# builder's pid; a command that finds it held waits, and then runs what that
+# One rebuild at a time per checkout, under a lock directory its builder
+# claims; a command that finds it held waits, and then runs what that
 # build installed. A failed rebuild leaves the previous generation selected and
 # says so; `.nupp/vm-cli/failed` remembers it, so later commands do not try
 # again until another source changes. NUPP_VM_AUTO_REBUILD=0 turns all of this
@@ -126,15 +147,11 @@ vm_cli_failed_unchanged() {
     [ -f "$VM_CLI/failed" ] && ! vm_sources_newer_than "$VM_CLI/failed"
 }
 
-# Its owner writes the pid just after making the directory, so a lock without
-# one is given a moment before it is taken for abandoned.
+# Whether the lock's holder is still running, by its pid and the identity it
+# claimed with (`scripts/lock-owner`), not by a pid alone: a pid comes round
+# again in another container sharing this checkout, or after a reboot.
 vm_build_lock_alive() {
-    holder=$(cat "$VM_BUILD_LOCK/pid" 2>/dev/null)
-    if [ -z "$holder" ]; then
-        sleep 1
-        holder=$(cat "$VM_BUILD_LOCK/pid" 2>/dev/null) || return 1
-    fi
-    [ -n "$holder" ] && kill -0 "$holder" 2>/dev/null
+    holder=$(sh "$ROOT/scripts/lock-owner" holder "$VM_BUILD_LOCK")
 }
 
 vm_release_build_lock() {
@@ -167,7 +184,7 @@ vm_cli_rebuild() {
             return 0
         fi
     done
-    printf '%s\n' "$$" > "$VM_BUILD_LOCK/pid"
+    sh "$ROOT/scripts/lock-owner" claim "$VM_BUILD_LOCK" "$$"
     trap 'rm -rf "$VM_BUILD_LOCK"' EXIT
     trap 'rm -rf "$VM_BUILD_LOCK"; exit 130' INT
     trap 'rm -rf "$VM_BUILD_LOCK"; exit 143' TERM

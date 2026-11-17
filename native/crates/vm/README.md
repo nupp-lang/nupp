@@ -2574,8 +2574,10 @@ python3 scripts/vm-cli build --seed vm --no-aot   # what the launcher runs
 ```
 
 - **One rebuild per checkout.** It runs under `.nupp/vm-cli-build.lock`, a
-  directory holding the builder's pid; a command that finds it held waits, then
-  runs what that build installed. A lock whose holder is gone is taken.
+  directory holding the builder's pid and identity (`scripts/lock-owner`); a
+  command that finds it held waits, then runs what that build installed. A lock
+  whose holder is gone is taken, and so is one whose pid now names another
+  process, as it does in the next container or after a reboot.
 - **A failure keeps the previous generation.** The launcher says the compiler
   did not build, shows the end of `.nupp/vm-cli/rebuild.log`, and runs the
   generation it has. `.nupp/vm-cli/failed` remembers the failure, so later

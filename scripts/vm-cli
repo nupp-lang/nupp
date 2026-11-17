@@ -658,9 +658,32 @@ def linked_runtime(image, out, target):
     return cargo(features, target, env, default_features=False)
 
 
+def lock_owner(*arguments):
+    """Run `scripts/lock-owner`, which bin/nupp and scripts/toolchain share, so
+    a lock taken here reads the same to them. On Windows this process has a
+    native pid, which the helper translates to the one MSYS knows it by; and
+    os.kill there would terminate the process it was meant to probe."""
+    command = [str(ROOT / "scripts/lock-owner"), *(str(argument) for argument in arguments)]
+    return subprocess.run(["sh.exe" if os.name == "nt" else "sh", *command],
+                          stdout=subprocess.DEVNULL).returncode == 0
+
+
+def claim_lock(path):
+    pid = ["--windows-pid", os.getpid()] if os.name == "nt" else [os.getpid()]
+    if not lock_owner("claim", path.as_posix(), *pid):
+        raise OSError("cannot claim " + str(path))
+
+
+def lock_held(path):
+    """Whether a live holder still has the lock directory `path`: one whose pid
+    is alive with the identity it claimed with, not merely a pid that came round
+    again in another container or after a reboot."""
+    return lock_owner("holder", path.as_posix())
+
+
 class build_lock:
-    """The launcher's rebuild lock (`bin/nupp`): a directory holding its owner's
-    pid, taken over from an owner that is gone."""
+    """The launcher's rebuild lock (`bin/nupp`): a directory its owner claims,
+    taken over from an owner that is gone."""
     path = ROOT / ".nupp/vm-cli-build.lock"
 
     def __init__(self, path=None):
@@ -671,21 +694,14 @@ class build_lock:
         while True:
             try:
                 self.path.mkdir(parents=True)
-                (self.path / "pid").write_text("%d\n" % os.getpid())
-                return self
             except FileExistsError:
-                try:
-                    os.kill(int((self.path / "pid").read_text()), 0)
-                except (OSError, ValueError):
-                    # Its owner writes the pid just after making it.
-                    try:
-                        young = time.time() - self.path.stat().st_mtime < 10
-                    except OSError:
-                        continue
-                    if not young:
-                        shutil.rmtree(self.path, ignore_errors=True)
-                        continue
+                if not lock_held(self.path):
+                    shutil.rmtree(self.path, ignore_errors=True)
+                    continue
                 time.sleep(1)
+                continue
+            claim_lock(self.path)
+            return self
 
     def __exit__(self, *_):
         shutil.rmtree(self.path, ignore_errors=True)
@@ -702,13 +718,11 @@ def link(args):
     try:
         lock.mkdir(parents=True)
     except FileExistsError:
-        try:
-            os.kill(int((lock / "pid").read_text()), 0)
+        if lock_held(lock):
             return
-        except (OSError, ValueError):
-            shutil.rmtree(lock, ignore_errors=True)
-            lock.mkdir(parents=True)
-    (lock / "pid").write_text("%d\n" % os.getpid())
+        shutil.rmtree(lock, ignore_errors=True)
+        lock.mkdir(parents=True)
+    claim_lock(lock)
     try:
         while True:
             package = selected()

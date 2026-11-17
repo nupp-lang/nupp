@@ -18,19 +18,17 @@ run "$@" || status=$?
 PACKAGES="$ROOT/.nupp/native-producer"
 mkdir -p "$PACKAGES"
 LOCK="$PACKAGES/build-lock"
+# Its holder claims it with more than a pid (`scripts/lock-owner`), so a pid
+# reused after the holder died does not hold it.
 while ! mkdir "$LOCK" 2>/dev/null; do
-    if [ -f "$LOCK/owner" ]; then
-        owner=$(cat "$LOCK/owner")
-        case "$owner" in ""|*[!0-9]*) echo "invalid producer lock owner" >&2; exit 1 ;; esac
-        if ! kill -0 "$owner" 2>/dev/null; then
-            echo "stale producer lock: $LOCK" >&2
-            exit 1
-        fi
+    if ! sh "$ROOT/scripts/lock-owner" holder "$LOCK" >/dev/null; then
+        echo "stale producer lock: $LOCK" >&2
+        exit 1
     fi
     sleep 1
 done
-trap 'rm -f "$LOCK/owner"; rmdir "$LOCK"' EXIT
+trap 'rm -rf "$LOCK"' EXIT
 trap 'exit 1' HUP INT TERM
-echo "$$" > "$LOCK/owner"
+sh "$ROOT/scripts/lock-owner" claim "$LOCK" "$$"
 export NUPP_PRIVATE_PRODUCER_BUILD=1
 run "$@"
