@@ -561,7 +561,6 @@ for _, tree in ipairs({
     "src/nupp/mem",
     "src/nupp/serde",
     "src/nupp/suspension",
-    "src/nupp/text",
     "src/nupp/time",
     "src/nupp/tools",
     "src/nupp/util",
