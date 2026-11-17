@@ -296,6 +296,17 @@ local function buildOne(root: string?, opts: project.BuildOptions?): integer
         )
         return 1
     end
+    -- A native binary with no platforms list is stamped onto the runtime of the
+    -- machine building it, so that machine's C layout is the one its structs
+    -- run with. Left unset, every struct in the image reported a missing target
+    -- the first time it was laid out.
+    if target.kind == "binary"
+        and target.host == "native"
+        and target.platforms == nil
+        and target.layoutTarget == nil
+    then
+        target.layoutTarget = require("nupp.compiler.targetlayout").hostKey()
+    end
     config._target = target
     config._platform = selectedPlatform
     -- Coverage affects emitted Lua, therefore belongs in the configuration before the
