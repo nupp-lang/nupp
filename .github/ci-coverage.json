@@ -162,7 +162,7 @@
           "name": "Run the compiler suite",
           "lanes": ["shared", "isolated", "shell"],
           "excludes": {
-            "groups": ["external-corpus", "windows-preflight", "measurement", "native-runtime"]
+            "groups": ["external-corpus", "windows-preflight", "measurement", "native-runtime", "awaits-core"]
           },
           "guarantees": [
             "every suite no group-named step of this job runs, each lane dealt across shards that partition it"

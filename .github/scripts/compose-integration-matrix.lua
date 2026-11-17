@@ -19,7 +19,7 @@
 local composer = {}
 
 -- What a platform's lanes leave to the legs that run a group by name.
-local GROUPED = "external-corpus,measurement,native-runtime"
+local GROUPED = "external-corpus,measurement,native-runtime,awaits-core"
 
 --- A lane's legs. `shards` is how many jobs the lane is dealt across; `batch`
 --- bounds how many suites one set of workers lives through (0: all of them),
