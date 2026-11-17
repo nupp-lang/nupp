@@ -68,7 +68,7 @@ function M.unchangedPassingPackagesHitAndContentChangesMiss()
 end
 
 function M.partialFailedSkippedAndRecentRunsCannotPopulateTheStore()
-    fixture(function(_, options, results, suites)
+    fixture(function(root, options, results, suites)
         local cache = opened(options)
         for _, status in ipairs({"failed", "skipped", "not-executed"}) do
             results[1].status = status
@@ -80,9 +80,12 @@ function M.partialFailedSkippedAndRecentRunsCannotPopulateTheStore()
         options.selected = {}
         test.eq(next(assert(cacheModule.open(options)).packages), nil)
         options.selected = {{name = "alphatest"}}
+        -- The clock stops at the fixture's newest input, so that input stays
+        -- recent however long the saves above took on a slow host.
         local clock = os.time
+        local _, _, written = require("io.internal.files").stat(root .. "/shared")
         os.time = function()
-            return clock() - 10
+            return math.floor(assert(tonumber(written)) / 1000)
         end
         local recent, entry = opened(options)
         test.eq(entry.recent, true)
