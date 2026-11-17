@@ -45,6 +45,21 @@ runs:
         restore-keys: |
           nupp-testrunner-${{ runner.os }}-${{ runner.arch }}-
 
+    # The test runner refuses to start on Windows unless it is told which Git Bash
+    # and sh its shell suites use, and asking it for its groups starts it. Set
+    # here, before the first `nupp test`, rather than by the leg, which runs this
+    # action before its own steps.
+    - if: runner.os == 'Windows'
+      shell: bash
+      run: |
+        bash_path=$(command -v bash)
+        sh_path=$(dirname "$bash_path")/sh.exe
+        test -f "$sh_path"
+        {
+          echo "NUPP_TEST_BASH=$(cygpath -w "$bash_path")"
+          echo "NUPP_TEST_SH=$(cygpath -w "$sh_path")"
+        } >> "$GITHUB_ENV"
+
     # What the recorded test build is keyed on from the environment, as names
     # and a short digest of each value, never the value: when a job that
     # restored the runner rebuilds it anyway, comparing this with the runner

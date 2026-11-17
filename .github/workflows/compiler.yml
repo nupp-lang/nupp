@@ -530,24 +530,19 @@ jobs:
       - name: Restore the test runner
         uses: ./.github/actions/test-runner
 
-      # The test shells a Windows suite starts, and where a dying worker leaves
-      # what it was holding: the library each native case built and its phase
-      # trace. Both are written by the suite itself, which is why they arrive
-      # at all -- four rounds of Windows crashes were diagnosed out of these
-      # and none out of a minidump.
+      # Where a dying Windows worker leaves what it was holding: the library
+      # each native case built and its phase trace. Both are written by the
+      # suite itself, which is why they arrive at all -- four rounds of Windows
+      # crashes were diagnosed out of these and none out of a minidump. The test
+      # shells are named by the test-runner action, which needs them first.
       - name: Name the Windows test shells
         if: runner.os == 'Windows'
         shell: bash
         run: |
           set -euo pipefail
-          bash_path=$(command -v bash)
-          sh_path=$(dirname "$bash_path")/sh.exe
-          test -f "$sh_path"
           dumps="$RUNNER_TEMP/nupp-worker-dumps"
           mkdir -p "$dumps"
           {
-            echo "NUPP_TEST_BASH=$(cygpath -w "$bash_path")"
-            echo "NUPP_TEST_SH=$(cygpath -w "$sh_path")"
             echo "NUPP_TEST_AOT_TRACE=1"
             echo "NUPP_TEST_AOT_ARTIFACTS=$(cygpath -w "$dumps")"
           } >> "$GITHUB_ENV"
