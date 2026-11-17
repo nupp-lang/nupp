@@ -6,7 +6,11 @@
 use nupp_vm::{builtins, interp::Interp, value::Value};
 
 fn render(vm: &mut Interp, text: &str) -> String {
-    let source = vm.new_string_bytes(text.as_bytes());
+    render_bytes(vm, text.as_bytes())
+}
+
+fn render_bytes(vm: &mut Interp, text: &[u8]) -> String {
+    let source = vm.new_string_bytes(text);
     vm.register(source);
     let callee = Value::builtin(builtins::id_of("nmarkdown.render").unwrap());
     let out = vm.pcall_values(callee, &[source]);
@@ -32,6 +36,16 @@ fn suite(stress: bool) {
     // was; the renderer must hand a comment back untouched.
     assert_eq!(render(&mut vm, "Before.\n\n<!--nuppdoc-block-1-->\n\nAfter.\n"), "<p>Before.</p>\n<!--nuppdoc-block-1-->\n<p>After.</p>\n");
     assert_eq!(render(&mut vm, "[a link](https://example.com/a(b)) & <tag>\n"), "<p><a href=\"https://example.com/a(b)\">a link</a> &amp; <tag></p>\n");
+    assert_eq!(render(&mut vm, "Term\n: first\n\n    second\n"), "<dl>\n<dt>Term</dt>\n<dd>\n<p>first</p>\n<p>second</p>\n</dd>\n</dl>\n");
+    assert_eq!(render(&mut vm, "[**x**](a\0b)\n"), "<p>[<strong>x</strong>](a\0b)</p>\n");
+    assert_eq!(render(&mut vm, "[r]: a\0b\n\n[x][r]\n"), "<p>[r]: a\0b</p>\n<p>[x][r]</p>\n");
+    assert_eq!(render(&mut vm, "<a href=a\0b>\nnext\n"), "<a href=a\0b>\nnext\n");
+    assert_eq!(render(&mut vm, "[x](<a\0b>)\n"), "<p><a href=\"a%00b\">x</a></p>\n");
+    assert_eq!(render(&mut vm, "\u{feff}# title\n"), "<p>\u{feff}# title</p>\n");
+    assert_eq!(render(&mut vm, "~~strike~~ a^b\n\n\"quote\" -- ...\n"), "<p>~~strike~~ a^b</p>\n<p>\"quote\" -- ...</p>\n");
+    assert_eq!(render(&mut vm, "[x](javascript:alert(1))\n"), "<p><a href=\"javascript:alert(1)\">x</a></p>\n");
+    assert_eq!(render_bytes(&mut vm, b"\xe2\x82 \xed\xa0\x80 \xf0\x80\x80\x80"), "<p>\u{fffd} \u{fffd}\u{fffd}\u{fffd} \u{fffd}\u{fffd}\u{fffd}\u{fffd}</p>\n");
+    assert_eq!(render_bytes(&mut vm, b"\xf0\x90\x80"), "<p>\u{fffd}</p>\n");
     let source = vm.new_string_bytes(b"bad \xff byte");
     vm.register(source);
     let callee = Value::builtin(builtins::id_of("nmarkdown.render").unwrap());

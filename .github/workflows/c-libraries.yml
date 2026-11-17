@@ -7,12 +7,15 @@ on:
       - '.github/scripts/test-c-libraries.sh'
       - '.github/scripts/test-libuv.sh'
       - '.github/scripts/test-crc-isal.sh'
+      - '.github/scripts/test-markdown.sh'
       - 'scripts/toolchain'
       - 'scripts/toolchain.pins'
       - 'scripts/native-libraries'
       - 'scripts/c-libraries/**'
       - 'scripts/test-libffi'
       - 'native/crates/checksum/csrc/**'
+      - 'native/markdown/**'
+      - 'tests/fixtures/markdown/**'
       - 'tests/fixtures/c-libraries/**'
       - 'tests/fixtures/libuv/**'
       - 'tests/tools/toolchain/clibraries.test.mjs'
@@ -79,12 +82,13 @@ jobs:
       - uses: actions/cache@v4
         with:
           path: .nupp-c-library-cache
-          key: c-libraries-${{ matrix.target }}-${{ hashFiles('scripts/toolchain.pins', 'scripts/native-libraries', 'scripts/c-libraries/**') }}
+          key: c-libraries-${{ matrix.target }}-${{ hashFiles('scripts/toolchain.pins', 'scripts/native-libraries', 'scripts/c-libraries/**', 'native/markdown/**', 'host/notices/cmark-gfm-LICENSE.txt') }}
       - name: Build and verify upstream C artifacts without Rust
         shell: bash
         env:
           NUPP_NATIVE_TARGET: ${{ matrix.target }}
           NUPP_TOOLCHAIN_DIR: ${{ github.workspace }}/.nupp-c-library-cache
+          NUPP_NATIVE_JOBS: '2'
         run: |
           if [ "$RUNNER_OS" = Windows ]; then
             # Git also ships link.exe; OpenSSL must call the MSVC linker.
@@ -98,6 +102,7 @@ jobs:
           export PATH="$PWD/build/no-rust-tools:$PATH"
           sh .github/scripts/test-c-libraries.sh
           sh .github/scripts/test-libuv.sh
+          sh .github/scripts/test-markdown.sh
       - uses: actions/upload-artifact@v4
         with:
           name: c-library-abi-${{ matrix.target }}
@@ -111,6 +116,9 @@ jobs:
             build/libuv/libuv-files.sha256
             build/crc-isal/crc.txt
             build/crc-isal/isal.identity
+            build/cmark-probe/results.json
+            build/cmark-probe/markdown.identity
+            build/cmark-probe/markdown-files.sha256
           if-no-files-found: error
   libffi:
     if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name != github.repository

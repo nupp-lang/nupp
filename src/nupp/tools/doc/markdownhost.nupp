@@ -2,9 +2,8 @@
 module nupp.tools.doc.markdownhost
 
 --[[
-The VM's Markdown renderer for `nupp doc`: `pulldown-cmark`, which the runtime
-installs as `nupp.vm.markdown`. The checkout's own copy of this module answers
-that no renderer is available; this one replaces it on the VM.
+The Markdown renderer for `nupp doc`: pinned cmark-gfm with tables and the
+separate definition-list extension. Both execution paths supply this service.
 ]]
 
 const markdown = require("nupp.vm.markdown")

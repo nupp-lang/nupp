@@ -1,5 +1,6 @@
 // Generates the table of linked ahead-of-time entries.
 fn main() {
+    markdown();
     native_runtime();
     println!("cargo:rerun-if-env-changed=NUPP_AOT_OBJECT");
     let generated =
@@ -19,6 +20,38 @@ fn main() {
     } else {
         std::fs::write(&generated, "pub const ABI_VERSION: u32 = 4;\npub fn image_hash() -> [u8; 32] { [0; 32] }\npub fn entries() -> Vec<(usize, u64)> { vec![] }\npub fn frame_entries() -> Vec<(usize, u64)> { vec![] }\npub fn maps() -> Vec<(usize, usize, Vec<(u32, u32, Vec<u32>)>)> { vec![] }\n").unwrap();
     }
+}
+
+fn markdown() {
+    if std::env::var_os("CARGO_FEATURE_MARKDOWN").is_none() { return; }
+    for name in ["NUPP_CC", "NUPP_NATIVE_TARGET", "NUPP_TOOLCHAIN_DIR", "NUPP_HOST_OFFLINE", "NUPP_HOST_SOURCE_DIR", "NUPP_HOST_SOURCE_BASE_URL", "CFLAGS", "CPPFLAGS", "LDFLAGS", "SDKROOT", "MACOSX_DEPLOYMENT_TARGET", "WindowsSDKVersion", "VCToolsVersion"] {
+        println!("cargo:rerun-if-env-changed={name}");
+    }
+    let root = std::path::PathBuf::from(std::env::var("CARGO_MANIFEST_DIR").unwrap()).join("../../..");
+    for name in ["native/markdown", "scripts/c-libraries/cmark.sh", "scripts/native-libraries", "scripts/toolchain.pins"] {
+        println!("cargo:rerun-if-changed={}", root.join(name).display());
+    }
+    assert_eq!(std::env::var("HOST").unwrap(), std::env::var("TARGET").unwrap(), "Markdown requires a matching native C artifact, not host output for another target");
+    let target = std::env::var("TARGET").unwrap();
+    let mut command = std::process::Command::new("sh");
+    command.arg(linker_path(root.join("scripts/toolchain").to_str().unwrap())).arg("cmark");
+    if target == "x86_64-pc-windows-gnu" || target == "x86_64-pc-windows-gnullvm" {
+        command.env("NUPP_NATIVE_TARGET", "x86_64-pc-windows-gnu");
+    }
+    let built = command.output().expect("provision pinned cmark-gfm with sh");
+    assert!(built.status.success(), "cmark provisioning: {}", String::from_utf8_lossy(&built.stderr));
+    let mut prefix = String::from_utf8(built.stdout).unwrap().trim().to_owned();
+    if cfg!(windows) {
+        let path = std::process::Command::new("cygpath").args(["-m", &prefix]).output().unwrap();
+        assert!(path.status.success(), "convert C artifact path");
+        prefix = String::from_utf8(path.stdout).unwrap().trim().to_owned();
+    }
+    println!("cargo:rustc-link-search=native={prefix}/lib");
+    println!("cargo:rustc-link-lib=static=nupp_markdown_static");
+    let suffix = if std::env::var("CARGO_CFG_TARGET_ENV").unwrap_or_default() == "msvc" { "_static" } else { "" };
+    println!("cargo:rustc-link-lib=static=cmark-gfm-extensions{suffix}");
+    println!("cargo:rustc-link-lib=static=cmark-gfm{suffix}");
+    if std::env::var("CARGO_CFG_TARGET_OS").unwrap() != "windows" { println!("cargo:rustc-link-lib=pthread"); }
 }
 
 fn native_runtime() {

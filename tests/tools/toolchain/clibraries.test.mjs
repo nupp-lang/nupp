@@ -94,6 +94,29 @@ test('an unrelated dependency recipe does not invalidate the artifact', t => {
   f.write('scripts/c-libraries/libcurl.sh', '# changed unrelated recipe\n');
   assert.equal(f.success(f.run()), prefix);
 });
+test('Markdown extension and notice bytes participate in the shared artifact key', t => {
+  const f = fixture(t);
+  f.write('source/cmark-gfm-fixture/COPYING', 'test notice\n');
+  const archive = 'archives/cmark-gfm-fixture.tar.gz';
+  const packed = spawnSync('tar', ['-czf', archive, '-C', 'source', 'cmark-gfm-fixture'], {cwd: f.directory, encoding: 'utf8'});
+  assert.equal(packed.status, 0, packed.stderr);
+  f.write('scripts/toolchain.pins', `CMARK_REV=fixture\nCMARK_SHA256=${digest(path.join(f.directory, archive))}\nCMARK_URL=https://invalid.example/cmark.tar.gz\n`);
+  f.write('scripts/c-libraries/cmark.sh', `cmake -S "$source" -B "$staged/build" -DCMAKE_INSTALL_PREFIX="$install"
+cmake --build "$staged/build"
+license="$source/COPYING"
+`);
+  f.write('host/notices/cmark-gfm-LICENSE.txt', 'test notice\n');
+  f.write('native/markdown/definition-list.c', 'synthetic extension version 1\n');
+  f.args[1] = 'cmark';
+  const prefix = f.success(f.run());
+  assert.equal(f.success(f.run()), prefix);
+  f.write('native/markdown/definition-list.c', 'synthetic extension version 2\n');
+  assert.notEqual(f.success(f.run()), prefix);
+  f.write('host/notices/cmark-gfm-LICENSE.txt', 'wrong notice\n');
+  const refused = f.run();
+  assert.notEqual(refused.status, 0);
+  assert.match(refused.stderr, /notice differs/);
+});
 test('a redirected loader alias is refused', {skip: process.platform === 'win32'}, t => {
   const f = fixture(t);
   const tool = fs.readFileSync(path.join(f.directory, 'tools/cmake'), 'utf8');

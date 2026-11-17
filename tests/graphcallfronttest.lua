@@ -673,11 +673,9 @@ function M.coreClocksUseTheSharedTimerProvider()
     assert(found)
 end
 
-function M.coreMarkdownUsesTheUnavailableRuntimeProvider()
+function M.coreMarkdownUsesTheCheckedRuntimeProvider()
     assert(graph.coremodule("nupp.vm.markdown") == "nupp.runtime.provider.coremarkdown")
-    local provider = require("nupp.runtime.provider.coremarkdown")
-    local html, reason = provider.render("# Title")
-    assert(html == nil and reason == "Markdown rendering is not available on the core")
+    -- Executed by the standalone-core markdown case, including its C owner.
 end
 
 function M.coroutineValuesRetainCheckedPreludeAuthority()

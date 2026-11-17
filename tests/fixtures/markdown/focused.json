@@ -1,0 +1,617 @@
+[
+  {
+    "name": "image_alt_escaping",
+    "hex": "215b3c2622785d282f61290a",
+    "expected": "<p><img src=\"/a\" alt=\"&lt;&amp;&quot;x\" /></p>\n"
+  },
+  {
+    "name": "image_alt_attribute_quotes",
+    "hex": "215b612022206f6e6572726f723d22785d282f61290a",
+    "expected": "<p><img src=\"/a\" alt=\"a &quot; onerror=&quot;x\" /></p>\n"
+  },
+  {
+    "name": "table_empty",
+    "hex": "7c2061207c2062207c0a7c2d2d2d7c2d2d2d7c0a",
+    "expected": "<table><thead><tr><th>a</th><th>b</th></tr></thead><tbody>\n</tbody></table>\n"
+  },
+  {
+    "name": "table_quote",
+    "hex": "3e207c2061207c2062207c0a3e207c2d2d2d7c2d2d2d7c0a3e207c787c797c0a",
+    "expected": "<blockquote>\n<table><thead><tr><th>a</th><th>b</th></tr></thead><tbody>\n<tr><td>x</td><td>y</td></tr>\n</tbody></table>\n</blockquote>\n"
+  },
+  {
+    "name": "table_list",
+    "hex": "2d207c2061207c2062207c0a20207c2d2d2d7c2d2d2d7c0a20207c787c797c0a",
+    "expected": "<ul>\n<li><table><thead><tr><th>a</th><th>b</th></tr></thead><tbody>\n<tr><td>x</td><td>y</td></tr>\n</tbody></table>\n</li>\n</ul>\n"
+  },
+  {
+    "name": "table_definition",
+    "hex": "5465726d0a3a207c617c627c0a20207c2d2d2d7c2d2d2d7c0a20207c787c797c0a",
+    "expected": "<dl>\n<dt>Term</dt>\n<dd><table><thead><tr><th>a</th><th>b</th></tr></thead><tbody>\n<tr><td>x</td><td>y</td></tr>\n</tbody></table>\n</dd>\n</dl>\n"
+  },
+  {
+    "name": "table_rows",
+    "hex": "7c617c627c0a7c2d2d2d7c2d2d2d7c0a7c6f6e657c74776f7c0a7c74687265657c666f75727c0a",
+    "expected": "<table><thead><tr><th>a</th><th>b</th></tr></thead><tbody>\n<tr><td>one</td><td>two</td></tr>\n<tr><td>three</td><td>four</td></tr>\n</tbody></table>\n"
+  },
+  {
+    "name": "nul_html_block_crlf",
+    "hex": "3c6469763e0d0a6100620d0a3c2f6469763e0d0a",
+    "expected": "<div>\na\u0000b\n</div>\n"
+  },
+  {
+    "name": "basic",
+    "hex": "23205469746c650a0a536f6d65202a656d7068617369732a20616e642060636f6465602e0a",
+    "expected": "<h1>Title</h1>\n<p>Some <em>emphasis</em> and <code>code</code>.</p>\n"
+  },
+  {
+    "name": "table",
+    "hex": "7c2061207c2062207c0a7c202d2d2d207c202d2d2d207c0a7c2031207c2032207c0a",
+    "expected": "<table><thead><tr><th>a</th><th>b</th></tr></thead><tbody>\n<tr><td>1</td><td>2</td></tr>\n</tbody></table>\n"
+  },
+  {
+    "name": "comment",
+    "hex": "4265666f72652e0a0a3c212d2d6e757070646f632d626c6f636b2d312d2d3e0a0a41667465722e0a",
+    "expected": "<p>Before.</p>\n<!--nuppdoc-block-1-->\n<p>After.</p>\n"
+  },
+  {
+    "name": "link",
+    "hex": "5b61206c696e6b5d2868747470733a2f2f6578616d706c652e636f6d2f61286229292026203c7461673e0a",
+    "expected": "<p><a href=\"https://example.com/a(b)\">a link</a> &amp; <tag></p>\n"
+  },
+  {
+    "name": "definition",
+    "hex": "5465726d0a3a202020446566696e6974696f6e0a",
+    "expected": "<dl>\n<dt>Term</dt>\n<dd>Definition</dd>\n</dl>\n"
+  },
+  {
+    "name": "generated",
+    "hex": "6076616c756560202d2060737472696e67600a3a2020204669727374202a6c696e652a2e0a202020204e657874206c696e652e0a606f7468657260202d2060696e7465676572600a3a2020204f746865722e0a",
+    "expected": "<dl>\n<dt><code>value</code> - <code>string</code></dt>\n<dd>First <em>line</em>.\nNext line.\n<code>other</code> - <code>integer</code></dd>\n<dd>Other.</dd>\n</dl>\n"
+  },
+  {
+    "name": "multi",
+    "hex": "5465726d0a3a20202046697273740a3a2020205365636f6e640a",
+    "expected": "<dl>\n<dt>Term</dt>\n<dd>First</dd>\n<dd>Second</dd>\n</dl>\n"
+  },
+  {
+    "name": "loose",
+    "hex": "5465726d0a0a3a20202046697273742e0a0a202020205365636f6e64207061726167726170682e0a",
+    "expected": "<dl>\n<dt>Term</dt>\n<dd>\n<p>First.</p>\n<p>Second paragraph.</p>\n</dd>\n</dl>\n"
+  },
+  {
+    "name": "nested",
+    "hex": "4f757465720a3a202020496e74726f0a0a20202020496e6e65720a202020203a2020204368696c640a",
+    "expected": "<dl>\n<dt>Outer</dt>\n<dd>\n<p>Intro</p>\n<dl>\n<dt>Inner</dt>\n<dd>Child</dd>\n</dl>\n</dd>\n</dl>\n"
+  },
+  {
+    "name": "list",
+    "hex": "5465726d0a3a202020496e74726f0a0a202020202d206f6e650a202020202d2074776f0a",
+    "expected": "<dl>\n<dt>Term</dt>\n<dd>\n<p>Intro</p>\n<ul>\n<li>one</li>\n<li>two</li>\n</ul>\n</dd>\n</dl>\n"
+  },
+  {
+    "name": "quoted",
+    "hex": "3e205465726d0a3e203a202020446566696e6974696f6e0a",
+    "expected": "<blockquote>\n<dl>\n<dt>Term</dt>\n<dd>Definition</dd>\n</dl>\n</blockquote>\n"
+  },
+  {
+    "name": "code",
+    "hex": "5465726d0a3a202020496e74726f0a0a2020202020202020636f6465203c7461673e0a",
+    "expected": "<dl>\n<dt>Term</dt>\n<dd>\n<p>Intro</p>\n<pre><code>code &lt;tag&gt;\n</code></pre>\n</dd>\n</dl>\n"
+  },
+  {
+    "name": "fenced",
+    "hex": "7e7e7e68746d6c0a3c623e636f64653c2f623e0a7e7e7e0a",
+    "expected": "<pre><code class=\"language-html\">&lt;b&gt;code&lt;/b&gt;\n</code></pre>\n"
+  },
+  {
+    "name": "escape",
+    "hex": "5c2a6c69746572616c5c2a2026203c2068747470733a2f2f6578616d706c652e636f6d0a",
+    "expected": "<p>*literal* &amp; &lt; https://example.com</p>\n"
+  },
+  {
+    "name": "html",
+    "hex": "3c6469763e0a726177202a746578742a0a3c2f6469763e0a0a3c7363726970743e616c6572742831293c2f7363726970743e0a",
+    "expected": "<div>\nraw *text*\n</div>\n<script>alert(1)</script>\n"
+  },
+  {
+    "name": "style",
+    "hex": "3c7374796c653e626f6479207b20636f6c6f723a20726564207d3c2f7374796c653e0a",
+    "expected": "<style>body { color: red }</style>\n"
+  },
+  {
+    "name": "url",
+    "hex": "5b785d286a6176617363726970743a616c657274283129290a",
+    "expected": "<p><a href=\"javascript:alert(1)\">x</a></p>\n"
+  },
+  {
+    "name": "extras",
+    "hex": "7e7e737472696b657e7e20615e62202d205b785d207461736b0a0a2271756f746522202d2d202e2e2e0a",
+    "expected": "<p>~~strike~~ a^b - [x] task</p>\n<p>\"quote\" -- ...</p>\n"
+  },
+  {
+    "name": "commonmark",
+    "hex": "666f6f5f6261725f62617a0a0a3229207365636f6e640a33292074686972640a0a3c6469763e0a2a7261772a0a0a6e6578740a",
+    "expected": "<p>foo_bar_baz</p>\n<ol start=\"2\">\n<li>second</li>\n<li>third</li>\n</ol>\n<div>\n*raw*\n<p>next</p>\n"
+  },
+  {
+    "name": "indentation",
+    "hex": "5465726d0a20203a202020446566696e6974696f6e0a",
+    "expected": "<dl>\n<dt>Term</dt>\n<dd>Definition</dd>\n</dl>\n"
+  },
+  {
+    "name": "definition_quotes",
+    "hex": "5465726d0a3a2020202271756f746522202d2d202e2e2e0a",
+    "expected": "<dl>\n<dt>Term</dt>\n<dd>\"quote\" -- ...</dd>\n</dl>\n"
+  },
+  {
+    "name": "unicode",
+    "hex": "636166c3a920e4b8ade6968720f09f98800a",
+    "expected": "<p>café 中文 😀</p>\n"
+  },
+  {
+    "name": "normalized_utf8",
+    "hex": "62616420efbfbd2062797465",
+    "expected": "<p>bad � byte</p>\n"
+  },
+  {
+    "name": "utf8",
+    "hex": "62616420ff2062797465",
+    "expected": "<p>bad � byte</p>\n"
+  },
+  {
+    "name": "malformed",
+    "hex": "e28220eda08020f0808080",
+    "expected": "<p>� ��� ����</p>\n"
+  },
+  {
+    "name": "nul",
+    "hex": "6100620a",
+    "expected": "<p>a\u0000b</p>\n"
+  },
+  {
+    "name": "empty",
+    "hex": "",
+    "expected": ""
+  },
+  {
+    "name": "bom",
+    "hex": "efbbbf48656c6c6f0a",
+    "expected": "<p>﻿Hello</p>\n"
+  },
+  {
+    "name": "crlf",
+    "hex": "5465726d0d0a3a206465660d0a",
+    "expected": "<dl>\n<dt>Term</dt>\n<dd>def</dd>\n</dl>\n"
+  },
+  {
+    "name": "cr",
+    "hex": "610d620d",
+    "expected": "<p>a\nb</p>\n"
+  },
+  {
+    "name": "no_space",
+    "hex": "5465726d0a3a6465660a",
+    "expected": "<dl>\n<dt>Term</dt>\n<dd>def</dd>\n</dl>\n"
+  },
+  {
+    "name": "blank_def",
+    "hex": "5465726d0a3a0a",
+    "expected": "<dl>\n<dt>Term</dt>\n<dd></dd>\n</dl>\n"
+  },
+  {
+    "name": "continuation",
+    "hex": "5465726d0a3a20496e74726f0a0a202020205365636f6e642e0a",
+    "expected": "<dl>\n<dt>Term</dt>\n<dd>\n<p>Intro</p>\n<p>Second.</p>\n</dd>\n</dl>\n"
+  },
+  {
+    "name": "blank_between_definitions",
+    "hex": "5465726d0a3a2046697273740a0a3a205365636f6e640a",
+    "expected": "<dl>\n<dt>Term</dt>\n<dd>\n<p>First</p>\n</dd>\n<dd>\n<p>Second</p>\n</dd>\n</dl>\n"
+  },
+  {
+    "name": "reference_only",
+    "hex": "5b785d3a202f75726c0a3a206465660a",
+    "expected": "<p>: def</p>\n"
+  },
+  {
+    "name": "reference_term",
+    "hex": "5b785d3a202f75726c0a5465726d0a3a205b785d0a",
+    "expected": "<dl>\n<dt>Term</dt>\n<dd><a href=\"/url\">x</a></dd>\n</dl>\n"
+  },
+  {
+    "name": "link_term",
+    "hex": "5b6c696e6b65645d2868747470733a2f2f6578616d706c652e6f7267290a3a20746578740a",
+    "expected": "<dl>\n<dt><a href=\"https://example.org\">linked</a></dt>\n<dd>text</dd>\n</dl>\n"
+  },
+  {
+    "name": "definitions_in_list",
+    "hex": "2d205465726d0a20203a206465660a0a202020202d20696e6e65720a",
+    "expected": "<ul>\n<li>\n<dl>\n<dt>Term</dt>\n<dd>\n<p>def</p>\n<ul>\n<li>inner</li>\n</ul>\n</dd>\n</dl>\n</li>\n</ul>\n"
+  },
+  {
+    "name": "definitions_in_quote",
+    "hex": "3e205465726d0a3e0a3e203a20696e74726f0a3e0a3e20202020204e6578742e0a",
+    "expected": "<blockquote>\n<dl>\n<dt>Term</dt>\n<dd>\n<p>intro</p>\n<p>Next.</p>\n</dd>\n</dl>\n</blockquote>\n"
+  },
+  {
+    "name": "tabs",
+    "hex": "5465726d0a3a096465660a0a09706172610a",
+    "expected": "<dl>\n<dt>Term</dt>\n<dd>\n<p>def</p>\n<p>para</p>\n</dd>\n</dl>\n"
+  },
+  {
+    "name": "consecutive",
+    "hex": "4f6e650a3a206f6e650a54776f0a3a2074776f0a",
+    "expected": "<dl>\n<dt>One</dt>\n<dd>one\nTwo</dd>\n<dd>two</dd>\n</dl>\n"
+  },
+  {
+    "name": "term_after_fence",
+    "hex": "5465726d0a3a206060600a20203c7461673e0a20206060600a0a4f746865720a3a206e6578740a",
+    "expected": "<dl>\n<dt>Term</dt>\n<dd>\n<pre><code>&lt;tag&gt;\n</code></pre>\n</dd>\n<dt>Other</dt>\n<dd>next</dd>\n</dl>\n"
+  },
+  {
+    "name": "disabled",
+    "hex": "2d205b785d207461736b0a0a7e7e737472696b657e7e0a0a68747470733a2f2f6578616d706c652e6f72670a0a5b5e785d3a20666f6f746e6f74650a",
+    "expected": "<ul>\n<li>[x] task</li>\n</ul>\n<p>~~strike~~</p>\n<p>https://example.org</p>\n"
+  },
+  {
+    "name": "comments_in_definition",
+    "hex": "5465726d0a3a20696e74726f0a0a202020203c212d2d6e757070646f632d626c6f636b2d332d2d3e0a",
+    "expected": "<dl>\n<dt>Term</dt>\n<dd>\n<p>intro</p>\n  <!--nuppdoc-block-3-->\n</dd>\n</dl>\n"
+  },
+  {
+    "name": "html_in_definition",
+    "hex": "5465726d0a3a20696e74726f0a0a202020203c6469763e7261773c2f6469763e0a",
+    "expected": "<dl>\n<dt>Term</dt>\n<dd>\n<p>intro</p>\n  <div>raw</div>\n</dd>\n</dl>\n"
+  },
+  {
+    "name": "nested_loose",
+    "hex": "4f757465720a3a20696e74726f0a0a20202020496e6e65720a0a202020203a206368696c640a",
+    "expected": "<dl>\n<dt>Outer</dt>\n<dd>\n<p>intro</p>\n<dl>\n<dt>Inner</dt>\n<dd>\n<p>child</p>\n</dd>\n</dl>\n</dd>\n</dl>\n"
+  },
+  {
+    "name": "nul_links",
+    "hex": "5b785d28610062290a0a5b2a2a782a2a5d28610062290a0a215b785d28610062290a",
+    "expected": "<p>[x](a\u0000b)</p>\n<p>[<strong>x</strong>](a\u0000b)</p>\n<p>![x](a\u0000b)</p>\n"
+  },
+  {
+    "name": "nul_titles",
+    "hex": "5b785d2875726c202261006222290a",
+    "expected": "<p><a href=\"url\" title=\"a\u0000b\">x</a></p>\n"
+  },
+  {
+    "name": "nul_references",
+    "hex": "5b725d3a206100620a0a5b785d5b725d0a",
+    "expected": "<p>[r]: a\u0000b</p>\n<p>[x][r]</p>\n"
+  },
+  {
+    "name": "nul_autolink",
+    "hex": "3c68747470733a2f2f6100623e0a",
+    "expected": "<p>&lt;https://a\u0000b&gt;</p>\n"
+  },
+  {
+    "name": "nul_contexts",
+    "hex": "60610062600a0a3c64697620613d22780079223e0a0a6060606100620a6100620a6060600a",
+    "expected": "<p><code>a\u0000b</code></p>\n<div a=\"x\u0000y\">\n<pre><code class=\"language-a\u0000b\">a\u0000b\n</code></pre>\n"
+  },
+  {
+    "name": "nul_entities",
+    "hex": "2623313b20002026237830313b20010a",
+    "expected": "<p>\u0001 \u0000 \u0001 \u0001</p>\n"
+  },
+  {
+    "name": "nul_breaks",
+    "hex": "61002a622a0023780a0a5465726d000a3a2076616c7565000a",
+    "expected": "<p>a\u0000<em>b</em>\u0000#x</p>\n<dl>\n<dt>Term\u0000</dt>\n<dd>value\u0000</dd>\n</dl>\n"
+  },
+  {
+    "name": "bom_markup",
+    "hex": "efbbbf23205469746c650a",
+    "expected": "<p>﻿# Title</p>\n"
+  },
+  {
+    "name": "aligned_tables",
+    "hex": "7c2041207c2042207c2043207c0a7c203a2d2d207c202d2d3a207c203a2d3a207c0a7c2078207c2079207c207a207c0a",
+    "expected": "<table><thead><tr><th style=\"text-align: left\">A</th><th style=\"text-align: right\">B</th><th style=\"text-align: center\">C</th></tr></thead><tbody>\n<tr><td style=\"text-align: left\">x</td><td style=\"text-align: right\">y</td><td style=\"text-align: center\">z</td></tr>\n</tbody></table>\n"
+  },
+  {
+    "name": "utf8_truncation",
+    "hex": "e282",
+    "expected": "<p>�</p>\n"
+  },
+  {
+    "name": "utf8_bad_continuation",
+    "hex": "f0908020c241f4908080",
+    "expected": "<p>� �A����</p>\n"
+  },
+  {
+    "name": "nul_angle_destination",
+    "hex": "5b785d283c6100623e290a0a5b725d3a203c6100623e0a0a5b785d5b725d0a",
+    "expected": "<p><a href=\"a%00b\">x</a></p>\n<p><a href=\"a%00b\">x</a></p>\n"
+  },
+  {
+    "name": "nul_unquoted_html",
+    "hex": "3c6120687265663d6100623e783c2f613e0a",
+    "expected": "<p><a href=a\u0000b>x</a></p>\n"
+  },
+  {
+    "name": "nul_entity_html",
+    "hex": "3c6120687265663d22612623303b62223e783c2f613e0a",
+    "expected": "<p><a href=\"a&#0;b\">x</a></p>\n"
+  },
+  {
+    "name": "nul_html_tag",
+    "hex": "3c646976003e746578743c2f6469763e0a",
+    "expected": "<p>&lt;div\u0000&gt;text</div></p>\n"
+  },
+  {
+    "name": "nul_code_spacing",
+    "hex": "6000600a0a6061002062600a0a7e7e7e61006220630a610020620a7e7e7e0a",
+    "expected": "<p><code>\u0000</code></p>\n<p><code>a\u0000 b</code></p>\n<pre><code class=\"language-a\u0000b\">a\u0000 b\n</code></pre>\n"
+  },
+  {
+    "name": "nul_table",
+    "hex": "7c2041207c2042207c0a7c202d2d2d207c202d2d2d207c0a7c20610062207c20600060207c0a",
+    "expected": "<table><thead><tr><th>A</th><th>B</th></tr></thead><tbody>\n<tr><td>a\u0000b</td><td><code>\u0000</code></td></tr>\n</tbody></table>\n"
+  },
+  {
+    "name": "nul_image_alt",
+    "hex": "215b6100625d2875726c290a",
+    "expected": "<p><img src=\"url\" alt=\"a\u0000b\" /></p>\n"
+  },
+  {
+    "name": "nul_control_neighbors",
+    "hex": "01000102000002010100010202010a",
+    "expected": "<p>\u0001\u0000\u0001\u0002\u0000\u0000\u0002\u0001\u0001\u0000\u0001\u0002\u0002\u0001</p>\n"
+  },
+  {
+    "name": "nul_percent_collision",
+    "hex": "2530312530322532302530322530310a0a6100620a0a5b785d283c6100623e290a",
+    "expected": "<p>%01%02%20%02%01</p>\n<p>a\u0000b</p>\n<p><a href=\"a%00b\">x</a></p>\n"
+  },
+  {
+    "name": "nul_html_block",
+    "hex": "3c6120687265663d6100623e0a",
+    "expected": "<a href=a\u0000b>\n"
+  },
+  {
+    "name": "nul_html_block_continuation",
+    "hex": "3c6120687265663d6100623e0a6e6578740a",
+    "expected": "<a href=a\u0000b>\nnext\n"
+  },
+  {
+    "name": "nul_html_multiline",
+    "hex": "3c610a687265663d6100623e783c2f613e0a",
+    "expected": "<p><a\nhref=a\u0000b>x</a></p>\n"
+  },
+  {
+    "name": "nul_html_quote_multiline",
+    "hex": "3e203c610a3e20687265663d6100623e783c2f613e0a",
+    "expected": "<blockquote>\n<p><a\nhref=a\u0000b>x</a></p>\n</blockquote>\n"
+  },
+  {
+    "name": "nul_html_list_multiline",
+    "hex": "2d203c610a2020687265663d6100623e783c2f613e0a",
+    "expected": "<ul>\n<li><a\nhref=a\u0000b>x</a></li>\n</ul>\n"
+  },
+  {
+    "name": "nul_html_crlf",
+    "hex": "3c610d0a687265663d6100623e783c2f613e0d0a",
+    "expected": "<p><a\r\nhref=a\u0000b>x</a></p>\n"
+  },
+  {
+    "name": "nul_html_code_collision",
+    "hex": "603c6120687265663d6100623e60203c6120687265663d6100623e783c2f613e0a",
+    "expected": "<p><code>&lt;a href=a\u0000b&gt;</code> <a href=a\u0000b>x</a></p>\n"
+  },
+  {
+    "name": "quoted_table",
+    "hex": "7c20226122207c20223c202622207c0a7c202d2d2d207c202d2d2d207c0a7c20227822207c202671756f743b792671756f743b207c0a",
+    "expected": "<table><thead><tr><th>\"a\"</th><th>\"&lt; &amp;\"</th></tr></thead><tbody>\n<tr><td>\"x\"</td><td>\"y\"</td></tr>\n</tbody></table>\n"
+  },
+  {
+    "name": "indent-0-0",
+    "hex": "5465726d0a3a6465660a0a2020202020202020636f64650a",
+    "expected": "<dl>\n<dt>Term</dt>\n<dd>\n<p>def</p>\n<pre><code>   code\n</code></pre>\n</dd>\n</dl>\n"
+  },
+  {
+    "name": "indent-0-1",
+    "hex": "5465726d0a3a206465660a0a2020202020202020636f64650a",
+    "expected": "<dl>\n<dt>Term</dt>\n<dd>\n<p>def</p>\n<pre><code>  code\n</code></pre>\n</dd>\n</dl>\n"
+  },
+  {
+    "name": "indent-0-2",
+    "hex": "5465726d0a3a20206465660a0a2020202020202020636f64650a",
+    "expected": "<dl>\n<dt>Term</dt>\n<dd>\n<p>def</p>\n<pre><code> code\n</code></pre>\n</dd>\n</dl>\n"
+  },
+  {
+    "name": "indent-0-3",
+    "hex": "5465726d0a3a2020206465660a0a2020202020202020636f64650a",
+    "expected": "<dl>\n<dt>Term</dt>\n<dd>\n<p>def</p>\n<pre><code>code\n</code></pre>\n</dd>\n</dl>\n"
+  },
+  {
+    "name": "indent-0-4",
+    "hex": "5465726d0a3a202020206465660a0a2020202020202020636f64650a",
+    "expected": "<dl>\n<dt>Term</dt>\n<dd>\n<p>def</p>\n<p>code</p>\n</dd>\n</dl>\n"
+  },
+  {
+    "name": "indent-0-5",
+    "hex": "5465726d0a3a20202020206465660a0a2020202020202020636f64650a",
+    "expected": "<dl>\n<dt>Term</dt>\n<dd>\n<pre><code>def\n\n  code\n</code></pre>\n</dd>\n</dl>\n"
+  },
+  {
+    "name": "indent-0-6",
+    "hex": "5465726d0a3a2020202020206465660a0a2020202020202020636f64650a",
+    "expected": "<dl>\n<dt>Term</dt>\n<dd>\n<pre><code> def\n\n  code\n</code></pre>\n</dd>\n</dl>\n"
+  },
+  {
+    "name": "indent-1-0",
+    "hex": "5465726d0a203a6465660a0a2020202020202020636f64650a",
+    "expected": "<dl>\n<dt>Term</dt>\n<dd>\n<p>def</p>\n<pre><code>  code\n</code></pre>\n</dd>\n</dl>\n"
+  },
+  {
+    "name": "indent-1-1",
+    "hex": "5465726d0a203a206465660a0a2020202020202020636f64650a",
+    "expected": "<dl>\n<dt>Term</dt>\n<dd>\n<p>def</p>\n<pre><code> code\n</code></pre>\n</dd>\n</dl>\n"
+  },
+  {
+    "name": "indent-1-2",
+    "hex": "5465726d0a203a20206465660a0a2020202020202020636f64650a",
+    "expected": "<dl>\n<dt>Term</dt>\n<dd>\n<p>def</p>\n<pre><code>code\n</code></pre>\n</dd>\n</dl>\n"
+  },
+  {
+    "name": "indent-1-3",
+    "hex": "5465726d0a203a2020206465660a0a2020202020202020636f64650a",
+    "expected": "<dl>\n<dt>Term</dt>\n<dd>\n<p>def</p>\n<p>code</p>\n</dd>\n</dl>\n"
+  },
+  {
+    "name": "indent-1-4",
+    "hex": "5465726d0a203a202020206465660a0a2020202020202020636f64650a",
+    "expected": "<dl>\n<dt>Term</dt>\n<dd>\n<p>def</p>\n<p>code</p>\n</dd>\n</dl>\n"
+  },
+  {
+    "name": "indent-1-5",
+    "hex": "5465726d0a203a20202020206465660a0a2020202020202020636f64650a",
+    "expected": "<dl>\n<dt>Term</dt>\n<dd>\n<pre><code>def\n\n code\n</code></pre>\n</dd>\n</dl>\n"
+  },
+  {
+    "name": "indent-1-6",
+    "hex": "5465726d0a203a2020202020206465660a0a2020202020202020636f64650a",
+    "expected": "<dl>\n<dt>Term</dt>\n<dd>\n<pre><code> def\n\n code\n</code></pre>\n</dd>\n</dl>\n"
+  },
+  {
+    "name": "indent-2-0",
+    "hex": "5465726d0a20203a6465660a0a2020202020202020636f64650a",
+    "expected": "<dl>\n<dt>Term</dt>\n<dd>\n<p>def</p>\n<pre><code> code\n</code></pre>\n</dd>\n</dl>\n"
+  },
+  {
+    "name": "indent-2-1",
+    "hex": "5465726d0a20203a206465660a0a2020202020202020636f64650a",
+    "expected": "<dl>\n<dt>Term</dt>\n<dd>\n<p>def</p>\n<pre><code>code\n</code></pre>\n</dd>\n</dl>\n"
+  },
+  {
+    "name": "indent-2-2",
+    "hex": "5465726d0a20203a20206465660a0a2020202020202020636f64650a",
+    "expected": "<dl>\n<dt>Term</dt>\n<dd>\n<p>def</p>\n<p>code</p>\n</dd>\n</dl>\n"
+  },
+  {
+    "name": "indent-2-3",
+    "hex": "5465726d0a20203a2020206465660a0a2020202020202020636f64650a",
+    "expected": "<dl>\n<dt>Term</dt>\n<dd>\n<p>def</p>\n<p>code</p>\n</dd>\n</dl>\n"
+  },
+  {
+    "name": "indent-2-4",
+    "hex": "5465726d0a20203a202020206465660a0a2020202020202020636f64650a",
+    "expected": "<dl>\n<dt>Term</dt>\n<dd>\n<p>def</p>\n<p>code</p>\n</dd>\n</dl>\n"
+  },
+  {
+    "name": "indent-2-5",
+    "hex": "5465726d0a20203a20202020206465660a0a2020202020202020636f64650a",
+    "expected": "<dl>\n<dt>Term</dt>\n<dd>\n<pre><code>def\n\ncode\n</code></pre>\n</dd>\n</dl>\n"
+  },
+  {
+    "name": "indent-2-6",
+    "hex": "5465726d0a20203a2020202020206465660a0a2020202020202020636f64650a",
+    "expected": "<dl>\n<dt>Term</dt>\n<dd>\n<pre><code> def\n\ncode\n</code></pre>\n</dd>\n</dl>\n"
+  },
+  {
+    "name": "indent-3-0",
+    "hex": "5465726d0a2020203a6465660a0a2020202020202020636f64650a",
+    "expected": "<dl>\n<dt>Term</dt>\n<dd>\n<p>def</p>\n<pre><code>code\n</code></pre>\n</dd>\n</dl>\n"
+  },
+  {
+    "name": "indent-3-1",
+    "hex": "5465726d0a2020203a206465660a0a2020202020202020636f64650a",
+    "expected": "<dl>\n<dt>Term</dt>\n<dd>\n<p>def</p>\n<p>code</p>\n</dd>\n</dl>\n"
+  },
+  {
+    "name": "indent-3-2",
+    "hex": "5465726d0a2020203a20206465660a0a2020202020202020636f64650a",
+    "expected": "<dl>\n<dt>Term</dt>\n<dd>\n<p>def</p>\n<p>code</p>\n</dd>\n</dl>\n"
+  },
+  {
+    "name": "indent-3-3",
+    "hex": "5465726d0a2020203a2020206465660a0a2020202020202020636f64650a",
+    "expected": "<dl>\n<dt>Term</dt>\n<dd>\n<p>def</p>\n<p>code</p>\n</dd>\n</dl>\n"
+  },
+  {
+    "name": "indent-3-4",
+    "hex": "5465726d0a2020203a202020206465660a0a2020202020202020636f64650a",
+    "expected": "<dl>\n<dt>Term</dt>\n<dd>\n<p>def</p>\n<p>code</p>\n</dd>\n</dl>\n"
+  },
+  {
+    "name": "indent-3-5",
+    "hex": "5465726d0a2020203a20202020206465660a0a2020202020202020636f64650a",
+    "expected": "<dl>\n<dt>Term</dt>\n<dd>\n<pre><code>def\n</code></pre>\n<p>code</p>\n</dd>\n</dl>\n"
+  },
+  {
+    "name": "indent-3-6",
+    "hex": "5465726d0a2020203a2020202020206465660a0a2020202020202020636f64650a",
+    "expected": "<dl>\n<dt>Term</dt>\n<dd>\n<pre><code> def\n</code></pre>\n<p>code</p>\n</dd>\n</dl>\n"
+  },
+  {
+    "name": "indent-4-0",
+    "hex": "5465726d0a202020203a6465660a0a2020202020202020636f64650a",
+    "expected": "<p>Term\n:def</p>\n<pre><code>    code\n</code></pre>\n"
+  },
+  {
+    "name": "indent-4-1",
+    "hex": "5465726d0a202020203a206465660a0a2020202020202020636f64650a",
+    "expected": "<p>Term\n: def</p>\n<pre><code>    code\n</code></pre>\n"
+  },
+  {
+    "name": "indent-4-2",
+    "hex": "5465726d0a202020203a20206465660a0a2020202020202020636f64650a",
+    "expected": "<p>Term\n:  def</p>\n<pre><code>    code\n</code></pre>\n"
+  },
+  {
+    "name": "indent-4-3",
+    "hex": "5465726d0a202020203a2020206465660a0a2020202020202020636f64650a",
+    "expected": "<p>Term\n:   def</p>\n<pre><code>    code\n</code></pre>\n"
+  },
+  {
+    "name": "indent-4-4",
+    "hex": "5465726d0a202020203a202020206465660a0a2020202020202020636f64650a",
+    "expected": "<p>Term\n:    def</p>\n<pre><code>    code\n</code></pre>\n"
+  },
+  {
+    "name": "indent-4-5",
+    "hex": "5465726d0a202020203a20202020206465660a0a2020202020202020636f64650a",
+    "expected": "<p>Term\n:     def</p>\n<pre><code>    code\n</code></pre>\n"
+  },
+  {
+    "name": "indent-4-6",
+    "hex": "5465726d0a202020203a2020202020206465660a0a2020202020202020636f64650a",
+    "expected": "<p>Term\n:      def</p>\n<pre><code>    code\n</code></pre>\n"
+  },
+  {
+    "name": "html_block_eof",
+    "hex": "706172610a0a3c6469763e783c2f6469763e",
+    "expected": "<p>para</p>\n<div>x</div>"
+  },
+  {
+    "name": "definition_html_block",
+    "hex": "5465726d0a3a203c6469763e783c2f6469763e0a",
+    "expected": "<dl>\n<dt>Term</dt>\n<dd><div>x</div>\n</dd>\n</dl>\n"
+  },
+  {
+    "name": "quoted_html_block_eof",
+    "hex": "3e203c6469763e783c2f6469763e",
+    "expected": "<blockquote>\n<div>x</div></blockquote>\n"
+  },
+  {
+    "name": "list_html_block_eof",
+    "hex": "2d203c6469763e783c2f6469763e",
+    "expected": "<ul>\n<li><div>x</div></li>\n</ul>\n"
+  },
+  {
+    "name": "nul_html_block_eof",
+    "hex": "3c6469763e6100623c2f6469763e",
+    "expected": "<div>a\u0000b</div>"
+  },
+  {
+    "name": "empty_definition_boundary",
+    "hex": "5465726d0a3a200a0a20202d2d2d0a",
+    "expected": "<dl>\n<dt>Term</dt>\n<dd></dd>\n</dl>\n<hr />\n"
+  }
+]

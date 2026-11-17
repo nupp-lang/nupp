@@ -67,3 +67,8 @@ LIBFFI_URL=https://github.com/libffi/libffi/releases/download/v3.8.0/libffi-3.8.
 LIBUV_VERSION=1.53.0
 LIBUV_SHA256=cb0d6dd2128d5a95bd242c6cc982a24fe608fa93da57b6b4ec763b0018c53e64
 LIBUV_URL=https://dist.libuv.org/dist/v1.53.0/libuv-v1.53.0.tar.gz
+
+# Unchanged upstream security-fixed head; extension sources live in native/markdown.
+CMARK_REV=27d942c8b0a62d192f616e5bf3578f4b6a89e180
+CMARK_SHA256=f8710b90b90a503240c920c6922367e700bb9895bb02018d6448d2f812fc7968
+CMARK_URL=https://codeload.github.com/github/cmark-gfm/tar.gz/27d942c8b0a62d192f616e5bf3578f4b6a89e180

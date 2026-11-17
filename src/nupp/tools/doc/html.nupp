@@ -2,7 +2,7 @@
 Markdown as HTML.
 
 The Markdown itself is CommonMark with pipe tables, rendered by the provider in
-[](nupp.tools.doc.markdownhost) -- `pulldown-cmark` on the VM -- which gets the
+[](nupp.tools.doc.markdownhost) -- pinned cmark-gfm -- which gets the
 things patterns get wrong: nested emphasis, escapes, a link whose URL contains a
 bracket, a `*` inside a code span.
 

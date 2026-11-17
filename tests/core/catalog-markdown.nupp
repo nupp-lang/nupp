@@ -1,0 +1,38 @@
+module nupp.core.catalogmarkdown
+
+const markdown = require("nupp.tools.doc.markdownhost")
+const codec = require("nupp.runtime.provider.markdowntext")
+
+assert(markdown.render("# Title\n") == "<h1>Title</h1>\n")
+assert(markdown.render("a\0b\n") == "<p>a\0b</p>\n")
+assert(markdown.render("<a href=a\0b>\nnext\n") == "<a href=a\0b>\nnext\n")
+assert(markdown.render("[x](<a\0b>)\n") == '<p><a href="a%00b">x</a></p>\n')
+assert(
+    markdown.render(
+        "|a|b|\n|---|---|\n"
+    ) == "<table><thead><tr><th>a</th><th>b</th></tr></thead><tbody>\n</tbody></table>\n"
+)
+assert(markdown.render("[**x**](a\0b)\n") == "<p>[<strong>x</strong>](a\0b)</p>\n")
+assert(markdown.render("[r]: a\0b\n\n[x][r]\n") == "<p>[r]: a\0b</p>\n<p>[x][r]</p>\n")
+assert(markdown.render("\xef\xbb\xbf# title\n") == "<p>\xef\xbb\xbf# title</p>\n")
+assert(markdown.render("\xe2\x82 \xed\xa0\x80") == "<p>\xef\xbf\xbd \xef\xbf\xbd\xef\xbf\xbd\xef\xbf\xbd</p>\n")
+assert(markdown.render("Term\n: \"quote\" -- ...\n") == '<dl>\n<dt>Term</dt>\n<dd>"quote" -- ...</dd>\n</dl>\n')
+assert(
+    markdown.render(
+        "Term\n: first\n\n    second\n"
+    ) == "<dl>\n<dt>Term</dt>\n<dd>\n<p>first</p>\n<p>second</p>\n</dd>\n</dl>\n"
+)
+assert(markdown.render("<!--nuppdoc-block-1-->\n") == "<!--nuppdoc-block-1-->\n")
+assert(markdown.render("[x](javascript:alert(1))\n") == '<p><a href="javascript:alert(1)">x</a></p>\n')
+assert(markdown.render("~~strike~~\n") == "<p>~~strike~~</p>\n")
+assert(codec.lossy("\xf0\x90\x80") == "\xef\xbf\xbd")
+assert(codec.lossy(string.rep("\xff", 5000)) == string.rep("\xef\xbf\xbd", 5000))
+local ok = pcall(markdown.render as any, 1)
+assert(not ok)
+-- A copied result survives repeated parser/AST/extension destruction.
+local kept = markdown.render("kept")
+for i = 1, 20 do
+    assert(markdown.render(tostring(i)) ~= nil)
+end
+assert(kept == "<p>kept</p>\n")
+export const result = 1

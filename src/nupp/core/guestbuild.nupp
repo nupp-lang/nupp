@@ -404,6 +404,7 @@ local CASES: {[string]: {
     filesystem = {fixture = "catalog-filesystem", version = 8, follow = true},
     osremove = {fixture = "catalog-os-remove", version = 8},
     clihosts = {fixture = "catalog-cli-hosts", version = 8},
+    markdown = {fixture = "catalog-markdown", version = 8},
     -- Lua's loaders over a binary chunk installed into the running program.
     loadbinary = {fixture = "catalog-load-binary", version = 8, chunks = {"catalog-load-chunk"}},
     -- Hostile binary chunks, each refused, while a loaded one waits suspended.
@@ -1020,6 +1021,7 @@ local function checkedProject(root: string): any
                 include = {"src", "build/core-guest-programs/source", "tests/tools/test/runner"},
                 build = {outDir = "build/core-guest-programs/out"},
                 libraries = {
+                    nuppmarkdown = {name = "nupp_markdown", env = "NUPP_MARKDOWN_LIBRARY"},
                     nuppzlib = {name = "z", env = "NUPP_ZLIB_LIBRARY"},
                     nuppcrypto = {name = "crypto", env = "NUPP_CRYPTO_LIBRARY"},
                     nuppssl = {name = "ssl", env = "NUPP_SSL_LIBRARY", dependencies = {"nuppcrypto"}},

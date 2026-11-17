@@ -1,13 +1,77 @@
 @!internal
 
 --[[
-The core's answer to `nupp.vm.markdown`, the VM's Markdown renderer for
-`nupp doc`: the core has none, so rendering answers that, as the checkout's
-own renderer does where no host supplies one.
+The pinned upstream C renderer, with tables and the separate colon definition
+extension. Raw HTML and unsafe URLs are retained; this is not a sanitizer.
 ]]
 module nupp.runtime.provider.coremarkdown
 
---- No HTML, and why.
-export function render(_: string): (string?, string?)
-    return nil, "Markdown rendering is not available on the core"
+const textcodec = require("nupp.runtime.provider.markdowntext")
+
+cdef function nupp_markdown_revision(): cstring from"nuppmarkdown"
+cdef function nupp_markdown_new(): voidptr? from"nuppmarkdown"
+cdef function nupp_markdown_render(
+    exclusive document: voidptr,
+    text: string,
+    count: uint64,
+    budget: uint64
+): int32 from"nuppmarkdown"
+cdef function nupp_markdown_text_at(borrows document: voidptr, at: uint64): cstring? from"nuppmarkdown"
+cdef function nupp_markdown_size(borrows document: voidptr): uint64 from"nuppmarkdown"
+cdef function nupp_markdown_free(takes document: voidptr) from"nuppmarkdown"
+
+local record Document is own.Closeable
+    @private handle: voidptr?
+    function close(takes self): nil
+        if self.handle ~= nil then
+            nupp_markdown_free(self.handle)
+            self.handle = nil
+        end
+    end
+end
+
+--- CommonMark, tables and definitions, preserving the host's HTML policy.
+--- @raises string for a non-string, oversized document or resource failure
+export function render(text: string): (string?, string?)
+    if type(text) ~= "string" then
+        error("bad argument #1 to 'render' (string expected, got " .. type(text) .. ")", 2)
+    end
+    assert(#text <= 8388608, "Markdown input exceeds 8 MiB")
+    local decoded = textcodec.lossy(text)
+    assert(#decoded <= 8388608, "Markdown decoded input exceeds 8 MiB")
+    assert(
+        tostring(nupp_markdown_revision()) == "27d942c8b0a62d192f616e5bf3578f4b6a89e180/definition-list-1",
+        "Markdown header/library mismatch"
+    )
+    local document = Document(handle = nil)
+    document.handle = nupp_markdown_new()
+    assert(document.handle ~= nil, "Markdown allocation failed")
+    assert(
+        nupp_markdown_render(document.handle, decoded, #decoded as uint64, 134217728ULL) == 0,
+        "Markdown resource limit or allocation failure"
+    )
+    local size = nupp_markdown_size(document.handle)
+    assert(size <= 33554432ULL, "Markdown output exceeds 32 MiB")
+    local at: uint64 = 0ULL
+    local parts: {string} = {}
+    local chunks: {string} = {}
+    while at < size do
+        local pointer = nupp_markdown_text_at(document.handle, at)
+        assert(pointer ~= nil, "Markdown output is missing")
+        local part = tostring(pointer)
+        parts[#parts + 1] = part
+        at = at + #part
+        if at < size then
+            parts[#parts + 1] = "\0"
+            at = at + 1ULL
+        end
+        if #parts >= 4096 then
+            chunks[#chunks + 1] = table.concat(parts)
+            parts = {}
+        end
+    end
+    chunks[#chunks + 1] = table.concat(parts)
+    -- Each cstring segment is copied before the matching owner is closed.
+
+    return table.concat(chunks)
 end

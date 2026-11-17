@@ -1,5 +1,8 @@
 host/notices/** text eol=lf
 tests/fixtures/compression-codec/*.bin -text
+tests/fixtures/markdown/** text eol=lf
+# The upstream example includes two spaces to test a Markdown hard break.
+tests/fixtures/markdown/definition-lists.txt whitespace=-blank-at-eol
 
 # `nupp fmt` writes LF and `nupp fmt --check` holds this tree to what it writes,
 # so a checkout that translates line endings has an unformatted tree by the time

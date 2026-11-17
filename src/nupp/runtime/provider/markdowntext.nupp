@@ -1,0 +1,57 @@
+@!internal
+module nupp.runtime.provider.markdowntext
+
+-- Rust-compatible maximal valid prefixes of malformed UTF-8 sequences.
+-- The ordinary utf8 decoder instead replaces each malformed byte.
+export function lossy(text: string): string
+    local pieces: {string} = {}
+    local chunks: {string} = {}
+    local first, at = 1, 1
+    while at <= #text do
+        local lead = text:byte(at)
+        local width, low, high = 1, 0x80, 0xbf
+        if lead >= 0xc2 and lead <= 0xdf then
+            width = 2
+        elseif lead >= 0xe0 and lead <= 0xef then
+            width = 3
+            if lead == 0xe0 then
+                low = 0xa0
+            elseif lead == 0xed then
+                high = 0x9f
+            end
+        elseif lead >= 0xf0 and lead <= 0xf4 then
+            width = 4
+            if lead == 0xf0 then
+                low = 0x90
+            elseif lead == 0xf4 then
+                high = 0x8f
+            end
+        end
+        local read = 1
+        while read < width do
+            local byte = text:byte(at + read)
+            if byte == nil or byte < low or byte > high then
+                break
+            end
+            read = read + 1
+            low, high = 0x80, 0xbf
+        end
+        if lead >= 0x80 and (width == 1 or read < width) then
+            pieces[#pieces + 1] = text:sub(first, at - 1)
+            pieces[#pieces + 1] = "\xef\xbf\xbd"
+            first = at + read
+            if #pieces >= 4096 then
+                chunks[#chunks + 1] = table.concat(pieces)
+                pieces = {}
+            end
+        end
+        at = at + read
+    end
+    if #pieces == 0 and #chunks == 0 then
+        return text
+    end
+    pieces[#pieces + 1] = text:sub(first)
+    chunks[#chunks + 1] = table.concat(pieces)
+
+    return table.concat(chunks)
+end

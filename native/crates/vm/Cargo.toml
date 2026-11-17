@@ -26,7 +26,7 @@ default = ["jit", "c-headers", "native-ffi", "compression", "net", "http", "mark
 compression = ["dep:nupp-native-compression"]
 net = ["dep:nupp-native-net", "dep:nupp-native-tls", "dep:ring"]
 http = ["dep:nupp-native-http", "dep:url"]
-markdown = ["dep:pulldown-cmark"]
+markdown = []
 # Retired: links nothing. A compiler generation built before the regex
 # facility was removed still names it when it rebuilds its successor, and
 # without the feature that rebuild fails and the old generation keeps
@@ -74,10 +74,6 @@ cranelift-native = { version = "0.135", optional = true }
 cranelift-object = { version = "0.135", optional = true }
 cranelift-reader = { version = "0.135", optional = true }
 sha2 = "0.10"
-# `nupp doc`: CommonMark with tables rendered to HTML (`src/nmarkdown.rs`).
-# Added 2026-10-16 at 0.13.4 to replace lunamark, which needed LPeg; only the
-# HTML writer is enabled, not the command-line tool's getopts.
-pulldown-cmark = { version = "0.13.4", optional = true, default-features = false, features = ["html"] }
 libc = "0.2"
 
 # Full ARM64 runtimes already link ring through TLS. Minimal/no-net runtimes

@@ -303,6 +303,7 @@ local CASES = {
     {"osremove", 0x7FFF000000001FFF},
     -- The compiler's host services as the core answers them for check and build.
     {"clihosts", 0x7FFF0000000000FF},
+    {"markdown", 0x7FFF000000000001},
     -- C declarations through libclang, and the VM's answers to every
     -- request core-cdecl-record.lua records.
     {"corecdecl", 0x7FFF0000000007FF},
@@ -556,6 +557,7 @@ local STRESS = {
     nullablepointers = true,
     compressioncodec = true,
     cryptocodec = true,
+    markdown = true,
     ffiaggregates = true,
     runnerresiduals = true,
     spreadlibrary = true,
