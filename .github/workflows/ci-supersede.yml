@@ -1,0 +1,81 @@
+name: Supersede queued runs
+
+# Cancels a Compiler matrix push run once a newer push to the same branch has
+# superseded it and nothing of it is still executing: everything it has left is
+# waiting for a runner, to answer about a commit the newer run also covers.
+#
+# The trunk's concurrency group lets a run in progress finish rather than
+# cancelling it on every push, so that a stream of pushes from several agents
+# still produces finished runs. The cost is that a run whose remaining jobs
+# wait on a scarce runner (five macOS runners, shared with every other branch)
+# holds the newer run behind it for as long as they wait. This is the narrow
+# rule that pays that cost back: it never cancels a job that has started, the
+# newest run on a branch, a scheduled run or a manual one. A newer run that is
+# itself pending behind the concurrency group cannot do this from its own jobs,
+# which is why it is a workflow of its own; the schedule catches the backlog
+# that forms after the last push, once an older run's last executing job ends.
+#
+# A second rule covers task branches cut before branch pushes stopped asking
+# for macOS: a branch run (not the trunk's) whose only unfinished jobs are
+# macOS jobs that have waited more than MACOS_WAIT_MINUTES for a runner is
+# cancelled too. Branches test macOS locally; that wait is the trunk's.
+on:
+  push:
+    branches:
+      - "**"
+  schedule:
+    - cron: "*/10 * * * *"
+  workflow_dispatch:
+
+permissions:
+  actions: write
+  contents: read
+
+concurrency:
+  group: ci-supersede
+  cancel-in-progress: false
+
+jobs:
+  supersede:
+    name: Cancel superseded runs that only wait
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Cancel superseded runs
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          TRUNK: ${{ github.event.repository.default_branch }}
+          MACOS_WAIT_MINUTES: "30"
+        run: |
+          set -euo pipefail
+          runs=$(gh api --paginate "repos/$REPO/actions/workflows/compiler.yml/runs?event=push&per_page=100" \
+            --jq '.workflow_runs[] | select(.status != "completed") | [.id, .head_branch, .created_at] | @tsv')
+          [ -n "$runs" ] || { echo "nothing in flight"; exit 0; }
+          # Newest first per branch; every run after a branch's first is superseded.
+          printf '%s\n' "$runs" | sort -t "$(printf '\t')" -k2,2 -k3,3r | awk -F '\t' '$2 == last { print $1 "\t" $2 } { last = $2 }' |
+          while IFS="$(printf '\t')" read -r id branch; do
+            executing=$(gh api "repos/$REPO/actions/runs/$id/jobs?per_page=100" --jq '[.jobs[] | select(.status == "in_progress")] | length')
+            if [ "$executing" -eq 0 ]; then
+              echo "cancel $id on $branch: superseded, nothing executing"
+              gh api -X POST "repos/$REPO/actions/runs/$id/cancel" >/dev/null || echo "  could not cancel $id"
+            else
+              echo "keep $id on $branch: $executing job(s) still executing"
+            fi
+          done
+
+          # Branch runs left waiting only on macOS runners.
+          cutoff=$(date -u -d "-$MACOS_WAIT_MINUTES minutes" +%Y-%m-%dT%H:%M:%SZ)
+          printf '%s\n' "$runs" | while IFS="$(printf '\t')" read -r id branch created; do
+            case "$branch" in main | "$TRUNK") continue ;; esac
+            verdict=$(gh api "repos/$REPO/actions/runs/$id/jobs?per_page=100" --jq '
+              [.jobs[] | select(.status != "completed")] as $open
+              | if ($open | length) > 0
+                  and all($open[]; .status == "queued" and (.labels | join(",") | test("macos"))
+                                    and .created_at < "'"$cutoff"'")
+                then "cancel" else "keep" end' 2>/dev/null || echo keep)
+            if [ "$verdict" = cancel ]; then
+              echo "cancel $id on $branch: only macOS jobs left, waiting over $MACOS_WAIT_MINUTES minutes"
+              gh api -X POST "repos/$REPO/actions/runs/$id/cancel" >/dev/null || echo "  could not cancel $id"
+            fi
+          done
