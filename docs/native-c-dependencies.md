@@ -8,6 +8,12 @@ SDK. Windows uses the MSVC x64 developer environment and native Windows Perl
 compiler/linker directory ahead of Git's `link.exe` too. Rust tools are
 not inputs.
 
+`scripts/toolchain isal` builds the native CRC bundle using the same contracts.
+It includes upstream CPU dispatch and portable C fallback. x86 builds also
+need NASM; CI provides it. See [CRC routing and state](crc-isal.md) for
+the public caller path, packaged headers/static/shared libraries, tests,
+and the retained browser/Rust limits.
+
 The source digests live in `scripts/toolchain.pins`; notices are compared
 byte for byte with the verified sources. A missing archive in offline mode,
 wrong digest, mismatched host target, or damaged cached header/library refuses

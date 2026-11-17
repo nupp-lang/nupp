@@ -1,8 +1,8 @@
 @!internal
---[[Built-in Adler-32 and crc-fast algorithm descriptors.
+--[[Built-in Adler-32 and CRC algorithm descriptors.
 
 Each descriptor creates independent state. CRC updates borrow byte spans through
-crc-fast without retaining them; value reads the saved non-consuming snapshot.
+ISA-L on native hosts without retaining them; value reads a non-consuming snapshot.
 ]]
 module nupp.checksum.internal.builtin
 

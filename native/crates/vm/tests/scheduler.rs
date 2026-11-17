@@ -329,7 +329,7 @@ fn corrupt_scheduler_metadata_is_rejected_without_panicking() {
     for at in bytes.len().saturating_sub(80)..bytes.len() {
         let mut bad = bytes.clone();
         bad[at] ^= 255;
-        let crc = crc32fast::hash(&bad[21..]);
+        let crc = nupp_crc::update(1, None, &bad[21..]).unwrap()[1] as u32;
         bad[17..21].copy_from_slice(&crc.to_le_bytes());
         assert!(
             std::panic::catch_unwind(|| {

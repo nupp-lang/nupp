@@ -13,6 +13,7 @@ inputs:
 runs:
   using: composite
   steps:
+    - uses: ./.github/actions/c-assembler
     # One spelling of each key, read by the restores and the saves below.
     - id: keys
       shell: bash

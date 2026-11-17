@@ -1077,7 +1077,6 @@ dependencies = [
  "cranelift-native",
  "cranelift-object",
  "cranelift-reader",
- "crc32fast",
  "libc",
  "libffi",
  "nupp-counter-extension",

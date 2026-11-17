@@ -2,10 +2,12 @@
 
 #![forbid(unsafe_op_in_unsafe_fn)]
 
+#[cfg(target_family = "wasm")]
 use crc_fast::{CrcAlgorithm, Digest};
 use nupp_native_abi::{Status, boundary, guard, last_error_ptr, set_last_error};
 use std::ffi::c_char;
 
+#[cfg(target_family = "wasm")]
 fn algorithm(id: u32) -> Option<CrcAlgorithm> {
     Some(match id {
         1 => CrcAlgorithm::Crc32IsoHdlc,
@@ -18,6 +20,7 @@ fn algorithm(id: u32) -> Option<CrcAlgorithm> {
 
 /// Updates a resumable checksum without retaining the input or owning state.
 /// `None` starts a new checksum; the result contains state and a snapshot.
+#[cfg(target_family = "wasm")]
 pub fn update(id: u32, state: Option<u64>, input: &[u8]) -> Result<[u64; 2], &'static str> {
     let algorithm = algorithm(id).ok_or("unknown CRC algorithm")?;
     let mut digest = match state {
@@ -26,6 +29,34 @@ pub fn update(id: u32, state: Option<u64>, input: &[u8]) -> Result<[u64; 2], &'s
     };
     digest.update(input);
     Ok([digest.get_state(), digest.finalize()])
+}
+
+#[cfg(not(target_family = "wasm"))]
+unsafe extern "C" {
+    #[link_name = "nuppCrcUpdate"]
+    fn isal_update(id: u32, reset: i32, words: *mut u64, data: *const u8, length: usize) -> i32;
+}
+
+#[cfg(not(target_family = "wasm"))]
+pub fn update(id: u32, state: Option<u64>, input: &[u8]) -> Result<[u64; 2], &'static str> {
+    if !(1..=4).contains(&id) {
+        return Err("unknown CRC algorithm");
+    }
+    let mut words = [state.unwrap_or(0), 0];
+    // SAFETY: disjoint slices cover every byte; ISA-L borrows them only here.
+    let status = unsafe {
+        isal_update(
+            id,
+            i32::from(state.is_none()),
+            words.as_mut_ptr(),
+            input.as_ptr(),
+            input.len(),
+        )
+    };
+    if status != 0 {
+        return Err("invalid CRC input or state");
+    }
+    Ok(words)
 }
 
 /// Updates two caller-owned words: the resumable state and its checksum.
@@ -44,7 +75,7 @@ pub unsafe extern "C" fn nuppCrcUpdate(
     length: usize,
 ) -> i32 {
     boundary(|| {
-        if algorithm(id).is_none() {
+        if !(1..=4).contains(&id) {
             set_last_error("unknown CRC algorithm");
             return Status::InvalidArgument.code();
         }
@@ -130,7 +161,7 @@ mod tests {
             for length in [0, 1, 7, 15, 16, 31, 32, 127, 128, 255, 256, 1024, 32768] {
                 // An offset exercises unaligned input as well as embedded zeros.
                 let bytes = &storage[1..length + 1];
-                let expected = crc_fast::checksum(algorithm(id).unwrap(), bytes);
+                let expected = update(id, None, bytes).unwrap()[1];
                 for chunk_size in [1, 7, 16, 129, 1024, 8192] {
                     let mut words = [0; 2];
                     assert_eq!(step(id, true, &mut words, b""), 0);

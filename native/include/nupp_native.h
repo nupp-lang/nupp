@@ -80,7 +80,7 @@ typedef struct {
     size_t length;
 } NuppNativeSlice;
 
-/* crc-fast: words[0] is resumable state and words[1] is its numeric checksum.
+/* CRC: words[0] is resumable state and words[1] is its numeric checksum.
  * Algorithm IDs are 1=CRC32, 2=CRC32C, 3=CRC64/ECMA-182, 4=CRC64/NVME.
  * reset is 0 or 1; reset=1 starts fresh. Input and state ranges do not overlap.
  * Empty input permits a null pointer. No range is retained after the call. */

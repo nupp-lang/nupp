@@ -6,6 +6,7 @@ cd "$ROOT"
 OUT=${NUPP_C_LIBRARY_EVIDENCE:-"$ROOT/build/c-libraries"}
 mkdir -p "$OUT"
 node --test tests/tools/toolchain/clibraries.test.mjs
+sh .github/scripts/test-crc-isal.sh
 began=$(date +%s)
 zlib=$(./scripts/toolchain zlib)
 openssl=$(./scripts/toolchain openssl)

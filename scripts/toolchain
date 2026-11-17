@@ -26,7 +26,7 @@ ROOT=$(CDPATH= cd -- "$(dirname "$0")/.." && pwd)
 # These independent artifacts do not depend on the frozen Rust runtime or
 # LuaRocks toolchain. Their driver validates the exact dependency closure.
 case "${1:-}" in
-    zlib|openssl|libcurl|libffi|libuv) exec sh "$ROOT/scripts/native-libraries" "$@" ;;
+    zlib|openssl|libcurl|libffi|libuv|isal) exec sh "$ROOT/scripts/native-libraries" "$@" ;;
 esac
 
 # A pin's URL and directory are templates over its own version, so a bump moves

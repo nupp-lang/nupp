@@ -20,6 +20,7 @@ repeated here so the release notices remain complete in one place.
 | [zlib](https://zlib.net/) | `1.4` | zlib | [notices/zlib-LICENSE.txt](notices/zlib-LICENSE.txt) |
 | [OpenSSL](https://openssl-library.org/) | `3.5.9` | Apache-2.0 | [notices/OpenSSL-LICENSE.txt](notices/OpenSSL-LICENSE.txt) |
 | [libcurl](https://curl.se/libcurl/) | `8.23.0` | curl | [notices/libcurl-LICENSE.txt](notices/libcurl-LICENSE.txt) |
+| [ISA-L](https://github.com/intel/isa-l) | `2.32.1` | BSD-3-Clause | [notices/ISA-L-LICENSE.txt](notices/ISA-L-LICENSE.txt) |
 
 `scripts/toolchain zlib`, `openssl` and `libcurl` build digest-pinned shared C
 libraries with matched headers and notices. Curl uses those exact OpenSSL and

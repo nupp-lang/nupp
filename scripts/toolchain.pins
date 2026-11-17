@@ -46,6 +46,10 @@ STAGE0_IMAGE_URL='https://github.com/nupp-lang/nupp/releases/download/${STAGE0_I
 
 # Shared C libraries used directly by Nupp's checked FFI. Keep one artifact
 # for each dependency across the codec, HTTP, TLS and crypto providers.
+ISAL_VERSION=2.32.1
+ISAL_SHA256=d9f7179ab0e14a3db9b610fac22793854a1435e8423ec9ce07f4cbedc5f92f5e
+ISAL_URL=https://codeload.github.com/intel/isa-l/tar.gz/refs/tags/v2.32.1
+
 ZLIB_VERSION=1.4
 ZLIB_SHA256=02dd159783677a749c04adbdd02b55b8a2bcc7e054f51b76b549199a916ad584
 ZLIB_URL=https://github.com/madler/zlib/releases/download/v1.4/zlib-1.4.tar.gz

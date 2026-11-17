@@ -1,0 +1,18 @@
+name: Provide the x86 CRC assembler
+description: ISA-L's upstream x86 implementations require NASM
+runs:
+  using: composite
+  steps:
+    - name: Install NASM when absent
+      shell: bash
+      run: |
+        if [ "$(uname -m)" != x86_64 ]; then exit 0; fi
+        if command -v nasm >/dev/null; then exit 0; fi
+        case "$RUNNER_OS" in
+          Linux) sudo apt-get update && sudo apt-get install -y nasm ;;
+          macOS) brew install nasm ;;
+          Windows)
+            choco install nasm --no-progress -y
+            echo 'C:\Program Files\NASM' >> "$GITHUB_PATH"
+            ;;
+        esac

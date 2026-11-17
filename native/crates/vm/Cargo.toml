@@ -74,7 +74,6 @@ cranelift-native = { version = "0.135", optional = true }
 cranelift-object = { version = "0.135", optional = true }
 cranelift-reader = { version = "0.135", optional = true }
 sha2 = "0.10"
-crc32fast = "1.5"
 # `nupp doc`: CommonMark with tables rendered to HTML (`src/nmarkdown.rs`).
 # Added 2026-10-16 at 0.13.4 to replace lunamark, which needed LPeg; only the
 # HTML writer is enabled, not the command-line tool's getopts.

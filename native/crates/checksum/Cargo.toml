@@ -13,6 +13,9 @@ crate-type = ["rlib", "cdylib"]
 default = []
 ffi = []
 
-[dependencies]
+[target.'cfg(target_family = "wasm")'.dependencies]
+# Retained until the browser C build is migrated; native CRC uses ISA-L.
 crc-fast = { version = "1.10.0", default-features = false, features = ["std"] }
+
+[dependencies]
 nupp-native-abi = { path = "../abi" }

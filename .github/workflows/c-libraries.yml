@@ -6,11 +6,13 @@ on:
       - '.github/workflows/c-libraries.yml'
       - '.github/scripts/test-c-libraries.sh'
       - '.github/scripts/test-libuv.sh'
+      - '.github/scripts/test-crc-isal.sh'
       - 'scripts/toolchain'
       - 'scripts/toolchain.pins'
       - 'scripts/native-libraries'
       - 'scripts/c-libraries/**'
       - 'scripts/test-libffi'
+      - 'native/crates/checksum/csrc/**'
       - 'tests/fixtures/c-libraries/**'
       - 'tests/fixtures/libuv/**'
       - 'tests/tools/toolchain/clibraries.test.mjs'
@@ -48,6 +50,7 @@ jobs:
     timeout-minutes: 35
     steps:
       - uses: actions/checkout@v5
+      - uses: ./.github/actions/c-assembler
       - name: Select the MSVC SDK
         if: runner.os == 'Windows'
         shell: pwsh
@@ -106,6 +109,8 @@ jobs:
             build/libuv/timing.json
             build/libuv/libuv.identity
             build/libuv/libuv-files.sha256
+            build/crc-isal/crc.txt
+            build/crc-isal/isal.identity
           if-no-files-found: error
   libffi:
     if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name != github.repository

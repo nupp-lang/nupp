@@ -331,7 +331,7 @@ fn frame(kind: u8, payload: Vec<u8>) -> Result<Vec<u8>> {
     w.0.extend(MAGIC);
     w.byte(kind);
     w.u64(payload.len() as u64);
-    w.0.extend(crc32fast::hash(&payload).to_le_bytes());
+    w.0.extend((nupp_crc::update(1, None, &payload).unwrap()[1] as u32).to_le_bytes());
     w.0.extend(payload);
     Ok(w.0)
 }
@@ -350,7 +350,7 @@ fn unframe(data: &[u8], kind: u8) -> Result<&[u8]> {
     let hash = r.u32()? as u32;
     let data = r.take(n as usize)?;
     r.done()?;
-    if crc32fast::hash(data) != hash {
+    if nupp_crc::update(1, None, data).unwrap()[1] as u32 != hash {
         return Err("persistence checksum mismatch".into());
     }
     Ok(data)
