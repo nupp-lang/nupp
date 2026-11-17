@@ -25,7 +25,8 @@ local GROUPED = "external-corpus,measurement,native-runtime,awaits-core"
 --- bounds how many suites one set of workers lives through (0: all of them),
 --- which is what bounds memory in the shared lane (#115); `jobs` is the worker
 --- count (0: the runner's own, one per core).
-local function lane(name, excluded, shards, batch, jobs)
+--- `fullOnly` keeps the lane out of a run that is not a full one.
+local function lane(name, excluded, shards, batch, jobs, fullOnly)
     return {
         kind = "lane",
         title = name,
@@ -33,6 +34,7 @@ local function lane(name, excluded, shards, batch, jobs)
         shards = shards,
         batch = batch or 0,
         jobs = jobs or 0,
+        fullOnly = fullOnly or false,
     }
 end
 
@@ -67,12 +69,17 @@ composer.platforms = {
         -- two, because as one leg it ran past the timeout (17 November), and
         -- its second half starts as soon as the short native gates leg ends.
         timeout = 150,
+        -- The lanes run only in a full macOS run: nightly, or when one is asked
+        -- for (MACOS_FULL). Main's runs draw on the same five runners, and a
+        -- push's lanes waited for them long enough to be cancelled. The short
+        -- legs stay on every push, because the native core is built for this
+        -- target first.
         legs = {
             {kind = "gates", title = "native gates"},
             {kind = "native-core", title = "native core", select = "--group=native-runtime", jobs = 1},
-            lane("shared", GROUPED, 1, 15),
-            lane("isolated", GROUPED, 1),
-            lane("shell", GROUPED, 2, 0, 2),
+            lane("shared", GROUPED, 1, 15, nil, true),
+            lane("isolated", GROUPED, 1, nil, nil, true),
+            lane("shell", GROUPED, 2, 0, 2, true),
         },
     },
     {
@@ -91,10 +98,14 @@ composer.platforms = {
     },
 }
 
---- Every leg of one platform, one entry per job.
-function composer.compose(platform)
+--- Every leg of one platform, one entry per job. A leg marked `fullOnly` is
+--- left out unless `full` is true.
+function composer.compose(platform, full)
     local entries = {}
     for _, leg in ipairs(platform.legs) do
+        if leg.fullOnly and not full then
+            goto continue
+        end
         local shards = leg.shards or 1
         for shard = 1, shards do
             local title = leg.title
@@ -114,6 +125,7 @@ function composer.compose(platform)
                 jobs = leg.jobs or 0,
             }
         end
+        ::continue::
     end
 
     return entries
@@ -159,7 +171,7 @@ if invokedDirectly then
     local output = os.getenv("GITHUB_OUTPUT")
     local handle = output and assert(io.open(output, "a"))
     for _, platform in ipairs(composer.platforms) do
-        local legs = selected[platform.key] and composer.compose(platform) or {}
+        local legs = selected[platform.key] and composer.compose(platform, os.getenv("MACOS_FULL") == "true") or {}
         local lines = (
             "%s-legs=%s\nbuild-%s=%s\n"
         ):format(platform.key, composer.encode(legs), platform.key, builds[platform.key] and "true" or "false")

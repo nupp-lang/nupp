@@ -28,6 +28,11 @@ on:
   # share a cache, since a pull request's merge ref is a cache scope of its own.
   pull_request:
   workflow_dispatch:
+    inputs:
+      macos:
+        description: Run the full macOS lanes, not only its gates and native core
+        type: boolean
+        default: false
   # The affected-surface classifier is deliberately conservative, but it is a
   # judgement all the same. Run the whole matrix nightly whatever changed, so a
   # gap in the classification is found by this backstop rather than by a user.
@@ -259,6 +264,13 @@ jobs:
           SELECTED_LINUX: ${{ steps.classify.outputs.linux-integration }}
           SELECTED_MACOS: ${{ steps.classify.outputs.macos-integration }}
           SELECTED_WINDOWS: ${{ steps.classify.outputs.windows-integration }}
+          # The full macOS lanes: nightly, a dispatch asking for them, a pushed
+          # commit saying `[ci macos]`, or a pull request labeled `ci:macos`.
+          MACOS_FULL: >-
+            ${{ github.event_name == 'schedule'
+            || (github.event_name == 'workflow_dispatch' && inputs.macos)
+            || contains(github.event.head_commit.message, '[ci macos]')
+            || contains(github.event.pull_request.labels.*.name, 'ci:macos') }}
           SELECTED_LINUX_COMPILER: >-
             ${{ steps.classify.outputs.fast-checks == 'true'
             || steps.classify.outputs.docs-site == 'true'
