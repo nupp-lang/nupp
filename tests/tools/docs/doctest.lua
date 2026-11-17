@@ -64,6 +64,26 @@ local SOURCE = table.concat(
 
 local M = {}
 
+function M.checkoutMarkdownCopiesTheExactBytes()
+    local render = require("nupp.tools.doc.markdownhost").render
+    assert(render("Term\n: definition\n\na\0b") == "<dl>\n<dt>Term</dt>\n<dd>definition</dd>\n</dl>\n<p>a\0b</p>\n")
+end
+
+function M.htmlSiteNeedsTheCheckoutRenderer()
+    local dir = tempProject({["main.nupp"] = SOURCE})
+    for _, kind in ipairs({"site", "both"}) do
+        local result = capture(
+            (
+                "cd '%s' && NUPP_MARKDOWN_LIBRARY= '%s' doc --kind %s -o site main.nupp 2>&1; echo rc=$?"
+            ):format(dir, NUPP, kind)
+        )
+        assert(result:find("HTML site generation is unavailable", 1, true), result)
+        assert(result:find("rc=1", 1, true), result)
+        assert(not io.open(dir .. "/site/index.html", "rb"))
+    end
+    os.execute("rm -rf '" .. dir .. "'")
+end
+
 local function renderMarkdownItem(out, item)
     out[#out + 1] = require("nupp.tools.doc.html").markdownHtml(
         require("nupp.tools.doc.markdown").items({

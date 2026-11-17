@@ -1,13 +1,78 @@
 @!internal
 module nupp.tools.doc.markdownhost
 
---[[
-The Markdown renderer for `nupp doc`: pinned cmark-gfm with tables and the
-separate definition-list extension. Both execution paths supply this service.
-]]
+-- The checkout renderer loads a separately provisioned C library. The core
+-- substitutes its direct, checked C provider for this module.
+const native = require("nupp.vm.foreign")
+const textcodec = require("nupp.runtime.provider.markdowntext")
+const MESSAGE = "HTML site generation is unavailable without a Markdown library. Use --kind markdown or --kind json, or stage the checkout renderer."
 
-const markdown = require("nupp.vm.markdown")
+local loaded: any = nil
+
+export function available(): boolean
+    local path = os.getenv("NUPP_MARKDOWN_LIBRARY")
+
+    return path ~= nil and path ~= ""
+end
+
+local function library(): any
+    if loaded == nil then
+        local handle = native.load(assert(os.getenv("NUPP_MARKDOWN_LIBRARY")))
+        local revision = native.bind(handle, "nupp_markdown_revision", {params = {}, result = "pointer"})
+        assert(
+            native.string(revision()) == "27d942c8b0a62d192f616e5bf3578f4b6a89e180/definition-list-1",
+            "Markdown header/library mismatch"
+        )
+        loaded = {
+            new = native.bind(handle, "nupp_markdown_new", {
+                params = {},
+                result = "pointer"
+            }),
+            render = native.bind(handle, "nupp_markdown_render", {
+                params = {"pointer", {kind = "pointer", readonly = true}, "uint64", "uint64"},
+                result = "int32"
+            }),
+            text = native.bind(handle, "nupp_markdown_text", {params = {"pointer"}, result = "pointer"}),
+            size = native.bind(handle, "nupp_markdown_size", {params = {"pointer"}, result = "uint64"}),
+            free = native.bind(handle, "nupp_markdown_free", {params = {"pointer"}, result = "void"})
+        }
+    end
+
+    return loaded
+end
 
 export function render(text: string): (string?, string?)
-    return markdown.render(text)
+    if not available() then
+        return nil, MESSAGE
+    end
+    if type(text) ~= "string" then
+        error("bad argument #1 to 'render' (string expected, got " .. type(text) .. ")", 2)
+    end
+    assert(#text <= 8388608, "Markdown input exceeds 8 MiB")
+    local decoded = textcodec.lossy(text)
+    assert(#decoded <= 8388608, "Markdown decoded input exceeds 8 MiB")
+    local calls = library()
+    local document = assert(calls.new(), "Markdown allocation failed")
+    local ok, result = pcall(function()
+        assert(
+            calls.render(document, decoded, #decoded, 134217728) == 0,
+            "Markdown resource limit or allocation failure"
+        )
+        local size = assert(math.tointeger(tonumber(calls.size(document))))
+        assert(size <= 33554432, "Markdown output exceeds 32 MiB")
+        local output = assert(calls.text(document), "Markdown output is missing")
+        local copied = native.string(output, size)
+        native.close(output)
+
+        return copied
+    end)
+    calls.free(document)
+    native.close(document)
+    if not ok then
+        error(result, 0)
+    end
+
+    return result
 end
+
+export const unavailable = MESSAGE

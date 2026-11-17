@@ -400,7 +400,7 @@ pub const MAX_RESULTS: usize = 128;
 
 /// Builtin-name prefixes whose primitives a VM provider is written over, and
 /// the module each set is installed as.
-pub const PROVIDER_FAMILIES: &[(&str, &str)] = &[("ncompression.", "nupp.vm.compression"), ("nnet.", "nupp.vm.net"), ("nhttp.", "nupp.vm.http"), ("nuri.", "nupp.vm.uri"), ("nmarkdown.", "nupp.vm.markdown")];
+pub const PROVIDER_FAMILIES: &[(&str, &str)] = &[("ncompression.", "nupp.vm.compression"), ("nnet.", "nupp.vm.net"), ("nhttp.", "nupp.vm.http"), ("nuri.", "nupp.vm.uri")];
 
 pub struct Interp {
     pub(crate) clock: crate::clock::Clock,

@@ -1,0 +1,20 @@
+#!/bin/sh
+# Print the verified shared library for checkout documentation commands.
+set -eu
+ROOT=$(CDPATH= cd -- "$(dirname "$0")/.." && pwd)
+case "$(uname -s)" in
+    MINGW*|MSYS*)
+        prefix=$(NUPP_NATIVE_TARGET="${NUPP_NATIVE_TARGET:-x86_64-pc-windows-gnu}" "$ROOT/scripts/toolchain" cmark)
+        library=$(cygpath -m "$prefix/bin/nupp_markdown.dll")
+        ;;
+    Darwin)
+        prefix=$("$ROOT/scripts/toolchain" cmark)
+        library="$prefix/lib/libnupp_markdown.dylib"
+        ;;
+    *)
+        prefix=$("$ROOT/scripts/toolchain" cmark)
+        library="$prefix/lib/libnupp_markdown.so"
+        ;;
+esac
+test -f "$library"
+printf '%s\n' "$library"

@@ -295,7 +295,7 @@ local function run(arg: {string}, private: any?): integer
         end
     end
     local runtime = cargo(
-        "aot-linked,c-headers,native-ffi,compression,net,http,markdown,native-runtime",
+        "aot-linked,c-headers,native-ffi,compression,net,http,native-runtime",
         {NUPP_AOT_OBJECT = OUT .. "/compiler.o", NUPP_NATIVE_RUNTIME_OBJECT = core},
         false
     )

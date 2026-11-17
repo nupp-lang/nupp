@@ -28,8 +28,8 @@ case "$(uname -s):$(uname -m)" in
 esac
 CC=${NUPP_CC:-cc}
 if [ "$SYSTEM" = windows ]; then CC=${NUPP_CC:-cl}; fi
-# The frozen Windows VM uses MinGW. Only ISA-L and Markdown need matching
-# archives there; the five-target C SDK lane continues to use MSVC by default.
+# The VM's ISA-L and checkout docs' Markdown can be provisioned with MinGW.
+# The C SDK lane uses MSVC.
 if [ "$SYSTEM" = windows ] && [ "${NUPP_NATIVE_TARGET:-}" = x86_64-pc-windows-gnu ]; then
     CC=${NUPP_CC:-gcc}
     case "$("$CC" -dumpmachine)" in *mingw*) ;; *) die 'Windows GNU needs a MinGW C compiler' ;; esac

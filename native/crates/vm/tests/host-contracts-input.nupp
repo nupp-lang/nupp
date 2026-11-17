@@ -122,7 +122,6 @@ function probe.run(): integer
             "bodyArm",
             "bodyRead"
         },
-        ["nupp.vm.markdown"] = {"render"},
         [
             "nupp.vm.net"
         ] = {

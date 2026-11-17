@@ -28,6 +28,7 @@ local lexerMod = require("nupp.compiler.syntax.lexer")
 local markdownMod = require("nupp.tools.doc.markdown")
 local highlightMod = require("nupp.tools.doc.highlight")
 local htmlMod = require("nupp.tools.doc.html")
+local markdownhost = require("nupp.tools.doc.markdownhost")
 local assetsMod = require("nupp.tools.doc.assets")
 local urlsMod = require("nupp.tools.doc.urls")
 local apiMod = require("nupp.tools.doc.api")
@@ -2211,7 +2212,9 @@ function doc.build(root: string?, config: Config2, settings: Target?, opts: tabl
     local written = opts.written or {}
     filesMod.collect(written)
     local code: integer, message: string? = 0, nil
-    if format == "markdown" then
+    if (format == "site" or format == "both") and not markdownhost.available() then
+        code, message = 1, markdownhost.unavailable
+    elseif format == "markdown" then
         local ok, err = writeFile(
             output,
             doc.markdown(modules, title, nil, nil, standardLibrary and standardLibrary.annotationItems)

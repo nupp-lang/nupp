@@ -85,6 +85,11 @@ if [ "$count" -eq 0 ]; then
     exit 0
 fi
 
+if printf '%s\n' "$mine" | grep -Eq '^tools/docs(/|$)'; then
+    library=$(sh scripts/markdown-library)
+    export NUPP_MARKDOWN_LIBRARY="$library"
+fi
+
 if [ "$batch" -le 0 ]; then
     batch=$count
 fi

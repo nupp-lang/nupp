@@ -23,9 +23,10 @@ old HTML bytes. Output is checked exactly against frozen pulldown-cmark 0.13.4
 outputs, including attributes, code whitespace and block ownership.
 
 The core checks guest types and lengths, performs Rust-compatible lossy UTF-8
-decoding, and owns the foreign document through `own.Closeable`. The frozen VM
-has a small direct C caller using the same provider, with Rust's existing lossy
-decoder. Both cap original and decoded input at 8 MiB, HTML at 32 MiB and
+decoding, and owns the foreign document through `own.Closeable`. The checkout
+CLI uses the same C library through the VM’s generic FFI and copies the exact
+output length before freeing the document. Both cap original and decoded input
+at 8 MiB, HTML at 32 MiB and
 cumulative native budget at 128 MiB. It covers C allocations and literal-search
 work for the rare NUL/raw-HTML transport. Allocation/budget failures release the
 operation's tracked allocations and raise an error. No guest callback,
@@ -65,12 +66,18 @@ before reuse. Each build's artifact
 digests are recorded; they are not a cross-toolchain binary reproducibility claim.
 
 Supported native SDK targets are macOS ARM64/x64, Linux ARM64/x64 and Windows
-x64 MSVC. The frozen Windows VM also builds matching MinGW static archives.
-The frozen VM links these C archives for the single-file compiler release.
-Its existing `nupp.vm.markdown` builtin validates guest input, calls C, and
-copies the returned bytes. The VM’s generic foreign loader needs a separate
-shared library for non-system symbols, so that route would change the
-standalone release.
+x64 MSVC. Windows checkout docs can also use the MinGW shared library. Stage
+the verified library for checkout documentation and its tests:
+
+```sh
+library=$(sh scripts/markdown-library)
+export NUPP_MARKDOWN_LIBRARY="$library"
+./bin/nupp build --target docs
+node scripts/build-pages.mjs
+```
+
+The single-file VM ships without a Markdown library. It supports Markdown
+and JSON exports and reports that HTML site generation is unavailable.
 
 The standalone core guest runner
 provisions the pinned build when it selects a Markdown case. The core package
@@ -86,7 +93,7 @@ NUPP_COMPILER_ROOT="$PWD/../../.." ../../../bin/nupp run run.lua markdown clihos
 The five-target C library workflow blocks Rust tools, checks cold/warm
 provisioning, builds against installed headers, and runs the fixtures after
 relocation. No browser Markdown consumer was found: the exposed service is the
-native VM/internal documentation host. This native provider does not establish
+checkout documentation host and native core. This native provider does not establish
 browser parity.
 
 The 30 definition examples and frozen focused outputs retain their source

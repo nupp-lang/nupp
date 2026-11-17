@@ -30,6 +30,12 @@ local record Document is own.Closeable
     end
 end
 
+export function available(): boolean
+    return true
+end
+
+export const unavailable = ""
+
 --- CommonMark, tables and definitions, preserving the host's HTML policy.
 --- @raises string for a non-string, oversized document or resource failure
 export function render(text: string): (string?, string?)

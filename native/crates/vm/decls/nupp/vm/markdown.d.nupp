@@ -1,6 +1,0 @@
--- The Markdown renderer the VM's documentation provider is written over:
--- CommonMark with pipe tables and colon definitions, rendered by cmark-gfm.
-local record Host
-    render: function(text: string): string
-end
-return Host

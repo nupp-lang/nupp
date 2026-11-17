@@ -8,7 +8,7 @@
 // Usage: node scripts/docs-serve.mjs [--no-build]
 //   PORT=8000 node scripts/docs-serve.mjs
 //   nupp task docs-serve --no-build
-import { spawnSync } from "node:child_process";
+import { execFileSync, spawnSync } from "node:child_process";
 import http from "node:http";
 import { createReadStream, existsSync, statSync } from "node:fs";
 import path from "node:path";
@@ -30,6 +30,9 @@ function run(label, cmd, args) {
 }
 
 if (!skipBuild) {
+  process.env.NUPP_MARKDOWN_LIBRARY = execFileSync("sh", ["scripts/markdown-library"], {
+    cwd: root, encoding: "utf8", stdio: ["ignore", "pipe", "inherit"],
+  }).trim();
   run("docs build", path.join(root, "bin/nupp"), ["doc", "--kind", "site"]);
 } else {
   console.log("--no-build: serving whatever is already in build/docs");

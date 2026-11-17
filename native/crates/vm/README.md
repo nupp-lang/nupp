@@ -3565,10 +3565,9 @@ code) and the PEG benchmarks are removed. The interface image's schema moves to
 What replaces them:
 
 - **Markdown** for `nupp doc` uses pinned upstream cmark-gfm C and a separate
-  Nupp definition-list extension through public hooks. The `markdown` facility
-  installs it as `nupp.vm.markdown` through the transitional direct C caller
-  (`src/nmarkdown.rs`); the core uses checked C FFI. The generator's interface
-  is `nupp.tools.doc.markdownhost`: CommonMark with pipe tables and colon
+  Nupp definition-list extension through public hooks. Checkout docs use the
+  existing generic FFI. The single-file VM supports Markdown and JSON exports.
+  The generator’s interface is `nupp.tools.doc.markdownhost`: CommonMark with pipe tables and colon
   definitions in, HTML out. See [native Markdown](../../../docs/native-markdown.md)
   for exact source identity, byte policy, limits, ownership and C-only packaging.
   Fences, containers, heading ids, badges and symbol links stay the

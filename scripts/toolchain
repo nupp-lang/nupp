@@ -196,15 +196,15 @@ rust_sources_digest() {
         # below through `pins_digest`, which leaves out the stage-zero pin.
         for file in Cargo.toml Cargo.lock rust-toolchain.toml .cargo/config.toml \
             scripts/toolchain scripts/patches/luajit.patch \
-            scripts/native-libraries scripts/c-libraries/isal.sh scripts/c-libraries/cmark.sh \
+            scripts/native-libraries scripts/c-libraries/isal.sh \
             native/crates/checksum/csrc/CMakeLists.txt \
             host/notices/ISA-L-LICENSE.txt host/notices/ISA-L-CRC-LICENSE.txt \
             host/include/nupp.exports; do
             [ -f "$ROOT/$file" ] && printf '%s\n' "$file"
         done
-        (cd "$ROOT" && find native/crates native/markdown -type f \
+        (cd "$ROOT" && find native/crates -type f \
             \( -name '*.rs' -o -name '*.c' -o -name '*.cpp' -o -name '*.h' \
-                -o -name 'Cargo.toml' -o -name 'build.rs' -o -name 'CMakeLists.txt' \) \
+                -o -name 'Cargo.toml' -o -name 'build.rs' \) \
             2>/dev/null) || true
     } | LC_ALL=C sort | {
         while IFS= read -r file; do
@@ -752,7 +752,7 @@ provision_rust_vendor() {
 
 # The runtime a VM program binary is stamped onto: the interpreter with linked
 # entry support and native C calls, and of the facilities a program may reach
-# (compression, net, http, markdown, c-headers, the C declaration reader
+# (compression, net, http, c-headers, the C declaration reader
 # a compiler reaches, and jit, used by the Windows vector fallback) the ones it names. Every source
 # state of one facility set shares a target directory, so an edit to the VM is
 # an incremental rebuild rather than a cold one beside every earlier result;
@@ -814,7 +814,7 @@ build_rust_vm_runtime() {
     facilities=$(normalize_rust_features "${1:-}")
     for facility in $(printf '%s' "$facilities" | tr ',' ' '); do
         case "$facility" in
-            compression|net|http|markdown|jit|c-headers) ;;
+            compression|net|http|jit|c-headers) ;;
             *) die "unknown VM runtime facility $facility" ;;
         esac
     done
@@ -1004,7 +1004,7 @@ build_vm_program() {
     [ -f "$payload" ] || die "usage: scripts/toolchain vm-program FACILITIES PAYLOAD"
     for facility in $(printf '%s' "$facilities" | tr ',' ' '); do
         case "$facility" in
-            compression|net|http|markdown|c-headers) ;;
+            compression|net|http|c-headers) ;;
             *) die "unknown VM program facility $facility" ;;
         esac
     done
