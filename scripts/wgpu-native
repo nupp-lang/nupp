@@ -2,6 +2,7 @@
 """Fetch the pinned WebGPU C library and matched headers; compile nothing."""
 import argparse
 import hashlib
+import io
 import json
 import os
 from pathlib import Path, PurePosixPath
@@ -56,6 +57,35 @@ def cache_home():
         return common.resolve().parent / ".nupp-cache/toolchain"
     return ROOT / "build/toolchain"
 
+
+def cached_archive(archive, record):
+    """The verified bytes of an archive already in the cache, or None."""
+    for _ in range(WINNER_WAIT_TRIES):
+        try:
+            payload = archive.read_bytes()
+        except FileNotFoundError:
+            return None
+        except PermissionError:
+            # Windows: another producer is replacing it right now.
+            time.sleep(WINNER_WAIT_SECONDS)
+            continue
+        return payload if hashlib.sha256(payload).hexdigest() == record["sha256"] else None
+    return None
+
+
+def publish_archive(archive, payload, namespace):
+    """Keep the archive for later runs. A concurrent producer publishing the
+    same verified bytes first is not a failure."""
+    with tempfile.NamedTemporaryFile(dir=namespace, delete=False) as stream:
+        pending = Path(stream.name)
+        stream.write(payload)
+    try:
+        pending.replace(archive)
+    except OSError:
+        pass
+    finally:
+        pending.unlink(missing_ok=True)
+
 def provision(target, cache, source, offline):
     pins = json.loads((ROOT / "scripts/wgpu-native.pins.json").read_text())
     if target not in pins["targets"]:
@@ -70,41 +100,30 @@ def provision(target, cache, source, offline):
         raise ValueError(f"corrupt wgpu-native cache entry: {destination}; refusing to load it")
     namespace.mkdir(parents=True, exist_ok=True)
     archive = namespace / record["asset"]
-    if not archive.is_file() or digest(archive) != record["sha256"]:
-        with tempfile.NamedTemporaryFile(dir=namespace, delete=False) as stream:
-            pending = Path(stream.name)
-        try:
-            candidate = source / record["asset"] if source else None
-            if candidate and candidate.is_file():
-                shutil.copyfile(candidate, pending)
-            elif offline:
-                raise ValueError(f"offline: provide the pinned {record['asset']} in NUPP_HOST_SOURCE_DIR")
-            else:
-                base = os.environ.get("NUPP_HOST_SOURCE_BASE_URL")
-                url = (base.rstrip("/") if base else f"https://github.com/gfx-rs/wgpu-native/releases/download/{pins['version']}") + "/" + record["asset"]
-                print(f"wgpu-native: fetching {record['asset']}", file=sys.stderr)
-                with urllib.request.urlopen(url, timeout=90) as response, pending.open("wb") as output:
-                    shutil.copyfileobj(response, output)
-            found = digest(pending)
-            if found != record["sha256"]:
-                raise ValueError(f"wgpu-native digest {found}, expected {record['sha256']}; refusing archive")
-            try:
-                pending.replace(archive)
-            except OSError:
-                # Windows refuses to replace an archive another producer has
-                # open; the one it is reading is already the pinned bytes.
-                for _ in range(WINNER_WAIT_TRIES):
-                    if archive.is_file() and digest(archive) == record["sha256"]:
-                        break
-                    time.sleep(WINNER_WAIT_SECONDS)
-                else:
-                    raise
-        finally:
-            pending.unlink(missing_ok=True)
+    # Extraction reads verified bytes held here, never the shared archive a
+    # concurrent producer may be replacing: Windows refuses to open a file
+    # mid-replace, and refuses to replace one another producer has open.
+    payload = cached_archive(archive, record)
+    if payload is None:
+        candidate = source / record["asset"] if source else None
+        if candidate and candidate.is_file():
+            payload = candidate.read_bytes()
+        elif offline:
+            raise ValueError(f"offline: provide the pinned {record['asset']} in NUPP_HOST_SOURCE_DIR")
+        else:
+            base = os.environ.get("NUPP_HOST_SOURCE_BASE_URL")
+            url = (base.rstrip("/") if base else f"https://github.com/gfx-rs/wgpu-native/releases/download/{pins['version']}") + "/" + record["asset"]
+            print(f"wgpu-native: fetching {record['asset']}", file=sys.stderr)
+            with urllib.request.urlopen(url, timeout=90) as response:
+                payload = response.read()
+        found = hashlib.sha256(payload).hexdigest()
+        if found != record["sha256"]:
+            raise ValueError(f"wgpu-native digest {found}, expected {record['sha256']}; refusing archive")
+        publish_archive(archive, payload, namespace)
     with tempfile.TemporaryDirectory(prefix=".wgpu-", dir=namespace) as temporary:
         staging = Path(temporary)
         files = {}
-        with zipfile.ZipFile(archive) as package:
+        with zipfile.ZipFile(io.BytesIO(payload)) as package:
             for name in [record["library"], "include/webgpu/webgpu.h", "include/webgpu/wgpu.h", "wgpu-native-meta/wgpu-native-git-tag"]:
                 relative = PurePosixPath(name)
                 if relative.is_absolute() or ".." in relative.parts:
