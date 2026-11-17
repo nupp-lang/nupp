@@ -331,7 +331,9 @@ end
 function M.writeModeAcceptsStringsNumbersAndLuaBuffering()
     local public = ready()
     local windows = package.config:sub(1, 1) == "\\"
-    local command = windows and 'findstr /x "written42" > NUL' or 'IFS= read -r line; test "$line" = written42'
+    -- No quotes in the Windows line: the host passes it to cmd as one argument,
+    -- which escapes an inner quote as \", and findstr then searches for it.
+    local command = windows and "findstr /x written42 > NUL" or 'IFS= read -r line; test "$line" = written42'
     local child = assert(public.popen(platformCommand(command), "w"))
     assert(child:setvbuf("full", 64))
     test.eq(child:write("written", 42, "\n"), child)
