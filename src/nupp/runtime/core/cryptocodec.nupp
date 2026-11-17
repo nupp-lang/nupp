@@ -15,6 +15,12 @@ cdef struct Parameter
     data_size: uint64
     return_size: uint64
 end
+-- Two contiguous OSSL_PARAM records, with the zeroed terminator retained
+-- beside the first. The checked nested-struct view keeps its owner alive.
+cdef struct Parameters
+    digest: Parameter
+    terminator: Parameter
+end
 cdef function OpenSSL_version_num(): uint64 from"nuppcrypto"
 cdef function EVP_MD_fetch(
     borrows context: voidptr?,
@@ -192,27 +198,27 @@ export function hmac(algorithm: string, borrows key: voidptr?, bytes: uint64): M
     assert(result.algorithm ~= nil, "HMAC is unavailable")
     result.context = EVP_MAC_CTX_new(result.algorithm)
     assert(result.context ~= nil, "MAC allocation failed")
-    local parameters = carray(Parameter, 2)
+    local parameters = Parameters()
     local name = cstring("digest")
     local value = cstring(algorithm)
     @unsafe do
-        parameters[0].key = name.value
-        parameters[0].data_type = 4
-        parameters[0].data = value.value
-        parameters[0].data_size = #algorithm
-        parameters[0].return_size = 0xffffffffffffffffULL
+        parameters.digest.key = name.value
+        parameters.digest.data_type = 4
+        parameters.digest.data = value.value
+        parameters.digest.data_size = #algorithm
+        parameters.digest.return_size = 0xffffffffffffffffULL
     end
     -- NULL requests key reuse. A fresh empty-key context needs a non-null
     -- address even though the key length is zero.
     local initialized: int32 = 0
     if key == nil then
-        initialized = EVP_MAC_init(result.context, value.value, bytes, parameters)
+        initialized = EVP_MAC_init(result.context, value.value, bytes, parameters.digest)
     else
-        initialized = EVP_MAC_init(result.context, key, bytes, parameters)
+        initialized = EVP_MAC_init(result.context, key, bytes, parameters.digest)
     end
     @unsafe do
-        parameters[0].key = nil
-        parameters[0].data = nil
+        parameters.digest.key = nil
+        parameters.digest.data = nil
     end
     assert(initialized == 1, "MAC initialization failed")
     assert(EVP_MAC_CTX_get_mac_size(result.context) == result.size, "MAC size mismatch")

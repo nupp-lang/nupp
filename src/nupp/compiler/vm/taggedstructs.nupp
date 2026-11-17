@@ -189,6 +189,7 @@ end
 -- converts it, a nested struct's or fixed array's bytes copied.
 local function store(ctx: any, node: any, object: integer, field: any, value: integer): nil
     local held = ctx.hold(value)
+    local receiver = ctx.hold(object)
     if field.nullablePointer then
         -- C stores a null address as zero, while the checked nullable field
         -- exposes nil. Keep ordinary uint64 fields numeric, including zero.
@@ -198,13 +199,14 @@ local function store(ctx: any, node: any, object: integer, field: any, value: in
         ctx.write(held, ctx.select(node, absent, zero, ctx.readHeld(held)))
     end
     if field.nested or field.element then
-        local bytes = view(ctx, node, object, UINT8, field.offset, field.size)
+        local bytes = view(ctx, node, ctx.readHeld(receiver), UINT8, field.offset, field.size)
         local size = integerConstant(ctx, node, field.size)
         ctx.emit(node, "LibCall", {corelibrary.id("STORAGE_COPY"), bytes, ctx.readHeld(held), size}, "tagged")
     else
-        local cell = view(ctx, node, object, field.kind, field.offset, 1)
+        local cell = view(ctx, node, ctx.readHeld(receiver), field.kind, field.offset, 1)
         ctx.emit(node, "SetIdx", {cell, integerConstant(ctx, node, 0), ctx.readHeld(held)}, nil)
     end
+    ctx.release(receiver)
     ctx.release(held)
 end
 

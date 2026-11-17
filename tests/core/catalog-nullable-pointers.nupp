@@ -1,0 +1,31 @@
+module nupp.core.catalognullablepointers
+
+cdef struct Slots
+    pointer: voidptr?
+    numeric: uint64
+end
+cdef function malloc(size: uint64): voidptr
+cdef function free(takes block: voidptr)
+
+local function store(exclusive slots: Slots, borrows pointer: voidptr?): nil
+    @unsafe do
+        slots.pointer = pointer
+    end
+end
+
+local slots = Slots()
+local score = 0
+if slots.pointer == nil and slots.numeric == 0ULL then
+    score = score + 1
+end
+local pointer = malloc(8ULL)
+store(slots, pointer)
+if slots.pointer == pointer and slots.numeric == 0ULL then
+    score = score + 2
+end
+store(slots, nil)
+if slots.pointer == nil and slots.numeric == 0ULL then
+    score = score + 4
+end
+free(pointer)
+export const result = score

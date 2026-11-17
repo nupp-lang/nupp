@@ -15,6 +15,7 @@ function M.checkedDeclarationsMatchTheMeasuredDarwinCLayouts()
             {next_in = 0, avail_in = 8, total_in = 16, next_out = 24, avail_out = 32, total_out = 40, state = 56}
         },
         {"cryptocodec", "Parameter", 40, {key = 0, data_type = 8, data = 16, data_size = 24, return_size = 32}},
+        {"cryptocodec", "Parameters", 80, {digest = 0, terminator = 40}},
     }
     for _, spec in ipairs(specifications) do
         local name = "nupp.runtime.core." .. spec[1]

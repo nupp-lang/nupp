@@ -745,6 +745,7 @@ local function compileOwner(fn: any, options: any, profile: any, site: any): any
     -- Select already evaluated values through the ordinary binding transport.
     ctx.select = function(node: any, condition: integer, yes: integer, no: integer): integer
         local selected, alternative = ctx.hold(no), ctx.hold(yes)
+        varying[selected] = true
         ctx.when(node, condition, function(c: any, site: any): nil
             bindings[selected] = c.readHeld(alternative)
         end)

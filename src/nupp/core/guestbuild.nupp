@@ -364,6 +364,7 @@ local CASES: {[string]: {
     -- `cdef function` calls through the generic foreign call.
     guestffi = {fixture = "catalog-guest-ffi", version = 8},
     cbridge = {fixture = "catalog-c-bridge", version = 8},
+    nullablepointers = {fixture = "catalog-nullable-pointers", version = 8},
     compressioncodec = {fixture = "catalog-compression-codec", version = 8, follow = true},
     cryptocodec = {fixture = "catalog-crypto-codec", version = 8, follow = true},
     -- Library behaviors the test runner's suites lean on.
