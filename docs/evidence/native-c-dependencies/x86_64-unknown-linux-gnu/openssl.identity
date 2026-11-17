@@ -1,0 +1,8 @@
+a7042cb95aa7d1dc5ead0e00e24a127e836ffe26cf9ad7a7d3cca170b5957959
+filesSha256=4a8ca0c1a1771214181a20bb49d3f0fcc20c86ef9eacfb1c9b6b4d88e078b8ce
+component=openssl
+version=3.5.9
+sourceSha256=603f5602e2eef00d77fbd429d34dcd5822bb301757a1bc9cdb24c670f1eb859a
+target=x86_64-unknown-linux-gnu
+toolchain=f348054668442f378687510018e65e5defd5281e83a901257932d7d4852418d1
+dependencies=
