@@ -2078,6 +2078,11 @@ local function instantiationKey(n: T.Nominal, map: Bindings): string
     return key
 end
 
+--- The applications made of each declaration, each with the bindings it was
+--- made under, so one made while the declaration was still being declared can
+--- be completed once it is whole (`generics.completeDeclaration`).
+local applicationsOf: {[T.Nominal]: {any}} = setmetatable({}, {__mode = "k"})
+
 local function allocateInstantiation(n: T.Nominal, map: Bindings): T.Nominal
     local inst = T.nominal(n.name, n.declKind)
     inst.origin = n
@@ -2093,6 +2098,12 @@ local function allocateInstantiation(n: T.Nominal, map: Bindings): T.Nominal
     for j, cv in ipairs(n.constParams or {}) do
         inst.constArgs[j] = map[cv] or cv
     end
+    local made = applicationsOf[n]
+    if made == nil then
+        made = {}
+        applicationsOf[n] = made
+    end
+    made[#made + 1] = {instance = inst, map = (copyBindings(map))}
 
     return inst
 end
@@ -2345,6 +2356,31 @@ instantiateNominal = function(n: T.Nominal, map: Bindings): T.Nominal
     end
 
     return inst
+end
+
+--- Completes every application of `n` made while `n` was being declared, as
+--- an application made of the finished declaration is: its constructors,
+--- private fields, field order and members. Until then such an application --
+--- a method's `self: Box<T>` inside `Box<T>` -- carried only what had been
+--- declared when it was made, so what it offered depended on whether anything
+--- applied the declaration again, and a declaration restored from its
+--- interface, whose applications are all made whole, differed from one checked.
+function generics.completeDeclaration(n: T.Nominal): nil
+    local made = applicationsOf[n]
+    if made == nil then
+        return
+    end
+    substitutionWalk(
+        function(): nil
+            for _, application in ipairs(made) do
+                pendingInstantiations[application.instance] = true
+                generics.instantiate(n, application.map)
+            end
+        end,
+        nil,
+        {},
+        PRESERVE
+    )
 end
 
 --- Completes applications after a loader has populated every declaration.

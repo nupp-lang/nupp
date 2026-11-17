@@ -3013,9 +3013,12 @@ export function install(
                 end
                 checkInheritedDefaults(stat, n, localMembers)
                 checkInheritedRefinements(stat, n)
-                -- The declaration's surface is complete. Anything the relation decided
-                -- about it while it was still being filled was decided about a type
-                -- that did not exist yet, and caching that made the verdict permanent.
+                -- The declaration's surface is complete. Its applications made while
+                -- it was being filled are completed as one made now would be, and
+                -- anything the relation decided about it then was decided about a
+                -- type that did not exist yet, and caching that made the verdict
+                -- permanent.
+                generics.completeDeclaration(n)
                 relations.invalidate()
                 c.popScope()
             end

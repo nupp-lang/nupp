@@ -594,6 +594,28 @@ function M.givesEveryNominalItsOwnIdWhateverItsKey()
     testAssert.eq(T.nestedDeclarationKey(T.nominal("Keyless", "record"), 12), nil, "keyless owner")
 end
 
+-- A method's `self: Box<T>` applies `Box` while the rest of it is still being
+-- declared. Once the declaration is whole, the application has to be what one
+-- made then is, as an application a restored declaration makes always is.
+function M.anApplicationMadeWhileItsDeclarationIsOpenIsCompleted()
+    local element = T.typevar("Element", "interface-image:open-element")
+    local box = indexed("OpenBox", "/project/sample.nupp")
+    box.typeParams = {element}
+    box.paramKinds = {"type"}
+    box.byname = {value = element}
+    box.writeByname = {value = element}
+    box.fieldOrder = {"value"}
+    local early = generics.instantiate(box, {[element] = T.integer})
+    box.byname.extra = element
+    box.writeByname.extra = element
+    box.fieldOrder = {"value", "extra"}
+    box.privateFields = {extra = true}
+    generics.completeDeclaration(box)
+    testAssert.eq(early.byname.extra, T.integer, "a member declared after the application")
+    testAssert.eq(early.privateFields and early.privateFields.extra, true, "a private field declared after it")
+    testAssert.eq(table.concat(early.fieldOrder, ","), "value,extra", "the completed field order")
+end
+
 function M.decodesApplicationsThroughGenerics()
     local element = T.typevar("Element", "interface-image:box-element")
     local box = indexed("Box", "/project/sample.nupp")
