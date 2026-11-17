@@ -91,4 +91,40 @@ return {newBuffer = newBuffer, now = os.monotonic, bytes = bytes}
     assert(ok, why)
 end
 
+function M.programPayloadDiscardsPriorFacilityCatalogRecords()
+    local packaging = require("nupp.tools.build.package")
+    local vm = require("nupp.tools.vm.project")
+    local root = tempProject({
+        ["build/.nupp-vm-program.emit-facilities"] = "retired-provider\n",
+        ["build/.nupp-vm-program.emit-libraries"] = "\n",
+        ["build/.nupp-vm-program-emit/stale.buf"] = "old fragment",
+    })
+    local original = vm.program
+    local calls = 0
+    vm.program = function(_, _, _, _, _, _, cacheDir, seeded)
+        calls = calls + 1
+        if calls == 1 then
+            assert(seeded == nil, "a prior facility catalog must not seed this emit")
+            assert(fs.readFile(cacheDir .. "/stale.buf") == nil, "prior fragments must be discarded")
+        else
+            testAssert.eq(table.concat(seeded, ","), "http", "current catalog records remain reusable")
+        end
+
+        return "image", {"http"}, {}
+    end
+    local ok, reason = pcall(function()
+        local modules = {app = {sourceHash = "first"}}
+        local target = {entries = {"app"}, resources = {}, outDir = "build"}
+        local payload, problem = packaging.programPayload(root, {include = {"src"}}, target, "build", modules)
+        assert(payload, problem)
+        modules.app.sourceHash = "second"
+        payload, problem = packaging.programPayload(root, {include = {"src"}}, target, "build", modules)
+        assert(payload, problem)
+        testAssert.eq(calls, 2)
+    end)
+    vm.program = original
+    remove(root)
+    assert(ok, reason)
+end
+
 return M

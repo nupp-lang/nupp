@@ -304,7 +304,8 @@ local function programPayload(
     -- here, as this once did, meant a checkout's first build kept nothing, and
     -- its second lowered everything again to keep what the first had not.
     local emitDir = cached .. "-emit"
-    local record = cached .. ".emit-facilities"
+    -- shortcut: version the facility catalog here; bump it when a facility retires.
+    local record = cached .. ".emit-facilities-v2"
     local libraryRecord = cached .. ".emit-libraries"
     local seeded: {string}? = nil
     local seededLibraries: {string}? = nil
