@@ -50,6 +50,13 @@ jobs:
               Add-Content $env:GITHUB_ENV "$($Matches[1])=$($Matches[2])"
             }
           }
+          $nativePerl = $null
+          foreach ($candidate in (Get-Command perl.exe -All)) {
+            & $candidate.Source -e 'exit($^O eq "MSWin32" ? 0 : 1)'
+            if ($LASTEXITCODE -eq 0) { $nativePerl = $candidate.Source; break }
+          }
+          if (!$nativePerl) { throw 'A native Windows Perl installation is required' }
+          Add-Content $env:GITHUB_ENV "NUPP_NATIVE_PERL_BIN=$([IO.Path]::GetDirectoryName($nativePerl))"
       - uses: actions/cache@v4
         with:
           path: .nupp-c-library-cache
@@ -60,6 +67,9 @@ jobs:
           NUPP_NATIVE_TARGET: ${{ matrix.target }}
           NUPP_TOOLCHAIN_DIR: ${{ github.workspace }}/.nupp-c-library-cache
         run: |
+          if [ "$RUNNER_OS" = Windows ]; then
+            export PATH="$(cygpath -u "$NUPP_NATIVE_PERL_BIN"):$PATH"
+          fi
           mkdir -p build/no-rust-tools
           for tool in cargo rustc rustup cargo-c; do
             printf '#!/bin/sh\necho "Unexpected Rust tool invocation" >&2\nexit 99\n' > "build/no-rust-tools/$tool"
