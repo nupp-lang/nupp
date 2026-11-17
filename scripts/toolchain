@@ -551,6 +551,8 @@ select_rust_tools() {
     expected=$(sed -n 's/^channel = "\([^"]*\)"$/\1/p' "$ROOT/rust-toolchain.toml")
     [ -n "$expected" ] || die "rust-toolchain.toml names no exact channel"
     rustup_toolchain=$expected
+    # x64 on every Windows: Windows on ARM runs it under emulation, and every
+    # Windows seed and native object is x64.
     [ "$PLATFORM" != windows ] \
         || rustup_toolchain="$expected-x86_64-pc-windows-$RUST_WINDOWS_ABI"
     rustup_which() {

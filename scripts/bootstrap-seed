@@ -32,9 +32,18 @@ def digest(path):
     return value.hexdigest()
 
 
+# Windows on ARM runs x64 programs under emulation, and no Windows ARM64 seed is
+# built, so an ARM64 Windows host runs the x64 seed. Python 3.12 and later report
+# the native CPU there, even from an x64 interpreter, so name the mapping here
+# rather than let ARM64 fall through to a host nothing is pinned for.
+EMULATED_HOSTS = {("Windows", "ARM64"): "x86_64"}
+
+
 def host():
-    arch = {"arm64": "aarch64", "AMD64": "x86_64", "amd64": "x86_64"}.get(platform.machine(), platform.machine())
     system = platform.system()
+    machine = platform.machine()
+    arch = EMULATED_HOSTS.get((system, machine.upper())) or {
+        "arm64": "aarch64", "AMD64": "x86_64", "amd64": "x86_64"}.get(machine, machine)
     suffix = {"Darwin": "apple-darwin", "Linux": "unknown-linux-gnu", "Windows": "pc-windows-gnu"}.get(system)
     if suffix is None or arch not in ("aarch64", "x86_64"):
         raise ValueError(f"no bootstrap execution host is defined for {system}/{arch}")

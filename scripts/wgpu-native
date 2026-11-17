@@ -21,10 +21,16 @@ WINNER_WAIT_SECONDS = 0.25
 
 ROOT = Path(__file__).resolve().parent.parent
 
+# Windows on ARM runs x64 programs under emulation, and the runtime that loads
+# this library is x64 there, so an ARM64 Windows host takes the x64 build. Python
+# 3.12 and later report the native CPU even from an x64 interpreter.
+EMULATED_HOSTS = {("Windows", "arm64"): "x86_64"}
+
 def host_target():
     system = platform.system()
     machine = platform.machine().lower()
-    arch = {"arm64": "aarch64", "aarch64": "aarch64", "amd64": "x86_64", "x86_64": "x86_64"}.get(machine)
+    arch = EMULATED_HOSTS.get((system, machine)) or {
+        "arm64": "aarch64", "aarch64": "aarch64", "amd64": "x86_64", "x86_64": "x86_64"}.get(machine)
     suffix = {"Darwin": "apple-darwin", "Linux": "unknown-linux-gnu", "Windows": "pc-windows-msvc"}.get(system)
     if not arch or not suffix:
         raise ValueError(f"wgpu-native has no pinned binary for {system}/{machine}")
