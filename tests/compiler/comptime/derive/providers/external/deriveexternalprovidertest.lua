@@ -22,9 +22,10 @@ function M.runsAProviderNamingItsOwnModuleFromOutsideTheProject()
     file:write(source)
     file:close()
     local path = home .. "/main.nupp"
-    local nupp = NUPP:sub(1, 1) == "/" and NUPP or (assert(os.getenv("PWD")) .. "/" .. NUPP)
-    local checked, checkOutput = process.capture({nupp, "check", path}, {cwd = elsewhere})
-    local status, output = process.capture({nupp, "run", path}, {cwd = elsewhere})
+    -- NUPP is canonical and so already absolute: a drive path on Windows, which
+    -- testing for a leading slash took for a relative one.
+    local checked, checkOutput = process.capture({NUPP, "check", path}, {cwd = elsewhere})
+    local status, output = process.capture({NUPP, "run", path}, {cwd = elsewhere})
     os.execute("rm -rf '" .. home .. "' '" .. elsewhere .. "'")
     assert(checked == 0, "the example checks from outside its directory:\n" .. checkOutput)
     assert(status == 0 and output == "<User>\n", "the example runs from outside its directory:\n" .. output)
