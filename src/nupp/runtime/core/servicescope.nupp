@@ -204,6 +204,11 @@ export function foreignCall(scope: voidptr, block: voidptr): uint64
     return os.foreignCall(block)
 end
 
+export function dlopen(scope: voidptr, path: voidptr, mode: int64): voidptr
+    local _ = scope
+    return os.dlopen(path, mode)
+end
+
 export function foreignCells(scope: voidptr): voidptr
     local _ = scope
     return os.foreignCells()

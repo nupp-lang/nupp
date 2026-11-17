@@ -7,6 +7,8 @@ local record Foreign
     --- LuaJIT's `ffi.load` adds them), by path, or by `@`-relative path found at
     --- or above the calling module's directory or the executable's.
     --- `options.global` makes its symbols visible to libraries loaded later.
+    --- Windows bare names use configured default DLL directories, excluding
+    --- CWD and PATH. Explicit paths also search beside the DLL for imports.
     load: function(name: string, options: {global: boolean?}?): any
 
     --- A callable C function: `library` is a `load` result, a name `load`

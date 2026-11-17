@@ -139,7 +139,21 @@ impl Api {
             #[cfg(target_os = "macos")]
             candidates.extend(["/Library/Developer/CommandLineTools/usr/lib/libclang.dylib", "/Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/lib/libclang.dylib", "libclang.dylib"].map(Into::into));
             #[cfg(target_os = "windows")]
-            candidates.push("libclang.dll".into());
+            {
+                candidates.push("libclang.dll".into());
+                // Compiler discovery may use configured PATH entries, but the
+                // OS loader receives an explicit image path. Its dependencies
+                // still use the restricted DLL lookup, never PATH or CWD.
+                if let Some(search) = std::env::var_os("PATH") {
+                    candidates.extend(
+                        std::env::split_paths(&search)
+                            .filter(|directory| directory.is_absolute())
+                            .map(|directory| directory.join("libclang.dll"))
+                            .filter(|path| path.is_file())
+                            .map(std::path::PathBuf::into_os_string),
+                    );
+                }
+            }
             #[cfg(not(any(target_os = "macos", target_os = "windows")))]
             candidates.extend(
                 [

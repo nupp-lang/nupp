@@ -177,6 +177,18 @@ mod windows {
 mod tests {
     use super::*;
 
+    #[cfg(all(windows, feature = "c-headers"))]
+    #[test]
+    fn compiler_loader_discovers_libclang_before_restricted_loading() {
+        let mut registry = None;
+        let result = crate::cdecl::request(
+            &mut registry,
+            r#"{"operation":"declare","text":"int nupp_loader_probe(int value);"}"#,
+        );
+        let result: serde_json::Value = serde_json::from_str(&result).unwrap();
+        assert_eq!(result["ok"], true, "{result}");
+    }
+
     #[cfg(windows)]
     #[test]
     fn absolute_libraries_load_adjacent_dll_dependencies() {

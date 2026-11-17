@@ -68,6 +68,7 @@ local osNames = {
     poolFinish = true,
     poolCancel = true,
     poolsettle = true,
+    dlopen = true,
     foreignCall = true,
     foreignCells = true,
     foreignCollector = true,
