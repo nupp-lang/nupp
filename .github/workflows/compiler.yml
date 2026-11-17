@@ -62,9 +62,15 @@ permissions:
 #
 # The event name is in the key so a push cannot cancel the nightly backstop
 # declared above: a scheduled run's `github.ref` is `refs/heads/main` too.
+#
+# A trunk push lets the run in progress finish. When several agents land on
+# one trunk minutes apart, cancelling in progress meant no run ever finished
+# and the trunk had no answer at all. Without it a group still holds at most
+# one pending run, and a newer push replaces that one, so the queue stays
+# bounded: one run finishing, and the tip waiting behind it.
 concurrency:
   group: ${{ github.workflow }}-${{ github.event_name }}-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: ${{ !(github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == format('refs/heads/{0}', github.event.repository.default_branch))) }}
 
 # The VM compiler bootstraps the tree, built from the pinned stage-zero image
 # when no restored one is current, and runs everything. It runs interpreted:
