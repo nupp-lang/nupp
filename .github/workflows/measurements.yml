@@ -47,19 +47,18 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        include:
-          - name: Linux x64
-            os: ubuntu-24.04
-            timeout: 45
-            artifact: linux-x64
-          - name: macOS arm64
-            os: macos-15
-            timeout: 60
-            artifact: macos-arm64
-          - name: Windows x64
-            os: windows-2022
-            timeout: 60
-            artifact: windows-x64
+        # A pull request leaves hosted macOS out unless it is labeled
+        # `ci:macos`, as the Compiler matrix does: the change was measured on
+        # a Mac before it was pushed. Release tags, the nightly job and manual
+        # runs keep it.
+        include: >-
+          ${{ fromJSON(format('[{0},{1}{2}]',
+          '{"name":"Linux x64","os":"ubuntu-24.04","timeout":45,"artifact":"linux-x64"}',
+          '{"name":"Windows x64","os":"windows-2022","timeout":60,"artifact":"windows-x64"}',
+          (github.event_name != 'pull_request'
+          || contains(github.event.pull_request.labels.*.name, 'ci:macos'))
+          && ',{"name":"macOS arm64","os":"macos-15","timeout":60,"artifact":"macos-arm64"}'
+          || '')) }}
     steps:
       - name: Check out the repository
         uses: actions/checkout@v5
