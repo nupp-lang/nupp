@@ -88,7 +88,17 @@ def provision(target, cache, source, offline):
             found = digest(pending)
             if found != record["sha256"]:
                 raise ValueError(f"wgpu-native digest {found}, expected {record['sha256']}; refusing archive")
-            pending.replace(archive)
+            try:
+                pending.replace(archive)
+            except OSError:
+                # Windows refuses to replace an archive another producer has
+                # open; the one it is reading is already the pinned bytes.
+                for _ in range(WINNER_WAIT_TRIES):
+                    if archive.is_file() and digest(archive) == record["sha256"]:
+                        break
+                    time.sleep(WINNER_WAIT_SECONDS)
+                else:
+                    raise
         finally:
             pending.unlink(missing_ok=True)
     with tempfile.TemporaryDirectory(prefix=".wgpu-", dir=namespace) as temporary:
