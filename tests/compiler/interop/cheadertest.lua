@@ -177,6 +177,31 @@ function M.aCplusplusGuardIsSettledWithoutAPreprocessor()
     testAssert.eq(T.tostring(res.exports.nupp_cpp_c_only), "function(): int32")
 end
 
+-- The preprocessor expands for the C the declaration service parses, whatever
+-- its own default: GCC 15 defaults to C23, and its stddef.h then declares
+-- nullptr_t with `typeof(nullptr)`, which that parse refuses.
+function M.aPreprocessedHeaderIsExpandedForTheParsedDialect()
+    if os.execute("cc --version >/dev/null 2>&1") ~= 0 then
+        return
+    end
+    local path, dir = scratchHeader(
+        "dialect.h",
+        table.concat(
+            {
+                "#if __STDC_VERSION__ != 201112L",
+                "#error expanded for another C than the declaration service parses",
+                "#endif",
+                "int nupp_dialect_length(const char *text);",
+            },
+            "\n"
+        ) .. "\n"
+    )
+    local res, err = cheaderMod.load(path, {preprocess = true})
+    os.execute("rm -rf '" .. dir .. "'")
+    assert(res, err)
+    assert(res.exports.nupp_dialect_length, "the declaration after the guard is read")
+end
+
 function M.aParseErrorNamesTheHeadersOwnLine()
     local header = table.concat(
         {

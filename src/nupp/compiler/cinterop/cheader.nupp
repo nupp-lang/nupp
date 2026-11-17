@@ -481,7 +481,10 @@ end
 
 local function preprocessHeader(path, opts)
     local depPath = os.tmpname()
-    local argv = compilerArgv(opts, "-E", "-MD", "-MF", depPath, "-MT", "nupp_header", "-xc", path)
+    -- Expand for the dialect the declaration service parses (`-std=gnu11`).
+    -- A compiler defaulting to C23, as GCC 15 does, otherwise lets its own
+    -- headers emit what that parse refuses, such as `typeof(nullptr)`.
+    local argv = compilerArgv(opts, "-std=gnu11", "-E", "-MD", "-MF", depPath, "-MT", "nupp_header", "-xc", path)
     local code, expanded = hostService("process").capture(argv)
     local depText = hostService("fs").readFile(depPath)
     os.remove(depPath)
