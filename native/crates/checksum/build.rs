@@ -11,6 +11,8 @@ fn main() {
         "scripts/native-libraries",
         "scripts/c-libraries/isal.sh",
         "native/crates/checksum/csrc",
+        "host/notices/ISA-L-LICENSE.txt",
+        "host/notices/ISA-L-CRC-LICENSE.txt",
     ] {
         println!("cargo:rerun-if-changed={}", root.join(path).display());
     }

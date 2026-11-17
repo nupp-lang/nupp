@@ -8,7 +8,7 @@ the same CRC-32 path. No Nupp CRC arithmetic was added.
 `scripts/toolchain isal` builds a digest-pinned CRC-only subset of ISA-L
 2.32.1 using upstream's CMake source lists, assembly, runtime CPU dispatch,
 and portable C fallback. It installs matching public upstream CRC headers,
-`nupp_crc.h`, shared and static libraries, the upstream BSD notice, and the
+`nupp_crc.h`, shared and static libraries, upstream/contributor BSD notices, and the
 existing hash-checked artifact identity. Cache keys include the C adapter,
 build files, compiler/SDK, assembler version, flags and upstream source digest.
 An x86 build needs NASM 2.14.01 or later. ARM builds use the C compiler's
@@ -68,7 +68,15 @@ state transfer and persistence.
 
 ## Other ISA-L functions
 
-Use no more ISA-L functions for now. Its [function overview](https://github.com/intel/isa-l/blob/v2.32.1/doc/functions.md)
+One additional function has a real caller to investigate: [`isal_adler32`](https://github.com/intel/isa-l/blob/v2.32.1/include/igzip_lib.h)
+could replace the byte-at-a-time public `AdlerState.update` loop in
+`src/nupp/checksum/internal/builtin.nupp`. Upstream documents runtime CPU
+selection and supplies SSE/AVX2, NEON and portable implementations. Measure
+it against the already-pinned zlib's `adler32` on actual Nupp span/stream
+calls before choosing either. Adler-32 has not been migrated, benchmarked,
+or added to this CRC-only bundle.
+
+Use no other ISA-L functions for now. Its [function overview](https://github.com/intel/isa-l/blob/v2.32.1/doc/functions.md)
 lists erasure coding, RAID parity, memory checks and Deflate/inflate. Nupp has
 no current erasure-coding or RAID caller. Its [memory functions](https://github.com/intel/isa-l/blob/v2.32.1/include/mem_routines.h)
 detect all-zero buffers; no current hot caller establishes

@@ -11,3 +11,4 @@ cmake -S "$ROOT/native/crates/checksum/csrc" -B "$staged/build" \
 cmake --build "$staged/build" --config Release --parallel "$JOBS" >&2
 cmake --install "$staged/build" --config Release >&2
 license="$source/LICENSE"
+cp "$ROOT/host/notices/ISA-L-CRC-LICENSE.txt" "$install/notices/ISA-L-CRC-LICENSE.txt"

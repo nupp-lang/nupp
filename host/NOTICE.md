@@ -20,12 +20,16 @@ repeated here so the release notices remain complete in one place.
 | [zlib](https://zlib.net/) | `1.4` | zlib | [notices/zlib-LICENSE.txt](notices/zlib-LICENSE.txt) |
 | [OpenSSL](https://openssl-library.org/) | `3.5.9` | Apache-2.0 | [notices/OpenSSL-LICENSE.txt](notices/OpenSSL-LICENSE.txt) |
 | [libcurl](https://curl.se/libcurl/) | `8.23.0` | curl | [notices/libcurl-LICENSE.txt](notices/libcurl-LICENSE.txt) |
-| [ISA-L](https://github.com/intel/isa-l) | `2.32.1` | BSD-3-Clause | [notices/ISA-L-LICENSE.txt](notices/ISA-L-LICENSE.txt) |
+| [ISA-L](https://github.com/intel/isa-l) | `2.32.1` | BSD-3-Clause | [license](notices/ISA-L-LICENSE.txt), [CRC notices](notices/ISA-L-CRC-LICENSE.txt) |
 
 `scripts/toolchain zlib`, `openssl` and `libcurl` build digest-pinned shared C
 libraries with matched headers and notices. Curl uses those exact OpenSSL and
 zlib artifacts. These are separate from the frozen VM's Rust dependencies;
 provisioning them does not switch the VM's providers.
+
+`scripts/toolchain isal` builds the CRC-only C bundle used by native public
+checksums and VM persistence. Its static archive travels inside VM binaries;
+both its upstream license and CRC contributor notices ship here.
 
 `scripts/wgpu-native` fetches an upstream prebuilt library and its matched
 headers. Its independently pinned notice files travel with each cached copy.

@@ -51,7 +51,9 @@ output. A cold source build and reuse have different costs; neither is a
 prebuilt-download timing. Native TLS trust policy and HTTP client behavior need
 their own adapter tests and independent peers.
 
-These artifacts do not switch the frozen VM's providers. OpenSSL supplies one
+The zlib, OpenSSL and curl artifacts do not switch the frozen VM's providers.
+The ISA-L bundle does route native CRC and VM persistence through C.
+OpenSSL supplies one
 shared dependency for later TLS, curl and crypto use; no extra C wrappers are
 needed. Before enabling another primitive, recheck upstream security status and
 update the explicit source pin when required.
