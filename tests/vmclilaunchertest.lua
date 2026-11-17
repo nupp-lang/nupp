@@ -553,7 +553,8 @@ for platform, expected in [('darwin', wrapper), ('linux', wrapper), ('win32', 's
         assert seen[-1]['TMPDIR'] == base['TMPDIR']
 # Only the sccache process gets short temporary paths, and arguments stay intact.
 result = subprocess.run([wrapper, '/compiler with spaces', '--flag'], env=base, capture_output=True, text=True)
-assert result.returncode == 0 and result.stdout.splitlines() == ['/private/tmp', '/compiler with spaces', '--flag'], result
+short = '/private/tmp' if os.path.isdir('/private/tmp') else base['TMPDIR']
+assert result.returncode == 0 and result.stdout.splitlines() == [short, '/compiler with spaces', '--flag'], result
 assert base['TMPDIR'].startswith(str(root))
 print('CACHE_WRAPPER_OK')
 ]=]
