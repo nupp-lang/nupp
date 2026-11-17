@@ -30,7 +30,9 @@ printf '%s\n' "$ADVANCE_FIXTURE/published-seed"
 EOF
 chmod +x bin/nupp scripts/toolchain
 printf 'old pinned image\n' > "$ADVANCE_FIXTURE/old.image"
-sha() { shasum -a 256 "$1" | cut -d' ' -f1; }
+# Git for Windows ships sha256sum but not shasum; the script under test takes either.
+if command -v shasum >/dev/null 2>&1; then sha() { shasum -a 256 "$1" | cut -d' ' -f1; }
+else sha() { sha256sum "$1" | cut -d' ' -f1; }; fi
 old_sha=$(sha "$ADVANCE_FIXTURE/old.image")
 jq -n '{format:"nupp-bootstrap-seed-1",hosts:{}}' > scripts/bootstrap-seeds.json
 hosts=(aarch64-apple-darwin x86_64-pc-windows-gnu x86_64-unknown-linux-gnu)
