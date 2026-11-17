@@ -456,7 +456,11 @@ end
 -- A device has no length to send; it used to go out as an empty body.
 function M.aFileBodyThatIsNotARegularFileIsRefused()
     local client = ready()
-    local response, reason = client:send({url = endpoint("/echo"), method = "POST", body = http.file("/dev/null"),})
+    -- A device where there is one. Windows has no /dev/null: the path names
+    -- \dev\null on whatever drive the run is on. A directory stands in there.
+    local windows = package.config:sub(1, 1) == "\\"
+    local path = windows and HERE or "/dev/null"
+    local response, reason = client:send({url = endpoint("/echo"), method = "POST", body = http.file(path),})
     test.eq(response, nil)
     assert(reason and tostring(reason):find("is not a regular file", 1, true), tostring(reason))
     client:close()
