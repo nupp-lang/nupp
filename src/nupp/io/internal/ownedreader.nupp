@@ -8,6 +8,7 @@ const assert2 = require("assert")
 local bytes = require("nupp.io.internal.bytes")
 local span = require("bytes.span")
 local physical = require("nupp.runtime.storage")
+local bufferstate = require("nupp.io.internal.bufferstate")
 local type Reader = bytes.Reader
 local Reader = bytes.readerdefaults
 local type Writer = bytes.Writer
@@ -19,6 +20,9 @@ local DEFAULT_READ = 65536
 -- A completed host transfer can give its allocation to a reader directly.
 -- Unlike Buffer:reader's snapshot, this consumes the owner and copies no bytes.
 local record MemoryReader is Reader
+    -- The buffer state that owns the allocation, which the reader keeps alive
+    -- and releases when it closes.
+    @private _owner: any
     @private _data: uint8[?]
     @private _length: integer
     @private _at: integer
@@ -113,13 +117,24 @@ local record MemoryReader is Reader
         state._closed = true
         state._length = 0
         (state as any)._data = nil
+        if state._owner ~= nil then
+            bufferstate.close(state._owner)
+            state._owner = nil
+        end
     end
 end
 
 bytes.readercompat(MemoryReader as table)
 
 export function newOwnedReader(takes buffer: bytes.OwnedBuffer): Reader
-    local state = @unsafe own.release(buffer)
-    assert2(not (state as any)._closed, "nupp: bytes.Buffer is closed")
-    return MemoryReader(_data = (state as any)._data, _length = (state as any)._length, _at = 0, _closed = false)
+    local raw: any = @unsafe own.release(buffer)
+    local state: any = raw._state
+    assert2(not bufferstate.closed(state), "nupp: bytes.Buffer is closed")
+    return MemoryReader(
+        _owner = state,
+        _data = bufferstate.data(state),
+        _length = bufferstate.length(state),
+        _at = bufferstate.read(state),
+        _closed = false
+    )
 end
