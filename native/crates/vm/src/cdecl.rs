@@ -62,6 +62,11 @@ macro_rules! api {
             #[allow(non_snake_case)]
             unsafe fn from_library(library: Library) -> Result<Self, String> {
                 $(let $name = unsafe { std::mem::transmute::<*mut c_void, unsafe extern "C" fn($($arg),*) -> $ret>(library.symbol(CStr::from_bytes_with_nul_unchecked(concat!(stringify!($name), "\0").as_bytes()))?) };)*
+                // shortcut: released Windows libclang builds leave TLS callbacks
+                // after unload (llvm/llvm-project#154361). Keep their code until
+                // process exit; revisit when the minimum libclang has the fix.
+                #[cfg(windows)]
+                library.pin_for_process()?;
                 Ok(Self { _library: library, $($name,)* })
             }
         }

@@ -86,6 +86,18 @@ impl Library {
         }
     }
 
+    #[cfg(windows)]
+    pub(crate) unsafe fn pin_for_process(&self) -> Result<(), String> {
+        const FROM_ADDRESS: u32 = 4;
+        const PIN: u32 = 1;
+        let mut handle = std::ptr::null_mut();
+        if windows::GetModuleHandleExW(FROM_ADDRESS | PIN, self.0.cast(), &mut handle) == 0 {
+            Err(std::io::Error::last_os_error().to_string())
+        } else {
+            Ok(())
+        }
+    }
+
     #[cfg(unix)]
     unsafe fn unix_open(path: *const std::ffi::c_char, flags: i32) -> Result<Self, String> {
         libc::dlerror();
@@ -180,13 +192,22 @@ mod tests {
     #[cfg(all(windows, feature = "c-headers"))]
     #[test]
     fn compiler_loader_discovers_libclang_before_restricted_loading() {
-        let mut registry = None;
-        let result = crate::cdecl::request(
-            &mut registry,
-            r#"{"operation":"declare","text":"int nupp_loader_probe(int value);"}"#,
-        );
-        let result: serde_json::Value = serde_json::from_str(&result).unwrap();
-        assert_eq!(result["ok"], true, "{result}");
+        // Registries go away before the worker thread exits. libclang's TLS
+        // callbacks must still have code, including on a later worker thread.
+        for _ in 0..2 {
+            std::thread::spawn(|| {
+                let mut registry = None;
+                let result = crate::cdecl::request(
+                    &mut registry,
+                    r#"{"operation":"declare","text":"int nupp_loader_probe(int value);"}"#,
+                );
+                let result: serde_json::Value = serde_json::from_str(&result).unwrap();
+                assert_eq!(result["ok"], true, "{result}");
+                drop(registry);
+            })
+            .join()
+            .unwrap();
+        }
     }
 
     #[cfg(windows)]
