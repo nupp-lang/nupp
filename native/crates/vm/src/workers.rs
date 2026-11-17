@@ -791,8 +791,11 @@ impl Interp {
             raw(nupp, "__heapArrayMetatable"),
             raw(nupp, "__regionMetatable"),
         ];
-        let resource_shapes = [crate::sharing::ARRAY_IDENTITY, "io.internal.bytestypes:Bytes"]
-            .map(|identity| self.heap.shape_identities.get(identity).copied());
+        let resource_shapes = [
+            crate::sharing::ARRAY_IDENTITY,
+            "bytes.internal.bytestypes:SharedBytes",
+        ]
+        .map(|identity| self.heap.shape_identities.get(identity).copied());
         let record_type = self.heap.interned_key("\0nupp:recordType");
         let canonical = |meta: Value| {
             meta.as_obj().is_some_and(|p| {
@@ -1636,7 +1639,7 @@ entry 1
     #[test]
     fn nominal_shared_regions_keep_their_private_weak_cache() {
         let mut vm = fixture(
-            "shape 0 Bytes identity=io.internal.bytestypes:Bytes _handle:any\nshape 1 Bytes identity=other:Bytes _handle:any\nshape 2 Block identity=io.internal.sharedbytes:Block regions:any\nfunction value 0 0 2 1 :v\nRetNil\nend\nentry 0\n",
+            "shape 0 SharedBytes identity=bytes.internal.bytestypes:SharedBytes _handle:any\nshape 1 SharedBytes identity=other:SharedBytes _handle:any\nshape 2 Block identity=bytes.internal.sharedbytes:Block regions:any\nfunction value 0 0 2 1 :v\nRetNil\nend\nentry 0\n",
         );
         let cache = vm.new_table();
         vm.registered.push(cache);
