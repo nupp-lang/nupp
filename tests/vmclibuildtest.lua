@@ -139,6 +139,12 @@ end
 
 -- A tree with one generation installed from its sources as they are.
 local function plantedTree()
+    -- The real `scripts/vm-cli` starts this tree's runtime and `cargo` itself,
+    -- and they are shell scripts: Windows starts only executables, so the
+    -- fixture cannot stand in there (vmclilaunchertest covers the launcher).
+    if package.config:sub(1, 1) == "\\" then
+        require("assert").suite.skip("the planted runtime and cargo are POSIX shell scripts")
+    end
     local dir = os.tmpname()
     os.remove(dir)
     assert(os.execute(("mkdir -p %s"):format(quote(dir))) == 0)
