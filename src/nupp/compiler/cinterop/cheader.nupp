@@ -18,6 +18,7 @@ module nupp.compiler.cinterop.cheader
 
 local T = require("nupp.compiler.types")
 local cdecl = require("nupp.compiler.cinterop.cdecl")
+local ccompiler = require("nupp.compiler.cinterop.ccompiler")
 local hash = require("nupp.compiler.hash")
 
 -- C type inspection only needs LuaJIT. File and preprocessor operations resolve
@@ -422,7 +423,7 @@ local function toolchainTag(opts)
     if not opts.preprocess then
         return "-"
     end
-    local argv = {opts.cc or "cc"}
+    local argv = {opts.cc or ccompiler.default()}
     for _, arg in ipairs(opts.ccArgs or {}) do
         argv[#argv + 1] = arg
     end
@@ -440,7 +441,7 @@ local function toolchainTag(opts)
 end
 
 local function toolchainIdentity(opts)
-    local parts = {opts.cc or "cc"}
+    local parts = {opts.cc or ccompiler.default()}
     for _, arg in ipairs(opts.ccArgs or {}) do
         parts[#parts + 1] = arg
     end
@@ -450,7 +451,7 @@ local function toolchainIdentity(opts)
 end
 
 local function compilerArgv(opts, ...)
-    local argv = {opts.cc or "cc"}
+    local argv = {opts.cc or ccompiler.default()}
     for _, arg in ipairs(opts.ccArgs or {}) do
         argv[#argv + 1] = arg
     end
@@ -495,7 +496,7 @@ local function preprocessHeader(path, opts)
         return nil, nil, "compiler did not report dependencies for " .. path
     end
     if #expanded == 0 then
-        return nil, nil, "cc -E produced no output for " .. path
+        return nil, nil, argv[1] .. " -E produced no output for " .. path
     end
 
     return expanded, dependencyPaths(depText, path)

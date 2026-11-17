@@ -1,0 +1,74 @@
+--[[
+The C compiler run when nothing names one: by the header importer, by the
+preprocessor a header is read through, and by a C dependency's build.
+
+`cc` is the name POSIX gives it, and every Unix toolchain installs it. MinGW,
+the usual C toolchain on Windows, installs `gcc` and no `cc`, so on Windows
+`gcc` stands in when `PATH` has no `cc` and does have `gcc`. A compiler a caller
+names -- an importer option, a dependency's `cc`, a compiler pack -- is used as
+named; this is only what is used when there is none.
+]]
+module nupp.compiler.cinterop.ccompiler
+
+const POSIX_COMPILER = "cc"
+const MINGW_COMPILER = "gcc"
+
+-- What cmd.exe appends to a bare command name when PATHEXT is unset.
+const DEFAULT_PATHEXT = ".COM;.EXE;.BAT;.CMD"
+
+local chosen: string? = nil
+
+local function isFile(path: string): boolean
+    local handle = io.open(path, "rb")
+    if not handle then
+        return false
+    end
+    handle:close()
+
+    return true
+end
+
+--- Whether `name` is a program cmd.exe would find on `path`: each directory in
+--- order, tried with each extension `pathext` lists.
+export function onWindowsPath(name: string, path: string, pathext: string, exists: function(string): boolean): boolean
+    local extensions: {string} = {}
+    for extension in pathext:gmatch("[^;]+") do
+        extensions[#extensions + 1] = extension
+    end
+    for directory in path:gmatch("[^;]+") do
+        local base = directory:gsub("[\\/]+$", "") .. "\\" .. name
+        for _, extension in ipairs(extensions) do
+            if exists(base .. extension) then
+                return true
+            end
+        end
+    end
+
+    return false
+end
+
+--- The compiler to run on a host that is Windows or not, given whether a program
+--- of each name is installed. `cc` everywhere it can be; `gcc` on a Windows
+--- without `cc` that has `gcc`. Neither one leaves `cc`, so the failure to run
+--- it names the conventional compiler.
+export function choose(isWindows: boolean, installed: function(name: string): boolean): string
+    if isWindows and not installed(POSIX_COMPILER) and installed(MINGW_COMPILER) then
+        return MINGW_COMPILER
+    end
+
+    return POSIX_COMPILER
+end
+
+--- The C compiler for this host, decided once per process.
+export function default(): string
+    if chosen == nil then
+        local path = os.getenv("PATH") or ""
+        local pathext = os.getenv("PATHEXT") or DEFAULT_PATHEXT
+        local windows = package.config:sub(1, 1) == "\\"
+        chosen = choose(windows, function(name: string): boolean
+            return onWindowsPath(name, path, pathext, isFile)
+        end)
+    end
+
+    return chosen as string
+end

@@ -19,6 +19,7 @@ emitted. A name declared twice keeps its first meaning.
 module nupp.compiler.cinterop.importc
 
 local cdecl = require("nupp.compiler.cinterop.cdecl")
+local ccompiler = require("nupp.compiler.cinterop.ccompiler")
 local process = require("nupp.compiler.process")
 local hash = require("nupp.compiler.hash")
 
@@ -1665,7 +1666,7 @@ export function import(headerPath: string, opts: Options): string?, {string}, De
     for _, cleanup in pairs(returnedOwned) do
         cleanupTerminals[cleanup] = true
     end
-    local cc = opts.cc or "cc"
+    local cc = opts.cc or ccompiler.default()
     local cpp = {cc, "-E"}
     for _, flag in ipairs(opts.cppflags or {}) do
         cpp[#cpp + 1] = flag
@@ -1681,7 +1682,7 @@ export function import(headerPath: string, opts: Options): string?, {string}, De
     macros[#macros + 1] = headerPath
     local dm = capture(macros) or ""
     if not preprocessed or #preprocessed == 0 then
-        return nil, {"cc -E produced no output for " .. headerPath}
+        return nil, {cc .. " -E produced no output for " .. headerPath}
     end
     local importKey = table.concat({headerPath, preprocessed, dm, spelled(opts)}, "\0")
     local previous = imported[importKey]

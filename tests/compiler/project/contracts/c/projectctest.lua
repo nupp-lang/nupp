@@ -14,6 +14,7 @@ local answerFrom = fixture.answerFrom
 
 local hostSystem = require("helpers.projectfixture").hostSystem
 local compiledRuntimeSources = require("helpers.projectfixture").compiledRuntimeSources
+local CC = require("nupp.compiler.cinterop.ccompiler").default()
 
 local M = {}
 
@@ -87,7 +88,7 @@ return {
     local executable = dir .. "/native/static-consumer" .. (hostSystem == "windows" and ".exe" or "")
     testAssert.eq(
         process.run({
-            "cc",
+            CC,
             dir .. "/native/main.c",
             archive,
             "-o",

@@ -11,6 +11,7 @@ local T = require("nupp.compiler.types")
 local HERE = require("helpers.paths").absoluteTests
 local env = envMod.new(HERE .. "/..")
 local windows = package.config:sub(1, 1) == "\\"
+local CC = require("nupp.compiler.cinterop.ccompiler").default()
 
 local M = {}
 
@@ -132,7 +133,7 @@ function M.aConditionalNeedsThePreprocessor()
     local res, err = cheaderMod.load(path)
     testAssert.eq(res, nil, "both branches would reach LuaJIT")
     assert(err:find("cond.h:3: #ifdef _WIN32 needs cheader's \"preprocess\" argument", 1, true), err)
-    if os.execute("cc --version >/dev/null 2>&1") == 0 then
+    if os.execute(CC .. " --version >/dev/null 2>&1") == 0 then
         local preprocessed = assert(cheaderMod.load(path, {preprocess = true}))
         local want = windows and "function(uint16): uint16" or "function(uint32): uint32"
         testAssert.eq(T.tostring(preprocessed.exports.nupp_cond_width), want, "the preprocessor picks the branch")
@@ -181,7 +182,7 @@ end
 -- its own default: GCC 15 defaults to C23, and its stddef.h then declares
 -- nullptr_t with `typeof(nullptr)`, which that parse refuses.
 function M.aPreprocessedHeaderIsExpandedForTheParsedDialect()
-    if os.execute("cc --version >/dev/null 2>&1") ~= 0 then
+    if os.execute(CC .. " --version >/dev/null 2>&1") ~= 0 then
         return
     end
     local path, dir = scratchHeader(
@@ -221,7 +222,7 @@ function M.aParseErrorNamesTheHeadersOwnLine()
     local path, dir = scratchHeader("bad.h", header)
     local _, err = cheaderMod.load(path)
     assert(err and err:find("bad.h:9: ", 1, true), "the broken declaration is on line 9: " .. tostring(err))
-    if os.execute("cc --version >/dev/null 2>&1") == 0 then
+    if os.execute(CC .. " --version >/dev/null 2>&1") == 0 then
         local _, preprocessedErr = cheaderMod.load(path, {preprocess = true})
         assert(
             preprocessedErr and preprocessedErr:find("bad.h:9: ", 1, true),
@@ -247,6 +248,34 @@ function M.aNulByteIsRefused()
         ):format(tostring(read and #read), path, tostring(read and read:find("%z")))
     )
     assert(err:find("zerobyte.h:2: the header holds a NUL byte", 1, true), err)
+end
+
+-- MinGW installs gcc and no cc, so a Windows machine with only MinGW
+-- preprocesses with gcc. Everywhere else, and wherever cc exists, it is cc.
+function M.theDefaultCompilerIsGccOnlyOnAWindowsWithoutCc()
+    local ccompiler = require("nupp.compiler.cinterop.ccompiler")
+    local function having(...)
+        local names = {}
+        for _, name in ipairs({...}) do
+            names[name] = true
+        end
+        return function(name)
+            return names[name] == true
+        end
+    end
+    testAssert.eq(ccompiler.choose(false, having("gcc")), "cc")
+    testAssert.eq(ccompiler.choose(true, having("cc", "gcc")), "cc")
+    testAssert.eq(ccompiler.choose(true, having("gcc")), "gcc")
+    testAssert.eq(ccompiler.choose(true, having()), "cc", "with neither, the failure names cc")
+
+    local files = {["C:\\mingw64\\bin\\gcc.exe"] = true, ["D:\\tools\\cc.BAT"] = true}
+    local function exists(path)
+        return files[path] == true
+    end
+    assert(ccompiler.onWindowsPath("gcc", "C:\\Windows;C:\\mingw64\\bin\\", ".COM;.exe", exists))
+    assert(not ccompiler.onWindowsPath("cc", "C:\\Windows;C:\\mingw64\\bin", ".COM;.exe", exists))
+    assert(ccompiler.onWindowsPath("cc", "C:\\mingw64\\bin;D:\\tools", ".exe;.BAT", exists))
+    assert(not ccompiler.onWindowsPath("gcc", "", ".exe", exists))
 end
 
 function M.noPreprocessorNeededForASelfContainedHeader()
@@ -392,8 +421,8 @@ function M.headerProvenanceNamesTheDirectInput()
 end
 
 function M.preprocessorProvenanceIncludesNestedHeaders()
-    if os.execute("cc --version >/dev/null 2>&1") ~= 0 then
-        return require("assert").suite.skip("cc is unavailable")
+    if os.execute(CC .. " --version >/dev/null 2>&1") ~= 0 then
+        return require("assert").suite.skip(CC .. " is unavailable")
     end
     local dir = os.tmpname()
     os.remove(dir)
@@ -416,8 +445,8 @@ function M.preprocessorProvenanceIncludesNestedHeaders()
 end
 
 function M.preprocessorFingerprintIncludesCompilerArguments()
-    if os.execute("cc --version >/dev/null 2>&1") ~= 0 then
-        return require("assert").suite.skip("cc is unavailable")
+    if os.execute(CC .. " --version >/dev/null 2>&1") ~= 0 then
+        return require("assert").suite.skip(CC .. " is unavailable")
     end
     local path = HERE .. "/fixtures/sink.h"
     local plain = assert(cheaderMod.provenance(path, {preprocess = true}))

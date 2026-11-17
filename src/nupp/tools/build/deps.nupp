@@ -25,6 +25,7 @@ local readFile, writeFile = fs.readFile, fs.writeFile
 local exists, mkdir = fs.exists, fs.mkdir
 local copyFile, listFiles = fs.copyFile, fs.listFiles
 local stable = require("nupp.compiler.stable")
+local ccompiler = require("nupp.compiler.cinterop.ccompiler")
 local hashFiles = fingerprint.hashFiles
 
 local deps = {}
@@ -432,7 +433,7 @@ local function buildC(root, outDir, name, dep, previous, childResults, target)
     if packErr ~= nil and dep.cc == nil then
         return nil, packErr
     end
-    local compiler = dep.cc or pack and pack.cc or "cc"
+    local compiler = dep.cc or pack and pack.cc or ccompiler.default()
     local _, version = process.capture({compiler, "--version"})
     local archiver, archiverIdentity = nil, ""
     if buildsStatic then

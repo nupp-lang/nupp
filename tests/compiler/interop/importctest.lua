@@ -4,6 +4,7 @@ local parser = require("nupp.compiler.syntax.parser")
 local check = require("helpers.fragment")
 local envMod = require("nupp.compiler.project.env")
 local program = require("program")
+local CC = require("nupp.compiler.cinterop.ccompiler").default()
 
 local darwin = (require("nupp.compiler.targetlayout").hostKey() or ""):find("apple-darwin", 1, true) ~= nil
 
@@ -178,8 +179,8 @@ function M.staticInlineAndExplicitMacroBridgesCompileAndCall()
     local handle = assert(io.open(source, "wb"))
     handle:write(details.bridgeSource)
     handle:close()
-    local command = darwin and ("cc -dynamiclib -I. -o '%s' '%s'"):format(library, source)
-        or ("cc -shared -fPIC -I. -o '%s' '%s'"):format(library, source)
+    local command = darwin and (CC .. " -dynamiclib -I. -o '%s' '%s'"):format(library, source)
+        or (CC .. " -shared -fPIC -I. -o '%s' '%s'"):format(library, source)
     assert(os.execute(command) == 0, "generated bridge C must compile")
 
     local symbols = {}
@@ -314,8 +315,8 @@ function M.macroValuesFollowCSemantics()
 end
 
 function M.theBridgeWrapsOnlyWhatThisPlatformCompiles()
-    if os.execute("cc --version >/dev/null 2>&1") ~= 0 then
-        return require("assert").suite.skip("cc is unavailable")
+    if os.execute(CC .. " --version >/dev/null 2>&1") ~= 0 then
+        return require("assert").suite.skip(CC .. " is unavailable")
     end
     local path, dir = scratchHeader(
         "vec.h",
@@ -347,7 +348,7 @@ function M.theBridgeWrapsOnlyWhatThisPlatformCompiles()
     local handle = assert(io.open(source, "wb"))
     handle:write(details.bridgeSource)
     handle:close()
-    local compiled = os.execute(("cc -fsyntax-only -I'%s' '%s'"):format(dir, source)) == 0
+    local compiled = os.execute((CC .. " -fsyntax-only -I'%s' '%s'"):format(dir, source)) == 0
     os.execute("rm -rf '" .. dir .. "'")
     assert(compiled, "the generated bridge compiles:\n" .. details.bridgeSource)
 end
@@ -634,8 +635,8 @@ end
 -- The structs an import emits, laid out by `types.layoutof` from the generated
 -- module and by the C compiler from the header, must be the same.
 function M.importedLayoutsMatchWhatTheCCompilerLaysOut()
-    if os.execute("cc --version >/dev/null 2>&1") ~= 0 then
-        return require("assert").suite.skip("cc is unavailable")
+    if os.execute(CC .. " --version >/dev/null 2>&1") ~= 0 then
+        return require("assert").suite.skip(CC .. " is unavailable")
     end
     local specs = {
         {c = "struct layout_inner", name = "layout_inner", fields = {"a", "b"}},
@@ -720,7 +721,7 @@ function M.importedLayoutsMatchWhatTheCCompilerLaysOut()
     handle:write(table.concat(probe, "\n"), "\n")
     handle:close()
     assert(
-        os.execute(("cc -I'%s/fixtures' -o '%s/layout' '%s/layout.c'"):format(HERE, dir, dir)) == 0,
+        os.execute((CC .. " -I'%s/fixtures' -o '%s/layout' '%s/layout.c'"):format(HERE, dir, dir)) == 0,
         "the layout probe compiles"
     )
     local pipe = assert(io.popen("'" .. dir .. "/layout'"))
