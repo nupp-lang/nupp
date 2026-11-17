@@ -3,7 +3,9 @@
 `scripts/toolchain zlib`, `scripts/toolchain openssl` and
 `scripts/toolchain libcurl` print verified installation prefixes. They build
 the selected source archives with a C compiler, CMake, Perl and the platform
-SDK. Windows uses the MSVC x64 developer environment. Rust tools are not inputs.
+SDK. Windows uses the MSVC x64 developer environment and native Windows Perl
+(such as Strawberry Perl) ahead of Git's MSYS Perl on `PATH`. Rust tools are
+not inputs.
 
 The source digests live in `scripts/toolchain.pins`; notices are compared
 byte for byte with the verified sources. A missing archive in offline mode,
