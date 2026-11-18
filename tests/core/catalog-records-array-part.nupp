@@ -1,0 +1,66 @@
+module nupp.core.catalogrecordsarraypart
+
+-- A record with an array part, as the compiler's syntax nodes are: iteration
+-- sees the array alone, and a field the instance never set reads nil, through
+-- the record and through a dynamic value. Each check is a bit.
+local record Leaf
+    id: string = ""
+    hasNil: boolean
+end
+
+local record Item
+    {Leaf | string}
+    kind: string
+    note: string?
+    detail: any
+    leaf: Leaf?
+end
+
+local score = 0
+local item = Item(kind = "item")
+item[1] = "a"
+item[2] = Leaf(hasNil = true)
+item.leaf = Leaf(hasNil = false)
+local n = 0
+for _, v in ipairs(item as any) do
+    n = n + 1
+    if type(v) ~= "string" and type(v) ~= "table" then
+        n = n + 100
+    end
+end
+if n == 2 then
+    score = score | 1
+end
+if item.note == nil and item.detail == nil then
+    score = score | 2
+end
+local dynamic: any = item
+if dynamic.note == nil and dynamic.comptimeValue == nil and dynamic.materializedIR == nil then
+    score = score | 4
+end
+local leaf: any = item[2]
+if leaf.comptimeValue == nil and leaf.kind == nil and leaf.hasNil == true then
+    score = score | 8
+end
+local seen: {[any]: boolean} = {}
+local visited = 0
+
+local function walk(node: any): nil
+    if type(node) ~= "table" or seen[node] then
+        return
+    end
+    seen[node] = true
+    visited = visited + 1
+    if node.comptimeValue ~= nil or node.materializedIR ~= nil then
+        visited = visited + 100
+    end
+    for _, v in ipairs(node) do
+        walk(v)
+    end
+end
+
+walk(item)
+if visited == 2 then
+    score = score | 16
+end
+export const result = score

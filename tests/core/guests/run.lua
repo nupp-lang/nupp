@@ -96,6 +96,10 @@ local CASES = {
     {"stringdynamic", 0x7FFF000000000001},
     -- Concatenation of floats and integers through dynamic values.
     {"concatnumbers", 0x7FFF000000000007},
+    -- A record with an array part: iteration and absent fields.
+    {"recordsarraypart", 0x7FFF00000000001F},
+    -- A record without an array part read at integer keys.
+    {"recordsintegerkeys", 0x7FFF00000000000F},
     {"stringmetaonly", 0x7FFF000000000001},
     {"stringmetatable", 0x7FFF000000000001},
     {"stringmethods", 0x7FFF000000000001},

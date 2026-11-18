@@ -120,15 +120,13 @@ export function recordSlot(origin: any, name: string?): integer?
 end
 
 -- The key record `origin` stores field `name` under, as a constant: its
--- slot, or, in a record with an array part, whose integer keys are its
--- elements, its name.
+-- name. Integer keys are not fields: an instance read at one, iterated with
+-- ipairs or measured with `#` answers as a table keyed by its field names
+-- does, and one written at one keeps its fields.
 export function slotKey(ctx: any, node: any, origin: any, name: string): integer
-    local slot = need(recordSlot(origin, name), "record field is not declared")
-    if origin.arrayOf ~= nil then
-        return ctx.emit(node, "K", {pool(ctx, "str", name)}, "tagged")
-    end
+    need(recordSlot(origin, name), "record field is not declared")
 
-    return ctx.emit(node, "K", {pool(ctx, "int64", tostring(slot))}, "tagged")
+    return ctx.emit(node, "K", {pool(ctx, "str", name)}, "tagged")
 end
 
 -- A field's slot in a value of type `t`: its record's, or, for a union of

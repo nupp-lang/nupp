@@ -1,0 +1,34 @@
+module nupp.core.catalogrecordsintegerkeys
+
+-- A record without an array part read at integer keys, as the compiler walks
+-- a value it only knows as `any`: nothing is there, so the reads answer nil
+-- and iteration finds no element, whatever fields the record holds. Each
+-- check is a bit.
+local record Named
+    id: string = ""
+    tag: string
+    byname: {[string]: any}
+    writeByname: {[string]: any}
+    note: string?
+end
+
+local score = 0
+local named = Named(tag = "nominal", byname = {kind = {}}, writeByname = {kind = {}})
+local dynamic: any = named
+if dynamic[1] == nil and dynamic[2] == nil and dynamic[3] == nil then
+    score = score | 1
+end
+local count = 0
+for _ in ipairs(dynamic) do
+    count = count + 1
+end
+if count == 0 then
+    score = score | 2
+end
+if #dynamic == 0 then
+    score = score | 4
+end
+if dynamic.kind == nil and dynamic.tag == "nominal" then
+    score = score | 8
+end
+export const result = score

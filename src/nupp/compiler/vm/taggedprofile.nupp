@@ -739,9 +739,9 @@ export function forVersion(version: integer): any
 
             return ctx.emit(node, "GetIdx", operands, "tagged") as integer
         end
-        -- Records lower onto core tables for now: field i of the declaration
-        -- order is key i. Records are identity objects, so this is exact; a
-        -- dedicated record layout is a later optimization.
+        -- Records lower onto core tables keyed by their field names, as a
+        -- record with an array part already is. Records are identity objects,
+        -- so this is exact; a dedicated record layout is a later optimization.
         profile.construction = function(ctx: any, node: any, expected: string?): integer
             need(expected == nil or expected == "tagged", "record requires tagged destination")
             local origin = recordOrigin(node.inferredType)
@@ -1183,28 +1183,6 @@ export function forVersion(version: integer): any
             local held = ctx.hold(ctx.emit(stat, "NewTable", {}, "tagged"))
             local indexKey = ctx.emit(stat, "K", {pool(ctx, "str", "__index")}, "tagged")
             ctx.emit(stat, "SetIdx", {ctx.readHeld(held), indexKey, ctx.readHeld(held)}, nil)
-            -- Its field names, each to its slot, under a key no field name
-            -- can be: a read or write of an instance by name, where no type
-            -- gave the slot, finds the field there.
-            -- An interface's instances are its implementers': no slots.
-            -- A record with an array part keeps its fields by name: its
-            -- integer keys are its elements.
-            local order = stat.declKind ~= "interface"
-                and stat.resolvedType
-                and stat.resolvedType.arrayOf == nil
-                and stat.resolvedType.fieldOrder
-                or {}
-            if #order > 0 then
-                local fields = ctx.hold(ctx.emit(stat, "NewTable", {}, "tagged"))
-                for slot, field in ipairs(order) do
-                    local name = ctx.emit(stat, "K", {pool(ctx, "str", field)}, "tagged")
-                    local at = ctx.emit(stat, "K", {pool(ctx, "int64", tostring(slot))}, "tagged")
-                    ctx.emit(stat, "SetIdx", {ctx.readHeld(fields), name, at}, nil)
-                end
-                local fieldsKey = ctx.emit(stat, "K", {pool(ctx, "str", "\0fields")}, "tagged")
-                ctx.emit(stat, "SetIdx", {ctx.readHeld(held), fieldsKey, ctx.readHeld(fields)}, nil)
-                ctx.release(fields)
-            end
             -- A default it takes from an interface is read from that
             -- interface's table, under the member it has here.
             for _, taken in ipairs(stat.inheritedDefaultNames or {}) do
