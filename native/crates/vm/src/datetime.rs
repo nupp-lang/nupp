@@ -23,7 +23,7 @@ pub(crate) fn date(vm: &mut Interp, args: &[Value]) -> Outs {
     };
     let stamp = args.get(1).copied().unwrap_or(Value::NIL);
     let seconds = if stamp == Value::NIL {
-        nupp_native_platform::wall_ms() as f64 / 1000.0
+        std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_millis().min(u128::from(u64::MAX)) as u64) as f64 / 1000.0
     } else {
         if !crate::numeric::is_numeric(stamp) {
             vm.err("date timestamp must be a number");

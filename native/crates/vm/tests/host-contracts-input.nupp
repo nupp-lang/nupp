@@ -11,7 +11,6 @@ function probe.run(): integer
         ["nupp.compiler.nativecdecl"] = {"request"},
         ["nupp.compiler.nativehash"] = {"digest"},
         ["nupp.digest.internal.sha256"] = {"sha256"},
-        ["nupp.runtime.provider.nativecrypto"] = {"randomBytes"},
         [
             "nupp.runtime.provider.nativestorage"
         ] = {
@@ -56,7 +55,6 @@ function probe.run(): integer
         [
             "nupp.runtime.provider.nativesystem"
         ] = {"platform", "architecture", "endianness", "pointerBits", "availableParallelism"},
-        ["nupp.runtime.provider.nativeuuid"] = {"uuid4", "uuid7"},
         ["nupp.simd"] = {"horizontal", "reducer"},
         ["nupp.vm.clock"] = {"now", "wallTime", "sleep"},
         ["nupp.vm.coroutine"] = {"create", "wrap", "isyieldable", "resume", "yield", "status", "running", "close"},

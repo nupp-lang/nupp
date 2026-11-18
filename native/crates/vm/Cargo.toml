@@ -56,7 +56,6 @@ allocation-metrics = ["dep:serde_json"]
 
 [dependencies]
 serde_json = { version = "1", optional = true }
-nupp-native-platform = { path = "../platform", features = ["uuid"] }
 nupp-native-files = { path = "../files" }
 nupp-native-net = { path = "../net", optional = true }
 nupp-native-tls = { path = "../tls", optional = true }

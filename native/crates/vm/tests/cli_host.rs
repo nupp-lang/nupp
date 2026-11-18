@@ -142,7 +142,7 @@ fn compiler_hash_and_temporary_paths_are_native_services() {
     let module = vm.require("nupp.compiler.nativehash"); let key = vm.intern("digest"); let hash = vm.get_index(module, key);
     let source = vm.new_string_bytes(b"abc\0def"); let root = vm.register(source);
     let answer = vm.call_value(hash, &[source])[0];
-    assert_eq!(vm.bytes_of(answer), nupp_native_platform::cache_digest(b"abc\0def"));
+    assert_eq!(vm.bytes_of(answer), nupp_vm::xxh64::cache_digest(b"abc\0def"));
     let path = call(&mut vm, id_of("os.tmpname").unwrap(), &[]).as_slice()[0]; let path_root = vm.register(path);
     assert_eq!(std::fs::read(std::str::from_utf8(vm.bytes_of(path)).unwrap()).unwrap(), b"");
     assert_eq!(call(&mut vm, id_of("os.remove").unwrap(), &[path]).as_slice(), &[Value::TRUE]);

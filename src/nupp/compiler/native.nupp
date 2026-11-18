@@ -608,7 +608,7 @@ local FEATURES: {[string]: native.Feature} = {
         "native.uuid"
     ] = {
         name = "uuid",
-        modules = {"nupp.runtime.provider.nativeuuid"},
+        modules = {"nupp.runtime.provider.osuuid"},
         provider = "nupp_native",
         providerDriver = "native-rust",
         providerFeature = "uuid",
@@ -876,9 +876,7 @@ local FEATURES: {[string]: native.Feature} = {
         requires = {"runtime.suspension"},
     },
     ["native.host"] = {name = "host", module = "nupp.runtime.provider.nativehost", requires = {"runtime.suspension"}},
-    [
-        "native.crypto"
-    ] = {name = "crypto", module = "nupp.runtime.provider.nativecrypto", requires = {"runtime.native"},},
+    ["native.crypto"] = {name = "crypto", module = "nupp.runtime.provider.osentropy", requires = {"runtime.native"},},
 }
 
 -- Facades can load their backend by a computed name. This relation is a

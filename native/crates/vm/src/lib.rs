@@ -44,6 +44,7 @@ pub mod interp;
 pub mod metamethods;
 pub mod builtins;
 mod clock;
+pub mod xxh64;
 mod datetime;
 pub mod fileio;
 pub mod nfiles;

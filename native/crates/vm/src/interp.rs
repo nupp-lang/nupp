@@ -1166,8 +1166,6 @@ impl Interp {
             self.set_index(clock, key, Value::builtin(crate::builtins::id_of(builtin).unwrap()));
         }
         self.loaded.insert("nupp.vm.clock".into(), clock);
-        let uuid = table_of(self, &["uuid.uuid4", "uuid.uuid7"]);
-        self.loaded.insert("nupp.runtime.provider.nativeuuid".into(), uuid);
         let pid = self.new_table(); self.registered.push(pid);
         let get = self.intern("get"); self.set_index(pid, get, Value::builtin(crate::builtins::id_of("vm.processId").unwrap()));
         self.loaded.insert("nupp.compiler.hostpid".into(), pid);
@@ -1235,9 +1233,6 @@ impl Interp {
         self.loaded.insert(STRING_META.into(), meta);
         self.string_meta = meta;
         for name in ["xpcall", "collectgarbage", "pairs", "ipairs", "next", "type", "tostring", "tonumber", "error", "assert", "select", "print", "pcall", "require", "loadstring", "unpack", "rawequal", "rawget", "rawset", "setmetatable", "getmetatable"] { let k = self.intern(name); let id = crate::builtins::id_of(name).unwrap(); self.set_index(g, k, Value::builtin(id)); }
-        let crypto = self.new_table(); self.registered.push(crypto);
-        let key = self.intern("randomBytes"); self.set_index(crypto, key, Value::builtin(crate::builtins::id_of("crypto.randomBytes").unwrap()));
-        self.loaded.insert("nupp.runtime.provider.nativecrypto".into(), crypto);
         let system = self.new_table(); self.registered.push(system);
         for (name, value) in [("platform", std::env::consts::OS), ("architecture", std::env::consts::ARCH), ("endianness", if cfg!(target_endian = "little") { "little" } else { "big" })] {
             let value = self.intern(value); let root = self.register(value);

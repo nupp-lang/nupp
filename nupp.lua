@@ -110,8 +110,8 @@ local RESOURCES = {
         output = "nupp/compiler/nupp/runtime/provider/suspension.nupp"
     },
     {
-        source = "src/nupp/runtime/provider/nativeuuid.nupp",
-        output = "nupp/compiler/nupp/runtime/provider/nativeuuid.nupp"
+        source = "src/nupp/runtime/provider/osuuid.nupp",
+        output = "nupp/compiler/nupp/runtime/provider/osuuid.nupp"
     },
     {
         source = "src/nupp/runtime/provider/nativeuri.nupp",
@@ -346,8 +346,28 @@ local RESOURCES = {
     {source = "src/nupp/runtime/provider/checksum.nupp", output = "nupp/compiler/nupp/runtime/provider/checksum.nupp"},
     {source = "src/nupp/runtime/provider/mac.nupp", output = "nupp/compiler/nupp/runtime/provider/mac.nupp"},
     {
-        source = "src/nupp/runtime/provider/nativecrypto.nupp",
-        output = "nupp/compiler/nupp/runtime/provider/nativecrypto.nupp"
+        source = "src/nupp/runtime/provider/osentropy.nupp",
+        output = "nupp/compiler/nupp/runtime/provider/osentropy.nupp"
+    },
+    {
+        source = "src/nupp/runtime/uuidspelling.nupp",
+        output = "nupp/compiler/nupp/runtime/uuidspelling.nupp"
+    },
+    {
+        source = "src/nupp/runtime/provider/entropybytes.nupp",
+        output = "nupp/compiler/nupp/runtime/provider/entropybytes.nupp"
+    },
+    {
+        source = "src/nupp/runtime/provider/darwinentropy.nupp",
+        output = "nupp/compiler/nupp/runtime/provider/darwinentropy.nupp"
+    },
+    {
+        source = "src/nupp/runtime/provider/linuxentropy.nupp",
+        output = "nupp/compiler/nupp/runtime/provider/linuxentropy.nupp"
+    },
+    {
+        source = "src/nupp/runtime/provider/windowsentropy.nupp",
+        output = "nupp/compiler/nupp/runtime/provider/windowsentropy.nupp"
     },
     {
         source = "src/nupp/runtime/provider/nativesystem.nupp",
@@ -502,7 +522,6 @@ for _, relative in ipairs({
     "nupp/digest/internal/sha256.d.nupp",
     "nupp/generator.d.nupp",
     "nupp/runtime/provider/nativestorage.d.nupp",
-    "nupp/runtime/provider/nativeuuid.d.nupp",
     "nupp/tasks.d.nupp",
     "nupp/tools/bytecodecache.d.nupp",
     "nupp/vm.d.nupp",

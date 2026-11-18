@@ -1,0 +1,57 @@
+@!internal
+--[[
+How a UUID is spelled from random bytes (RFC 9562), for the VM's provider and
+the core's: sixteen bytes with the version and variant set, of which version 7
+takes the first six from the Unix time in milliseconds, big-endian, in the
+canonical lowercase, hyphenated spelling.
+]]
+module nupp.runtime.uuidspelling
+
+-- A UUID's sixteen bytes, of which version 7 takes the first six from time.
+const UUID_BYTES = 16
+const TIME_BYTES = 6
+const BYTE_RADIX = 256
+
+-- The version nibble (byte 7) and the RFC 9562 variant bits (byte 9).
+const VERSION_BYTE = 7
+const VARIANT_BYTE = 9
+const VERSION_SHIFT = 16
+const VARIANT_MASK = 63
+const VARIANT_BITS = 128
+
+-- The bytes after which a hyphen falls: 8-4-4-4-12 hex digits.
+const HYPHENS: {[integer]: boolean} = {[4] = true, [6] = true, [8] = true, [10] = true}
+
+--- The random bytes a UUID needs.
+export const RANDOM_BYTES = UUID_BYTES
+
+--- The UUID of `version` spelled from sixteen `random` bytes, the first six
+--- replaced by `milliseconds` when given.
+--- @param random sixteen random bytes
+--- @param version the UUID version, 4 or 7
+--- @param milliseconds the Unix time in milliseconds a version 7 UUID orders by
+--- @return the UUID, hyphenated and lowercase
+export function spell(random: string, version: integer, milliseconds: integer?): string
+    local bytes: {integer} = {}
+    for index = 1, UUID_BYTES do
+        bytes[index] = string.byte(random, index) as integer
+    end
+    if milliseconds ~= nil then
+        local now = milliseconds
+        for index = TIME_BYTES, 1, -1 do
+            bytes[index] = now % BYTE_RADIX
+            now = now // BYTE_RADIX
+        end
+    end
+    bytes[VERSION_BYTE] = bytes[VERSION_BYTE] % VERSION_SHIFT + version * VERSION_SHIFT
+    bytes[VARIANT_BYTE] = bytes[VARIANT_BYTE] & VARIANT_MASK | VARIANT_BITS
+    local parts: {string} = {}
+    for index = 1, UUID_BYTES do
+        parts[#parts + 1] = string.format("%02x", bytes[index])
+        if HYPHENS[index] then
+            parts[#parts + 1] = "-"
+        end
+    end
+
+    return table.concat(parts)
+end

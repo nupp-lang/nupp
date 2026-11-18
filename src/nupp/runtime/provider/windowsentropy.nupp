@@ -1,0 +1,31 @@
+@!internal
+--[[Windows secure random bytes: `BCryptGenRandom` with the system-preferred
+generator, which needs no algorithm handle.]]
+module nupp.runtime.provider.windowsentropy
+
+const entropybytes = require("nupp.runtime.provider.entropybytes")
+
+cdef function BCryptGenRandom(
+    algorithm: voidptr?,
+    borrows buffer: uint8* countedBy(size),
+    size: uint32,
+    flags: uint32
+): int32 from"bcrypt"
+
+-- BCRYPT_USE_SYSTEM_PREFERRED_RNG.
+const SYSTEM_PREFERRED = 2
+
+--- `count` random bytes, or nil when the system failed.
+export function fill(count: integer): string?
+    local buffer = entropybytes.allocate(count)
+    local status: int32 = 0
+    do
+        local w = buffer:write()
+        status = BCryptGenRandom(nil, w, SYSTEM_PREFERRED)
+    end
+    if status ~= 0 then
+        return nil
+    end
+
+    return entropybytes.copied(buffer, count)
+end

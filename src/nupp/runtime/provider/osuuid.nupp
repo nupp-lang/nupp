@@ -1,0 +1,37 @@
+@!internal
+
+--[[
+Native implementation of [](nupp.runtime.contracts)' UUID provider.
+
+Version 4 is random; version 7 orders by the wall clock's milliseconds, then
+random bits. Both draw their bytes from the operating system through
+[](nupp.runtime.provider.osentropy), return the canonical lowercase,
+hyphenated spelling, and raise if the system cannot supply randomness.
+
+The [](nupp.runtime.uuidprovider) facade retains the selected functions once.
+UUID randomness is supplied by the operating system rather than Lua's random
+seed, so a restored checkpoint repeats none.
+]]
+module nupp.runtime.provider.osuuid
+
+const entropy = require("nupp.runtime.provider.osentropy")
+const spelling = require("nupp.runtime.uuidspelling")
+const clock = require("nupp.vm.clock")
+
+--- Generates a random version 4 UUID.
+---
+--- @return the UUID, hyphenated and lowercase
+--- @raises string when the system has no randomness to draw on
+export function uuid4(): string
+    return spelling.spell(entropy.randombytes(spelling.RANDOM_BYTES), 4)
+end
+
+--- Generates a time-ordered version 7 UUID.
+---
+--- @return the UUID, hyphenated and lowercase
+--- @raises string when the system has no randomness to draw on
+export function uuid7(): string
+    local milliseconds = math.floor(clock.wallTime()) as integer
+
+    return spelling.spell(entropy.randombytes(spelling.RANDOM_BYTES), 7, milliseconds)
+end

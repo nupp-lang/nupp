@@ -190,7 +190,7 @@ pub fn analyze(it: &Interp, count: usize) -> Option<Vec<ImageModule>> {
     for name in in_image {
         let mut deps: Vec<String> = edges.remove(name).unwrap_or_default().into_iter().filter(|d| d != name).collect();
         deps.sort();
-        let digest = nupp_native_platform::cache_digest(code.get(name).map(String::as_bytes).unwrap_or_default());
+        let digest = crate::xxh64::cache_digest(code.get(name).map(String::as_bytes).unwrap_or_default());
         out.push(ImageModule {
             name: name.to_string(),
             digest: String::from_utf8_lossy(&digest).into_owned(),

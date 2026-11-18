@@ -27,8 +27,6 @@ local HOST_MODULES: {
     ["nupp.vm.tasks"] = true,
     ["nupp.simd"] = true,
     ["nupp.runtime.provider.nativestorage"] = true,
-    ["nupp.runtime.provider.nativeuuid"] = true,
-    ["nupp.runtime.provider.nativecrypto"] = true,
     ["nupp.vm.clock"] = true,
     ["nupp.vm.coroutine"] = true,
     ["nupp.cli.internal.terminalhost"] = true,
@@ -71,6 +69,8 @@ local VM_PROVIDERS: {
     ["nupp.runtime.provider.nativetime"] = true,
     ["nupp.runtime.provider.nativetls"] = true,
     ["nupp.runtime.provider.nativeuri"] = true,
+    ["nupp.runtime.provider.osentropy"] = true,
+    ["nupp.runtime.provider.osuuid"] = true,
     ["nupp.runtime.provider.suspension"] = true,
     ["nupp.runtime.provider.workers"] = true,
 }

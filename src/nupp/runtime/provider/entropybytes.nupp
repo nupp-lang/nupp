@@ -1,0 +1,29 @@
+@!internal
+--[[The bytes a native entropy call filled, copied out of their array.]]
+module nupp.runtime.provider.entropybytes
+
+local array = require("nupp.array")
+
+-- Bytes copied per `string.char` call.
+const RUN = 128
+
+--- A fresh native byte array of `count` bytes for C to fill.
+export function allocate(count: integer): array.Array<uint8>
+    return array.bytes(count)
+end
+
+--- The `count` bytes of `buffer` as a Lua string.
+export function copied(borrows buffer: array.Array<uint8>, count: integer): string
+    local view = buffer:read()
+    local parts: {string} = {}
+    local run: {integer} = {}
+    for index = 1, count do
+        run[#run + 1] = view[index] as integer
+        if #run == RUN or index == count then
+            parts[#parts + 1] = string.char(table.unpack(run))
+            run = {}
+        end
+    end
+
+    return table.concat(parts)
+end

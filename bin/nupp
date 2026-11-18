@@ -136,7 +136,7 @@ vm_sources_newer_than() {
     [ -n "$(find "$ROOT/src" "$ROOT/templates" \
         "$ROOT/native/crates/vm/src" "$ROOT/native/crates/vm/lib" "$ROOT/native/crates/vm/decls" \
         "$ROOT/native/crates/vm/csrc" "$ROOT/native/crates/vm/build.rs" "$ROOT/native/crates/vm/Cargo.toml" \
-        "$ROOT/native/crates/platform" "$ROOT/native/crates/files" "$ROOT/native/crc" \
+        "$ROOT/native/crates/files" "$ROOT/native/crc" \
         "$ROOT/native/crates/net" "$ROOT/native/crates/tls" \
         "$ROOT/native/crates/http" "$ROOT/native/crates/abi" "$ROOT/native/crates/process" \
         "$ROOT/Cargo.toml" "$ROOT/Cargo.lock" "$ROOT/scripts/vm-cli" "$ROOT/tests/run.lua" \

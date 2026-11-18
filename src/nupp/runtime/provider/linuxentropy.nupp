@@ -1,0 +1,28 @@
+@!internal
+--[[Linux secure random bytes: `getrandom` from the urandom source, which fills a
+request of up to 256 bytes whole and a longer one possibly in part.]]
+module nupp.runtime.provider.linuxentropy
+
+const entropybytes = require("nupp.runtime.provider.entropybytes")
+
+cdef function getrandom(borrows buffer: uint8* countedBy(size), size: uint64, flags: uint32): int64
+
+-- How often a short or interrupted fill is tried again before it fails.
+const ATTEMPTS = 8
+
+--- `count` random bytes, or nil when the system failed.
+export function fill(count: integer): string?
+    for _ = 1, ATTEMPTS do
+        local buffer = entropybytes.allocate(count)
+        local filled: int64 = 0
+        do
+            local w = buffer:write()
+            filled = getrandom(w, 0)
+        end
+        if filled == count then
+            return entropybytes.copied(buffer, count)
+        end
+    end
+
+    return nil
+end

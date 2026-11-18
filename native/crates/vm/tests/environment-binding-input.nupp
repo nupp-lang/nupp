@@ -3,8 +3,8 @@ module nupp.tests.vmenvironmentbinding
 local probe = {}
 
 function probe.run(): integer
-    local crypto: any = package.loaded["nupp.runtime.provider.nativecrypto"]
-    local random: any = crypto.randomBytes
+    local crypto: any = require("nupp.runtime.provider.osentropy")
+    local random: any = crypto.randombytes
     local system: any = package.loaded["nupp.runtime.provider.nativesystem"]
     local parallel: any = system.availableParallelism
     local bits: any = system.pointerBits
@@ -14,7 +14,7 @@ function probe.run(): integer
     assert((cryptoBinding as any) == crypto and (systemBinding as any) == system)
     assert(cryptoBinding.randombytes == random and systemBinding.availableparallelism == parallel)
     assert(systemBinding.pointerbits == bits and (bits == 32 or bits == 64))
-    assert(crypto.randomBytes == nil and system.availableParallelism == nil and system.pointerBits == nil)
+    assert(system.availableParallelism == nil and system.pointerBits == nil)
     assert(cryptoBinding.randombytes(0) == "" and #cryptoBinding.randombytes(17) == 17)
     assert(not pcall(cryptoBinding.randombytes, -1))
     assert(not pcall(cryptoBinding.randombytes, 1048577))

@@ -9,7 +9,7 @@ local target = require("nupp.runtime.target")
 local contracts = require("nupp.runtime.contracts")
 local provider: contracts.UuidProvider = do
     if target.host == "native" then
-        yield _G.require("nupp.runtime.provider.nativeuuid") as contracts.UuidProvider
+        yield _G.require("nupp.runtime.provider.osuuid") as contracts.UuidProvider
     end
     yield _G.require("nupp.runtime.browser.crypto") as contracts.UuidProvider
 end

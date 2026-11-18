@@ -9,7 +9,7 @@
 //! Only the format-defined boundaries are read, never the whole executable, so
 //! a runtime with nothing appended answers in a few small reads.
 
-use nupp_native_platform::trailer_digest;
+use crate::xxh64::trailer_digest;
 use std::fs::File;
 use std::io::{Read, Seek, SeekFrom};
 use std::path::Path;

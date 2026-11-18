@@ -1,0 +1,68 @@
+@!internal
+--[[Native implementation of [](nupp.runtime.contracts)' entropy provider.
+
+Secure random bytes come straight from the operating system through checked C
+calls: `getentropy` on macOS, `getrandom` on Linux and `BCryptGenRandom` with the
+system-preferred generator on Windows. Each call fills a fresh native byte array
+that is copied into an owned Lua string; no pointer escapes. Counts are bounded
+to one MiB, and zero returns an empty string without calling the system. A
+system failure raises. This module is carried only by native targets and is
+selected by the private entropy service for `os.randombytes`.
+]]
+module nupp.runtime.provider.osentropy
+
+const system = require("nupp.runtime.system")
+
+-- The most bytes one request may ask for.
+const MAX_BYTES = 1048576
+
+-- What one system call fills: the operating system's C binding, and the most
+-- bytes it is asked for at once (getentropy's own limit is 256).
+local record Source
+    fill: function(count: integer): string?
+    chunk: integer
+end
+
+local function source(): Source
+    if system.platform == "windows" then
+        return Source(fill = require("nupp.runtime.provider.windowsentropy").fill, chunk = 65536)
+    elseif system.platform == "linux" then
+        return Source(fill = require("nupp.runtime.provider.linuxentropy").fill, chunk = 65536)
+    end
+
+    return Source(fill = require("nupp.runtime.provider.darwinentropy").fill, chunk = 256)
+end
+
+local selected: Source? = nil
+
+--- Returns cryptographically secure random bytes from the operating system.
+--- @param count the requested byte count, from zero through 1048576
+--- @return the generated raw bytes
+--- @raises string when the count is invalid or the system cannot supply randomness
+export function randombytes(count: integer): string
+    local wanted: integer? = type(count) == "number" and math.tointeger(count) or nil
+    if wanted == nil or wanted < 0 or wanted > MAX_BYTES then
+        error("random byte count must be an integer between 0 and 1048576", 2)
+    end
+    if wanted == 0 then
+        return ""
+    end
+    local from = selected or source()
+    selected = from
+    local parts: {string} = {}
+    local done: integer = 0
+    while done < wanted do
+        local size: integer = wanted - done
+        if size > from.chunk then
+            size = from.chunk
+        end
+        local bytes = from.fill(size)
+        if bytes == nil then
+            error("nupp: the system has no randomness to draw on", 2)
+        end
+        parts[#parts + 1] = bytes
+        done = done + size
+    end
+
+    return table.concat(parts)
+end

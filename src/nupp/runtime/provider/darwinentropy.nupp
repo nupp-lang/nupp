@@ -1,0 +1,22 @@
+@!internal
+--[[macOS secure random bytes: `getentropy`, which fills at most 256 bytes a call.]]
+module nupp.runtime.provider.darwinentropy
+
+const entropybytes = require("nupp.runtime.provider.entropybytes")
+
+cdef function getentropy(borrows buffer: uint8* countedBy(size), size: uint64): int32
+
+--- `count` random bytes, at most 256, or nil when the system failed.
+export function fill(count: integer): string?
+    local buffer = entropybytes.allocate(count)
+    local status: int32 = 0
+    do
+        local w = buffer:write()
+        status = getentropy(w)
+    end
+    if status ~= 0 then
+        return nil
+    end
+
+    return entropybytes.copied(buffer, count)
+end

@@ -432,7 +432,7 @@ function M.uuidUsesItsContractWithoutNativeCompilerServices()
     local exports = assert(env.resolveModuleExports(env, "os"))
     testAssert.eq(exports.values.uuid, uuid.byname.uuid, "module and export resolution agree")
     testAssert.eq(
-        rawget(env.bundled, "nupp.runtime.provider.nativeuuid"),
+        rawget(env.bundled, "nupp.runtime.provider.osuuid"),
         nil,
         "the native implementation was not loaded"
     )

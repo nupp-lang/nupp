@@ -22,9 +22,7 @@ local IMPLEMENTATIONS: {
     ["nupp.runtime.bindings.entropy"] = {native = "nupp.vm.cryptobinding", browser = "nupp.runtime.browser.crypto"},
     ["nupp.io.path.provider"] = {native = "nupp.runtime.provider.nativepath", browser = "nupp.runtime.browser.path"},
     ["nupp.io.uri.provider"] = {native = "nupp.runtime.provider.nativeuri", browser = "nupp.runtime.browser.uri"},
-    [
-        "nupp.runtime.uuidprovider"
-    ] = {native = "nupp.runtime.provider.nativeuuid", browser = "nupp.runtime.browser.crypto"},
+    ["nupp.runtime.uuidprovider"] = {native = "nupp.runtime.provider.osuuid", browser = "nupp.runtime.browser.crypto"},
     [
         "nupp.runtime.bindings.clock"
     ] = {native = "nupp.runtime.provider.nativetime", browser = "nupp.runtime.browser.time"},

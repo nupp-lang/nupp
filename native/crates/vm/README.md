@@ -1895,7 +1895,7 @@ of the time on its own. Three findings closed half the gap:
   single lookup. 1.78 to 1.47 s interpreted, 1.60 to 1.32 s linked.
 - **The content digest ran in Nupp on the VM.** `nupp.compiler.hash.digest`
   is XXH64 under two seeds emulated over 32-bit halves, 6 MB/s. The VM has
-  installed `nupp.compiler.nativehash` over `nupp_native_platform::cache_digest`
+  installed `nupp.compiler.nativehash` over `xxh64::cache_digest`
   since the CLI landed, byte-identical, but the prelude cache sealed and
   unsealed through the portable spelling. `hash.digest` now resolves the
   native module once and uses it where the host provides it, the pattern

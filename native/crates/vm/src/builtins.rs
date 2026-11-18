@@ -30,10 +30,11 @@ pub const NAMES: &[&str] = &[
     "storage.allocateBytes", "storage.borrowString", "storage.copy", "storage.fill", "storage.sizeOf", "storage.string", "storage.decodeUint8", "storage.encodeUint8", "storage.decodeInt8", "storage.encodeInt8", "storage.decodeUint16", "storage.encodeUint16", "storage.decodeInt16", "storage.encodeInt16", "storage.decodeUint32", "storage.encodeUint32", "storage.decodeInt32", "storage.encodeInt32", "storage.decodeUint64", "storage.encodeUint64", "storage.decodeInt64", "storage.encodeInt64", "storage.decodeFloat32", "storage.encodeFloat32", "storage.decodeFloat64", "storage.encodeFloat64", "storage.castBytes", "storage.castElements", "storage.scalar", "storage.descriptor", "storage.allocateArray", "storage.boundedCount", "storage.index", "storage.write", "storage.add", "storage.sub",
     "simd.reducer.orderedSum", "simd.reducer.pairwiseSum", "simd.reducer.compensatedSum", "simd.reducer.algebraicSum", "simd.reducer.orderedProduct", "simd.reducer.pairwiseProduct", "simd.reducer.algebraicProduct", "simd.reducer.orderedDot", "simd.reducer.pairwiseDot", "simd.reducer.algebraicDot", "simd.reducer.wrappingSum", "simd.reducer.wrappingProduct", "simd.reducer.andBits", "simd.reducer.orBits", "simd.reducer.xorBits", "simd.reducer.any", "simd.reducer.all", "simd.reducer.count", "simd.reducer.integerMin", "simd.reducer.integerMax", "simd.reducer.integerArgMin", "simd.reducer.integerArgMax", "simd.reducer.propagatingMin", "simd.reducer.propagatingMax", "simd.reducer.propagatingArgMin", "simd.reducer.propagatingArgMax", "simd.reducer.numberMin", "simd.reducer.numberMax", "simd.reducer.numberArgMin", "simd.reducer.numberArgMax",
     "simd.reducerAdd", "simd.reducerValue", "simd.indirect",
-    "uuid.uuid4", "uuid.uuid7", "retired.crc.update",
+    // Retired UUID slots: OS entropy and UUIDs are Nupp providers now.
+    "retired.uuid4", "retired.uuid7", "retired.crc.update",
     "io.stdin.read", "io.stdout.flush", "io.stderr.flush", "io.flush", "io.stdout.setvbuf", "io.stderr.setvbuf",
     "io.popen", "process.spawn", "process.poll", "process.kill", "process.read", "process.write", "process.closeStream", "process.reap", "process.waitReady", "process.pipeRead", "process.pipeWrite", "process.pipeClose",
-    "crypto.randomBytes", "system.availableParallelism", "collectgarbage", "os.date", "xpcall", "io.type", "io.lines", "vm.encodePlain", "vm.decodePlain",
+    "retired.randomBytes", "system.availableParallelism", "collectgarbage", "os.date", "xpcall", "io.type", "io.lines", "vm.encodePlain", "vm.decodePlain",
     "package.preloadLoader", "package.imageLoader", "vm.withInstructionBudget",
     "files.glob", "files.read", "files.createTemporaryFile", "files.createTemporaryDirectory", "temporary.toString", "temporary.close", "temporary.isReleased", "temporary.persist",
     "tasks.vmSpawn", "tasks.vmCapture", "tasks.vmPrepare", "tasks.vmReplace", "tasks.vmFork", "tasks.vmStep", "tasks.vmPoll", "tasks.vmGeneration", "tasks.vmClose", "tasks.vmDiscard",
@@ -691,7 +692,6 @@ enum Special {
     VmCdeclarations,
     VmCachedigest,
     VmProcessid,
-    UuidUuid4,
     ClockNow,
     Xpcall,
     IoLines,
@@ -699,7 +699,6 @@ enum Special {
     OsDate,
     Collectgarbage,
     SystemAvailableparallelism,
-    CryptoRandombytes,
     VmWithinstructionbudget,
     PackagePreloadloader,
     PackageImageloader,
@@ -744,7 +743,6 @@ fn classify(name: &str) -> Special {
     if name == "vm.cDeclarations" { return Special::VmCdeclarations; }
     if name == "vm.cacheDigest" { return Special::VmCachedigest; }
     if name == "vm.processId" { return Special::VmProcessid; }
-    if name == "uuid.uuid4" || name == "uuid.uuid7" { return Special::UuidUuid4; }
     if name == "clock.now" { return Special::ClockNow; }
     if name == "xpcall" { return Special::Xpcall; }
     if name == "io.lines" { return Special::IoLines; }
@@ -752,7 +750,6 @@ fn classify(name: &str) -> Special {
     if name == "os.date" { return Special::OsDate; }
     if name == "collectgarbage" { return Special::Collectgarbage; }
     if name == "system.availableParallelism" { return Special::SystemAvailableparallelism; }
-    if name == "crypto.randomBytes" { return Special::CryptoRandombytes; }
     if name == "vm.withInstructionBudget" { return Special::VmWithinstructionbudget; }
     if name == "package.preloadLoader" { return Special::PackagePreloadloader; }
     if name == "package.imageLoader" { return Special::PackageImageloader; }
@@ -1012,7 +1009,7 @@ pub fn call(it: &mut Interp, id: u32, args: &[Value]) -> Outs {
             { it.err("C declaration inspection requires the c-headers runtime feature") }
         }
         Special::VmCachedigest => {
-            let digest = nupp_native_platform::cache_digest(it.bytes_of(arg(args, 0))); return outs![it.new_string_bytes(&digest)];
+            let digest = crate::xxh64::cache_digest(it.bytes_of(arg(args, 0))); return outs![it.new_string_bytes(&digest)];
         }
         Special::VmProcessid => {
             return outs![Value::inline_integer(std::process::id() as i64).unwrap()];
@@ -1022,8 +1019,8 @@ pub fn call(it: &mut Interp, id: u32, args: &[Value]) -> Outs {
             // a cache stamp has to name: the sources it was lowered from may have
             // moved on since. Images `vm.loadImage` adds later are not part of it.
             let digest = match it.code_events.first() {
-                Some(crate::persist::CodeEvent::Image(text)) => Some(nupp_native_platform::cache_digest(text.as_bytes())),
-                Some(crate::persist::CodeEvent::Graph { bytes, .. }) => Some(nupp_native_platform::cache_digest(bytes)),
+                Some(crate::persist::CodeEvent::Image(text)) => Some(crate::xxh64::cache_digest(text.as_bytes())),
+                Some(crate::persist::CodeEvent::Graph { bytes, .. }) => Some(crate::xxh64::cache_digest(bytes)),
                 _ => None,
             };
             return match digest { Some(digest) => outs![it.new_string_bytes(&digest)], None => outs![Value::NIL] };
@@ -1048,11 +1045,6 @@ pub fn call(it: &mut Interp, id: u32, args: &[Value]) -> Outs {
                 }
                 Err(reason) => { let v = it.heap_new_string(&reason); outs![Value::NIL, v] }
             };
-        }
-        Special::UuidUuid4 => {
-            let name = NAMES[id as usize];
-            let value = if name == "uuid.uuid4" { nupp_native_platform::uuid4() } else { nupp_native_platform::uuid7() };
-            return outs![it.heap_new_string(&value.unwrap_or_else(|e| it.err(&e)))];
         }
         Special::ClockNow => {
             let millis = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH)
@@ -1132,16 +1124,6 @@ pub fn call(it: &mut Interp, id: u32, args: &[Value]) -> Outs {
         }
         Special::SystemAvailableparallelism => {
             return outs![integer(it, std::thread::available_parallelism().map_or(1, usize::from) as i64)];
-        }
-        Special::CryptoRandombytes => {
-            let value = arg(args, 0);
-            let count = crate::numeric::integer(value).map(|n| n.magnitude()).or_else(|| {
-                value.is_float().then(|| crate::numeric::exact_integer(value.as_num())).flatten().map(|n| n.magnitude())
-            });
-            let Some(count) = count.filter(|n| (0..=1048576).contains(n)) else { it.err("random byte count must be an integer between 0 and 1048576"); };
-            let mut bytes = vec![0; count as usize];
-            if !bytes.is_empty() { nupp_native_platform::random_bytes(&mut bytes).unwrap_or_else(|e| it.err(&e)); }
-            return outs![it.new_string_bytes(&bytes)];
         }
         Special::VmWithinstructionbudget => {
             let limit = arg(args, 1);

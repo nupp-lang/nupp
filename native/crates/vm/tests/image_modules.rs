@@ -226,7 +226,7 @@ fn a_vm_started_without_an_image_answers_nil() {
 fn the_digests_are_not_the_whole_image() {
     let text = fixture(false, "1");
     let ms = modules(&text);
-    let whole = String::from_utf8(nupp_native_platform::cache_digest(text.as_bytes()).to_vec()).unwrap();
+    let whole = String::from_utf8(nupp_vm::xxh64::cache_digest(text.as_bytes()).to_vec()).unwrap();
     assert!(ms.iter().all(|m| m.digest != whole && m.digest.len() == 32));
 }
 

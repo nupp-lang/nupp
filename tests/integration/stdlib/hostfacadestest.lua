@@ -177,7 +177,7 @@ function M.hostAndVmBindingsSelectTheTargetImplementationOnce()
         {
             module = "nupp.runtime.uuidprovider",
             binding = "nupp.runtime.uuidprovider",
-            native = "nupp.runtime.provider.nativeuuid",
+            native = "nupp.runtime.provider.osuuid",
             browser = "nupp.runtime.browser.crypto"
         },
         {
