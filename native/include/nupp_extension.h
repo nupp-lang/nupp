@@ -79,20 +79,21 @@ typedef uint64_t nupp_handle;
  * The VM copies a string result right after the function returns, so its bytes
  * must outlive the function's own frame: static, or owned by the extension. */
 typedef struct nupp_string {
-    const char *bytes;
-    size_t length;
+  const char *bytes;
+  size_t length;
 } nupp_string;
 
 typedef struct nupp_slot {
-    uint32_t kind;
-    uint32_t reserved;
-    union {
-        int32_t boolean;
-        int64_t integer;
-        double number;
-        nupp_string string;
-        nupp_handle handle;
-    } as;
+  uint32_t kind;
+  uint32_t reserved;
+
+  union {
+    int32_t boolean;
+    int64_t integer;
+    double number;
+    nupp_string string;
+    nupp_handle handle;
+  } as;
 } nupp_slot;
 
 /* The VM an extension instance belongs to. */
@@ -112,20 +113,22 @@ typedef struct nupp_host nupp_host;
  * Return NUPP_OK, NUPP_ERROR after `raise` (or after a failed `invoke`, to
  * propagate its error), or NUPP_SUSPENDED after `suspend`.
  */
-typedef nupp_status (*nupp_function)(const nupp_host *host, nupp_call *call, void *instance, void *data,
-                                     const nupp_slot *args, size_t nargs, nupp_slot *results, size_t nresults);
+typedef nupp_status (*nupp_function)(const nupp_host *host, nupp_call *call,
+                                     void *instance, void *data,
+                                     const nupp_slot *args, size_t nargs,
+                                     nupp_slot *results, size_t nresults);
 
 /* Receives the bytes a resource's `save` writes. */
 typedef void (*nupp_write)(void *sink, const void *bytes, size_t length);
 
 typedef struct nupp_function_entry {
-    const char *name;
-    /* A Nupp function type: "function(a: integer, b: integer): integer". */
-    const char *signature;
-    nupp_function function;
-    void *data;
-    uint32_t flags; /* zero */
-    uint32_t reserved;
+  const char *name;
+  /* A Nupp function type: "function(a: integer, b: integer): integer". */
+  const char *signature;
+  nupp_function function;
+  void *data;
+  uint32_t flags; /* zero */
+  uint32_t reserved;
 } nupp_function_entry;
 
 /*
@@ -135,66 +138,72 @@ typedef struct nupp_function_entry {
  * type without them makes a checkpoint holding one fail, naming the type.
  */
 typedef struct nupp_resource_type {
-    const char *name;
-    void *type_data; /* passed to each hook */
-    void (*drop)(void *instance, void *type_data, void *data);
-    nupp_status (*save)(void *instance, void *type_data, void *data, nupp_write write, void *sink);
-    nupp_status (*restore)(void *instance, void *type_data, const void *bytes, size_t length, void **data);
+  const char *name;
+  void *type_data; /* passed to each hook */
+  void (*drop)(void *instance, void *type_data, void *data);
+  nupp_status (*save)(void *instance, void *type_data, void *data,
+                      nupp_write write, void *sink);
+  nupp_status (*restore)(void *instance, void *type_data, const void *bytes,
+                         size_t length, void **data);
 } nupp_resource_type;
 
 typedef struct nupp_extension {
-    uint32_t abi_version; /* NUPP_EXTENSION_ABI_VERSION */
-    uint32_t size;        /* sizeof(nupp_extension) */
-    const char *module;   /* the module name `require` loads */
-    const char *target;   /* NUPP_EXTENSION_TARGET */
-    const nupp_function_entry *functions;
-    size_t function_count;
-    const nupp_resource_type *resource_types;
-    size_t resource_type_count;
-    /* Optional. Runs once per VM after every check passed. Configuration may
-     * live in `*instance`; program state belongs in resources, which a
-     * checkpoint can save. */
-    nupp_status (*init)(const nupp_host *host, nupp_vm *vm, void **instance);
-    /* Optional. Runs when the VM ends, after every resource was dropped. */
-    void (*shutdown)(const nupp_host *host, void *instance);
+  uint32_t abi_version; /* NUPP_EXTENSION_ABI_VERSION */
+  uint32_t size;        /* sizeof(nupp_extension) */
+  const char *module;   /* the module name `require` loads */
+  const char *target;   /* NUPP_EXTENSION_TARGET */
+  const nupp_function_entry *functions;
+  size_t function_count;
+  const nupp_resource_type *resource_types;
+  size_t resource_type_count;
+  /* Optional. Runs once per VM after every check passed. Configuration may
+   * live in `*instance`; program state belongs in resources, which a
+   * checkpoint can save. */
+  nupp_status (*init)(const nupp_host *host, nupp_vm *vm, void **instance);
+  /* Optional. Runs when the VM ends, after every resource was dropped. */
+  void (*shutdown)(const nupp_host *host, void *instance);
 } nupp_extension;
 
 typedef const nupp_extension *(*nupp_extension_entry)(void);
 
 struct nupp_host {
-    uint32_t abi_version;
-    uint32_t size; /* sizeof(nupp_host) as the VM was built; later versions only append */
+  uint32_t abi_version;
+  uint32_t size; /* sizeof(nupp_host) as the VM was built; later versions only
+                    append */
 
-    /* Records the error the function raises when it returns NUPP_ERROR. */
-    nupp_status (*raise)(nupp_call *call, const char *message, size_t length);
+  /* Records the error the function raises when it returns NUPP_ERROR. */
+  nupp_status (*raise)(nupp_call *call, const char *message, size_t length);
 
-    /* A handle that outlives the call, until `release`. Zero when `handle` is
-     * not one. Any function taking a handle accepts a retained one. */
-    nupp_handle (*retain)(nupp_call *call, nupp_handle handle);
-    void (*release)(nupp_vm *vm, nupp_handle handle);
+  /* A handle that outlives the call, until `release`. Zero when `handle` is
+   * not one. Any function taking a handle accepts a retained one. */
+  nupp_handle (*retain)(nupp_call *call, nupp_handle handle);
+  void (*release)(nupp_vm *vm, nupp_handle handle);
 
-    /* Calls a Nupp function on the VM's thread, inside this call. Results are
-     * valid for this call. An error answers NUPP_ERROR; returning NUPP_ERROR
-     * from the host function then raises it to the Nupp caller. */
-    nupp_status (*invoke)(nupp_call *call, nupp_handle function, const nupp_slot *args, size_t nargs,
-                          nupp_slot *results, size_t nresults);
+  /* Calls a Nupp function on the VM's thread, inside this call. Results are
+   * valid for this call. An error answers NUPP_ERROR; returning NUPP_ERROR
+   * from the host function then raises it to the Nupp caller. */
+  nupp_status (*invoke)(nupp_call *call, nupp_handle function,
+                        const nupp_slot *args, size_t nargs, nupp_slot *results,
+                        size_t nresults);
 
-    /* Parks the calling task: the function returns NUPP_SUSPENDED and the
-     * task resumes when the request completes. Null, with an error raised,
-     * where the caller cannot park. */
-    nupp_request *(*suspend)(nupp_call *call);
-    /* Thread-safe. Results are copied; handles cannot cross. */
-    void (*complete)(nupp_request *request, const nupp_slot *results, size_t nresults);
-    void (*fail)(nupp_request *request, const char *message, size_t length);
+  /* Parks the calling task: the function returns NUPP_SUSPENDED and the
+   * task resumes when the request completes. Null, with an error raised,
+   * where the caller cannot park. */
+  nupp_request *(*suspend)(nupp_call *call);
+  /* Thread-safe. Results are copied; handles cannot cross. */
+  void (*complete)(nupp_request *request, const nupp_slot *results,
+                   size_t nresults);
+  void (*fail)(nupp_request *request, const char *message, size_t length);
 
-    /* A managed object of the extension's resource type `type` owning `data`. */
-    nupp_handle (*new_resource)(nupp_call *call, uint32_t type, void *data);
-    /* The data of a live resource of type `type`, or null. */
-    void *(*resource)(nupp_call *call, nupp_handle handle, uint32_t type);
-    /* Drops a resource now; later uses of it see null. */
-    nupp_status (*close_resource)(nupp_call *call, nupp_handle handle, uint32_t type);
+  /* A managed object of the extension's resource type `type` owning `data`. */
+  nupp_handle (*new_resource)(nupp_call *call, uint32_t type, void *data);
+  /* The data of a live resource of type `type`, or null. */
+  void *(*resource)(nupp_call *call, nupp_handle handle, uint32_t type);
+  /* Drops a resource now; later uses of it see null. */
+  nupp_status (*close_resource)(nupp_call *call, nupp_handle handle,
+                                uint32_t type);
 
-    nupp_vm *(*vm)(nupp_call *call);
+  nupp_vm *(*vm)(nupp_call *call);
 };
 
 #ifdef __cplusplus

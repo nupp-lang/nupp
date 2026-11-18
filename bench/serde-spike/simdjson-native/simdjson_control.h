@@ -17,11 +17,8 @@ typedef struct nuppSimdjsonParser nuppSimdjsonParser;
 
 nuppSimdjsonParser *nuppSimdjsonNew(void);
 void nuppSimdjsonFree(nuppSimdjsonParser *parser);
-int nuppSimdjsonPrepare(
-    nuppSimdjsonParser *parser,
-    const char *source,
-    size_t length
-);
+int nuppSimdjsonPrepare(nuppSimdjsonParser *parser, const char *source,
+                        size_t length);
 int nuppSimdjsonStage1(nuppSimdjsonParser *parser);
 int nuppSimdjsonDom(nuppSimdjsonParser *parser);
 const char *nuppSimdjsonError(int code);

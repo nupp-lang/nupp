@@ -6,8 +6,9 @@
 #if defined(NUPP_FORCE_BASE)
 static uint32_t gzip_base(uint32_t seed, const uint8_t *data, uint64_t length)
 {
-    return crc32_gzip_refl_base(seed, (uint8_t *)data, length);
+  return crc32_gzip_refl_base(seed, (uint8_t *)data, length);
 }
+
 #define crc32_gzip_refl gzip_base
 #define crc32_iscsi crc32_iscsi_base
 #define crc64_ecma_norm crc64_ecma_norm_base

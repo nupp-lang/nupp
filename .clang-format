@@ -12,3 +12,4 @@ AllowShortIfStatementsOnASingleLine: Never
 AllowShortLoopsOnASingleLine: false
 SeparateDefinitionBlocks: Always
 SortIncludes: Never
+AttributeMacros: [NUPP_NATIVE_EXPORT, NUPP_SIMDJSON_EXPORT]
