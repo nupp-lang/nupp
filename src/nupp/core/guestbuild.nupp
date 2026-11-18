@@ -435,18 +435,27 @@ local CASES: {[string]: {
     -- the program carries (`follow` reaches it).
     compilerlexer = {fixture = "catalog-compiler-lexer", version = 8, follow = true},
     callsspreadshort = {fixture = "catalog-calls-spread-short", version = 8},
-    loadsource = {fixture = "catalog-load-source", version = 8, modules = {"catalog-load-helper"}, follow = true},
+    -- Its carried chunk compiler checks a module instance in an environment,
+    -- which loads the native-library resolver by name (as testrunner's does).
+    loadsource = {
+        fixture = "catalog-load-source",
+        version = 8,
+        modules = {"catalog-load-helper", "src/nupp/compiler/project/libraries"},
+        follow = true
+    },
     -- The packaged test runner (nupp.lua build.targets.testRunner): the
     -- delivery path runs it on the core.
     -- It carries the chunk compiler, which compiles on the core what its
-    -- image does not carry: Lua text, and a required module's source.
+    -- image does not carry: Lua text, and a required module's source; and
+    -- the native-library resolver, which a checking environment loads by name
+    -- while bin/nupp names the pinned C libraries (NUPP_ZLIB_LIBRARY).
     testrunner = {
         fixture = "tests/tools/test/runner/main",
         version = 8,
         follow = true,
         rooted = true,
         module = "main",
-        modules = {"src/nupp/compiler/vm/corechunk"}
+        modules = {"src/nupp/compiler/vm/corechunk", "src/nupp/compiler/project/libraries"}
     },
     -- The compiler CLI bin/nupp runs (`check`, `build`): its VM entry and the
     -- modules its image carries beside it. The delivery path runs it on the core.
