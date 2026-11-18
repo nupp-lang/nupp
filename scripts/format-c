@@ -1,4 +1,11 @@
 #!/bin/sh
+# Formats the C the repository owns, or with --check says whether it is.
+#
+# clang-format lays the code out (.clang-format), Uncrustify adds the blank
+# lines clang-format cannot place (.uncrustify.cfg), and clang-format runs
+# again to restore whatever layout Uncrustify disturbed. Both tools are pinned:
+# clang-format through pipx and Uncrustify through scripts/toolchain, so every
+# machine writes the same bytes.
 set -eu
 
 case "$#:${1-}" in
@@ -24,14 +31,44 @@ for file in $(git ls-files '*.c' '*.h'); do
     fi
 done
 
+clang_format() {
+    pipx run --spec clang-format==22.1.8 --pip-args=--only-binary=:all: \
+        clang-format --style=file:.clang-format "$@"
+}
+
 if [ "$#" -eq 0 ]; then
-    set -- --assume-filename=rollout.c --dump-config
-    exec >/dev/null
-elif [ "$mode" = --check ]; then
-    set -- --dry-run --Werror "$@"
-else
-    set -- -i "$@"
+    clang_format --assume-filename=rollout.c --dump-config >/dev/null
+    exit 0
 fi
 
-exec pipx run --spec clang-format==22.1.8 --pip-args=--only-binary=:all: \
-    clang-format --style=file:.clang-format "$@"
+uncrustify=$(sh scripts/toolchain uncrustify)
+
+# Formats the named files in place.
+format() {
+    clang_format -i "$@"
+    "$uncrustify" -q -c .uncrustify.cfg -l C --replace --no-backup "$@"
+    clang_format -i "$@"
+}
+
+if [ "$mode" = --write ]; then
+    format "$@"
+    exit 0
+fi
+
+# Formats a copy of every file and compares it with the original.
+scratch=$(mktemp -d)
+trap 'rm -rf "$scratch"' EXIT HUP INT TERM
+for file in "$@"; do
+    mkdir -p "$scratch/$(dirname "$file")"
+    cp "$file" "$scratch/$file"
+done
+cp .clang-format .uncrustify.cfg "$scratch/"
+(cd "$scratch" && format "$@") >/dev/null
+status=0
+for file in "$@"; do
+    if ! cmp -s "$file" "$scratch/$file"; then
+        diff -u "$file" "$scratch/$file" || true
+        status=1
+    fi
+done
+exit "$status"

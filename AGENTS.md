@@ -183,11 +183,19 @@ catching here, because several worktrees push to one trunk and the run that
 reports it is usually already testing somebody else's commit. `git push
 --no-verify` skips it; CI still asks.
 
-C follows `.clang-format` (the LuaJIT layout). `scripts/format-c --write`
-formats every C file the repository owns, the hook refuses a push carrying C
-it would rewrite, and CI's first job checks the same. Write C as it reads
-there: one statement per line, named constants rather than bare numbers, and
-small functions over dense ones.
+C is laid out as PUC-Rio Lua's own C is (`.clang-format`): two-space
+indentation, braces on the line that opens them, `else` on the line after the
+closing brace, and a space between a function's name and its parameters where
+it is defined. Within a function, a blank line goes before and after each `if`,
+`for`, `while`, `switch` and `do`, and before each `return` that follows other
+statements, except where the statement opens or closes its block
+(`.uncrustify.cfg`). `scripts/format-c --write` writes both, the hook refuses a
+push carrying C it would rewrite, and CI's first job checks the same. No tool
+places the blank lines around a file's preprocessor groups, so write them as
+Lua does: a blank line before and after each run of `#define`s, `#include`s or
+conditionals, with a comment that documents a macro kept directly above it.
+Write C as it reads there: one statement per line, named constants rather than
+bare numbers, and small functions over dense ones.
 
 - `./bin/nupp test [SUITE...]` runs the test suite, or only the named suites:
   `./bin/nupp test doctest` finishes in seconds where the whole suite takes

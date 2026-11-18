@@ -20,7 +20,7 @@
       "steps": [
         {
           "name": "Check C formatting",
-          "guarantees": ["adopted Nupp C sources and headers match the pinned formatter"]
+          "guarantees": ["adopted Nupp C sources and headers match the pinned formatters"]
         },
         {
           "name": "Classify the affected surfaces",

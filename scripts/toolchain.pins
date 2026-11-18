@@ -26,6 +26,17 @@ LUAROCKS_URL='https://github.com/luarocks/luarocks/archive/refs/tags/v${LUAROCKS
 LUAROCKS_MARKER=src/luarocks/core/cfg.lua
 LUAROCKS_DIRECTORY='luarocks-${LUAROCKS_VERSION}'
 
+# Uncrustify, which scripts/format-c runs after clang-format to place the
+# blank lines clang-format cannot (.uncrustify.cfg). Every machine that checks
+# C formatting needs this exact release, because another one places them
+# differently. Building it needs CMake, a C++ compiler and Python 3, which
+# generates part of its source.
+UNCRUSTIFY_VERSION=0.83.0
+UNCRUSTIFY_SHA256=1d4d3ab3a991c66eb24cb0a3e690573b4882fd98bc6ec64a01c283998c20dc87
+UNCRUSTIFY_URL='https://github.com/uncrustify/uncrustify/archive/refs/tags/uncrustify-${UNCRUSTIFY_VERSION}.tar.gz'
+UNCRUSTIFY_MARKER=src/uncrustify.cpp
+UNCRUSTIFY_DIRECTORY='uncrustify-uncrustify-${UNCRUSTIFY_VERSION}'
+
 # A standalone release image for tools that explicitly request stage0-image.
 # Cold compiler builds use the matching runtime/image execution seed pinned in
 # scripts/bootstrap-seeds.json (`scripts/vm-cli build`), then run new images on

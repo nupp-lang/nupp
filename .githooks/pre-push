@@ -54,10 +54,12 @@ done
 
 # C has one formatted spelling too: `scripts/format-c --write` writes it, and
 # CI's first job refuses anything else. It needs pipx to fetch the pinned
-# clang-format, so a machine without one leaves the question to CI.
-if [ -n "${cChanged-}" ] && command -v pipx >/dev/null 2>&1; then
+# clang-format and CMake to build the pinned Uncrustify once, so a machine
+# without them leaves the question to CI.
+if [ -n "${cChanged-}" ] && command -v pipx >/dev/null 2>&1 \
+    && command -v cmake >/dev/null 2>&1; then
     if ! ./scripts/format-c --check >/dev/null 2>&1; then
-        printf 'nupp: this push carries C that clang-format would rewrite.\n' >&2
+        printf 'nupp: this push carries C that scripts/format-c would rewrite.\n' >&2
         printf 'Run `scripts/format-c --write` and amend, or push with --no-verify.\n' >&2
         exit 1
     fi

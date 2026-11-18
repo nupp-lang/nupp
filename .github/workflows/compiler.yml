@@ -123,9 +123,6 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Check C formatting
-        run: ./scripts/format-c --check
-
       - name: Restore the provisioned toolchain
         uses: actions/cache/restore@v4
         with:
@@ -135,6 +132,19 @@ jobs:
             hashFiles('scripts/toolchain.pins', 'scripts/toolchain') }}
           restore-keys: |
             nupp-toolchain-${{ runner.os }}-${{ runner.arch }}-
+
+      # Uncrustify is cached by its pin alone, as scripts/toolchain keys it, so
+      # a change to the toolchain rules does not build it again.
+      - name: Cache Uncrustify
+        uses: actions/cache@v4
+        with:
+          path: .nupp-cache/toolchain/uncrustify
+          key: >-
+            nupp-uncrustify-${{ runner.os }}-${{ runner.arch }}-${{
+            hashFiles('scripts/toolchain.pins') }}
+
+      - name: Check C formatting
+        run: ./scripts/format-c --check
 
       # The classifier is plain Lua so that the suite can assert on it. This is
       # the only thing this job provisions, and on a cache hit it is a second.

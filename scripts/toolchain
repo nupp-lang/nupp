@@ -45,7 +45,7 @@ usage: scripts/toolchain COMPONENT...
        scripts/toolchain --all
        scripts/toolchain --prefix
 
-Components: luajit luarocks stage0-image stage0-seed core-seed
+Components: luajit luarocks uncrustify stage0-image stage0-seed core-seed
             core-seed-install ARCHIVE SHA256
             rust-vendor OUTPUT
             vm-runtime FACILITIES, vm-program FACILITIES PAYLOAD
@@ -1340,6 +1340,48 @@ EOF
     release_lock
 }
 
+# Uncrustify is a formatter, so what it writes depends on its release and
+# nothing else: it is cached by the pinned archive's digest and the host, like
+# the stage-zero image, rather than under the compiler-pair key, and a change
+# to these rules or another pin does not rebuild it.
+uncrustify_prefix() {
+    printf '%s\n' "$CACHE/uncrustify/$UNCRUSTIFY_SHA256-$PLATFORM-$(uname -m 2>/dev/null || echo unknown)"
+}
+
+build_uncrustify() {
+    out=$(uncrustify_prefix)
+    take_lock uncrustify "$out/.complete" || return 0
+    [ -f "$out/.complete" ] && { release_lock; return 0; }
+    command -v cmake >/dev/null 2>&1 || die "building Uncrustify needs CMake"
+
+    directory=$(expand_pin "$UNCRUSTIFY_DIRECTORY")
+    url=$(expand_pin "$UNCRUSTIFY_URL")
+    tree=$(source_tree "$directory" "$url" "$UNCRUSTIFY_SHA256" "$UNCRUSTIFY_MARKER")
+
+    note "building Uncrustify $UNCRUSTIFY_VERSION with $CXX"
+    rm -rf "$out"
+    build="$out.build"
+    rm -rf "$build"
+    # The archive is not a git checkout, so the version string comes from the
+    # release rather than from git describe.
+    cmake -S "$tree" -B "$build" -DCMAKE_BUILD_TYPE=Release \
+        -DCMAKE_C_COMPILER="$CC" -DCMAKE_CXX_COMPILER="$CXX" \
+        -DNoGitVersionString=ON >&2
+    cmake --build "$build" --config Release --parallel >&2
+    mkdir -p "$out/bin"
+    case "$PLATFORM" in
+        windows) name=uncrustify.exe ;;
+        *) name=uncrustify ;;
+    esac
+    built=$(find "$build" -name "$name" -type f | head -n 1)
+    [ -n "$built" ] || die "the Uncrustify build left no $name under $build"
+    cp "$built" "$out/bin/$name"
+    rm -rf "$build"
+    native_path "$out/bin/$name" > "$out/.executable"
+    printf 'done\n' > "$out/.complete"
+    release_lock
+}
+
 # --- Release archives ---------------------------------------------------------
 
 # A gzip'd POSIX tar of a directory's files whose bytes are a function of
@@ -1422,6 +1464,7 @@ for component in "$@"; do
     case "$component" in
         luajit)   build_luajit;   native_path "$PREFIX/luajit" ;;
         luarocks) build_luarocks; native_path "$PREFIX/luarocks" ;;
+        uncrustify) build_uncrustify; cat "$(uncrustify_prefix)/.executable" ;;
         stage0-image) stage0_image ;;
         # A host the pins flip to the core gets the core seed, and the VM seed
         # is never fetched for it.

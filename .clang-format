@@ -1,15 +1,43 @@
+# The layout of PUC-Rio Lua's own C (lapi.c, ldo.c, ltable.c and the rest):
+# two-space indentation with spaces, braces on the line that opens them, `else`
+# on the line after the closing brace, case labels indented within their
+# switch, and a space between a function's name and its parameters where it is
+# declared or defined, though not where it is called. scripts/c-blank-lines.nupp
+# then places the blank lines clang-format cannot (AGENTS.md).
 BasedOnStyle: LLVM
 ColumnLimit: 80
 IndentWidth: 2
 ContinuationIndentWidth: 4
-TabWidth: 8
-UseTab: ForIndentation
-BreakBeforeBraces: Linux
+UseTab: Never
+BreakBeforeBraces: Custom
+BraceWrapping:
+  AfterCaseLabel: false
+  AfterControlStatement: Never
+  AfterEnum: false
+  AfterFunction: false
+  AfterStruct: false
+  AfterUnion: false
+  AfterExternBlock: false
+  BeforeElse: true
+  BeforeWhile: false
+  SplitEmptyFunction: false
+  SplitEmptyRecord: false
+IndentCaseLabels: true
+SpaceBeforeParens: Custom
+SpaceBeforeParensOptions:
+  AfterControlStatements: true
+  AfterFunctionDeclarationName: true
+  AfterFunctionDefinitionName: true
 PointerAlignment: Right
+SpacesBeforeTrailingComments: 2
+AlignTrailingComments:
+  Kind: Never
 AllowShortBlocksOnASingleLine: Never
+AllowShortCaseLabelsOnASingleLine: false
 AllowShortFunctionsOnASingleLine: None
 AllowShortIfStatementsOnASingleLine: Never
 AllowShortLoopsOnASingleLine: false
 SeparateDefinitionBlocks: Always
+MaxEmptyLinesToKeep: 2
 SortIncludes: Never
 AttributeMacros: [NUPP_NATIVE_EXPORT, NUPP_SIMDJSON_EXPORT]
