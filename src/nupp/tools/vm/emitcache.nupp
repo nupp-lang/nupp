@@ -55,7 +55,12 @@ local emitprofile = require("nupp.tools.vm.emitprofile")
 local T = require("nupp.compiler.types")
 
 --- Bumped when what is kept changes shape or meaning.
-const FORMAT = "vm-root-emit/3"
+const FORMAT = "vm-root-emit/4"
+
+--- What a kept entry spells the checkout's root as, so a worktree replays what
+--- another lowered: the lowering of a module names its files, and every name
+--- under the root is the same name under any other root.
+const ROOT_TOKEN = "<nupp-emit-root>"
 
 --- Variables that make an emit report or stub as it goes. A replay would skip the
 --- report, so an emit asked for one keeps nothing.
@@ -75,6 +80,47 @@ const INDEX_TABLES = {
 }
 
 local latest: any = nil
+
+-- `text` with every path under `from` spelled under `to`.
+local function respell(text: string, from: string, to: string): string
+    local at = text:find(from .. "/", 1, true)
+    if at == nil then
+        return text
+    end
+    local out: {string} = {}
+    local start = 1
+    while at ~= nil do
+        out[#out + 1] = text:sub(start, at - 1)
+        out[#out + 1] = to
+        start = at + #from
+        at = text:find(from .. "/", start, true)
+    end
+    out[#out + 1] = text:sub(start)
+
+    return table.concat(out)
+end
+
+-- A copy of kept plain data with every path under `from` spelled under `to`,
+-- in keys and values alike, sharing what the original shared.
+local function relocate(value: any, from: string, to: string, copies: {[any]: any}?): any
+    if type(value) == "string" then
+        return respell(value as string, from, to)
+    elseif type(value) ~= "table" then
+        return value
+    end
+    local made = copies or {}
+    local known = made[value]
+    if known ~= nil then
+        return known
+    end
+    local copy: {[any]: any} = {}
+    made[value] = copy
+    for key, item in pairs(value as table) do
+        copy[relocate(key, from, to, made)] = relocate(item, from, to, made)
+    end
+
+    return copy
+end
 
 --- What the last session did, for tests and the emit's summary line.
 export function last(): any
@@ -141,6 +187,30 @@ export function open(dir: string, env: any, config: table, carried: {[string]: s
     end
     local self: any = {}
     local digest = fingerprint.contentDigest()
+    -- Everything kept is spelled against this, and compared that way.
+    local root = fs.normalize(fs.absolute(env.rootDir or "."))
+
+    local function portable(text: string): string
+        return respell(text, root, ROOT_TOKEN)
+    end
+
+    local function localized(text: string): string
+        return respell(text, ROOT_TOKEN, root)
+    end
+
+    -- An entry kept under another root, spelled under this one.
+    local function here(value: any): any
+        if type(value) ~= "table" or (value as any).root == nil or (value as any).root == root then
+            return value
+        end
+
+        return relocate(value, (value as any).root as string, root)
+    end
+
+    local portableRoots: {string} = {}
+    for index, searched in ipairs((env.roots or {}) as {string}) do
+        portableRoots[index] = portable(fs.normalize(fs.absolute(searched)))
+    end
     local stats = {
         checked = 0,
         restored = 0,
@@ -170,7 +240,7 @@ export function open(dir: string, env: any, config: table, carried: {[string]: s
                 fingerprint.declarationFingerprint(digest),
                 table.concat(configText),
                 tostring(env.nativeLibraryFingerprint or ""),
-                table.concat(env.roots or {}, "\1"),
+                table.concat(portableRoots, "\1"),
                 tostring(env.layoutTarget or require("nupp.compiler.targetlayout").hostKey()),
             },
             "\0"
@@ -231,15 +301,16 @@ export function open(dir: string, env: any, config: table, carried: {[string]: s
     -- The index answer `key` (table NUL name) names, as text.
     local projectIndex: any = env.projectIndex
 
+    -- Keys and answers are kept spelled against no root (`portable`).
     local function indexAnswer(key: string): string
-        local tableName, name = key:match("^([^%z]+)%z(.*)$")
+        local tableName, name = localized(key):match("^([^%z]+)%z(.*)$")
         local subtable = tableName and projectIndex and rawget(projectIndex, tableName)
         if type(subtable) ~= "table" then
             return "<none>"
         end
         local backing = getmetatable(subtable) and (getmetatable(subtable) as any).backing or subtable
 
-        return indexText(backing[name])
+        return portable(indexText(backing[name]))
     end
 
     -- Index reads, through proxies that note each key a check looks up.
@@ -252,7 +323,7 @@ export function open(dir: string, env: any, config: table, carried: {[string]: s
                     __index = function(_: any, key: any): any
                         local frame = frames[#frames]
                         if frame and type(key) == "string" then
-                            frame.reads[tableName .. "\0" .. (key as string)] = true
+                            frame.reads[portable(tableName .. "\0" .. (key as string))] = true
                         end
 
                         return backing[key]
@@ -377,7 +448,7 @@ export function open(dir: string, env: any, config: table, carried: {[string]: s
         -- kept from different runs never share a namespace.
         image.fingerprint = "vm-root-emit:" .. name
 
-        return digest(interfacetext.text(image, path)), image
+        return digest(portable(interfacetext.text(image, path))), image
     end
 
     -- Bracket every check of this environment's.
@@ -432,7 +503,7 @@ export function open(dir: string, env: any, config: table, carried: {[string]: s
         local entry = recorded[name]
         local path = pathOf(name)
         local answer = type(entry) == "table"
-            and (entry.path or false) == (path or false)
+            and (entry.path or false) == (path and portable(path as string) or false)
             and entry.source == sourceDigest(name, path)
             and type(entry.loads) == "table"
             and type(entry.reads) == "table"
@@ -620,7 +691,8 @@ export function open(dir: string, env: any, config: table, carried: {[string]: s
         if not path or entry.declared == nil then
             return false
         end
-        local image = storeMod.openValue(interfaceFile(name), stamp).value
+        local kept = here(storeMod.openValue(interfaceFile(name), stamp).value)
+        local image = type(kept) == "table" and (kept as any).image or nil
         if type(image) ~= "table" then
             return false
         end
@@ -674,12 +746,12 @@ export function open(dir: string, env: any, config: table, carried: {[string]: s
     self.reuse = reuse
 
     function reuse.fragment(name: string, path: string): any
-        local kept = storeMod.openValue(fragmentFile(name), stamp).value
+        local kept = here(storeMod.openValue(fragmentFile(name), stamp).value)
         if type(kept) ~= "table" or type(kept.snapshot) ~= "table" or type(kept.reads) ~= "table" then
             trace(name, "nothing kept")
             return nil
         end
-        if kept.path ~= path or kept.source ~= sourceDigest(name, path) then
+        if kept.path ~= portable(path) or kept.source ~= sourceDigest(name, path) then
             trace(name, "its source changed")
             return nil
         end
@@ -733,7 +805,8 @@ export function open(dir: string, env: any, config: table, carried: {[string]: s
         end
         local kept = storeMod.openValue(fragmentFile(name), stamp)
         kept.set({
-            path = path,
+            root = root,
+            path = portable(path),
             source = sourceDigest(name, path),
             snapshot = snapshot,
             reads = reads,
@@ -824,10 +897,11 @@ export function open(dir: string, env: any, config: table, carried: {[string]: s
                 loads[dep] = interfaceNow(dep)
             end
             local record = loadedBacking[name]
+            local modulePath = pathOf(name)
             modules[
                 name
             ] = {
-                path = pathOf(name) or false,
+                path = modulePath and portable(modulePath as string) or false,
                 source = sourceDigest(name, pathOf(name)),
                 iface = frame.iface,
                 loads = loads,
@@ -836,7 +910,7 @@ export function open(dir: string, env: any, config: table, carried: {[string]: s
             }
             if frame.image then
                 local kept = storeMod.openValue(interfaceFile(name), stamp)
-                kept.set(frame.image)
+                kept.set({root = root, image = frame.image})
                 kept.save()
             end
         end
@@ -851,7 +925,7 @@ export function open(dir: string, env: any, config: table, carried: {[string]: s
                 modules[
                     dep
                 ] = {
-                    path = path or false,
+                    path = path and portable(path as string) or false,
                     source = sourceDigest(dep, path),
                     iface = interfaceNow(dep),
                     loads = {},
