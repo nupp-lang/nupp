@@ -315,8 +315,19 @@ end
 --- every invocation over the whole payload, which is why the difference between
 --- this and a cryptographic hash is the difference between a millisecond and a
 --- twentieth of a second on every run of every stamped program.
+---
+--- A host with a native `digest` computes it there: that digest's first sixteen
+--- digits are this XXH64. The portable one over a compiler's payload took the
+--- native core most of an hour.
 function hash.trailerDigest(payload: string): string
-    local hi, lo = xxh64(payload, 0, 0)
+    local hi, lo = 0, 0
+    local native = resolveNativeDigest()
+    if native ~= nil then
+        local digits = native(payload)
+        hi, lo = assert(tonumber(digits:sub(1, 8), 16)), assert(tonumber(digits:sub(9, 16), 16))
+    else
+        hi, lo = xxh64(payload, 0, 0)
+    end
 
     return string.char(
         bitops.band(lo, 0xFF),
