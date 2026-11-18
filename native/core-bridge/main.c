@@ -29,6 +29,7 @@
 #include <libkern/OSCacheControl.h>
 #endif
 
+/* The number of elements in an array the compiler can see the size of. */
 #define ARRAY_LENGTH(array) (sizeof(array) / sizeof(*(array)))
 
 /* Bundle code is ARM64 code, so it runs nowhere else. */

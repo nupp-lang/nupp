@@ -7,6 +7,7 @@
  * A job moves from the waiting queue, to a worker, to the finished queue,
  * where Nupp takes it; it stays on the list of all jobs until Nupp finishes,
  * settles or cancels it. One lock guards all of it. */
+
 #include "transport.h"
 
 #include <errno.h>
@@ -17,6 +18,7 @@
 #include <string.h>
 #include <unistd.h>
 
+/* The most workers the pool starts, however many a caller asks for. */
 enum { MAX_THREADS = 64 };
 
 struct job {

@@ -5,6 +5,7 @@
  * A job copies its bytes in on submission and out on finishing, so a worker
  * thread never touches Nupp memory. Every function answers a negative errno,
  * as a uint64, when it fails. */
+
 #ifndef NUPP_CORE_TRANSPORT_H
 #define NUPP_CORE_TRANSPORT_H
 
