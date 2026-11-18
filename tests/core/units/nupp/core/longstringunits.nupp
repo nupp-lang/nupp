@@ -17,6 +17,8 @@ const instances = require("nupp.runtime.core.instances")
 
 const ARENA_BYTES: uint64 = 67108864ULL
 const MAXIMUM: uint64 = 0xffffffffffffffffULL
+-- Past corestrings.INLINE_LIMIT: a string with a shared allocation.
+const EXTERNAL: uint64 = 4153ULL
 
 local function miss(ok: boolean): uint64
     if ok then
@@ -71,6 +73,22 @@ export function representation(count: uint64): uint64
             if count <= values.INTERN_LIMIT then
                 wrong = wrong + miss(first == second and stats.bytes == count)
                 wrong = wrong + miss(not heap.corestringexternal(o) and (o.flags as uint64) & heap.F_INTERNED ~= 0ULL)
+            elseif count <= strings.INLINE_LIMIT then
+                -- Inline and uninterned, its hash prepared as it was made.
+                wrong = wrong + miss(first ~= second and stats.bytes == count * 2ULL)
+                wrong = wrong + miss(not heap.corestringexternal(o) and (o.flags as uint64) & heap.F_INTERNED == 0ULL)
+                wrong = wrong + miss(
+                    strings.bytes(first) == first + heap.HEADER_BYTES + native.sizeOf<heap.StringBody>()
+                )
+                local hash = native.load64(native.pointer(first + heap.HEADER_BYTES), 0)
+                wrong = wrong + miss(hash == native.load64(native.pointer(second + heap.HEADER_BYTES), 0))
+                strings.prepare(values.TAG_OBJ | first)
+                wrong = wrong + miss(hash == native.load64(native.pointer(first + heap.HEADER_BYTES), 0))
+                local shorter = strings.make(h, input, count - 1ULL)
+                wrong = wrong + miss(not strings.equal(first, shorter))
+                local changed = strings.make(h, input + 1ULL, count)
+                wrong = wrong + miss(not strings.equal(first, changed))
+                wrong = wrong + miss(arithmetic.equal(values.TAG_OBJ | first, values.TAG_OBJ | changed) == 0ULL)
             else
                 wrong = wrong + miss(first ~= second and stats.bytes == count * 2ULL)
                 wrong = wrong + miss(heap.corestringexternal(o) and o.size as uint64 == heap.corestringextent())
@@ -170,8 +188,8 @@ export function lifetime(minor: uint64): uint64
             local h = heap.create(a)
             h.generational = collector.GENERATIONAL
             h.automatic = false
-            local input = data(a, 97ULL)
-            local first = strings.make(h, input, 97ULL)
+            local input = data(a, EXTERNAL)
+            local first = strings.make(h, input, EXTERNAL)
             local firstHeader = native.pointer(first) as heap.Header*
             local block = native.pointer(heap.corestringtail(firstHeader).block)
             wrong = wrong + miss(shared.retain(block))
@@ -206,7 +224,7 @@ export function lifetime(minor: uint64): uint64
     return wrong
 end
 
-export function keys(minor: uint64): uint64
+export function keys(minor: uint64, count: uint64): uint64
     local wrong: uint64 = 0ULL
     do
         local a = arena.open(ARENA_BYTES)
@@ -214,10 +232,10 @@ export function keys(minor: uint64): uint64
             local h = heap.create(a)
             h.generational = collector.GENERATIONAL
             h.automatic = false
-            local input = data(a, 97ULL)
+            local input = data(a, count)
             local table = tables.create(h)
-            local key = strings.make(h, input, 97ULL)
-            local query = strings.make(h, input, 97ULL)
+            local key = strings.make(h, input, count)
+            local query = strings.make(h, input, count)
             local rootTable = collector.handleRegister(h, values.TAG_OBJ | table)
             local rootQuery = collector.handleRegister(h, values.TAG_OBJ | query)
             local tagged = values.TAG_OBJ | key
@@ -298,8 +316,8 @@ export function scopeclose(stress: uint64): uint64
                 local h = native.pointer(
                     native.load64(services, native.fieldOffset<guestscope.Services>("heap"))
                 ) as heap.Heap*
-                local input = data(a, 97ULL)
-                local text = strings.make(h, input, 97ULL)
+                local input = data(a, EXTERNAL)
+                local text = strings.make(h, input, EXTERNAL)
                 local textHeader = native.pointer(text) as heap.Header*
                 local block = native.pointer(heap.corestringtail(textHeader).block)
                 wrong = wrong + miss(shared.retain(block) and pages.sharedreferences(block) == 2ULL)
@@ -325,10 +343,10 @@ export function weakstrings(minor: uint64, mode: uint64): uint64
             local h = heap.create(a)
             h.generational = collector.GENERATIONAL
             h.automatic = false
-            local input = data(a, 98ULL)
+            local input = data(a, EXTERNAL + 1ULL)
             local table = tables.create(h)
-            local key = strings.make(h, input, 97ULL)
-            local value = strings.make(h, input, 98ULL)
+            local key = strings.make(h, input, EXTERNAL)
+            local value = strings.make(h, input, EXTERNAL + 1ULL)
             local root = collector.handleRegister(h, values.TAG_OBJ | table)
             collector.weakmode(h, native.pointer(table) as heap.Header*, mode)
             wrong = wrong + tables.set(h, table, values.TAG_OBJ | key, values.TAG_OBJ | value)
@@ -339,7 +357,7 @@ export function weakstrings(minor: uint64, mode: uint64): uint64
             end
             tables.drain(h)
             wrong = wrong + miss(heap.isLiveSlot(h, key) and heap.isLiveSlot(h, value))
-            local query = strings.make(h, input, 97ULL)
+            local query = strings.make(h, input, EXTERNAL)
             wrong = wrong + miss(tables.get(table, values.TAG_OBJ | query) == values.TAG_OBJ | value)
             local o = native.pointer(value) as heap.Header*
             wrong = wrong + miss(heap.corestringtail(o).hashReady == 0ULL)

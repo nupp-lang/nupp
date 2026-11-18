@@ -69,7 +69,10 @@ export function finish(scope: voidptr): uint64
                         8ULL
                     )
                 answer = answer
-                    | bit(heap.corestringtail(target).block == native.address(block) and target.auxLen == 130ULL, 16ULL)
+                    | bit(
+                        heap.corestringtail(target).block == native.address(block) and target.auxLen == 4186ULL,
+                        16ULL
+                    )
                 answer = answer | bit(pages.sharedcompare(block, 0ULL, 1ULL) == 0ULL, 32ULL)
             end
             tables.drain(h)

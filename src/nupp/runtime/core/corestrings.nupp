@@ -1,8 +1,10 @@
 module nupp.runtime.core.corestrings
 
 -- Lua strings retain the frozen KIND_STR/auxPtr/auxLen byte projection.
--- Short strings are inline and interned; long strings own an independent
--- immutable shared allocation and cache their range's hash only when needed.
+-- Short strings are inline and interned. Long strings up to INLINE_LIMIT bytes
+-- are inline too, uninterned, with their hash prepared as they are made; longer
+-- ones own an independent immutable shared allocation and cache their range's
+-- hash only when needed.
 --
 -- Callers keep the sources of a new string reachable: building one may run
 -- collector steps.
@@ -18,6 +20,12 @@ const pages = require("nupp.runtime.core.pagemappings")
 const objecthash = require("nupp.runtime.vm.objecthash")
 
 const MAXIMUM: uint64 = 0xffffffffffffffffULL
+-- The longest string kept inline in its heap slot. A shared allocation is at
+-- least a page of its own: mapping, faulting and unmapping one for every
+-- string past the intern limit cost the self-build a tenth of its checking
+-- and a third of its bundling, and charging its page to the collector paced
+-- collections by the page.
+export const INLINE_LIMIT: uint64 = 4096ULL
 
 -- A lexical handle roots one managed byte-storage owner. The common descriptor
 -- is authoritative; no backing pointer or byte counts are duplicated here.
@@ -154,6 +162,20 @@ export function makecounted(h: heap.Heap*, bytes: uint64, count: uint64, stats: 
             if weakindex.weakInsert(h, o) ~= 0ULL then
                 error("core strings: the intern table refused a string")
             end
+            return native.address(o as voidptr)
+        end
+        if count <= INLINE_LIMIT then
+            local o = collector.allocate(h, heap.KIND_STR, native.sizeOf<heap.StringBody>() + count + 1ULL)
+            local base = native.address(o as voidptr) + prefix()
+            storage.copy(base, bytes, count, stats)
+            native.store8(native.pointer(base), native.index(count), 0ULL)
+            o.auxPtr = base
+            o.auxLen = count
+            native.store64(
+                native.pointer(native.address(o as voidptr) + heap.HEADER_BYTES),
+                native.fieldOffset<heap.StringBody>("hash"),
+                objecthash.stringHash(native.pointer(base), count, 0ULL)
+            )
             return native.address(o as voidptr)
         end
         if count == MAXIMUM then

@@ -45,7 +45,7 @@ export function ownership(): uint64
             local charge = shared.mapped(block) + control
             local direct = strings.make(h, source, 41ULL)
             local directHeader = native.pointer(direct) as heap.Header*
-            wrong = wrong + miss(heap.corestringtail(directHeader).ticket == 0ULL)
+            wrong = wrong + miss(not heap.corestringexternal(directHeader))
             local first = strings.fromshared(h, block, 7ULL, 97ULL)
             local second = strings.fromshared(h, block, 7ULL, 97ULL)
             local sub = strings.fromshared(h, block, 48ULL, 49ULL)

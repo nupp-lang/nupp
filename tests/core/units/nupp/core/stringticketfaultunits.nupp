@@ -11,6 +11,8 @@ const pages = require("nupp.runtime.core.pagemappings")
 const servicescope = require("nupp.runtime.core.servicescope")
 const fixture = require("nupp.core.longstringfaultunits")
 
+-- Past corestrings.INLINE_LIMIT: a string with its own shared allocation.
+const OTHER_BYTES: uint64 = 4153ULL
 const PENDING: uint64 = 4ULL
 const OBS_BLOCK: uint64 = 32ULL
 const OBS_TARGET: uint64 = 40ULL
@@ -28,17 +30,17 @@ export function failure(scopeAddress: uint64, mode: uint64): uint64
         local out = native.pointer(scopeAddress)
         local extra = native.sizeOf<servicescope.ServiceScope>()
         local a = native.pointer(native.load64(out, native.index(extra + OBS_ARENA))) as arena.Arena*
-        local source = arena.alloc(a, 136ULL, 8ULL)
+        local source = arena.alloc(a, OTHER_BYTES, 8ULL)
         if source == nil then
             error("string ticket faults: no source")
         end
         local base = native.address(source)
         local i: uint64 = 0ULL
-        while i < 136ULL do
+        while i < OTHER_BYTES do
             native.store8(native.pointer(base), native.index(i), 42ULL)
             i = i + 1ULL
         end
-        local other = strings.make(h, base, 97ULL)
+        local other = strings.make(h, base, OTHER_BYTES)
         local allocation = shared.create(131ULL)
         if allocation == nil then
             error("string ticket faults: no block")

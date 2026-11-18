@@ -93,7 +93,7 @@ export function finish(scope: voidptr): uint64
                     and target.auxLen == 0ULL,
                     16ULL
                 )
-            answer = answer | bit(other.auxLen == 97ULL and heap.corestringexternal(other), 32ULL)
+            answer = answer | bit(other.auxLen == 4153ULL and heap.corestringexternal(other), 32ULL)
         end
         tables.drain(h)
         answer = answer | bit(h.released.count == 0ULL, 64ULL)

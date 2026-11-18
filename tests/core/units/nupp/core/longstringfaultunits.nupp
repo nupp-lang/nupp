@@ -12,6 +12,9 @@ const servicescope = require("nupp.runtime.core.servicescope")
 
 const MAPPED: uint64 = 16777216ULL
 const MAXIMUM: uint64 = 0xffffffffffffffffULL
+-- Two strings past corestrings.INLINE_LIMIT, each with a shared allocation.
+export const OTHER_BYTES: uint64 = 4153ULL
+export const TARGET_BYTES: uint64 = 4186ULL
 
 -- A non-affine mapped test heap survives the failing native frames. Its entry
 -- observer tears it down only after all those frames have returned.
@@ -61,24 +64,24 @@ export function failure(scopeAddress: uint64, mode: uint64): uint64
             return strings.make(h, 0ULL, MAXIMUM)
         elseif mode == 1ULL then
             h.debt = MAXIMUM - heap.corestringextent()
-            return strings.make(h, 0ULL, 41ULL)
+            return strings.make(h, 0ULL, OTHER_BYTES)
         elseif mode == 2ULL then
             -- The C test refuses precisely this shared mapping, before copy.
             return strings.make(h, 0ULL, os.pageSize() * 16ULL - 1ULL)
         end
         local a = native.pointer(native.load64(out, native.index(extra + 64ULL))) as arena.Arena*
-        local source = arena.alloc(a, 136ULL, 8ULL)
+        local source = arena.alloc(a, TARGET_BYTES + 8ULL, 8ULL)
         if source == nil then
             error("long string fault units: no source")
         end
         local base = native.address(source)
         local i: uint64 = 0ULL
-        while i < 136ULL do
+        while i < TARGET_BYTES + 8ULL do
             native.store8(native.pointer(base), native.index(i), 42ULL)
             i = i + 1ULL
         end
-        local other = strings.make(h, base, 97ULL)
-        local target = strings.make(h, base, 130ULL)
+        local other = strings.make(h, base, OTHER_BYTES)
+        local target = strings.make(h, base, TARGET_BYTES)
         local o = native.pointer(target) as heap.Header*
         local block = heap.corestringtail(o).block
         native.store64(out, native.index(extra + 32ULL), block)
