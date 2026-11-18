@@ -1,12 +1,23 @@
+/* A consumer of the relocated shared CRC library, only in tests.
+ * .github/scripts/test-crc-isal.sh moves the installed bundle after linking
+ * and runs this against it, so it passes only when the library loads from
+ * its new place. It checks each algorithm's check value, split across a
+ * resumed stream with an empty update between. */
+
 #include "nupp_crc.h"
+
 #include <assert.h>
 #include <stdio.h>
 
+/* The algorithm ids nupp_crc.h documents. */
+enum { FIRST_ALGORITHM = 1, LAST_ALGORITHM = 4 };
+
 int main (void) {
+  /* Each algorithm's CRC of "123456789", indexed by its id. */
   const uint64_t vectors[] = {0, 0xcbf43926, 0xe3069283, 0x6c40df5f0b497347,
                               0xae8b14860a799888};
 
-  for (unsigned id = 1; id <= 4; ++id) {
+  for (unsigned id = FIRST_ALGORITHM; id <= LAST_ALGORITHM; ++id) {
     uint64_t words[2];
     assert(!nuppCrcUpdate(id, 1, words, (const uint8_t *)"1234", 4));
     uint64_t copy[] = {words[0], words[1]};
