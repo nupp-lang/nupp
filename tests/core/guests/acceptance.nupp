@@ -1,0 +1,860 @@
+-- The bounded wrapper every core acceptance command goes through, and the
+-- regression baseline of the core's guests and units (nr-w1-inventory).
+--
+--   ./bin/nupp run tests/core/guests/acceptance.nupp [OPTIONS] [SELECTION...]
+--
+-- A selection is a guest case of tests/core/guests/run.lua by its
+-- case-sensitive name, or a unit of tests/core/units/run.lua as `unit:NAME`.
+-- Each runs in normal and spill mode in subprocesses under a real timeout:
+-- a bridge or guard run that outlives `--timeout` seconds is killed and fails
+-- its case, and so does a process that outlives its own bound.
+--
+--   --inventory      run every selection (or those named) and write what each
+--                    did to tests/core/guests/inventory.json
+--   --ci             run every selection (or those named) and compare with the
+--                    inventory: a new or changed failure, a missing result, a
+--                    selection the inventory lacks or one it lists that no
+--                    longer exists, and a known failure that now passes all
+--                    fail the run
+--   --target TRIPLE  refuse to run anywhere but that host
+--   --timeout N      seconds one bridge or guard run may take (default 1800)
+--   --part I/N       only the I-th of N slices of the selections, for a CI
+--                    job that splits the run between runners
+--   --jobs N         bridge and guard runs at once (default 2)
+--
+-- Without --inventory or --ci it runs the selections named and fails on any
+-- failure. Nothing here runs an empty or unknown selection, and the
+-- environment shortcuts the harnesses offer for the inner loop are refused.
+--
+-- The inventory is a regression baseline, not acceptance of the core: a
+-- failing row names the open task that owns it, and a row only leaves it
+-- by passing.
+local json = require("serde.json")
+
+const INVENTORY_SCHEMA = 1
+const DEFAULT_TIMEOUT = 1800
+const DEFAULT_JOBS = 2
+-- A whole harness process is bounded too, by this many job timeouts: what
+-- runs outside a bridge or guard run (selection, building) cannot hang it.
+const PROCESS_TIMEOUTS = 4
+-- And the guest run, which selects its cases one after another, by this many
+-- seconds more for each case it runs.
+const CASE_SECONDS = 120
+-- The guest run is one process of this many shards, which share the jobs.
+const GUEST_SHARDS = 2
+const MODES = {"normal", "spill"}
+-- Owner given to a row nothing has been decided for: --ci fails on it.
+const UNOWNED = "unowned"
+-- Hosts a target triple runs on, as uname names them.
+const TARGETS: {
+    [string]: {string}
+} = {
+    ["aarch64-apple-darwin"] = {"Darwin", "arm64"},
+    ["x86_64-apple-darwin"] = {"Darwin", "x86_64"},
+    ["aarch64-unknown-linux-gnu"] = {"Linux", "aarch64"},
+    ["x86_64-unknown-linux-gnu"] = {"Linux", "x86_64"}
+}
+-- The harnesses' inner-loop shortcuts: each leaves checks out, so none may
+-- reach a run whose result is acceptance.
+const SHORTCUTS = {
+    "NUPP_GUEST_QUICK",
+    "NUPP_GUEST_EMIT_ONLY",
+    "NUPP_GUEST_STRESS",
+    "NUPP_GUEST_AUDITS",
+    "NUPP_GUEST_MODES",
+    "NUPP_GUEST_BUILD",
+    "NUPP_GUEST_SHARD",
+    "NUPP_GUEST_BRIDGE",
+    "NUPP_GUEST_GUARD",
+    "NUPP_CORE_BRIDGE"
+}
+-- Kills a command's whole process group once it outlives its bound, and
+-- says so on standard error; the same watchdog run.lua puts on its jobs.
+const TIMED_OUT = "nupp acceptance process timed out after "
+const WATCHDOG = [[
+my $limit = shift;
+my $pid = fork;
+die "fork: $!" unless defined $pid;
+if ($pid == 0) { setpgrp(0, 0); exec "/bin/sh", @ARGV; exit 127 }
+$SIG{ALRM} = sub { kill "KILL", -$pid; waitpid $pid, 0; print STDERR "\n]]
+    .. TIMED_OUT
+    .. [[${limit}s\n"; exit 124 };
+alarm $limit;
+waitpid $pid, 0;
+exit($? & 127 ? 128 + ($? & 127) : $? >> 8);
+]]
+
+local popen: any = io.popen
+
+local function fail(message: string): nil
+    io.stderr:write("acceptance: " .. message .. "\n")
+    os.exit(2)
+end
+
+local function quote(value: string): string
+    return "'" .. (value:gsub("'", "'\\''")) .. "'"
+end
+
+-- What `command` prints, with its standard error, and its exit status.
+local function capture(command: string): (integer, string)
+    local pipe = assert(popen(command .. " 2>&1; echo __exit__:$?"))
+    local output = tostring(pipe:read("a"))
+    pipe:close()
+    local status = math.tointeger(tonumber(output:match("__exit__:(%d+)%s*$"))) or 255
+
+    return status, (output:gsub("__exit__:%d+%s*$", ""))
+end
+
+local function read(path: string): string?
+    local file = io.open(path, "rb")
+    if file == nil then
+        return nil
+    end
+    local bytes = tostring(file:read("a"))
+    file:close()
+
+    return bytes
+end
+
+local function write(path: string, bytes: string): nil
+    local file = assert(io.open(path, "wb"))
+    file:write(bytes)
+    file:close()
+end
+
+local function root(): string
+    local given = os.getenv("NUPP_COMPILER_ROOT")
+    if given ~= nil and given ~= "" then
+        return given
+    end
+    local _, here = capture("pwd")
+
+    return (here:gsub("%s+$", ""))
+end
+
+const ROOT = root()
+const NUPP = ROOT .. "/bin/nupp"
+const GUESTS = ROOT .. "/tests/core/guests"
+const UNITS = ROOT .. "/tests/core/units"
+const INVENTORY = GUESTS .. "/inventory.json"
+const OUT = ROOT .. "/build/core-acceptance"
+if read(GUESTS .. "/run.lua") == nil then
+    fail("run from the repository root, or name it in NUPP_COMPILER_ROOT")
+end
+
+-- Options -------------------------------------------------------------------
+
+local options: {
+    inventory: boolean,
+    ci: boolean,
+    target: string?,
+    timeout: integer,
+    jobs: integer,
+    part: integer,
+    parts: integer,
+    names: {string}
+} = {inventory = false, ci = false, timeout = DEFAULT_TIMEOUT, jobs = DEFAULT_JOBS, part = 1, parts = 1, names = {}}
+do
+    local args = io.cli.args
+    local index: integer = 1
+
+    local function value(flag: string): string
+        index = index + 1
+        local given = args[index]
+        if given == nil then
+            fail(flag .. " needs a value")
+        end
+
+        return tostring(given)
+    end
+
+    local function count(flag: string, text: string): integer
+        local number = math.tointeger(tonumber(text))
+        if number == nil or number < 1 then
+            fail(flag .. " needs a positive integer, not " .. text)
+        end
+
+        return number as integer
+    end
+
+    while args[index] ~= nil do
+        local given = tostring(args[index])
+        if given == "--inventory" then
+            options.inventory = true
+        elseif given == "--ci" then
+            options.ci = true
+        elseif given == "--target" then
+            options.target = value(given)
+        elseif given == "--timeout" then
+            options.timeout = count(given, value(given))
+        elseif given == "--jobs" then
+            options.jobs = count(given, value(given))
+        elseif given == "--part" then
+            local text = value(given)
+            local part, parts = text:match("^(%d+)/(%d+)$")
+            if part == nil then
+                fail("--part needs I/N, not " .. text)
+            end
+            options.part, options.parts = count(given, tostring(part)), count(given, tostring(parts))
+            if options.part > options.parts then
+                fail("--part " .. text .. " names no part")
+            end
+        elseif given:sub(1, 2) == "--" then
+            fail("unknown option " .. given)
+        else
+            options.names[#options.names + 1] = given
+        end
+        index = index + 1
+    end
+end
+if options.inventory and options.ci then
+    fail("--inventory and --ci are separate runs")
+end
+if options.inventory and options.parts > 1 then
+    fail("--inventory runs every part")
+end
+for _, name in ipairs(SHORTCUTS) do
+    local set = os.getenv(name)
+    if set ~= nil then
+        fail(("%s=%s is an inner-loop shortcut; acceptance runs every check"):format(name, set))
+    end
+end
+if options.target ~= nil then
+    local triple = options.target as string
+    local host = TARGETS[triple]
+    if host == nil then
+        fail("unknown target " .. triple)
+    end
+    local _, system = capture("uname -s")
+    local _, machine = capture("uname -m")
+    system, machine = (system:gsub("%s+$", "")), (machine:gsub("%s+$", ""))
+    if system ~= host[1] or machine ~= host[2] then
+        fail(("target %s does not run on this %s %s host"):format(triple, system, machine))
+    end
+end
+
+-- Selections ------------------------------------------------------------------
+
+-- Every guest case and unit, from the harnesses themselves.
+local type Selection = {
+    kind: string,
+    name: string,
+    explicit: boolean,
+    sources: {string}
+}
+
+local function listed(directory: string, command: string, pattern: string): {string}
+    local status, output = capture(
+        ("cd %s && NUPP_COMPILER_ROOT=%s %s run run.lua %s"):format(quote(directory), quote(ROOT), quote(NUPP), command)
+    )
+    if status ~= 0 then
+        fail("could not list " .. directory .. ":\n" .. output)
+    end
+    local lines: {string} = {}
+    for line in output:gmatch("[^\n]+") do
+        if line:match(pattern) then
+            lines[#lines + 1] = line
+        end
+    end
+
+    return lines
+end
+
+-- Where each guest case's program is, from the guest build's case table.
+local function guestFixtures(): {[string]: string}
+    local text = assert(read(ROOT .. "/src/nupp/core/guestbuild.nupp"), "guestbuild.nupp is missing")
+    local fixtures: {[string]: string} = {}
+    for name, body in text:gmatch("\n    (%w+) = (%b{})") do
+        local fixture = body:match('fixture = "([^"]+)"')
+        if fixture ~= nil then
+            if body:find("rooted = true", 1, true) then
+                fixtures[name] = fixture .. ".nupp"
+            elseif body:find("generated = true", 1, true) then
+                fixtures[name] = "tests/core/guests/run.lua"
+            else
+                fixtures[name] = "tests/core/" .. fixture .. ".nupp"
+            end
+        end
+    end
+
+    return fixtures
+end
+
+local function selections(): ({Selection}, {[string]: Selection})
+    local all: {Selection} = {}
+    local byName: {[string]: Selection} = {}
+    local fixtures = guestFixtures()
+    for _, line in ipairs(listed(GUESTS, "--list", "^case ")) do
+        local name, how = line:match("^case (%S+) (%a+)$")
+        if name ~= nil then
+            local sources: {string} = {}
+            local fixture = fixtures[name]
+            if fixture ~= nil then
+                sources[1] = fixture
+                local twin = fixture:gsub("%.nupp$", ".lua")
+                if twin ~= fixture and read(ROOT .. "/" .. twin) ~= nil then
+                    sources[2] = twin
+                end
+            end
+            local selection: Selection = {kind = "guest", name = name, explicit = how == "explicit", sources = sources}
+            all[#all + 1] = selection
+            byName[name] = selection
+        end
+    end
+    for _, line in ipairs(listed(UNITS, "list", "^unit ")) do
+        local name, paths = line:match("^unit (%S+) ?(.*)$")
+        if name ~= nil then
+            local sources: {string} = {}
+            for path in tostring(paths):gmatch("%S+") do
+                sources[#sources + 1] = path
+            end
+            local selection: Selection = {kind = "unit", name = name, explicit = false, sources = sources}
+            all[#all + 1] = selection
+            byName["unit:" .. name] = selection
+        end
+    end
+    if #all == 0 then
+        fail("the harnesses listed no selection")
+    end
+
+    return all, byName
+end
+
+const ALL, BY_NAME = selections()
+
+-- What this run attempts, in the harnesses' own order.
+local chosen: {Selection} = {}
+if #options.names > 0 then
+    local seen: {[string]: boolean} = {}
+    for _, name in ipairs(options.names) do
+        local selection = BY_NAME[name]
+        if selection == nil then
+            fail("unknown selection " .. name)
+        end
+        if not seen[name] then
+            seen[name] = true
+            chosen[#chosen + 1] = selection as Selection
+        end
+    end
+elseif options.inventory or options.ci then
+    for _, selection in ipairs(ALL) do
+        if not selection.explicit then
+            chosen[#chosen + 1] = selection
+        end
+    end
+end
+if options.parts > 1 then
+    local slice: {Selection} = {}
+    for index, selection in ipairs(chosen) do
+        if (index - 1) % options.parts == options.part - 1 then
+            slice[#slice + 1] = selection
+        end
+    end
+    chosen = slice
+end
+if #chosen == 0 then
+    fail("empty selection: name a guest case or unit:NAME, or pass --inventory or --ci")
+end
+
+-- Running -------------------------------------------------------------------
+
+os.execute("mkdir -p " .. quote(OUT))
+
+-- Runs `script` under the watchdog, bounded by `limit` seconds, with what it
+-- prints in `log`. Answers its status and whether the watchdog killed it.
+local function bounded(name: string, script: string, limit: integer): (integer, boolean, string)
+    local path = OUT .. "/" .. name .. ".sh"
+    local log = OUT .. "/" .. name .. ".log"
+    write(path, script .. "\n")
+    local status = capture(("perl -e %s %d %s > %s 2>&1"):format(quote(WATCHDOG), limit, quote(path), quote(log)))
+    local printed = read(log) or ""
+
+    return status, status == 124 and printed:find(TIMED_OUT, 1, true) ~= nil, printed
+end
+
+-- What one selection did in one mode.
+local type Row = {
+    id: string,
+    status: string,
+    failures: {string},
+    finished: boolean,
+    source: string?,
+    owner: string?
+}
+
+local rows: {[string]: Row} = {}
+
+local function rowId(kind: string, name: string, mode: string?): string
+    return mode ~= nil and ("%s:%s:%s"):format(kind, name, mode) or ("%s:%s"):format(kind, name)
+end
+
+local function rowFor(id: string): Row
+    local row = rows[id]
+    if row == nil then
+        row = {id = id, status = "missing", failures = {}, finished = false}
+        rows[id] = row
+    end
+
+    return row as Row
+end
+
+-- A failure as the inventory keeps it: its first line, without the paths
+-- or addresses of this checkout and run.
+local function normalized(text: string): string
+    local line = text:match("^[^\n]*") or ""
+    line = line:gsub(ROOT:gsub("%p", "%%%0"), "<root>")
+    line = line:gsub("0x%x%x%x%x%x%x+", "0x*")
+    line = line:gsub("%s+$", "")
+    if #line > 240 then
+        line = line:sub(1, 240) .. "..."
+    end
+
+    return line
+end
+
+local function addFailure(row: Row, text: string): nil
+    local failure = normalized(text)
+    for _, known in ipairs(row.failures) do
+        if known == failure then
+            return
+        end
+    end
+    row.failures[#row.failures + 1] = failure
+end
+
+-- Attributes one guest harness line to the row it is about.
+local function guestLine(line: string): nil
+    local name, mode = line:match("^RESULT (%w+) (%a+)$")
+    if name ~= nil then
+        rowFor(rowId("guest", tostring(name), tostring(mode))).finished = true
+        return
+    end
+    local label = line:match("^FAIL (.*)$")
+    if label == nil then
+        return
+    end
+    local text = tostring(label)
+    -- A shard that stopped is said by its cases' missing results.
+    if text:match("^shard %d+ stopped") then
+        return
+    end
+    local auditName, auditMode, auditRest = text:match("^audit%-(%w+)%-(%a+)%-(.*)$")
+    if auditName ~= nil and BY_NAME[auditName] ~= nil then
+        addFailure(rowFor(rowId("guest", tostring(auditName), tostring(auditMode))), "audit " .. tostring(auditRest))
+        return
+    end
+    for _, candidate in ipairs(MODES) do
+        local caseName, rest = text:match("^(%w+)%-" .. candidate .. "(.*)$")
+        if caseName ~= nil and BY_NAME[caseName] ~= nil then
+            local detail = tostring(rest):gsub("^[%s%-]+", "")
+            addFailure(rowFor(rowId("guest", tostring(caseName), candidate)), detail)
+            return
+        end
+    end
+    addFailure(rowFor(rowId("guest", "harness")), text)
+end
+
+local function unitLine(line: string): nil
+    local name, mode = line:match("^RESULT (%S+) (%a+)$")
+    if name ~= nil then
+        rowFor(rowId("unit", tostring(name), tostring(mode))).finished = true
+        return
+    end
+    local label = line:match("^FAIL (.*)$")
+    if label == nil then
+        return
+    end
+    local text = tostring(label)
+    local unitName, unitMode, rest = text:match("^(%S+) (%a+) (.*)$")
+    if unitName ~= nil and BY_NAME["unit:" .. unitName] ~= nil then
+        addFailure(rowFor(rowId("unit", tostring(unitName), tostring(unitMode))), tostring(rest))
+        return
+    end
+    addFailure(rowFor(rowId("unit", "harness")), text)
+end
+
+local function guestScript(names: {string}, shards: integer): string
+    return (
+        "cd %s && NUPP_COMPILER_ROOT=%s NUPP_GUEST_SHARDS=%d NUPP_GUEST_JOBS=%d NUPP_GUEST_JOB_TIMEOUT=%d %s run run.lua %s"
+    ):format(quote(GUESTS), quote(ROOT), shards, options.jobs, options.timeout, quote(NUPP), table.concat(names, " "))
+end
+
+-- The guest cases chosen, in one sharded harness run; then any case the run
+-- left without a result, alone, so one that stops its process is named.
+local function runGuests(guests: {Selection}): nil
+    if #guests == 0 then
+        return
+    end
+    local names: {string} = {}
+    for _, selection in ipairs(guests) do
+        names[#names + 1] = selection.name
+    end
+    local limit = options.timeout * PROCESS_TIMEOUTS + CASE_SECONDS * #names
+    print(("acceptance: %d guest cases, log in %s/guests.log"):format(#names, OUT))
+    local _, timedOut, printed = bounded("guests", guestScript(names, GUEST_SHARDS), limit)
+    for line in printed:gmatch("[^\n]+") do
+        guestLine(line)
+    end
+    if timedOut then
+        print("acceptance: the guest run outlived its bound of " .. limit .. "s")
+    end
+    for _, selection in ipairs(guests) do
+        local unfinished = false
+        for _, mode in ipairs(MODES) do
+            unfinished = unfinished or not rowFor(rowId("guest", selection.name, mode)).finished
+        end
+        if unfinished then
+            print("acceptance: running " .. selection.name .. " alone, which the guest run left unfinished")
+            for _, mode in ipairs(MODES) do
+                rows[rowId("guest", selection.name, mode)] = nil
+            end
+            local alone = options.timeout * PROCESS_TIMEOUTS
+            local _, killed, again = bounded("guest-" .. selection.name, guestScript({selection.name}, 1), alone)
+            for line in again:gmatch("[^\n]+") do
+                guestLine(line)
+            end
+            for _, mode in ipairs(MODES) do
+                local row = rowFor(rowId("guest", selection.name, mode))
+                if not row.finished then
+                    if killed then
+                        addFailure(row, ("process timed out after %ds"):format(alone))
+                    else
+                        local last = again:match("([^\n]+)\n*$") or "no output"
+                        addFailure(row, "process stopped: " .. tostring(last))
+                    end
+                end
+            end
+        end
+    end
+end
+
+-- Each unit chosen in a process of its own, `--jobs` at once.
+local function runUnits(units: {Selection}): nil
+    if #units == 0 then
+        return
+    end
+    local limit = options.timeout * PROCESS_TIMEOUTS
+    local lines: {string} = {}
+    for _, selection in ipairs(units) do
+        local script = OUT .. "/unit-" .. selection.name .. ".sh"
+        write(
+            script,
+            (
+                "cd %s && NUPP_COMPILER_ROOT=%s %s run run.lua all %s\n"
+            ):format(quote(UNITS), quote(ROOT), quote(NUPP), selection.name)
+        )
+        -- The bounded run, a script of its own: the watchdog spans lines,
+        -- and the queue holds one path a line.
+        local bounded = OUT .. "/unit-" .. selection.name .. ".run.sh"
+        write(
+            bounded,
+            (
+                "perl -e %s %d %s > %s 2>&1\n"
+            ):format(quote(WATCHDOG), limit, quote(script), quote(OUT .. "/unit-" .. selection.name .. ".log"))
+        )
+        lines[#lines + 1] = bounded
+    end
+    local queue = OUT .. "/units.queue"
+    write(queue, table.concat(lines, "\n") .. "\n")
+    print(("acceptance: %d units, logs in %s/unit-*.log"):format(#units, OUT))
+    capture(("xargs -P %d -n 1 sh < %s"):format(options.jobs, quote(queue)))
+    for _, selection in ipairs(units) do
+        local printed = read(OUT .. "/unit-" .. selection.name .. ".log") or ""
+        for line in printed:gmatch("[^\n]+") do
+            unitLine(line)
+        end
+        local killed = printed:find(TIMED_OUT, 1, true) ~= nil
+        for _, mode in ipairs(MODES) do
+            local row = rowFor(rowId("unit", selection.name, mode))
+            if not row.finished then
+                if killed then
+                    addFailure(row, ("process timed out after %ds"):format(limit))
+                else
+                    local last = printed:match("([^\n]+)\n*$") or "no output"
+                    addFailure(row, "process stopped: " .. tostring(last))
+                end
+            end
+        end
+    end
+end
+
+local guests: {Selection} = {}
+local units: {Selection} = {}
+for _, selection in ipairs(chosen) do
+    if selection.kind == "unit" then
+        units[#units + 1] = selection
+    else
+        guests[#guests + 1] = selection
+    end
+end
+const started = os.time()
+runGuests(guests)
+runUnits(units)
+
+-- Each selection's sources, digested, so a row says what it ran.
+local function digest(paths: {string}): string?
+    if #paths == 0 then
+        return nil
+    end
+    local quoted: {string} = {}
+    for _, path in ipairs(paths) do
+        quoted[#quoted + 1] = quote(path)
+    end
+    local status, output = capture(("cd %s && cat %s | shasum -a 256"):format(quote(ROOT), table.concat(quoted, " ")))
+    if status ~= 0 then
+        return nil
+    end
+
+    return output:match("^(%x+)")
+end
+
+for _, selection in ipairs(chosen) do
+    local source = digest(selection.sources)
+    for _, mode in ipairs(MODES) do
+        local row = rowFor(rowId(selection.kind, selection.name, mode))
+        row.source = source
+    end
+end
+for _, row in pairs(rows) do
+    table.sort(row.failures)
+    if row.finished then
+        row.status = #row.failures == 0 and "pass" or "fail"
+    elseif row.id:match(":harness$") then
+        row.status = "fail"
+    end
+end
+
+-- The inventory ---------------------------------------------------------------
+
+local function encodeString(text: string): string
+    return json.encodevalue(text)
+end
+
+-- The inventory file, written by hand so its bytes depend only on its rows.
+local function encodeInventory(table_: {Row}): string
+    local out: {string} = {}
+    out[#out + 1] = "{\n"
+    out[#out + 1] = ('  "schema": %d,\n'):format(INVENTORY_SCHEMA)
+    out[
+        #out + 1
+    ] = '  "about": ' .. encodeString(
+        "Core guest and unit regression baseline (nr-w1-inventory), not core acceptance. "
+        .. "Regenerate with ./bin/nupp run tests/core/guests/acceptance.nupp --inventory; "
+        .. "a failing row names the open task that owns it."
+    ) .. ",\n"
+    out[#out + 1] = ('  "jobTimeout": %d,\n'):format(options.timeout)
+    out[#out + 1] = '  "rows": [\n'
+    for index, row in ipairs(table_) do
+        local fields: {string} = {'"id": ' .. encodeString(row.id), '"status": ' .. encodeString(row.status)}
+        if row.owner ~= nil then
+            fields[#fields + 1] = '"owner": ' .. encodeString(row.owner as string)
+        end
+        if row.source ~= nil then
+            fields[#fields + 1] = '"source": ' .. encodeString(row.source as string)
+        end
+        local line = "    {" .. table.concat(fields, ", ")
+        if #row.failures > 0 then
+            local failures: {string} = {}
+            for _, failure in ipairs(row.failures) do
+                failures[#failures + 1] = "\n      " .. encodeString(failure)
+            end
+            line = line .. ', "failures": [' .. table.concat(failures, ",") .. "\n    ]"
+        end
+        out[#out + 1] = line .. "}" .. (index < #table_ and "," or "") .. "\n"
+    end
+    out[#out + 1] = "  ]\n}\n"
+
+    return table.concat(out)
+end
+
+local function readInventory(): {[string]: Row}
+    local text = read(INVENTORY)
+    local baseline: {[string]: Row} = {}
+    if text == nil then
+        return baseline
+    end
+    local decoded: any = json.decodevalue(text as string)
+    if type(decoded) ~= "table" or decoded.schema ~= INVENTORY_SCHEMA or type(decoded.rows) ~= "table" then
+        fail("tests/core/guests/inventory.json is not an inventory of schema " .. INVENTORY_SCHEMA)
+    end
+    for _, item in ipairs(decoded.rows) do
+        local failures: {string} = {}
+        for _, failure in ipairs(item.failures or {}) do
+            failures[#failures + 1] = tostring(failure)
+        end
+        baseline[
+            tostring(item.id)
+        ] = {
+            id = tostring(item.id),
+            status = tostring(item.status),
+            failures = failures,
+            finished = true,
+            source = item.source,
+            owner = item.owner
+        }
+    end
+
+    return baseline
+end
+
+local function sortedIds(map: {[string]: Row}): {string}
+    local ids: {string} = {}
+    for id in pairs(map) do
+        ids[#ids + 1] = id
+    end
+    table.sort(ids)
+
+    return ids
+end
+
+local function sameFailures(a: Row, b: Row): boolean
+    if #a.failures ~= #b.failures then
+        return false
+    end
+    for index, failure in ipairs(a.failures) do
+        if b.failures[index] ~= failure then
+            return false
+        end
+    end
+
+    return true
+end
+
+const baseline = readInventory()
+const elapsed = os.time() - started
+
+if options.inventory then
+    -- The rows this run made replace theirs; the rest of the inventory, and
+    -- each failing row's owner, stay as they were.
+    local merged: {[string]: Row} = {}
+    for id, row in pairs(baseline) do
+        merged[id] = row
+    end
+    -- A row whose selection is gone goes with it.
+    for id, row in pairs(merged) do
+        local kind, name = id:match("^(%a+):([^:]+)")
+        if name ~= "harness" and BY_NAME[kind == "unit" and "unit:" .. tostring(name) or tostring(name)] == nil then
+            merged[id] = nil
+        end
+    end
+    -- A whole run decides the harness rows too.
+    if #options.names == 0 then
+        merged["guest:harness"], merged["unit:harness"] = nil, nil
+    end
+    for id, row in pairs(rows) do
+        local previous = baseline[id]
+        if row.status ~= "pass" then
+            row.owner = previous ~= nil and previous.owner or UNOWNED
+        end
+        merged[id] = row
+    end
+    -- A case only an explicit selection runs has a row all the same.
+    for _, selection in ipairs(ALL) do
+        if selection.explicit then
+            for _, mode in ipairs(MODES) do
+                local id = rowId(selection.kind, selection.name, mode)
+                if merged[id] == nil then
+                    merged[id] = {id = id, status = "explicit", failures = {}, finished = false, owner = UNOWNED}
+                end
+            end
+        end
+    end
+    local ordered: {Row} = {}
+    local unowned = 0
+    for _, id in ipairs(sortedIds(merged)) do
+        local row = merged[id] as Row
+        ordered[#ordered + 1] = row
+        if row.status ~= "pass" and row.owner == UNOWNED then
+            unowned = unowned + 1
+        end
+    end
+    write(INVENTORY, encodeInventory(ordered))
+    local passing, failing = 0, 0
+    for _, row in ipairs(ordered) do
+        if row.status == "pass" then
+            passing = passing + 1
+        else
+            failing = failing + 1
+        end
+    end
+    print(
+        (
+            "acceptance: wrote %d rows, %d passing, %d not passing (%d without an owner) in %ds"
+        ):format(#ordered, passing, failing, unowned, elapsed)
+    )
+    os.exit(0)
+end
+
+-- Every row this run made, and what it says about the baseline.
+local problems: {string} = {}
+local known: {string} = {}
+local passed = 0
+for _, id in ipairs(sortedIds(rows)) do
+    local row = rows[id] as Row
+    local expected = baseline[id]
+    if row.status == "pass" then
+        passed = passed + 1
+    end
+    if not options.ci then
+        if row.status ~= "pass" then
+            problems[#problems + 1] = ("%s %s: %s"):format(id, row.status, table.concat(row.failures, "; "))
+        end
+    elseif expected == nil then
+        if row.status ~= "pass" or not id:match(":harness$") then
+            problems[#problems + 1] = id .. " is not in the inventory (" .. row.status .. ")"
+        end
+    elseif row.status == "pass" and expected.status ~= "pass" then
+        problems[#problems + 1] = id .. " now passes: remove its known failure from the inventory"
+    elseif row.status ~= "pass" and expected.status == "pass" then
+        problems[#problems + 1] = ("%s newly %s: %s"):format(id, row.status, table.concat(row.failures, "; "))
+    elseif row.status ~= "pass" then
+        if row.status ~= expected.status or not sameFailures(row, expected) then
+            problems[#problems + 1] = ("%s failed differently: %s"):format(id, table.concat(row.failures, "; "))
+        elseif expected.owner == nil or expected.owner == UNOWNED then
+            problems[#problems + 1] = id .. " is a known failure no task owns"
+        else
+            known[#known + 1] = ("%s (%s): %s"):format(id, expected.owner as string, table.concat(row.failures, "; "))
+        end
+    end
+end
+-- A whole --ci run accounts for every row of the inventory.
+if options.ci and #options.names == 0 then
+    for _, id in ipairs(sortedIds(baseline)) do
+        local row = baseline[id] as Row
+        local kind, name = id:match("^(%a+):([^:]+)")
+        local selection = name ~= nil and BY_NAME[kind == "unit" and "unit:" .. tostring(name) or tostring(name)]
+        local inPart = true
+        if selection and options.parts > 1 then
+            inPart = false
+            for _, item in ipairs(chosen) do
+                inPart = inPart or item == selection
+            end
+        end
+        if rows[id] == nil and inPart then
+            if row.status == "explicit" then
+                known[#known + 1] = ("%s (%s): run only when named"):format(id, tostring(row.owner))
+            elseif name == "harness" then
+                if row.status ~= "pass" and options.parts == 1 then
+                    problems[#problems + 1] = id .. " now passes: remove its known failure from the inventory"
+                end
+            elseif not selection then
+                problems[#problems + 1] = id .. " names a selection that no longer exists"
+            else
+                problems[#problems + 1] = id .. " has no result"
+            end
+        end
+    end
+end
+
+for _, line in ipairs(known) do
+    print("known failure " .. line)
+end
+for _, line in ipairs(problems) do
+    print("FAIL " .. line)
+end
+print(
+    (
+        "acceptance: %d results, %d passing, %d known failures, %d problems, %ds"
+    ):format(#sortedIds(rows), passed, #known, #problems, elapsed)
+)
+os.exit(#problems == 0 and 0 or 1)
