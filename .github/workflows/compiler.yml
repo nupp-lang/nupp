@@ -133,19 +133,6 @@ jobs:
           restore-keys: |
             nupp-toolchain-${{ runner.os }}-${{ runner.arch }}-
 
-      # Uncrustify is cached by its pin alone, as scripts/toolchain keys it, so
-      # a change to the toolchain rules does not build it again.
-      - name: Cache Uncrustify
-        uses: actions/cache@v4
-        with:
-          path: .nupp-cache/toolchain/uncrustify
-          key: >-
-            nupp-uncrustify-${{ runner.os }}-${{ runner.arch }}-${{
-            hashFiles('scripts/toolchain.pins') }}
-
-      - name: Check C formatting
-        run: ./scripts/format-c --check
-
       # The classifier is plain Lua so that the suite can assert on it. This is
       # the only thing this job provisions, and on a cache hit it is a second.
       - name: Provide a Lua interpreter
@@ -250,6 +237,36 @@ jobs:
           fi
           echo "--- changed paths ---"
           cat changed-paths.txt
+
+      # C is checked only when something that decides its formatting changed:
+      # a C source or header, the formatters' configuration, their pins or the
+      # script that runs them. An empty list is "everything", as it is for the
+      # classifier, so a run with no diff still checks.
+      - name: Name the C changes
+        id: c-changed
+        run: |
+          if [ ! -s changed-paths.txt ] || grep -Eq \
+              '\.(c|h)$|^\.clang-format$|^\.uncrustify\.cfg$|^scripts/format-c$|^scripts/toolchain(\.pins)?$' \
+              changed-paths.txt; then
+            echo "check=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "check=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      # Uncrustify is cached by its pin alone, as scripts/toolchain keys it, so
+      # a change to the toolchain rules does not build it again.
+      - name: Cache Uncrustify
+        if: steps.c-changed.outputs.check == 'true'
+        uses: actions/cache@v4
+        with:
+          path: .nupp-cache/toolchain/uncrustify
+          key: >-
+            nupp-uncrustify-${{ runner.os }}-${{ runner.arch }}-${{
+            hashFiles('scripts/toolchain.pins') }}
+
+      - name: Check C formatting
+        if: steps.c-changed.outputs.check == 'true'
+        run: ./scripts/format-c --check
 
       - name: Classify the affected surfaces
         id: classify
