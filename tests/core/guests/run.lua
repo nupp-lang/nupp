@@ -1996,6 +1996,9 @@ local function main()
                     local wordBytes, diagnosticBytes = 8, 24
                     local v3Bytes, formatWord, rowsWord, countWord = 152, 16, 17, 18
                     local diagnosticFormat, legacyFormat, methodFlag, tailFlag = 4, 3, 1, 2
+                    -- Every flag a row's method word may carry (guestcatalog's
+                    -- CALL_FLAGS): the call's kind and the name kind beside it.
+                    local callFlags = 127
                     local rows, count = get64(data, rowsWord * wordBytes), get64(data, countWord * wordBytes)
                     check(get64(data, 4 * wordBytes) == v3Bytes, label .. " V3 record offset")
                     check(
@@ -2013,7 +2016,7 @@ local function main()
                     invalid("format", formatWord * wordBytes, u64(diagnosticFormat + 1))
                     invalid("offset", rowsWord * wordBytes, u64(rows + wordBytes))
                     invalid("count", countWord * wordBytes, u64(count - 1))
-                    invalid("method", rows, u64(methodFlag + tailFlag + 1))
+                    invalid("method", rows, u64(callFlags + 1))
                     invalid("forward", rows + 2 * wordBytes, u64(3))
                     invalid("name-metadata", rows + wordBytes, u64(v3Bytes))
                     local named
