@@ -1,11 +1,19 @@
 /* Times the generated explicit kernels in the harness library against their
- * hand-written NEON versions and the scalar-source C, over the harness's
- * inputs and sizes. Every implementation must agree bit for bit with the
- * scalar entry before anything is timed. Each figure is the fastest of 101
- * interleaved samples of about a millisecond, which is what a deterministic
- * loop on a shared machine measures best.
+ * hand-written NEON versions in neon.c and the scalar-source C, over the
+ * harness's inputs and sizes, for the tables in bench/simd11/README.md.
+ * Every implementation must agree bit for bit with the scalar entry before
+ * anything is timed; the algebraic dot product, which may reassociate, need
+ * only come within the harness's relative bound. Each figure is the fastest
+ * of SAMPLES interleaved samples of about a millisecond, which is what a
+ * deterministic loop on a shared machine measures best.
  *
- * usage: compare LIBRARY   (bench/simd11/build/native.dylib after --prepare) */
+ * usage: compare LIBRARY [UTF8-LIBRARY]
+ *
+ * LIBRARY is bench/simd11/build/native.dylib, which `measure.py --prepare`
+ * builds, and UTF8-LIBRARY bench/simd11/build/utf8/native.dylib. Both come
+ * from the CPU AOT backend, which left the tree in 68f4d7f08, so build them
+ * in a checkout of that commit's parent. */
+
 #include <dlfcn.h>
 #include <stdint.h>
 #include <stdio.h>
@@ -13,16 +21,54 @@
 #include <string.h>
 #include <time.h>
 
+/* The map kernel's coefficients: output = input * MAP_SCALE + MAP_BIAS. */
+#define MAP_SCALE 1.25
+#define MAP_BIAS -0.5
+
+/* Written past the end of each output and checked afterward, to catch a
+ * kernel that stores beyond its count. */
+#define CANARY -777.0
+#define CANARY_SLOTS 4
+
+/* The algebraic dot product's error bound, relative to the scalar answer. */
+#define ALGEBRAIC_BOUND 1e-12
+
+/* Interleaved samples of each implementation; the fastest is reported. */
+#define SAMPLES 101
+
+/* Each sample makes enough calls to cover about this many elements: fewer
+ * for refine, whose elements each loop up to 32 times. */
+#define ELEMENTS_PER_SAMPLE 4000000
+#define REFINE_ELEMENTS_PER_SAMPLE 400000
+
+/* A best time slower than any sample. */
+#define UNSAMPLED 1e30
+
+/* The map and refine implementations, in the order of `best`. Map has no
+ * tuned hand version. */
+enum { SCALAR_C, GENERATED, HAND, HAND_TUNED };
+
+enum { MAP_IMPLEMENTATIONS = 3, REFINE_IMPLEMENTATIONS = 4 };
+
+/* The kernels of the first table, then the dot products of the second. */
+enum { MAP, REFINE };
+
+enum { ORDERED, PAIRWISE, ALGEBRAIC, DOT_KERNELS };
+
+/* The harness library's entries take each span's length after its pointers;
+ * the hand versions take one count. */
 typedef void (*map_fn)(double *, const double *, double, double, size_t,
                        size_t);
 typedef void (*refine_fn)(double *, const double *, size_t, size_t);
 typedef double (*library_dot)(const double *, const double *, size_t, size_t);
 typedef double (*dot_fn)(const double *, const double *, size_t);
+typedef uint32_t (*utf8_fn)(const uint8_t *, size_t);
+
+/* neon.c */
 double hand_ordered (const double *left, const double *right, size_t count);
 double hand_pairwise (const double *left, const double *right, size_t count);
 double hand_algebraic (const double *left, const double *right, size_t count);
 uint32_t hand_utf8_valid_prefix (const uint8_t *source, size_t count);
-typedef uint32_t (*utf8_fn)(const uint8_t *, size_t);
 void hand_map (double *restrict output, const double *input, double scale,
                double bias, size_t count);
 void hand_refine (double *restrict output, const double *input, size_t count);
@@ -32,26 +78,28 @@ void hand_refine_tuned (double *restrict output, const double *input,
 static map_fn generated_map, scalar_map;
 static refine_fn generated_refine, scalar_refine;
 
+/* Runs implementation `which` of map over `n` elements. */
 static void run_map (int which, double *out, const double *in, size_t n) {
-  if (which == 0) {
-    scalar_map(out, in, 1.25, -0.5, n, n);
+  if (which == SCALAR_C) {
+    scalar_map(out, in, MAP_SCALE, MAP_BIAS, n, n);
   }
-  else if (which == 1) {
-    generated_map(out, in, 1.25, -0.5, n, n);
+  else if (which == GENERATED) {
+    generated_map(out, in, MAP_SCALE, MAP_BIAS, n, n);
   }
   else {
-    hand_map(out, in, 1.25, -0.5, n);
+    hand_map(out, in, MAP_SCALE, MAP_BIAS, n);
   }
 }
 
+/* Runs implementation `which` of refine over `n` elements. */
 static void run_refine (int which, double *out, const double *in, size_t n) {
-  if (which == 0) {
+  if (which == SCALAR_C) {
     scalar_refine(out, in, n, n);
   }
-  else if (which == 1) {
+  else if (which == GENERATED) {
     generated_refine(out, in, n, n);
   }
-  else if (which == 2) {
+  else if (which == HAND) {
     hand_refine(out, in, n);
   }
   else {
@@ -66,6 +114,10 @@ static double now (void) {
   return (double)t.tv_sec + (double)t.tv_nsec * 1e-9;
 }
 
+/* Three tables, one after another: map and refine, the dot products, and
+ * UTF-8 validation when a second library is named. Odd samples run the
+ * implementations in reverse, so none always runs on a cache another
+ * warmed. */
 int main (int argc, char **argv) {
   if (argc != 2 && argc != 3) {
     fprintf(stderr, "usage: compare LIBRARY [UTF8-LIBRARY]\n");
@@ -96,38 +148,41 @@ int main (int argc, char **argv) {
   printf("%-7s %7s %12s %12s %12s %12s %10s\n", "kernel", "n", "scalar C",
          "generated", "hand NEON", "hand tuned", "gen/best");
 
-  for (int kernel = 0; kernel < 2; kernel++) {
+  /* Map and refine: the scalar entry writes the answer the others must
+   * match, canaries included. */
+  for (int kernel = MAP; kernel <= REFINE; kernel++) {
     for (size_t s = 0; s < sizeof sizes / sizeof sizes[0]; s++) {
       size_t n = sizes[s];
-      double *in = malloc(n * sizeof *in), *out = malloc((n + 4) * sizeof *out),
+      double *in = malloc(n * sizeof *in),
+             *out = malloc((n + CANARY_SLOTS) * sizeof *out),
              *want = malloc(n * sizeof *want);
 
       for (size_t i = 0; i < n; i++) {
         in[i] = (double)(i % 97 + 1) * 0.125;
       }
 
-      if (kernel == 0) {
-        run_map(0, want, in, n);
+      if (kernel == MAP) {
+        run_map(SCALAR_C, want, in, n);
       }
       else {
-        run_refine(0, want, in, n);
+        run_refine(SCALAR_C, want, in, n);
       }
 
-      int kinds = kernel == 0 ? 3 : 4;
+      int kinds = kernel == MAP ? MAP_IMPLEMENTATIONS : REFINE_IMPLEMENTATIONS;
 
-      for (int which = 1; which < kinds; which++) {
-        for (int k = 0; k < 4; k++) {
-          out[n + k] = -777.0;
+      for (int which = GENERATED; which < kinds; which++) {
+        for (int k = 0; k < CANARY_SLOTS; k++) {
+          out[n + k] = CANARY;
         }
 
-        if (kernel == 0) {
+        if (kernel == MAP) {
           run_map(which, out, in, n);
         }
         else {
           run_refine(which, out, in, n);
         }
 
-        if (memcmp(out, want, n * sizeof *want) != 0 || out[n] != -777.0) {
+        if (memcmp(out, want, n * sizeof *want) != 0 || out[n] != CANARY) {
           fprintf(stderr, "%s %zu: implementation %d disagrees with scalar C\n",
                   kernel ? "refine" : "map", n, which);
 
@@ -135,16 +190,19 @@ int main (int argc, char **argv) {
         }
       }
 
-      size_t calls = (kernel == 0 ? 4000000 : 400000) / n + 1;
-      double best[4] = {1e30, 1e30, 1e30, 1e30};
+      size_t elements =
+          kernel == MAP ? ELEMENTS_PER_SAMPLE : REFINE_ELEMENTS_PER_SAMPLE;
+      size_t calls = elements / n + 1;
+      double best[REFINE_IMPLEMENTATIONS] = {UNSAMPLED, UNSAMPLED, UNSAMPLED,
+                                             UNSAMPLED};
 
-      for (int sample = 0; sample < 101; sample++) {
+      for (int sample = 0; sample < SAMPLES; sample++) {
         for (int step = 0; step < kinds; step++) {
           int which = (sample & 1) ? kinds - 1 - step : step;
           double start = now();
 
           for (size_t c = 0; c < calls; c++) {
-            if (kernel == 0) {
+            if (kernel == MAP) {
               run_map(which, out, in, n);
             }
             else {
@@ -162,15 +220,18 @@ int main (int argc, char **argv) {
         }
       }
 
-      double hand = best[2] < best[3] ? best[2] : best[3];
+      double hand =
+          best[HAND] < best[HAND_TUNED] ? best[HAND] : best[HAND_TUNED];
 
-      if (kernel == 0) {
+      if (kernel == MAP) {
         printf("%-7s %7zu %10.2fns %10.2fns %10.2fns %12s %9.3fx\n", "map", n,
-               best[0], best[1], best[2], "", best[1] / hand);
+               best[SCALAR_C], best[GENERATED], best[HAND], "",
+               best[GENERATED] / hand);
       }
       else {
         printf("%-7s %7zu %10.2fns %10.2fns %10.2fns %10.2fns %9.3fx\n",
-               "refine", n, best[0], best[1], best[2], best[3], best[1] / hand);
+               "refine", n, best[SCALAR_C], best[GENERATED], best[HAND],
+               best[HAND_TUNED], best[GENERATED] / hand);
       }
 
       free(in);
@@ -179,13 +240,15 @@ int main (int argc, char **argv) {
     }
   }
 
-  const char *names[3] = {"ordered", "pairwise", "algebraic"};
-  const char *scalars[3] = {"ks_ordered", "ks_pairwise", "ks_algebraic"};
-  const char *generated[3] = {"ks_explicit_ordered", "ks_explicit_pairwise",
-                              "ks_explicit_algebraic"};
-  dot_fn hands[3] = {hand_ordered, hand_pairwise, hand_algebraic};
+  /* The dot products: here `best` holds scalar C, generated and hand. */
+  const char *names[DOT_KERNELS] = {"ordered", "pairwise", "algebraic"};
+  const char *scalars[DOT_KERNELS] = {"ks_ordered", "ks_pairwise",
+                                      "ks_algebraic"};
+  const char *generated[DOT_KERNELS] = {
+      "ks_explicit_ordered", "ks_explicit_pairwise", "ks_explicit_algebraic"};
+  dot_fn hands[DOT_KERNELS] = {hand_ordered, hand_pairwise, hand_algebraic};
 
-  for (int kernel = 0; kernel < 3; kernel++) {
+  for (int kernel = ORDERED; kernel < DOT_KERNELS; kernel++) {
     library_dot scalar = (library_dot)dlsym(library, scalars[kernel]);
     library_dot mine = (library_dot)dlsym(library, generated[kernel]);
 
@@ -215,7 +278,9 @@ int main (int argc, char **argv) {
           error = -error;
         }
 
-        double bound = kernel == 2 ? 1e-12 * (want < 0 ? -want : want) : 0.0;
+        double bound = kernel == ALGEBRAIC
+                           ? ALGEBRAIC_BOUND * (want < 0 ? -want : want)
+                           : 0.0;
 
         if (error > bound) {
           fprintf(stderr, "%s %zu: %s answers %.17g, scalar C %.17g\n",
@@ -226,11 +291,11 @@ int main (int argc, char **argv) {
         }
       }
 
-      size_t calls = 4000000 / n + 1;
-      double best[3] = {1e30, 1e30, 1e30};
+      size_t calls = ELEMENTS_PER_SAMPLE / n + 1;
+      double best[3] = {UNSAMPLED, UNSAMPLED, UNSAMPLED};
       volatile double sink = 0.0;
 
-      for (int sample = 0; sample < 101; sample++) {
+      for (int sample = 0; sample < SAMPLES; sample++) {
         for (int step = 0; step < 3; step++) {
           int which = (sample & 1) ? 2 - step : step;
           double start = now();
@@ -259,6 +324,9 @@ int main (int argc, char **argv) {
     }
   }
 
+  /* UTF-8 validation: the generated and hand validators must answer the
+   * same prefix, over ASCII and over a mix of two-, three- and four-byte
+   * scalars. */
   if (argc == 3) {
     void *utf8 = dlopen(argv[2], RTLD_NOW);
 
@@ -300,11 +368,11 @@ int main (int argc, char **argv) {
           return 1;
         }
 
-        size_t calls = 4000000 / n + 1;
-        double best[2] = {1e30, 1e30};
+        size_t calls = ELEMENTS_PER_SAMPLE / n + 1;
+        double best[2] = {UNSAMPLED, UNSAMPLED};
         volatile uint32_t sink = 0;
 
-        for (int sample = 0; sample < 101; sample++) {
+        for (int sample = 0; sample < SAMPLES; sample++) {
           for (int step = 0; step < 2; step++) {
             int which = (sample & 1) ? 1 - step : step;
             double start = now();

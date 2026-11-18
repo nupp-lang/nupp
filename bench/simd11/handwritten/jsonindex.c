@@ -4,17 +4,23 @@
  * byte to the same string, backslash-parity and UTF-8 state machine; the
  * tapes, statuses and error positions must agree before either is timed.
  * The hand version reads the mask out the way NEON code usually does, four
- * bits a lane through `shrn`.
+ * bits a lane through `shrn`. bench/simd11/README.md records the results.
+ *
+ * The generated side came from bench/simd-json and the CPU AOT backend, which
+ * both left the tree in 68f4d7f08, so build it in a checkout of that commit's
+ * parent:
  *
  *   (cd bench/simd-json && ../../bin/nupp aot --emit c --features neon \
  *       src/simd_json/indexer.nupp > /tmp/index.c)
- *   clang -std=c11 -O3 -ffp-contract=off -fno-fast-math -fPIC -dynamiclib
- * /tmp/index.c -o /tmp/index.dylib clang -std=c11 -O3 -D_POSIX_C_SOURCE=200809L
- * bench/simd11/handwritten/jsonindex.c -o /tmp/jsonindex /tmp/jsonindex
- * /tmp/index.dylib
+ *   clang -std=c11 -O3 -ffp-contract=off -fno-fast-math -fPIC -dynamiclib \
+ *       /tmp/index.c -o /tmp/index.dylib
+ *   clang -std=c11 -O3 -D_POSIX_C_SOURCE=200809L \
+ *       bench/simd11/handwritten/jsonindex.c -o /tmp/jsonindex
+ *   /tmp/jsonindex /tmp/index.dylib
  *
- * Each figure is the fastest of 101 interleaved samples of about a
+ * Each figure is the fastest of SAMPLES interleaved samples of about a
  * millisecond. */
+
 #include <arm_neon.h>
 #include <dlfcn.h>
 #include <stdbool.h>
@@ -24,17 +30,83 @@
 #include <string.h>
 #include <time.h>
 
+/* Bytes classified at a time: one NEON vector of uint8. */
+#define BLOCK 16
+
+/* Narrowing a byte mask by four leaves four bits a lane, so lane i owns bits
+ * 4i to 4i + 3 of the event word: a set bit's index shifted right by
+ * NIBBLE_SHIFT is its lane, and clearing LANE_BITS there retires the lane. */
+#define NIBBLE_SHIFT 2
+#define LANE_BITS UINT64_C(0xF)
+
+/* Interleaved samples of each implementation; the fastest is reported. */
+#define SAMPLES 101
+
+/* Each sample makes enough calls to cover about this many bytes. */
+#define BYTES_PER_SAMPLE 20000000
+
+/* A best time slower than any sample. */
+#define UNSAMPLED 1e30
+
+/* The bounds of well-formed UTF-8 (Unicode Table 3-7):
+ *
+ *   00..7F
+ *   C2..DF  80..BF
+ *   E0      A0..BF  80..BF
+ *   E1..EC  80..BF  80..BF
+ *   ED      80..9F  80..BF
+ *   EE..EF  80..BF  80..BF
+ *   F0      90..BF  80..BF  80..BF
+ *   F1..F3  80..BF  80..BF  80..BF
+ *   F4      80..8F  80..BF  80..BF */
+#define ASCII_LIMIT 0x80
+#define CONTINUATION_LAST 0xBF
+#define LEAD2_FIRST 0xC2
+#define LEAD2_LAST 0xDF
+#define LEAD3_LAST 0xEF
+#define LEAD4_LAST 0xF4
+#define LEAD_E0 0xE0
+#define LEAD_ED 0xED
+#define LEAD_F0 0xF0
+#define LEAD_F4 0xF4
+#define AFTER_E0_FIRST 0xA0
+#define AFTER_ED_LAST 0x9F
+#define AFTER_F0_FIRST 0x90
+#define AFTER_F4_LAST 0x8F
+
+/* The status an index answers with, beside the one-based position of the
+ * byte that raised it. */
+enum {
+  INDEX_OK,
+  INDEX_TAPE_FULL,
+  INDEX_BAD_UTF8,
+  INDEX_CONTROL_BYTE,
+  INDEX_STRAY_BACKSLASH
+};
+
+/* What the byte after the leads E0, ED, F0 and F4 must also satisfy: each
+ * narrows the range of its first continuation. */
+enum { ANY_CONTINUATION, AFTER_E0, AFTER_ED, AFTER_F0, AFTER_F4 };
+
+/* The words written to the tape, a status and the position that raised it,
+ * as the generated entry returns them. */
 typedef struct {
   uint32_t written, status, position;
 } IndexResult;
 
 typedef IndexResult (*gen_fn)(const uint8_t *, uint32_t *, size_t, size_t);
 
+/* Leaves hand_index with what it has written so far. */
 #define RESULT(status, position)                                               \
   return (IndexResult) {                                                       \
     written, (status), (position)                                              \
   }
 
+/* Indexes `count` bytes of `source` into `tape`, which has room for
+ * `capacity` words: the zero-based position of every quote that opens or
+ * closes a string, and of every structural byte outside one. Whole blocks
+ * are classified in lanes and the tail a byte at a time. It is never
+ * inlined, so the timed loop calls it as it calls the generated entry. */
 __attribute__((noinline)) IndexResult hand_index (const uint8_t *source,
                                                   size_t count, uint32_t *tape,
                                                   size_t capacity) {
@@ -47,27 +119,33 @@ __attribute__((noinline)) IndexResult hand_index (const uint8_t *source,
     uint64_t events = 0;
     uint32_t width, shift;
 
-    if ((size_t)at + 16 <= count) {
-      uint8x16_t b = vld1q_u8(source + at);
-      uint8x16_t m = vorrq_u8(
-          vorrq_u8(vceqq_u8(b, vdupq_n_u8(123)), vceqq_u8(b, vdupq_n_u8(125))),
-          vorrq_u8(vceqq_u8(b, vdupq_n_u8(91)), vceqq_u8(b, vdupq_n_u8(93))));
-      m = vorrq_u8(m, vorrq_u8(vceqq_u8(b, vdupq_n_u8(58)),
-                               vceqq_u8(b, vdupq_n_u8(44))));
-      m = vorrq_u8(m, vorrq_u8(vceqq_u8(b, vdupq_n_u8(34)),
-                               vceqq_u8(b, vdupq_n_u8(92))));
-      m = vorrq_u8(m, vorrq_u8(vcltq_u8(b, vdupq_n_u8(32)),
-                               vcgeq_u8(b, vdupq_n_u8(128))));
+    if ((size_t)at + BLOCK <= count) {
+      /* The lanes that hold a structural byte, a quote, a backslash, a
+       * control byte or a byte outside ASCII: every byte the state machine
+       * below sees. */
+      uint8x16_t block = vld1q_u8(source + at);
+      uint8x16_t m = vorrq_u8(vorrq_u8(vceqq_u8(block, vdupq_n_u8('{')),
+                                       vceqq_u8(block, vdupq_n_u8('}'))),
+                              vorrq_u8(vceqq_u8(block, vdupq_n_u8('[')),
+                                       vceqq_u8(block, vdupq_n_u8(']'))));
+      m = vorrq_u8(m, vorrq_u8(vceqq_u8(block, vdupq_n_u8(':')),
+                               vceqq_u8(block, vdupq_n_u8(','))));
+      m = vorrq_u8(m, vorrq_u8(vceqq_u8(block, vdupq_n_u8('"')),
+                               vceqq_u8(block, vdupq_n_u8('\\'))));
+      m = vorrq_u8(m, vorrq_u8(vcltq_u8(block, vdupq_n_u8(' ')),
+                               vcgeq_u8(block, vdupq_n_u8(ASCII_LIMIT))));
       events = vget_lane_u64(
           vreinterpret_u64_u8(vshrn_n_u16(vreinterpretq_u16_u8(m), 4)), 0);
-      width = 16;
-      shift = 2;
+      width = BLOCK;
+      shift = NIBBLE_SHIFT;
     }
     else {
+      /* The same question for one byte of the tail. */
       uint32_t byte = source[at];
 
-      if (byte == 34 || byte == 92 || byte < 32 || byte == 123 || byte == 125 ||
-          byte == 91 || byte == 93 || byte == 58 || byte == 44 || byte >= 128) {
+      if (byte == '"' || byte == '\\' || byte < ' ' || byte == '{' ||
+          byte == '}' || byte == '[' || byte == ']' || byte == ':' ||
+          byte == ',' || byte >= ASCII_LIMIT) {
         events = 1;
       }
 
@@ -77,7 +155,7 @@ __attribute__((noinline)) IndexResult hand_index (const uint8_t *source,
 
     while (events != 0) {
       uint32_t bit = (uint32_t)__builtin_ctzll(events);
-      events &= ~(UINT64_C(0xF) << bit);
+      events &= ~(LANE_BITS << bit);
       uint32_t position = at + (bit >> shift);
 
       if (position >= count) {
@@ -86,52 +164,54 @@ __attribute__((noinline)) IndexResult hand_index (const uint8_t *source,
 
       uint32_t byte = source[position];
 
+      /* Every byte a scalar still owes is non-ASCII, so it is an event, and
+       * the next event must be the byte right after the last one. */
       if (expected != 0 && (!haveNonAscii || position != lastNonAscii + 1)) {
-        RESULT(2, lastNonAscii + 2);
+        RESULT(INDEX_BAD_UTF8, lastNonAscii + 2);
       }
 
-      if (byte >= 128) {
-        bool isContinuation = byte <= 191;
+      if (byte >= ASCII_LIMIT) {
+        bool isContinuation = byte <= CONTINUATION_LAST;
 
         if (expected != 0) {
           if (!isContinuation) {
-            RESULT(2, position + 1);
+            RESULT(INDEX_BAD_UTF8, position + 1);
           }
 
-          if ((constraint == 1 && byte < 160) ||
-              (constraint == 2 && byte > 159) ||
-              (constraint == 3 && byte < 144) ||
-              (constraint == 4 && byte > 143)) {
-            RESULT(2, position + 1);
+          if ((constraint == AFTER_E0 && byte < AFTER_E0_FIRST) ||
+              (constraint == AFTER_ED && byte > AFTER_ED_LAST) ||
+              (constraint == AFTER_F0 && byte < AFTER_F0_FIRST) ||
+              (constraint == AFTER_F4 && byte > AFTER_F4_LAST)) {
+            RESULT(INDEX_BAD_UTF8, position + 1);
           }
 
           expected -= 1;
-          constraint = 0;
+          constraint = ANY_CONTINUATION;
         }
-        else if (isContinuation || byte < 194 || byte > 244) {
-          RESULT(2, position + 1);
+        else if (isContinuation || byte < LEAD2_FIRST || byte > LEAD4_LAST) {
+          RESULT(INDEX_BAD_UTF8, position + 1);
         }
-        else if (byte <= 223) {
+        else if (byte <= LEAD2_LAST) {
           expected = 1;
         }
-        else if (byte <= 239) {
+        else if (byte <= LEAD3_LAST) {
           expected = 2;
 
-          if (byte == 224) {
-            constraint = 1;
+          if (byte == LEAD_E0) {
+            constraint = AFTER_E0;
           }
-          else if (byte == 237) {
-            constraint = 2;
+          else if (byte == LEAD_ED) {
+            constraint = AFTER_ED;
           }
         }
         else {
           expected = 3;
 
-          if (byte == 240) {
-            constraint = 3;
+          if (byte == LEAD_F0) {
+            constraint = AFTER_F0;
           }
-          else if (byte == 244) {
-            constraint = 4;
+          else if (byte == LEAD_F4) {
+            constraint = AFTER_F4;
           }
         }
 
@@ -141,13 +221,15 @@ __attribute__((noinline)) IndexResult hand_index (const uint8_t *source,
         slashOdd = false;
       }
       else if (expected != 0) {
-        RESULT(2, position + 1);
+        RESULT(INDEX_BAD_UTF8, position + 1);
       }
-      else if (byte == 92) {
+      else if (byte == '\\') {
         if (!inString) {
-          RESULT(4, position + 1);
+          RESULT(INDEX_STRAY_BACKSLASH, position + 1);
         }
 
+        /* A run of backslashes escapes what follows when its length is
+         * odd. */
         slashOdd = haveSlash && position == lastSlash + 1 ? !slashOdd : true;
         haveSlash = true;
         lastSlash = position;
@@ -155,25 +237,25 @@ __attribute__((noinline)) IndexResult hand_index (const uint8_t *source,
       else {
         bool escaped = haveSlash && position == lastSlash + 1 && slashOdd;
 
-        if (byte == 34 && !escaped) {
+        if (byte == '"' && !escaped) {
           inString = !inString;
 
           if (written >= capacity) {
-            RESULT(1, position + 1);
+            RESULT(INDEX_TAPE_FULL, position + 1);
           }
 
           tape[written++] = position;
         }
-        else if (byte < 32) {
-          bool whitespace = byte == 9 || byte == 10 || byte == 13;
+        else if (byte < ' ') {
+          bool whitespace = byte == '\t' || byte == '\n' || byte == '\r';
 
           if (inString || !whitespace) {
-            RESULT(3, position + 1);
+            RESULT(INDEX_CONTROL_BYTE, position + 1);
           }
         }
         else if (!inString) {
           if (written >= capacity) {
-            RESULT(1, position + 1);
+            RESULT(INDEX_TAPE_FULL, position + 1);
           }
 
           tape[written++] = position;
@@ -188,10 +270,10 @@ __attribute__((noinline)) IndexResult hand_index (const uint8_t *source,
   }
 
   if (expected != 0) {
-    RESULT(2, lastNonAscii + 2);
+    RESULT(INDEX_BAD_UTF8, lastNonAscii + 2);
   }
 
-  RESULT(0, 0);
+  RESULT(INDEX_OK, 0);
 }
 
 static double now (void) {
@@ -202,7 +284,8 @@ static double now (void) {
 }
 
 /* Three document classes, each repeated to the size asked for: dense
- * records, long ASCII text and text in several scripts. */
+ * records, long ASCII text and text in several scripts. Writes a JSON array
+ * of them into `out` and answers its length, which stays under `size`. */
 static size_t build (char *out, size_t size, int kind) {
   static const char *pieces[3] = {
       "{\"id\":12345,\"name\":\"widget\",\"tags\":[\"a\",\"b\"],\"price\":3.25,"
@@ -230,6 +313,8 @@ static size_t build (char *out, size_t size, int kind) {
   return n;
 }
 
+/* For each document class and size: index once with each implementation,
+ * require the same tape, then time both. */
 int main (int argc, char **argv) {
   if (argc != 2) {
     fprintf(stderr, "usage: jsonindex LIBRARY\n");
@@ -237,17 +322,17 @@ int main (int argc, char **argv) {
     return 2;
   }
 
-  void *lib = dlopen(argv[1], RTLD_NOW);
+  void *library = dlopen(argv[1], RTLD_NOW);
 
-  if (!lib) {
+  if (!library) {
     fprintf(stderr, "%s\n", dlerror());
 
     return 1;
   }
 
-  gen_fn gen = (gen_fn)dlsym(lib, "ks_index");
+  gen_fn generated = (gen_fn)dlsym(library, "ks_index");
 
-  if (!gen) {
+  if (!generated) {
     fprintf(stderr, "the library lacks ks_index\n");
 
     return 1;
@@ -261,14 +346,14 @@ int main (int argc, char **argv) {
       size_t size = sizes[s];
       char *doc = malloc(size + 64);
       size_t n = build(doc, size, kind);
-      uint32_t *a = malloc(sizeof(uint32_t) * (n + 1)),
-               *b = malloc(sizeof(uint32_t) * (n + 1));
-      IndexResult g = gen((const uint8_t *)doc, a, n, n),
-                  h = hand_index((const uint8_t *)doc, n, b, n);
+      uint32_t *genTape = malloc(sizeof(uint32_t) * (n + 1)),
+               *handTape = malloc(sizeof(uint32_t) * (n + 1));
+      IndexResult g = generated((const uint8_t *)doc, genTape, n, n),
+                  h = hand_index((const uint8_t *)doc, n, handTape, n);
 
       if (g.written != h.written || g.status != h.status ||
           g.position != h.position ||
-          memcmp(a, b, sizeof(uint32_t) * g.written)) {
+          memcmp(genTape, handTape, sizeof(uint32_t) * g.written)) {
         printf("MISMATCH %s %zu: %u/%u/%u vs %u/%u/%u\n", names[kind], n,
                g.written, g.status, g.position, h.written, h.status,
                h.position);
@@ -276,36 +361,38 @@ int main (int argc, char **argv) {
         return 1;
       }
 
-      if (g.status != 0) {
+      if (g.status != INDEX_OK) {
         printf("%s %zu did not index: status %u at %u\n", names[kind], n,
                g.status, g.position);
 
         return 1;
       }
 
-      size_t calls = 20000000 / n + 1;
-      double best[2] = {1e30, 1e30};
+      size_t calls = BYTES_PER_SAMPLE / n + 1;
+      double best[2] = {UNSAMPLED, UNSAMPLED};
 
-      for (int r = 0; r < 101; r++) {
-        for (int k = 0; k < 2; k++) {
-          int f = (r & 1) ? 1 - k : k;
-          double t = now();
+      /* Alternate which implementation goes first, so neither always runs
+       * on a cache the other warmed. */
+      for (int sample = 0; sample < SAMPLES; sample++) {
+        for (int step = 0; step < 2; step++) {
+          int which = (sample & 1) ? 1 - step : step;
+          double start = now();
 
           for (size_t c = 0; c < calls; c++) {
-            if (f == 0) {
-              gen((const uint8_t *)doc, a, n, n);
+            if (which == 0) {
+              generated((const uint8_t *)doc, genTape, n, n);
             }
             else {
-              hand_index((const uint8_t *)doc, n, b, n);
+              hand_index((const uint8_t *)doc, n, handTape, n);
             }
 
             __asm__ volatile("" ::: "memory");
           }
 
-          double each = (now() - t) / calls * 1e9;
+          double each = (now() - start) / calls * 1e9;
 
-          if (each < best[f]) {
-            best[f] = each;
+          if (each < best[which]) {
+            best[which] = each;
           }
         }
       }
@@ -314,8 +401,8 @@ int main (int argc, char **argv) {
              "gen/hand %.3fx\n",
              names[kind], n, g.written, best[0], best[1], best[0] / best[1]);
       free(doc);
-      free(a);
-      free(b);
+      free(genTape);
+      free(handTape);
     }
   }
 

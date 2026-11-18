@@ -1,12 +1,78 @@
-/* Hand-written NEON versions of the explicit kernels in ../kernels.nupp.
+/* Hand-written NEON versions of the explicit kernels in ../kernels.nupp,
+ * linked into compare.c, which times them beside the generated kernels.
  *
- * These are the bar the generated explicit SIMD is held to: what a C
+ * They are the bar the generated explicit SIMD is held to: what a C
  * programmer writes with intrinsics for the same algorithm, lane width and
  * numerical contract. Build with the harness's flags (-O3 -ffp-contract=off
  * -fno-fast-math), so neither side gets a contraction the other does not. */
+
 #include <arm_neon.h>
 #include <stddef.h>
 #include <stdint.h>
+
+/* refine halves a value at most this many times. */
+#define REFINE_ROUNDS 32.0
+
+/* The pairwise tree has a level for each bit of a size_t count of leaves,
+ * and one more for the seed leaf. */
+#define PAIRWISE_LEVELS 65
+
+/* Bytes in one NEON vector of uint8. */
+#define BLOCK 16
+
+/* The bounds of well-formed UTF-8 (Unicode Table 3-7):
+ *
+ *   00..7F
+ *   C2..DF  80..BF
+ *   E0      A0..BF  80..BF
+ *   E1..EC  80..BF  80..BF
+ *   ED      80..9F  80..BF
+ *   EE..EF  80..BF  80..BF
+ *   F0      90..BF  80..BF  80..BF
+ *   F1..F3  80..BF  80..BF  80..BF
+ *   F4      80..8F  80..BF  80..BF */
+#define ASCII_LIMIT 0x80
+#define CONTINUATION_FIRST 0x80
+#define CONTINUATION_LAST 0xBF
+#define LEAD2_FIRST 0xC2
+#define LEAD3_FIRST 0xE0
+#define LEAD4_FIRST 0xF0
+#define LEAD4_LIMIT 0xF5
+#define LEAD_E0 0xE0
+#define LEAD_ED 0xED
+#define LEAD_F0 0xF0
+#define LEAD_F4 0xF4
+#define AFTER_E0_FIRST 0xA0
+#define AFTER_ED_LAST 0x9F
+#define AFTER_F0_FIRST 0x90
+#define AFTER_F4_LAST 0x8F
+
+/* The lookup4 validator's error bits. Three nibble tables, indexed by the
+ * high and low nibble of the previous byte and the high nibble of this one,
+ * each give the errors that nibble permits; a pair of bytes is in error
+ * where all three agree. */
+enum {
+  /* A lead byte, then a byte that is not a continuation. */
+  TOO_SHORT = 1 << 0,
+  /* An ASCII byte, then a continuation. */
+  TOO_LONG = 1 << 1,
+  /* E0 80..9F. */
+  OVERLONG_3 = 1 << 2,
+  /* F4 90..BF, or F5..FF. */
+  TOO_LARGE = 1 << 3,
+  /* ED A0..BF. */
+  SURROGATE = 1 << 4,
+  /* C0 or C1. */
+  OVERLONG_2 = 1 << 5,
+  /* F5..FF 80..8F. */
+  TOO_LARGE_1000 = 1 << 6,
+  /* F0 80..8F, sharing a bit with TOO_LARGE_1000. */
+  OVERLONG_4 = 1 << 6,
+  /* A continuation, then another. */
+  TWO_CONTS = 1 << 7,
+  /* What any lead byte's low nibble permits. */
+  CARRY = TOO_SHORT | TOO_LONG | TWO_CONTS
+};
 
 /* output[i] = input[i] * scale + bias, eight doubles an iteration, then one
  * register, then one element. */
@@ -33,11 +99,12 @@ void hand_map (double *restrict output, const double *input, double scale,
   }
 }
 
-/* Halve each value while it exceeds one, at most 32 times, and add the
- * number of halvings: four lanes at a time under a live mask. */
+/* Halve each value while it exceeds one, at most REFINE_ROUNDS times, and
+ * add the number of halvings: four lanes at a time under a live mask, then
+ * the leftover elements one at a time. */
 void hand_refine (double *restrict output, const double *input, size_t count) {
   const float64x2_t one = vdupq_n_f64(1.0), half = vdupq_n_f64(0.5),
-                    cap = vdupq_n_f64(32.0);
+                    cap = vdupq_n_f64(REFINE_ROUNDS);
   size_t i = 0;
 
   for (; i + 4 <= count; i += 4) {
@@ -62,7 +129,7 @@ void hand_refine (double *restrict output, const double *input, size_t count) {
     double value = input[i];
     double rounds = 0.0;
 
-    while (value > 1.0 && rounds < 32.0) {
+    while (value > 1.0 && rounds < REFINE_ROUNDS) {
       value = value * 0.5;
       rounds = rounds + 1.0;
     }
@@ -78,7 +145,7 @@ void hand_refine (double *restrict output, const double *input, size_t count) {
 void hand_refine_tuned (double *restrict output, const double *input,
                         size_t count) {
   const float64x2_t one = vdupq_n_f64(1.0), half = vdupq_n_f64(0.5),
-                    cap = vdupq_n_f64(32.0);
+                    cap = vdupq_n_f64(REFINE_ROUNDS);
   size_t i = 0;
 
   for (; i + 4 <= count; i += 4) {
@@ -104,7 +171,7 @@ void hand_refine_tuned (double *restrict output, const double *input,
     double value = input[i];
     double rounds = 0.0;
 
-    while (value > 1.0 && rounds < 32.0) {
+    while (value > 1.0 && rounds < REFINE_ROUNDS) {
       value = value * 0.5;
       rounds = rounds + 1.0;
     }
@@ -140,12 +207,15 @@ double hand_ordered (const double *left, const double *right, size_t count) {
 
 /* The adjacent-pair tree whose first leaf is the seed: a binary counter of
  * completed blocks, merged left to right, then the partial blocks from the
- * smallest up. Products are formed in lanes. */
+ * smallest up. Products are formed in lanes. While full[k] is set, sum[k]
+ * holds the sum of 2^k leaves. */
 typedef struct {
-  double sum[65];
-  unsigned char full[65];
+  double sum[PAIRWISE_LEVELS];
+  unsigned char full[PAIRWISE_LEVELS];
 } hand_pairwise_state;
 
+/* Adds one leaf the way a carry adds a bit: it merges with every full level
+ * below the first empty one, which then holds the merged sum. */
 static inline void hand_pairwise_push (hand_pairwise_state *state,
                                        double leaf) {
   unsigned level = 0;
@@ -163,7 +233,7 @@ static inline void hand_pairwise_push (hand_pairwise_state *state,
 double hand_pairwise (const double *left, const double *right, size_t count) {
   hand_pairwise_state state;
 
-  for (unsigned level = 0; level < 65; level++) {
+  for (unsigned level = 0; level < PAIRWISE_LEVELS; level++) {
     state.full[level] = 0;
   }
 
@@ -187,7 +257,7 @@ double hand_pairwise (const double *left, const double *right, size_t count) {
   double total = 0.0;
   int started = 0;
 
-  for (unsigned level = 0; level < 65; level++) {
+  for (unsigned level = 0; level < PAIRWISE_LEVELS; level++) {
     if (!state.full[level]) {
       continue;
     }
@@ -221,41 +291,106 @@ double hand_algebraic (const double *left, const double *right, size_t count) {
 }
 
 /* The prefix of `source` that spells whole, well-formed UTF-8 scalars, by the
- * same lookup validator as bench/utf8simd/src/utf8simd.nupp: sixteen bytes at
- * a time until a vector holds an error, then the same scalar ladder from the
- * last scalar start at or before it. */
+ * same lookup validator as bench/utf8simd's: sixteen bytes at a time until a
+ * vector holds an error, then the scalar ladder of the table above from the
+ * last scalar start at or before it. A block of ASCII after a non-ASCII one
+ * only has to show that the earlier block did not end inside a scalar. */
 uint32_t hand_utf8_valid_prefix (const uint8_t *source, size_t count) {
-  static const uint8_t high1[16] = {2,   2,   2,   2,   2,  2, 2,  2,
-                                    128, 128, 128, 128, 33, 1, 21, 73};
-  static const uint8_t low1[16] = {231, 163, 131, 131, 139, 203, 203, 203,
-                                   203, 203, 203, 203, 203, 219, 203, 203};
-  static const uint8_t high2[16] = {1,   1,   1,   1,   1, 1, 1, 1,
-                                    230, 174, 186, 186, 1, 1, 1, 1};
-  static const uint8_t limits[16] = {0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF,
-                                     0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF,
-                                     0xFF, 0xEF, 0xDF, 0xBF};
+  /* By the previous byte's high nibble: 0-7 ASCII, 8-B a continuation, C-F
+   * a lead. */
+  static const uint8_t high1[BLOCK] = {
+      TOO_LONG,
+      TOO_LONG,
+      TOO_LONG,
+      TOO_LONG,
+      TOO_LONG,
+      TOO_LONG,
+      TOO_LONG,
+      TOO_LONG,
+      TWO_CONTS,
+      TWO_CONTS,
+      TWO_CONTS,
+      TWO_CONTS,
+      TOO_SHORT | OVERLONG_2,
+      TOO_SHORT,
+      TOO_SHORT | OVERLONG_3 | SURROGATE,
+      TOO_SHORT | TOO_LARGE | TOO_LARGE_1000 | OVERLONG_4,
+  };
+
+  /* By the previous byte's low nibble, which tells the leads C0, C1, E0, ED,
+   * F0 and F4 apart from their neighbors. */
+  static const uint8_t low1[BLOCK] = {
+      CARRY | OVERLONG_3 | OVERLONG_2 | OVERLONG_4,
+      CARRY | OVERLONG_2,
+      CARRY,
+      CARRY,
+      CARRY | TOO_LARGE,
+      CARRY | TOO_LARGE | TOO_LARGE_1000,
+      CARRY | TOO_LARGE | TOO_LARGE_1000,
+      CARRY | TOO_LARGE | TOO_LARGE_1000,
+      CARRY | TOO_LARGE | TOO_LARGE_1000,
+      CARRY | TOO_LARGE | TOO_LARGE_1000,
+      CARRY | TOO_LARGE | TOO_LARGE_1000,
+      CARRY | TOO_LARGE | TOO_LARGE_1000,
+      CARRY | TOO_LARGE | TOO_LARGE_1000,
+      CARRY | TOO_LARGE | TOO_LARGE_1000 | SURROGATE,
+      CARRY | TOO_LARGE | TOO_LARGE_1000,
+      CARRY | TOO_LARGE | TOO_LARGE_1000,
+  };
+
+  /* By this byte's high nibble, which narrows a continuation to 80-8F, 90-9F
+   * or A0-BF. */
+  static const uint8_t high2[BLOCK] = {
+      TOO_SHORT,
+      TOO_SHORT,
+      TOO_SHORT,
+      TOO_SHORT,
+      TOO_SHORT,
+      TOO_SHORT,
+      TOO_SHORT,
+      TOO_SHORT,
+      TOO_LONG | OVERLONG_2 | TWO_CONTS | OVERLONG_3 | TOO_LARGE_1000 |
+          OVERLONG_4,
+      TOO_LONG | OVERLONG_2 | TWO_CONTS | OVERLONG_3 | TOO_LARGE,
+      TOO_LONG | OVERLONG_2 | TWO_CONTS | SURROGATE | TOO_LARGE,
+      TOO_LONG | OVERLONG_2 | TWO_CONTS | SURROGATE | TOO_LARGE,
+      TOO_SHORT,
+      TOO_SHORT,
+      TOO_SHORT,
+      TOO_SHORT,
+  };
+
+  /* A block ends inside a scalar when its last byte is any lead, its second
+   * to last leads three or four bytes, or its third to last leads four. */
+  static const uint8_t limits[BLOCK] = {0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF,
+                                        0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF,
+                                        0xFF, 0xEF, 0xDF, 0xBF};
   const uint8x16_t byte1High = vld1q_u8(high1), byte1Low = vld1q_u8(low1),
                    byte2High = vld1q_u8(high2);
   const uint8x16_t incompleteLimit = vld1q_u8(limits);
-  const uint8x16_t nibble = vdupq_n_u8(15);
+  const uint8x16_t lowNibble = vdupq_n_u8(0x0F);
   uint8x16_t previous = vdupq_n_u8(0);
   int previousAscii = 1;
   size_t at = 0;
 
-  while (at + 16 <= count) {
+  while (at + BLOCK <= count) {
     uint8x16_t input = vld1q_u8(source + at);
 
-    if (vmaxvq_u8(input) >= 0x80) {
-      uint8x16_t prev1 = vextq_u8(previous, input, 15);
+    if (vmaxvq_u8(input) >= ASCII_LIMIT) {
+      uint8x16_t prev1 = vextq_u8(previous, input, BLOCK - 1);
       uint8x16_t special =
           vandq_u8(vandq_u8(vqtbl1q_u8(byte1High, vshrq_n_u8(prev1, 4)),
-                            vqtbl1q_u8(byte1Low, vandq_u8(prev1, nibble))),
+                            vqtbl1q_u8(byte1Low, vandq_u8(prev1, lowNibble))),
                    vqtbl1q_u8(byte2High, vshrq_n_u8(input, 4)));
-      uint8x16_t prev2 = vextq_u8(previous, input, 14);
-      uint8x16_t prev3 = vextq_u8(previous, input, 13);
-      uint8x16_t must = vandq_u8(vorrq_u8(vcgeq_u8(prev2, vdupq_n_u8(0xE0)),
-                                          vcgeq_u8(prev3, vdupq_n_u8(0xF0))),
-                                 vdupq_n_u8(0x80));
+
+      /* The tables flag every continuation after a continuation; that is
+       * an error only where no three- or four-byte lead calls for it. */
+      uint8x16_t prev2 = vextq_u8(previous, input, BLOCK - 2);
+      uint8x16_t prev3 = vextq_u8(previous, input, BLOCK - 3);
+      uint8x16_t must =
+          vandq_u8(vorrq_u8(vcgeq_u8(prev2, vdupq_n_u8(LEAD3_FIRST)),
+                            vcgeq_u8(prev3, vdupq_n_u8(LEAD4_FIRST))),
+                   vdupq_n_u8(TWO_CONTS));
 
       if (vmaxvq_u8(veorq_u8(special, must)) != 0) {
         break;
@@ -272,50 +407,53 @@ uint32_t hand_utf8_valid_prefix (const uint8_t *source, size_t count) {
     }
 
     previous = input;
-    at += 16;
+    at += BLOCK;
   }
 
+  /* Back up over the continuations of a scalar the last block may have
+   * split, to the byte that starts it. */
   size_t stop = at;
   at = at >= 3 ? at - 3 : 0;
 
-  while (at < stop && at < count && source[at] >= 128 && source[at] <= 191) {
+  while (at < stop && at < count && source[at] >= CONTINUATION_FIRST &&
+         source[at] <= CONTINUATION_LAST) {
     at++;
   }
 
   while (at < count) {
     uint32_t lead = source[at];
 
-    if (lead < 128) {
+    if (lead < ASCII_LIMIT) {
       at++;
       continue;
     }
 
-    uint32_t low = 128, high = 191, need;
+    uint32_t low = CONTINUATION_FIRST, high = CONTINUATION_LAST, need;
 
-    if (lead < 194) {
+    if (lead < LEAD2_FIRST) {
       return (uint32_t)at;
     }
-    else if (lead < 224) {
+    else if (lead < LEAD3_FIRST) {
       need = 1;
     }
-    else if (lead < 240) {
+    else if (lead < LEAD4_FIRST) {
       need = 2;
 
-      if (lead == 224) {
-        low = 160;
+      if (lead == LEAD_E0) {
+        low = AFTER_E0_FIRST;
       }
-      else if (lead == 237) {
-        high = 159;
+      else if (lead == LEAD_ED) {
+        high = AFTER_ED_LAST;
       }
     }
-    else if (lead < 245) {
+    else if (lead < LEAD4_LIMIT) {
       need = 3;
 
-      if (lead == 240) {
-        low = 144;
+      if (lead == LEAD_F0) {
+        low = AFTER_F0_FIRST;
       }
-      else if (lead == 244) {
-        high = 143;
+      else if (lead == LEAD_F4) {
+        high = AFTER_F4_LAST;
       }
     }
     else {
@@ -326,13 +464,13 @@ uint32_t hand_utf8_valid_prefix (const uint8_t *source, size_t count) {
       return (uint32_t)at;
     }
 
-    if (need > 1 &&
-        (at + 2 >= count || source[at + 2] < 128 || source[at + 2] > 191)) {
+    if (need > 1 && (at + 2 >= count || source[at + 2] < CONTINUATION_FIRST ||
+                     source[at + 2] > CONTINUATION_LAST)) {
       return (uint32_t)at;
     }
 
-    if (need > 2 &&
-        (at + 3 >= count || source[at + 3] < 128 || source[at + 3] > 191)) {
+    if (need > 2 && (at + 3 >= count || source[at + 3] < CONTINUATION_FIRST ||
+                     source[at + 3] > CONTINUATION_LAST)) {
       return (uint32_t)at;
     }
 
