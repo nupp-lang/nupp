@@ -33,23 +33,30 @@ static map_fn generated_map, scalar_map;
 static refine_fn generated_refine, scalar_refine;
 
 static void run_map (int which, double *out, const double *in, size_t n) {
-  if (which == 0)
+  if (which == 0) {
     scalar_map(out, in, 1.25, -0.5, n, n);
-  else if (which == 1)
+  }
+  else if (which == 1) {
     generated_map(out, in, 1.25, -0.5, n, n);
-  else
+  }
+  else {
     hand_map(out, in, 1.25, -0.5, n);
+  }
 }
 
 static void run_refine (int which, double *out, const double *in, size_t n) {
-  if (which == 0)
+  if (which == 0) {
     scalar_refine(out, in, n, n);
-  else if (which == 1)
+  }
+  else if (which == 1) {
     generated_refine(out, in, n, n);
-  else if (which == 2)
+  }
+  else if (which == 2) {
     hand_refine(out, in, n);
-  else
+  }
+  else {
     hand_refine_tuned(out, in, n);
+  }
 }
 
 static double now (void) {
@@ -95,24 +102,30 @@ int main (int argc, char **argv) {
       double *in = malloc(n * sizeof *in), *out = malloc((n + 4) * sizeof *out),
              *want = malloc(n * sizeof *want);
 
-      for (size_t i = 0; i < n; i++)
+      for (size_t i = 0; i < n; i++) {
         in[i] = (double)(i % 97 + 1) * 0.125;
+      }
 
-      if (kernel == 0)
+      if (kernel == 0) {
         run_map(0, want, in, n);
-      else
+      }
+      else {
         run_refine(0, want, in, n);
+      }
 
       int kinds = kernel == 0 ? 3 : 4;
 
       for (int which = 1; which < kinds; which++) {
-        for (int k = 0; k < 4; k++)
+        for (int k = 0; k < 4; k++) {
           out[n + k] = -777.0;
+        }
 
-        if (kernel == 0)
+        if (kernel == 0) {
           run_map(which, out, in, n);
-        else
+        }
+        else {
           run_refine(which, out, in, n);
+        }
 
         if (memcmp(out, want, n * sizeof *want) != 0 || out[n] != -777.0) {
           fprintf(stderr, "%s %zu: implementation %d disagrees with scalar C\n",
@@ -131,18 +144,21 @@ int main (int argc, char **argv) {
           double start = now();
 
           for (size_t c = 0; c < calls; c++) {
-            if (kernel == 0)
+            if (kernel == 0) {
               run_map(which, out, in, n);
-            else
+            }
+            else {
               run_refine(which, out, in, n);
+            }
 
             __asm__ volatile("" ::: "memory");
           }
 
           double each = (now() - start) / (double)calls * 1e9;
 
-          if (each < best[which])
+          if (each < best[which]) {
             best[which] = each;
+          }
         }
       }
 
@@ -195,8 +211,9 @@ int main (int argc, char **argv) {
       for (int which = 0; which < 2; which++) {
         double error = got[which] - want;
 
-        if (error < 0)
+        if (error < 0) {
           error = -error;
+        }
 
         double bound = kernel == 2 ? 1e-12 * (want < 0 ? -want : want) : 0.0;
 
@@ -227,8 +244,9 @@ int main (int argc, char **argv) {
 
           double each = (now() - start) / (double)calls * 1e9;
 
-          if (each < best[which])
+          if (each < best[which]) {
             best[which] = each;
+          }
         }
       }
 
@@ -268,8 +286,9 @@ int main (int argc, char **argv) {
         size_t unit = strlen(units[kind]);
         uint8_t *bytes = malloc(n);
 
-        for (size_t i = 0; i < n; i++)
+        for (size_t i = 0; i < n; i++) {
           bytes[i] = (uint8_t)units[kind][i % unit];
+        }
 
         uint32_t want = generated_utf8(bytes, n),
                  got = hand_utf8_valid_prefix(bytes, n);
@@ -298,8 +317,9 @@ int main (int argc, char **argv) {
 
             double each = (now() - start) / (double)calls * 1e9;
 
-            if (each < best[which])
+            if (each < best[which]) {
               best[which] = each;
+            }
           }
         }
 

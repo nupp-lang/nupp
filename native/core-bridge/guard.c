@@ -61,8 +61,9 @@ static int present_guest_arguments (const char *bundle, const char *input) {
   const char *words = getenv("CORE_TEST_ARGUMENTS");
   char *extra = strdup(words ? words : "");
 
-  if (!extra)
+  if (!extra) {
     return 1;
+  }
 
   /* A string of n bytes holds at most n / 2 + 1 words; leave room for those,
    * the leading arguments and the terminating NULL. */
@@ -83,8 +84,9 @@ static int present_guest_arguments (const char *bundle, const char *input) {
   char *save = NULL;
 
   for (char *word = strtok_r(extra, " ", &save); word;
-       word = strtok_r(NULL, " ", &save))
+       word = strtok_r(NULL, " ", &save)) {
     arguments[count++] = word;
+  }
 
   *_NSGetArgc() = count;
   *_NSGetArgv() = arguments;
@@ -101,8 +103,9 @@ static int invoke (const char *path, const uint64_t *words, size_t count,
                    uint64_t **answer, size_t *length, uint64_t *status) {
   char *directory = publish_artifact_directory(path);
 
-  if (!directory)
+  if (!directory) {
     return 1;
+  }
 
   int result = execute(path, words, count, answer, length, status);
   nupp_core_artifact_directory = NULL;
@@ -134,8 +137,9 @@ static int check_requested_status (const char *bundle, const uint64_t *words,
   int result = invoke(bundle, words, count, &answer, &length, &status);
   free(answer);
 
-  if (result || !requested || !*requested)
+  if (result || !requested || !*requested) {
     return 1;
+  }
 
   char *end;
   unsigned long long wanted = strtoull(requested, &end, 10);
@@ -147,21 +151,24 @@ static int check_requested_status (const char *bundle, const uint64_t *words,
 static int read_bundle (const char *path, unsigned char **bytes, size_t *size) {
   FILE *file = fopen(path, "rb");
 
-  if (!file)
+  if (!file) {
     return 1;
+  }
 
   struct stat info;
   int result = 1;
 
   if (fstat(fileno(file), &info) || info.st_size < HEADER_BYTES ||
-      (uint64_t)info.st_size > REGION * 2 + HEADER_BYTES)
+      (uint64_t)info.st_size > REGION * 2 + HEADER_BYTES) {
     goto out;
+  }
 
   *size = (size_t)info.st_size;
   *bytes = malloc(*size);
 
-  if (*bytes && fread(*bytes, 1, *size, file) == *size)
+  if (*bytes && fread(*bytes, 1, *size, file) == *size) {
     result = 0;
+  }
 
 out:
   fclose(file);
@@ -193,8 +200,9 @@ static int write_temporary (const unsigned char *bytes, size_t size,
                             char **path) {
   const char *directory = getenv("TMPDIR");
 
-  if (!directory)
+  if (!directory) {
     directory = "/tmp";
+  }
 
   if (asprintf(path, "%s/nupp-core-guard-XXXXXX", directory) < 0) {
     *path = NULL;
@@ -206,8 +214,9 @@ static int write_temporary (const unsigned char *bytes, size_t size,
   FILE *file = descriptor < 0 ? NULL : fdopen(descriptor, "wb");
 
   if (!file) {
-    if (descriptor >= 0)
+    if (descriptor >= 0) {
       close(descriptor);
+    }
 
     free(*path);
     *path = NULL;
@@ -217,8 +226,9 @@ static int write_temporary (const unsigned char *bytes, size_t size,
 
   int result = fwrite(bytes, 1, size, file) != size;
 
-  if (fclose(file))
+  if (fclose(file)) {
     result = 1;
+  }
 
   return result;
 }
@@ -239,31 +249,36 @@ static int check_short_regions (const char *bundle, const uint64_t *words,
   size_t size = 0;
   int result = 1;
 
-  if (read_bundle(bundle, &original, &size))
+  if (read_bundle(bundle, &original, &size)) {
     goto out;
+  }
 
   modified = malloc(size);
 
-  if (!modified)
+  if (!modified) {
     goto out;
+  }
 
   for (size_t i = 0; i < ARRAY_LENGTH(shortenings); ++i) {
     size_t modified_size;
     char *path = NULL;
 
-    if (shorten(original, size, &shortenings[i], modified, &modified_size))
+    if (shorten(original, size, &shortenings[i], modified, &modified_size)) {
       goto out;
+    }
 
     int written = !write_temporary(modified, modified_size, &path);
     int passed = written && refused(path, words, count);
 
-    if (path)
+    if (path) {
       unlink(path);
+    }
 
     free(path);
 
-    if (!passed)
+    if (!passed) {
       goto out;
+    }
   }
 
   result = 0;
@@ -293,13 +308,17 @@ static const struct guard_test tests[] = {
 static const struct guard_test *select_test (int argc, char **argv) {
   const char *selection = NULL;
 
-  for (int i = 1; i + 1 < argc; ++i)
-    if (!strcmp(argv[i], "--exact"))
+  for (int i = 1; i + 1 < argc; ++i) {
+    if (!strcmp(argv[i], "--exact")) {
       selection = argv[i + 1];
+    }
+  }
 
-  for (size_t i = 0; selection && i < ARRAY_LENGTH(tests); ++i)
-    if (!strcmp(selection, tests[i].name))
+  for (size_t i = 0; selection && i < ARRAY_LENGTH(tests); ++i) {
+    if (!strcmp(selection, tests[i].name)) {
       return &tests[i];
+    }
+  }
 
   error("unknown C guard selection");
 
@@ -311,8 +330,9 @@ int main (int argc, char **argv) {
   const char *input = required("CORE_TEST_INPUT");
   const struct guard_test *test = select_test(argc, argv);
 
-  if (!test || present_guest_arguments(bundle, input))
+  if (!test || present_guest_arguments(bundle, input)) {
     return 1;
+  }
 
   uint64_t *words = NULL;
   size_t count = 0;
@@ -320,8 +340,9 @@ int main (int argc, char **argv) {
       read_words(input, &words, &count) || test->check(bundle, words, count);
   free(words);
 
-  if (result)
+  if (result) {
     return error("guard failed");
+  }
 
   puts("1 passed; 0 failed; 0 ignored;");
 

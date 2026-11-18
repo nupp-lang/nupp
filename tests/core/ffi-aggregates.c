@@ -184,12 +184,14 @@ unsigned walk_thread (Visitor visit, void *data) {
   ThreadCall call = {visit, data, 2};
   pthread_t thread;
 
-  if (pthread_create(&thread, NULL, foreign_thread, &call))
+  if (pthread_create(&thread, NULL, foreign_thread, &call)) {
     return 3;
+  }
 
   /* Never return stack-owned callback data without quiescence. */
-  if (pthread_join(thread, NULL))
+  if (pthread_join(thread, NULL)) {
     abort();
+  }
 
   return call.result;
 }

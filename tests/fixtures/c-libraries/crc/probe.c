@@ -62,9 +62,10 @@ static uint64_t reference (unsigned id, uint64_t state, const uint8_t *p,
   while (n--) {
     state ^= id == 3 ? (uint64_t)*p++ << 56 : *p++;
 
-    for (int bit = 0; bit < 8; ++bit)
+    for (int bit = 0; bit < 8; ++bit) {
       state = id == 3 ? (state << 1) ^ ((state >> 63) ? poly[id] : 0)
                       : (state >> 1) ^ ((state & 1) ? poly[id] : 0);
+    }
   }
 
   return id < 3 ? state & UINT32_MAX : state;
@@ -84,8 +85,9 @@ static void check (update_fn update) {
                             0xae8b14860a799888};
   uint8_t bytes[16448];
 
-  for (size_t i = 0; i < sizeof(bytes); ++i)
+  for (size_t i = 0; i < sizeof(bytes); ++i) {
     bytes[i] = (uint8_t)random_word();
+  }
 
   for (unsigned id = 1; id <= 4; ++id) {
     const uint64_t mask = id <= 2 ? UINT32_MAX : UINT64_MAX;
@@ -117,8 +119,9 @@ static void check (update_fn update) {
       while (offset < n) {
         size_t count = (size_t)(random_word() % 513 + 1);
 
-        if (count > n - offset)
+        if (count > n - offset) {
           count = n - offset;
+        }
 
         assert(!update(id, 0, words, p + offset, count));
         uint64_t saved[2];
@@ -147,8 +150,9 @@ static void check (update_fn update) {
 static void bench (update_fn update, const char *path) {
   static uint8_t bytes[1048576];
 
-  for (size_t i = 0; i < sizeof(bytes); ++i)
+  for (size_t i = 0; i < sizeof(bytes); ++i) {
     bytes[i] = (uint8_t)(i * 73 + i / 5);
+  }
 
   const size_t sizes[] = {16, 4096, sizeof(bytes)};
 
@@ -158,8 +162,9 @@ static void bench (update_fn update, const char *path) {
       uint64_t words[2] = {0, 0};
       clock_t began = clock();
 
-      for (size_t r = 0; r < rounds; ++r)
+      for (size_t r = 0; r < rounds; ++r) {
         assert(!update(id, 1, words, bytes, n));
+      }
 
       double seconds = (double)(clock() - began) / CLOCKS_PER_SEC;
       printf("%s id=%u bytes=%zu MiB/s=%.1f checksum=%016" PRIx64 "\n", path,
@@ -175,8 +180,9 @@ int main (void) {
   int simd = has_simd();
 #if defined(NUPP_TEST_X86) || defined(NUPP_TEST_ARM)
 
-  if (simd)
+  if (simd) {
     check(crc_simd);
+  }
 
 #endif
   printf("CRC vectors/raw seeds/chunks/offsets/tails: dispatch=pass base=pass "

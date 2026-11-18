@@ -91,8 +91,9 @@ __attribute__((noinline)) ScanResult hand_scan (const uint8_t *source,
         if (events != 0) {
           validate = vmaxvq_u8(high) != 0;
 
-          if (validate)
+          if (validate) {
             events = nibbles(m);
+          }
         }
       }
 
@@ -144,8 +145,9 @@ __attribute__((noinline)) ScanResult hand_scan (const uint8_t *source,
           walking = false;
         }
         else if (earlier >= 192) {
-          if (earlier < 194 || earlier > 244)
+          if (earlier < 194 || earlier > 244) {
             RESULT(2, earlierAt + 1);
+          }
 
           uint32_t need = earlier <= 223 ? 1 : earlier <= 239 ? 2 : 3;
 
@@ -155,14 +157,18 @@ __attribute__((noinline)) ScanResult hand_scan (const uint8_t *source,
             lastNonAscii = at - 1;
 
             if (back == 1) {
-              if (earlier == 224)
+              if (earlier == 224) {
                 constraint = 1;
-              else if (earlier == 237)
+              }
+              else if (earlier == 237) {
                 constraint = 2;
-              else if (earlier == 240)
+              }
+              else if (earlier == 240) {
                 constraint = 3;
-              else if (earlier == 244)
+              }
+              else if (earlier == 244) {
                 constraint = 4;
+              }
             }
           }
 
@@ -192,26 +198,30 @@ __attribute__((noinline)) ScanResult hand_scan (const uint8_t *source,
       events &= ~(UINT64_C(0xF) << bit);
       uint32_t position = at + (bit >> shift);
 
-      if (position >= count)
+      if (position >= count) {
         continue;
+      }
 
       uint32_t byte = source[position];
 
-      if (owed != 0 && (!haveNonAscii || position != lastNonAscii + 1))
+      if (owed != 0 && (!haveNonAscii || position != lastNonAscii + 1)) {
         RESULT(2, lastNonAscii + 2);
+      }
 
       if (byte >= 128) {
         bool isContinuation = byte <= 191;
 
         if (owed != 0) {
-          if (!isContinuation)
+          if (!isContinuation) {
             RESULT(2, position + 1);
+          }
 
           if ((constraint == 1 && byte < 160) ||
               (constraint == 2 && byte > 159) ||
               (constraint == 3 && byte < 144) ||
-              (constraint == 4 && byte > 143))
+              (constraint == 4 && byte > 143)) {
             RESULT(2, position + 1);
+          }
 
           owed -= 1;
           constraint = 0;
@@ -225,18 +235,22 @@ __attribute__((noinline)) ScanResult hand_scan (const uint8_t *source,
         else if (byte <= 239) {
           owed = 2;
 
-          if (byte == 224)
+          if (byte == 224) {
             constraint = 1;
-          else if (byte == 237)
+          }
+          else if (byte == 237) {
             constraint = 2;
+          }
         }
         else {
           owed = 3;
 
-          if (byte == 240)
+          if (byte == 240) {
             constraint = 3;
-          else if (byte == 244)
+          }
+          else if (byte == 244) {
             constraint = 4;
+          }
         }
 
         haveNonAscii = true;
@@ -248,8 +262,9 @@ __attribute__((noinline)) ScanResult hand_scan (const uint8_t *source,
         RESULT(2, position + 1);
       }
       else if (byte == 92) {
-        if (!inString)
+        if (!inString) {
           RESULT(4, position + 1);
+        }
 
         slashOdd = haveSlash && position == lastSlash + 1 ? !slashOdd : true;
         haveSlash = true;
@@ -260,8 +275,9 @@ __attribute__((noinline)) ScanResult hand_scan (const uint8_t *source,
         bool escaped = haveSlash && position == lastSlash + 1 && slashOdd;
 
         if (byte == 34 && !escaped) {
-          if (written >= capacity)
+          if (written >= capacity) {
             RESULT(1, position + 1);
+          }
 
           tape[written++] = inString && stringEscaped
                                 ? (position | UINT32_C(0x80000000))
@@ -272,12 +288,14 @@ __attribute__((noinline)) ScanResult hand_scan (const uint8_t *source,
         else if (byte < 32) {
           bool whitespace = byte == 9 || byte == 10 || byte == 13;
 
-          if (inString || !whitespace)
+          if (inString || !whitespace) {
             RESULT(3, position + 1);
+          }
         }
         else if (!inString) {
-          if (written >= capacity)
+          if (written >= capacity) {
             RESULT(1, position + 1);
+          }
 
           tape[written++] = position;
         }
@@ -290,8 +308,9 @@ __attribute__((noinline)) ScanResult hand_scan (const uint8_t *source,
     at += width;
   }
 
-  if (owed != 0)
+  if (owed != 0) {
     RESULT(2, lastNonAscii + 2);
+  }
 
   RESULT(0, 0);
 }
@@ -323,8 +342,9 @@ static size_t build (char *out, size_t size, int kind) {
     n += len;
   }
 
-  if (out[n - 1] == ',')
+  if (out[n - 1] == ',') {
     n--;
+  }
 
   out[n++] = ']';
 
@@ -382,7 +402,7 @@ int main (int argc, char **argv) {
   static const char *names[3] = {"records", "ascii", "unicode"};
   size_t sizes[] = {256, 4096, 65536};
 
-  for (int kind = 0; kind < 3; kind++)
+  for (int kind = 0; kind < 3; kind++) {
     for (int s = 0; s < 3; s++) {
       size_t size = sizes[s];
       char *doc = malloc(size + 64);
@@ -412,25 +432,29 @@ int main (int argc, char **argv) {
       size_t calls = 20000000 / n + 1;
       double best[2] = {1e30, 1e30};
 
-      for (int r = 0; r < 101; r++)
+      for (int r = 0; r < 101; r++) {
         for (int k = 0; k < 2; k++) {
           int f = (r & 1) ? 1 - k : k;
           double t = now();
 
           for (size_t c = 0; c < calls; c++) {
-            if (f == 0)
+            if (f == 0) {
               gen((const uint8_t *)doc, a, n, n);
-            else
+            }
+            else {
               hand_scan((const uint8_t *)doc, n, b, n);
+            }
 
             __asm__ volatile("" ::: "memory");
           }
 
           double each = (now() - t) / calls * 1e9;
 
-          if (each < best[f])
+          if (each < best[f]) {
             best[f] = each;
+          }
         }
+      }
 
       printf("%-8s %6zu B  %6u words  generated %9.1fns  hand NEON %9.1fns  "
              "gen/hand %.3fx\n",
@@ -439,6 +463,7 @@ int main (int argc, char **argv) {
       free(a);
       free(b);
     }
+  }
 
   return 0;
 }

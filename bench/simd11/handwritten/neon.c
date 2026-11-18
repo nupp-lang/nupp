@@ -163,8 +163,9 @@ static inline void hand_pairwise_push (hand_pairwise_state *state,
 double hand_pairwise (const double *left, const double *right, size_t count) {
   hand_pairwise_state state;
 
-  for (unsigned level = 0; level < 65; level++)
+  for (unsigned level = 0; level < 65; level++) {
     state.full[level] = 0;
+  }
 
   hand_pairwise_push(&state, 0.0);
   size_t i = 0;
@@ -179,15 +180,17 @@ double hand_pairwise (const double *left, const double *right, size_t count) {
     hand_pairwise_push(&state, vgetq_lane_f64(p1, 1));
   }
 
-  for (; i < count; i++)
+  for (; i < count; i++) {
     hand_pairwise_push(&state, left[i] * right[i]);
+  }
 
   double total = 0.0;
   int started = 0;
 
   for (unsigned level = 0; level < 65; level++) {
-    if (!state.full[level])
+    if (!state.full[level]) {
       continue;
+    }
 
     total = started ? state.sum[level] + total : state.sum[level];
     started = 1;
@@ -210,8 +213,9 @@ double hand_algebraic (const double *left, const double *right, size_t count) {
 
   double total = vaddvq_f64(vaddq_f64(a0, a1));
 
-  for (; i < count; i++)
+  for (; i < count; i++) {
     total = total + left[i] * right[i];
+  }
 
   return total;
 }
@@ -253,14 +257,16 @@ uint32_t hand_utf8_valid_prefix (const uint8_t *source, size_t count) {
                                           vcgeq_u8(prev3, vdupq_n_u8(0xF0))),
                                  vdupq_n_u8(0x80));
 
-      if (vmaxvq_u8(veorq_u8(special, must)) != 0)
+      if (vmaxvq_u8(veorq_u8(special, must)) != 0) {
         break;
+      }
 
       previousAscii = 0;
     }
     else if (!previousAscii) {
-      if (vmaxvq_u8(vcgtq_u8(previous, incompleteLimit)) != 0)
+      if (vmaxvq_u8(vcgtq_u8(previous, incompleteLimit)) != 0) {
         break;
+      }
 
       previousAscii = 1;
     }
@@ -272,8 +278,9 @@ uint32_t hand_utf8_valid_prefix (const uint8_t *source, size_t count) {
   size_t stop = at;
   at = at >= 3 ? at - 3 : 0;
 
-  while (at < stop && at < count && source[at] >= 128 && source[at] <= 191)
+  while (at < stop && at < count && source[at] >= 128 && source[at] <= 191) {
     at++;
+  }
 
   while (at < count) {
     uint32_t lead = source[at];
@@ -285,39 +292,49 @@ uint32_t hand_utf8_valid_prefix (const uint8_t *source, size_t count) {
 
     uint32_t low = 128, high = 191, need;
 
-    if (lead < 194)
+    if (lead < 194) {
       return (uint32_t)at;
-    else if (lead < 224)
+    }
+    else if (lead < 224) {
       need = 1;
+    }
     else if (lead < 240) {
       need = 2;
 
-      if (lead == 224)
+      if (lead == 224) {
         low = 160;
-      else if (lead == 237)
+      }
+      else if (lead == 237) {
         high = 159;
+      }
     }
     else if (lead < 245) {
       need = 3;
 
-      if (lead == 240)
+      if (lead == 240) {
         low = 144;
-      else if (lead == 244)
+      }
+      else if (lead == 244) {
         high = 143;
+      }
     }
-    else
+    else {
       return (uint32_t)at;
+    }
 
-    if (at + 1 >= count || source[at + 1] < low || source[at + 1] > high)
+    if (at + 1 >= count || source[at + 1] < low || source[at + 1] > high) {
       return (uint32_t)at;
+    }
 
     if (need > 1 &&
-        (at + 2 >= count || source[at + 2] < 128 || source[at + 2] > 191))
+        (at + 2 >= count || source[at + 2] < 128 || source[at + 2] > 191)) {
       return (uint32_t)at;
+    }
 
     if (need > 2 &&
-        (at + 3 >= count || source[at + 3] < 128 || source[at + 3] > 191))
+        (at + 3 >= count || source[at + 3] < 128 || source[at + 3] > 191)) {
       return (uint32_t)at;
+    }
 
     at += need + 1;
   }

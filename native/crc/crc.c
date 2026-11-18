@@ -61,8 +61,9 @@ static uint64_t update (enum algorithm id, uint64_t state, const uint8_t *data,
 
 int32_t nuppCrcUpdate (uint32_t id, int32_t reset, uint64_t words[2],
                        const uint8_t *data, size_t length) {
-  if (!valid(id, reset, words, data, length))
+  if (!valid(id, reset, words, data, length)) {
     return 1;
+  }
 
   const uint64_t xorout = final_xor(id);
   uint64_t state = reset ? xorout : words[0];

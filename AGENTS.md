@@ -186,11 +186,13 @@ reports it is usually already testing somebody else's commit. `git push
 C is laid out as PUC-Rio Lua's own C is (`.clang-format`): two-space
 indentation, braces on the line that opens them, `else` on the line after the
 closing brace, and a space between a function's name and its parameters where
-it is defined. Within a function, a blank line goes before and after each `if`,
+it is defined. The body of every `if`, `else`, `for`, `while` and `do` is a
+braced block, even a single statement. Within a function, a blank line goes before and after each `if`,
 `for`, `while`, `switch` and `do`, and before each `return` that follows other
 statements, except where the statement opens or closes its block
 (`.uncrustify.cfg`). `scripts/format-c --write` writes both, the hook refuses a
-push carrying C it would rewrite, and CI's first job checks the same. No tool
+push carrying C it would rewrite, and CI's first job checks the same whenever
+C or the formatting setup changed. No tool
 places the blank lines around a file's preprocessor groups, so write them as
 Lua does: a blank line before and after each run of `#define`s, `#include`s or
 conditionals, with a comment that documents a macro kept directly above it.

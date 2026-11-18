@@ -138,15 +138,17 @@ struct regions {
 static uint64_t load_le64 (const unsigned char *bytes) {
   uint64_t value = 0;
 
-  for (unsigned i = 0; i < WORD_BYTES; ++i)
+  for (unsigned i = 0; i < WORD_BYTES; ++i) {
     value |= (uint64_t)bytes[i] << (i * 8);
+  }
 
   return value;
 }
 
 static void store_le64 (unsigned char *bytes, uint64_t value) {
-  for (unsigned i = 0; i < WORD_BYTES; ++i)
+  for (unsigned i = 0; i < WORD_BYTES; ++i) {
     bytes[i] = (unsigned char)(value >> (i * 8));
+  }
 }
 
 /* Where a header field lies within a bundle. */
@@ -161,8 +163,9 @@ static int error (const char *message) {
 }
 
 static void *map_region (size_t bytes) {
-  if (!bytes)
+  if (!bytes) {
     return NULL;
+  }
 
   void *region = mmap(NULL, bytes, PROT_READ | PROT_WRITE,
                       MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
@@ -174,8 +177,9 @@ static void *map_region (size_t bytes) {
 static int read_words (const char *path, uint64_t **words, size_t *count) {
   FILE *file = fopen(path, "rb");
 
-  if (!file)
+  if (!file) {
     return error("input cannot be opened");
+  }
 
   struct stat info;
 
@@ -210,8 +214,9 @@ static int read_words (const char *path, uint64_t **words, size_t *count) {
   *count = bytes / WORD_BYTES;
   *words = (uint64_t *)raw;
 
-  for (size_t i = 0; i < *count; ++i)
+  for (size_t i = 0; i < *count; ++i) {
     (*words)[i] = load_le64(raw + i * WORD_BYTES);
+  }
 
   return 0;
 }
@@ -223,13 +228,15 @@ static int read_header (FILE *file, off_t file_bytes, struct bundle *bundle) {
 
   if (file_bytes < HEADER_BYTES ||
       fread(header, 1, HEADER_BYTES, file) != HEADER_BYTES ||
-      memcmp(header, BUNDLE_MAGIC, MAGIC_BYTES))
+      memcmp(header, BUNDLE_MAGIC, MAGIC_BYTES)) {
     return error("invalid bundle header");
+  }
 
   uint64_t fields[BUNDLE_FIELDS];
 
-  for (unsigned field = 0; field < BUNDLE_FIELDS; ++field)
+  for (unsigned field = 0; field < BUNDLE_FIELDS; ++field) {
     fields[field] = load_le64(header + header_offset(field));
+  }
 
   bundle->entry = fields[BUNDLE_ENTRY];
   bundle->code_bytes = fields[BUNDLE_CODE_BYTES];
@@ -238,16 +245,20 @@ static int read_header (FILE *file, off_t file_bytes, struct bundle *bundle) {
   bundle->output_words = fields[BUNDLE_OUTPUT_WORDS];
 
   if (fields[BUNDLE_VERSION] != BUNDLE_FORMAT ||
-      fields[BUNDLE_ARCHITECTURE] != BUNDLE_ARM64 || fields[BUNDLE_RESERVED])
+      fields[BUNDLE_ARCHITECTURE] != BUNDLE_ARM64 || fields[BUNDLE_RESERVED]) {
     return error("unsupported bundle version, architecture or reserved field");
+  }
 
   if (!bundle->code_bytes || bundle->code_bytes % INSTRUCTION_BYTES ||
-      bundle->entry % INSTRUCTION_BYTES || bundle->entry >= bundle->code_bytes)
+      bundle->entry % INSTRUCTION_BYTES ||
+      bundle->entry >= bundle->code_bytes) {
     return error("invalid code extent or entry alignment");
+  }
 
   if (bundle->code_bytes > REGION || bundle->data_bytes > REGION ||
-      bundle->scratch_bytes > REGION || bundle->output_words > MAX_WORDS)
+      bundle->scratch_bytes > REGION || bundle->output_words > MAX_WORDS) {
     return error("bundle region exceeds transport limit");
+  }
 
   /* Each region is bounded by now, so neither sum can overflow. */
   uint64_t mapped_bytes =
@@ -255,8 +266,9 @@ static int read_header (FILE *file, off_t file_bytes, struct bundle *bundle) {
   uint64_t stored_bytes =
       HEADER_BYTES + bundle->code_bytes + bundle->data_bytes;
 
-  if (mapped_bytes > REGION * 2 || stored_bytes != (uint64_t)file_bytes)
+  if (mapped_bytes > REGION * 2 || stored_bytes != (uint64_t)file_bytes) {
     return error("bundle extent differs from file or exceeds total limit");
+  }
 
   return 0;
 }
@@ -264,8 +276,9 @@ static int read_header (FILE *file, off_t file_bytes, struct bundle *bundle) {
 static int page_size (size_t *page) {
   long size = sysconf(_SC_PAGESIZE);
 
-  if (size <= 0 || (size & (size - 1)))
+  if (size <= 0 || (size & (size - 1))) {
     return error("invalid host page size");
+  }
 
   *page = (size_t)size;
 
@@ -274,8 +287,9 @@ static int page_size (size_t *page) {
 
 /* Makes loaded code executable, and so no longer writable. */
 static int seal_code (unsigned char *code, size_t bytes) {
-  if (mprotect(code, bytes, PROT_READ | PROT_EXEC))
+  if (mprotect(code, bytes, PROT_READ | PROT_EXEC)) {
     return error("seal failed");
+  }
 
 #ifdef __APPLE__
   sys_icache_invalidate(code, bytes);
@@ -306,15 +320,17 @@ static int scratch_high_water (size_t scratch_bytes, size_t *high_water) {
   *high_water = scratch_bytes;
   const char *limit = getenv("CORE_TEST_HIGH_WATER");
 
-  if (!limit)
+  if (!limit) {
     return 0;
+  }
 
   char *end;
   errno = 0;
   unsigned long long parsed = strtoull(limit, &end, 10);
 
-  if (errno || !*limit || *end || parsed > scratch_bytes)
+  if (errno || !*limit || *end || parsed > scratch_bytes) {
     return error("invalid scratch high-water");
+  }
 
   *high_water = (size_t)parsed;
 
@@ -323,8 +339,9 @@ static int scratch_high_water (size_t scratch_bytes, size_t *high_water) {
 
 /* Scratch rounded up to whole pages, and a guard page on each side. */
 static size_t scratch_mapping_bytes (size_t scratch_bytes, size_t page) {
-  if (!scratch_bytes)
+  if (!scratch_bytes) {
     return 0;
+  }
 
   return ((scratch_bytes + page - 1) & ~(page - 1)) + page * 2;
 }
@@ -341,14 +358,16 @@ static int fence_scratch (struct regions *regions, size_t page,
   size_t mapping_bytes = regions->scratch_mapping_bytes;
   unsigned char *mapping = regions->scratch_mapping;
 
-  if (!mapping_bytes)
+  if (!mapping_bytes) {
     return 0;
+  }
 
   regions->scratch = mapping + page;
 
   if (mprotect(mapping, page, PROT_NONE) ||
-      mprotect(mapping + mapping_bytes - page, page, PROT_NONE))
+      mprotect(mapping + mapping_bytes - page, page, PROT_NONE)) {
     return error("test guard protection failed");
+  }
 
   memset(regions->scratch + high_water, CANARY,
          usable_bytes(mapping_bytes, page) - high_water);
@@ -360,12 +379,15 @@ static int scratch_untouched (const struct regions *regions, size_t page,
                               size_t high_water) {
   size_t mapping_bytes = regions->scratch_mapping_bytes;
 
-  if (!mapping_bytes)
+  if (!mapping_bytes) {
     return 0;
+  }
 
-  for (size_t i = high_water; i < usable_bytes(mapping_bytes, page); ++i)
-    if (regions->scratch[i] != CANARY)
+  for (size_t i = high_water; i < usable_bytes(mapping_bytes, page); ++i) {
+    if (regions->scratch[i] != CANARY) {
       return error("scratch high-water canary changed");
+    }
+  }
 
   return 0;
 }
@@ -375,8 +397,9 @@ static int call_entry (Entry entry, const uint64_t *packet, uint64_t *output,
   uint64_t report[ABI_REPORT_WORDS] = {0, 0};
   nupp_core_test_abi(entry, packet, output, report);
 
-  if (report[ABI_REPORT_CLOBBERED])
+  if (report[ABI_REPORT_CLOBBERED]) {
     return error("C ABI preservation failed");
+  }
 
   *status = report[ABI_REPORT_STATUS];
 
@@ -433,8 +456,9 @@ static int read_regions (FILE *file, const struct bundle *bundle,
 
   if (fread(regions->code, 1, code_bytes, file) != code_bytes ||
       (data_bytes && fread(regions->data, 1, data_bytes, file) != data_bytes) ||
-      fgetc(file) != EOF || ferror(file))
+      fgetc(file) != EOF || ferror(file)) {
     return error("bundle changed while reading");
+  }
 
   return 0;
 }
@@ -478,9 +502,10 @@ static int enter (const struct bundle *bundle, const struct regions *regions,
  * entry's status and output words, which the caller frees. */
 static int execute (const char *path, const uint64_t *words, size_t count,
                     uint64_t **answer, size_t *length, uint64_t *status) {
-  if (!HOST_SUPPORTED)
+  if (!HOST_SUPPORTED) {
     return error(
         "standalone bridge requires little-endian ARM64 macOS or Linux");
+  }
 
   int result = 1;
   struct bundle bundle = {0};
@@ -491,8 +516,9 @@ static int execute (const char *path, const uint64_t *words, size_t count,
 
   FILE *file = fopen(path, "rb");
 
-  if (!file)
+  if (!file) {
     return error("bundle cannot be opened");
+  }
 
   if (fstat(fileno(file), &info)) {
     error("invalid bundle header");
@@ -500,8 +526,9 @@ static int execute (const char *path, const uint64_t *words, size_t count,
   }
 
   if (read_header(file, info.st_size, &bundle) || page_size(&page) ||
-      scratch_high_water((size_t)bundle.scratch_bytes, &high_water))
+      scratch_high_water((size_t)bundle.scratch_bytes, &high_water)) {
     goto out;
+  }
 
   regions.scratch_mapping_bytes =
       scratch_mapping_bytes((size_t)bundle.scratch_bytes, page);
@@ -521,8 +548,9 @@ static int execute (const char *path, const uint64_t *words, size_t count,
       seal_code(regions.code, (size_t)bundle.code_bytes) ||
       fence_scratch(&regions, page, high_water) ||
       enter(&bundle, &regions, words, count, output, status) ||
-      scratch_untouched(&regions, page, high_water))
+      scratch_untouched(&regions, page, high_water)) {
     goto out;
+  }
 
   *answer = output;
   *length = (size_t)bundle.output_words;
@@ -531,14 +559,17 @@ static int execute (const char *path, const uint64_t *words, size_t count,
 out:
   fclose(file);
 
-  if (regions.code)
+  if (regions.code) {
     munmap(regions.code, (size_t)bundle.code_bytes);
+  }
 
-  if (regions.data)
+  if (regions.data) {
     munmap(regions.data, (size_t)bundle.data_bytes);
+  }
 
-  if (regions.scratch_mapping)
+  if (regions.scratch_mapping) {
     munmap(regions.scratch_mapping, regions.scratch_mapping_bytes);
+  }
 
   free(output);
 
@@ -567,10 +598,12 @@ static char *publish_artifact_directory (const char *path) {
   }
 
   /* A bundle at the root keeps the slash: its directory is "/". */
-  if (slash == directory)
+  if (slash == directory) {
     slash[1] = 0;
-  else
+  }
+  else {
     *slash = 0;
+  }
 
   nupp_core_artifact_directory = directory;
 
@@ -580,8 +613,9 @@ static char *publish_artifact_directory (const char *path) {
 static int write_words (const char *path, const uint64_t *words, size_t count) {
   FILE *file = fopen(path, "wb");
 
-  if (!file)
+  if (!file) {
     return error("output cannot be opened");
+  }
 
   int result = 0;
 
@@ -595,8 +629,9 @@ static int write_words (const char *path, const uint64_t *words, size_t count) {
     }
   }
 
-  if (fclose(file))
+  if (fclose(file)) {
     result = error("output cannot be closed");
+  }
 
   return result;
 }
@@ -604,26 +639,30 @@ static int write_words (const char *path, const uint64_t *words, size_t count) {
 /* Any status but zero fails the run. A guest error has been reported
  * already; any other status is the entry refusing, and is reported here. */
 static int check_status (uint64_t status) {
-  if (!status)
+  if (!status) {
     return 0;
+  }
 
-  if (status != GUEST_ERROR_STATUS)
+  if (status != GUEST_ERROR_STATUS) {
     fprintf(stderr,
             "nupp-core: Nupp entry refused with transport status %llu\n",
             (unsigned long long)status);
+  }
 
   return 1;
 }
 
 int main (int argc, char **argv) {
-  if (argc < 4)
+  if (argc < 4) {
     return error("usage: nupp-core BUNDLE INPUT OUTPUT [ARGUMENT...]");
+  }
 
   const char *bundle = argv[1], *input = argv[2], *output = argv[3];
   char *directory = publish_artifact_directory(bundle);
 
-  if (!directory)
+  if (!directory) {
     return 1;
+  }
 
   uint64_t *words = NULL, *answer = NULL, status = 0;
   size_t count = 0, length = 0;

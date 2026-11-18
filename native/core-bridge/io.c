@@ -66,8 +66,9 @@ static struct job *dequeue (struct queue *queue) {
   if (job) {
     queue->head = job->queue_next;
 
-    if (!queue->head)
+    if (!queue->head) {
       queue->tail = &queue->head;
+    }
   }
 
   return job;
@@ -77,13 +78,15 @@ static struct job *dequeue (struct queue *queue) {
 static void unlink_queued (struct queue *queue, struct job *job) {
   struct job **at = &queue->head;
 
-  while (*at != job)
+  while (*at != job) {
     at = &(*at)->queue_next;
+  }
 
   *at = job->queue_next;
 
-  if (!*at)
+  if (!*at) {
     queue->tail = at;
+  }
 }
 
 /* Answers where the list of all jobs holds the ticket's job, which is NULL
@@ -91,8 +94,9 @@ static void unlink_queued (struct queue *queue, struct job *job) {
 static struct job **find (uint64_t ticket) {
   struct job **at = &jobs;
 
-  while (*at && (*at)->ticket != ticket)
+  while (*at && (*at)->ticket != ticket) {
     at = &(*at)->next;
+  }
 
   return at;
 }
@@ -139,8 +143,9 @@ static void *worker (void *unused) {
   for (;;) {
     pthread_mutex_lock(&lock);
 
-    while (!waiting.head)
+    while (!waiting.head) {
       pthread_cond_wait(&work_waiting, &lock);
+    }
 
     struct job *job = dequeue(&waiting);
     job->running = 1;
@@ -166,26 +171,30 @@ static int configure_wake_pipe (void) {
     int flags = fcntl(wake_pipe[i], F_GETFL);
 
     if (flags < 0 || fcntl(wake_pipe[i], F_SETFL, flags | O_NONBLOCK) < 0 ||
-        fcntl(wake_pipe[i], F_SETFD, FD_CLOEXEC) < 0)
+        fcntl(wake_pipe[i], F_SETFD, FD_CLOEXEC) < 0) {
       return errno;
+    }
   }
 
   return 0;
 }
 
 static int start_workers (uint64_t threads) {
-  if (threads < 1)
+  if (threads < 1) {
     threads = 1;
+  }
 
-  if (threads > MAX_THREADS)
+  if (threads > MAX_THREADS) {
     threads = MAX_THREADS;
+  }
 
   for (uint64_t i = 0; i < threads; ++i) {
     pthread_t thread;
     int error = pthread_create(&thread, NULL, worker, NULL);
 
-    if (error)
+    if (error) {
       return error;
+    }
 
     pthread_detach(thread);
   }
@@ -203,13 +212,16 @@ uint64_t nupp_io_start (uint64_t threads) {
   int started = wake_pipe[0] >= 0 || start_error;
 
   if (!started) {
-    if (pipe(wake_pipe) < 0)
+    if (pipe(wake_pipe) < 0) {
       start_error = errno;
-    else
+    }
+    else {
       start_error = configure_wake_pipe();
+    }
 
-    if (!start_error)
+    if (!start_error) {
       start_error = start_workers(threads);
+    }
   }
 
   uint64_t result = start_result();
@@ -224,8 +236,9 @@ static struct job *new_job (uint64_t kind, uint64_t word, uint64_t base,
                             uint64_t bytes) {
   struct job *job = calloc(1, sizeof(*job));
 
-  if (!job)
+  if (!job) {
     return NULL;
+  }
 
   size_t terminator = kind == NUPP_IO_OPEN ? 1 : 0;
   size_t capacity = (size_t)bytes + terminator;
@@ -237,11 +250,13 @@ static struct job *new_job (uint64_t kind, uint64_t word, uint64_t base,
     return NULL;
   }
 
-  if (kind != NUPP_IO_READ && bytes)
+  if (kind != NUPP_IO_READ && bytes) {
     memcpy(job->bytes, (void *)(uintptr_t)base, (size_t)bytes);
+  }
 
-  if (kind == NUPP_IO_OPEN)
+  if (kind == NUPP_IO_OPEN) {
     job->bytes[bytes] = 0;
+  }
 
   job->kind = kind;
   job->word = word;
@@ -254,16 +269,19 @@ uint64_t nupp_io_submit (uint64_t kind, uint64_t word, uint64_t base,
                          uint64_t bytes) {
   /* bytes == SIZE_MAX would leave no room for an open's terminator. */
   if (kind < NUPP_IO_OPEN || kind > NUPP_IO_WRITE ||
-      bytes > (uint64_t)SSIZE_MAX || bytes == SIZE_MAX)
+      bytes > (uint64_t)SSIZE_MAX || bytes == SIZE_MAX) {
     return failed(EINVAL);
+  }
 
-  if (!base && bytes && kind != NUPP_IO_READ)
+  if (!base && bytes && kind != NUPP_IO_READ) {
     return failed(EFAULT);
+  }
 
   struct job *job = new_job(kind, word, base, bytes);
 
-  if (!job)
+  if (!job) {
     return failed(ENOMEM);
+  }
 
   pthread_mutex_lock(&lock);
 
@@ -291,8 +309,9 @@ uint64_t nupp_io_take (void) {
   pthread_mutex_lock(&lock);
   struct job *job = dequeue(&finished);
 
-  if (job)
+  if (job) {
     job->taken = 1;
+  }
 
   uint64_t ticket = job ? job->ticket : 0;
   pthread_mutex_unlock(&lock);
@@ -341,15 +360,17 @@ uint64_t nupp_io_settle (uint64_t ticket) {
   pthread_mutex_lock(&lock);
   struct job **at;
 
-  while (*(at = find(ticket)) && !(*at)->done)
+  while (*(at = find(ticket)) && !(*at)->done) {
     pthread_cond_wait(&job_done, &lock);
+  }
 
   struct job *job = *at;
   uint64_t result = failed(EINVAL);
 
   if (job) {
-    if (!job->taken)
+    if (!job->taken) {
       unlink_queued(&finished, job);
+    }
 
     result = job->result;
     dispose(at);

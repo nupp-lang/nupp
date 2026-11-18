@@ -113,8 +113,9 @@ static uint64_t take (void) {
   for (unsigned i = 0; i < POLL_ATTEMPTS; ++i) {
     uint64_t ticket = nupp_io_take();
 
-    if (ticket)
+    if (ticket) {
       return ticket;
+    }
 
     pause_briefly();
   }
@@ -136,8 +137,9 @@ static uint64_t start_blocked_read (int descriptor) {
     assert((int64_t)ticket > 0);
     pause_briefly();
 
-    if (!nupp_io_cancel(ticket))
+    if (!nupp_io_cancel(ticket)) {
       return ticket;
+    }
   }
 
   assert(!"no worker started the read");
