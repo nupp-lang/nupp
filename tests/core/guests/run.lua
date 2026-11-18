@@ -62,6 +62,11 @@ local HEAVY = {workloadLoops = true, compilerselfbuild = true}
 -- Compiler-sized workloads prepare a host baseline before explicit selection.
 -- The fixpoint's small compiler is run by tests/core/guests/fixpoint.lua.
 local EXPLICIT = {compilerselfbuild = true, fixpointcompiler = true}
+-- Seconds a case's bridge and guard runs may take, whatever
+-- NUPP_GUEST_JOB_TIMEOUT says: past them the watchdog kills the run and the
+-- case fails. The self-build took 4854 s (4434 s of processor time) on a
+-- loaded ARM64 Mac on 2026-11-18; its bound leaves half again.
+local BOUNDS = {compilerselfbuild = 7200}
 -- Cases whose program loads the Markdown provider: the renderer itself, and
 -- the ones carrying the CLI, whose documentation host resolves it.
 local MARKDOWN = {
@@ -1063,11 +1068,12 @@ local function defer(phase, command, done)
         )
         pool = {directory = directory, writer = assert(io.open(directory .. "/queue", "w"))}
     end
-    queue[#queue + 1] = {phase = phase, case = timing.case, label = timing.label, done = done}
+    local limit = BOUNDS[timing.case] or JOB_TIMEOUT
+    queue[#queue + 1] = {phase = phase, case = timing.case, label = timing.label, done = done, limit = limit}
     local base = directory .. "/" .. #queue
-    if JOB_TIMEOUT > 0 then
+    if limit > 0 then
         write(base .. ".job", command .. "\n")
-        command = ("perl -e %s %d %s"):format(quote(WATCHDOG), JOB_TIMEOUT, quote(base .. ".job"))
+        command = ("perl -e %s %d %s"):format(quote(WATCHDOG), limit, quote(base .. ".job"))
     end
     local file = assert(io.open(base .. ".sh", "wb"))
     file:write(
@@ -1101,7 +1107,7 @@ local function drain()
         local printed = read(base .. ".out") or ""
         -- A run the watchdog killed says only that: what it left half
         -- written is no result to check.
-        if JOB_TIMEOUT > 0 and tonumber(code) == 124 and printed:find(TIMED_OUT, 1, true) then
+        if job.limit > 0 and tonumber(code) == 124 and printed:find(TIMED_OUT, 1, true) then
             jobTimedOut(job)
         else
             job.done(tonumber(code), printed)
@@ -1174,7 +1180,7 @@ local function check(ok, label)
 end
 
 jobTimedOut = function(job)
-    check(false, ("%s %s timed out after %ds"):format(job.label or job.case, job.phase, JOB_TIMEOUT))
+    check(false, ("%s %s timed out after %ds"):format(job.label or job.case, job.phase, job.limit))
 end
 
 -- The C bridge and its ABI/scratch guard, built once with its contract tests.

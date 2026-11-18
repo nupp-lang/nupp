@@ -5,6 +5,8 @@ set -eu
 ROOT=$(CDPATH= cd -- "$(dirname "$0")/../.." && pwd)
 cd "$ROOT"
 export NUPP_COMPILER_ROOT="$ROOT" NUPP_VM_AUTO_REBUILD=0 NO_JIT=1
+# The C startup transport: the Rust bridge crate is on its way out.
+export NUPP_CORE_TRANSPORT="${NUPP_CORE_TRANSPORT:-c}"
 rm -rf build/self-build-host
 mkdir -p build/self-build-host
 NUPP_CACHE_DIR="$ROOT/build/self-build-host/cache" \
