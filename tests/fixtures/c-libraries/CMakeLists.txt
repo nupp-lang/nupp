@@ -1,6 +1,13 @@
+# Builds c-library-probe (probe.c) against the pinned zlib, OpenSSL and libcurl
+# prefixes, to prove each links and answers as pinned.
+# .github/scripts/test-c-libraries.sh configures it with NUPP_ZLIB,
+# NUPP_OPENSSL, NUPP_CURL and NUPP_TARGET.
+
 cmake_minimum_required(VERSION 3.20)
 project(nupp_c_library_probe C)
+
 set(CMAKE_C_STANDARD 11)
+
 # A reused probe directory must resolve the current exact prefixes again.
 foreach(
   found
@@ -14,6 +21,8 @@ foreach(
 )
   unset(${found} CACHE)
 endforeach()
+
+# Each header and library comes from its pinned prefix and nowhere else.
 find_path(
   ZLIB_INCLUDE
   zlib.h
@@ -35,6 +44,7 @@ find_path(
   NO_DEFAULT_PATH
   REQUIRED
 )
+
 find_library(
   ZLIB_LIBRARY
   NAMES z libz zlib zlib1
@@ -63,6 +73,7 @@ find_library(
   NO_DEFAULT_PATH
   REQUIRED
 )
+
 add_executable(c-library-probe probe.c)
 target_compile_definitions(
   c-library-probe
@@ -80,12 +91,14 @@ target_link_libraries(
     "${CRYPTO_LIBRARY}"
     "${ZLIB_LIBRARY}"
 )
+
 # Assertions are the probe, including in release builds.
 if(MSVC)
   target_compile_options(c-library-probe PRIVATE /UNDEBUG)
 else()
   target_compile_options(c-library-probe PRIVATE -UNDEBUG -Wall -Wextra -Werror)
 endif()
+
 set_property(
   TARGET c-library-probe
   PROPERTY BUILD_RPATH "${NUPP_CURL}/lib;${NUPP_OPENSSL}/lib;${NUPP_ZLIB}/lib"

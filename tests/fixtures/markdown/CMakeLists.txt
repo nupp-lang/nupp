@@ -1,8 +1,16 @@
+# Builds two consumers of the installed nupp_markdown library: markdown-probe
+# (probe.c), which renders through it, and markdown-ownership (ownership.c),
+# which holds it to its contract on allocation budgets, refusals, documents'
+# independence and concurrent use. .github/scripts/test-markdown.sh
+# configures it with NUPP_CMARK naming the install prefix.
+
 cmake_minimum_required(VERSION 3.20)
 project(nupp_markdown_probe C)
+
 if(NOT WIN32)
   find_package(Threads REQUIRED)
 endif()
+
 unset(MARKDOWN CACHE)
 find_library(
   MARKDOWN
@@ -11,23 +19,29 @@ find_library(
   NO_DEFAULT_PATH
   REQUIRED
 )
+
 foreach(name markdown-probe markdown-ownership)
   if(name STREQUAL markdown-probe)
     add_executable(${name} probe.c)
   else()
     add_executable(${name} ownership.c)
   endif()
+
   target_include_directories(${name} PRIVATE "${NUPP_CMARK}/include")
   target_link_libraries(${name} PRIVATE "${MARKDOWN}")
+
   if(NOT WIN32)
     target_link_libraries(${name} PRIVATE Threads::Threads)
   endif()
+
   set_target_properties(${name} PROPERTIES BUILD_RPATH "${NUPP_CMARK}/lib")
   set_target_properties(
     ${name}
     PROPERTIES INSTALL_RPATH "$ORIGIN/lib;@loader_path/lib"
   )
   install(TARGETS ${name} RUNTIME DESTINATION .)
+
+  # Assertions are the probe, including in release builds.
   if(MSVC)
     target_compile_options(${name} PRIVATE /UNDEBUG)
   else()
