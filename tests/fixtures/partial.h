@@ -1,6 +1,6 @@
 /* Test fixture for nupp import-c: one declaration the C parser will not take,
-   among several it will. The shape a real header has when a type it lays a
-   struct out from is defined in a header this import filtered away. */
+ * among several it will. The shape a real header has when a type it lays a
+ * struct out from is defined in a header this import filtered away. */
 
 struct partialOpaque;
 

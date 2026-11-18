@@ -1,5 +1,6 @@
 /* Fixture mirroring a project's own C header: self-contained, no
- * preprocessor needed. */
+ * preprocessor needed. cheadertest loads it as written. */
+
 #ifndef NUPP_SINK_H
 #define NUPP_SINK_H
 

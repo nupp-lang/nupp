@@ -1,10 +1,31 @@
-/* Test-only: compare Nupp layouts with the exact upstream C headers. */
+/* The wgpu header layout probe: a test-only program that prints, as JSON,
+ * the size, alignment and field offsets of every wgpu-native structure the
+ * runtime lays out for itself (nupp.runtime.provider.wgpumemory).
+ * .github/scripts/test-wgpu-conformance.py compiles it against the exact
+ * headers of the pinned release, and wgpu-conformance.lua then holds each of
+ * the runtime's layouts to what these headers say. The output is one object
+ * keyed by the runtime's name for each layout:
+ *
+ *   {
+ *   "WGPUStringView":{"size":16,"alignment":8,"fields":{"data":0,"length":8}},
+ *   ...
+ *   }
+ *
+ * A layout lists the fields the runtime declares, which need not be all of
+ * the C structure's. */
+
+#include "wgpu.h"
+
 #include <stddef.h>
 #include <stdio.h>
-#include "wgpu.h"
+
+/* Opens the entry for layout N, measured from C type T, through the opening
+ * brace of its fields. The entry is closed by printing "}}". */
 #define TYPE(N, T)                                                             \
   printf("\"" #N "\":{\"size\":%zu,\"alignment\":%zu,\"fields\":{", sizeof(T), \
          _Alignof(T))
+
+/* One field's offset; fields are separated by the caller's commas. */
 #define FIELD(T, F) printf("\"" #F "\":%zu", offsetof(T, F))
 
 int main (void) {
@@ -12,21 +33,29 @@ int main (void) {
   TYPE(WGPUNativeDisplayHandle, WGPUNativeDisplayHandle);
   FIELD(WGPUNativeDisplayHandle, type);
   putchar(',');
+  /* The handle data is a union of platform handles, which the runtime
+   * declares as two plain words starting at this offset. */
   printf("\"words\":%zu", offsetof(WGPUNativeDisplayHandle, data));
   puts("}},");
+
   TYPE(WGPUStringView, WGPUStringView);
   FIELD(WGPUStringView, data);
   putchar(',');
   FIELD(WGPUStringView, length);
   puts("}},");
+
   TYPE(WGPUChainedStruct, WGPUChainedStruct);
   FIELD(WGPUChainedStruct, next);
   putchar(',');
   FIELD(WGPUChainedStruct, sType);
   puts("}},");
+
   TYPE(WGPUFuture, WGPUFuture);
   FIELD(WGPUFuture, id);
   puts("}},");
+
+  /* The callback-info structures that carry a mode share one layout, which
+   * the runtime declares once as WGPUCallbackInfo. */
   TYPE(WGPUCallbackInfo, WGPURequestAdapterCallbackInfo);
   FIELD(WGPURequestAdapterCallbackInfo, nextInChain);
   putchar(',');
@@ -38,6 +67,7 @@ int main (void) {
   putchar(',');
   FIELD(WGPURequestAdapterCallbackInfo, userdata2);
   puts("}},");
+
   TYPE(WGPUUncapturedErrorCallbackInfo, WGPUUncapturedErrorCallbackInfo);
   FIELD(WGPUUncapturedErrorCallbackInfo, nextInChain);
   putchar(',');
@@ -47,6 +77,7 @@ int main (void) {
   putchar(',');
   FIELD(WGPUUncapturedErrorCallbackInfo, userdata2);
   puts("}},");
+
   TYPE(WGPUInstanceExtras, WGPUInstanceExtras);
   FIELD(WGPUInstanceExtras, chain);
   putchar(',');
@@ -72,6 +103,7 @@ int main (void) {
   putchar(',');
   FIELD(WGPUInstanceExtras, displayHandle);
   puts("}},");
+
   TYPE(WGPUInstanceDescriptor, WGPUInstanceDescriptor);
   FIELD(WGPUInstanceDescriptor, nextInChain);
   putchar(',');
@@ -81,6 +113,7 @@ int main (void) {
   putchar(',');
   FIELD(WGPUInstanceDescriptor, requiredLimits);
   puts("}},");
+
   TYPE(WGPURequestAdapterOptions, WGPURequestAdapterOptions);
   FIELD(WGPURequestAdapterOptions, nextInChain);
   putchar(',');
@@ -94,6 +127,7 @@ int main (void) {
   putchar(',');
   FIELD(WGPURequestAdapterOptions, compatibleSurface);
   puts("}},");
+
   TYPE(WGPUAdapterInfo, WGPUAdapterInfo);
   FIELD(WGPUAdapterInfo, nextInChain);
   putchar(',');
@@ -117,6 +151,7 @@ int main (void) {
   putchar(',');
   FIELD(WGPUAdapterInfo, subgroupMaxSize);
   puts("}},");
+
   TYPE(WGPULimits, WGPULimits);
   FIELD(WGPULimits, nextInChain);
   putchar(',');
@@ -184,11 +219,13 @@ int main (void) {
   putchar(',');
   FIELD(WGPULimits, maxImmediateSize);
   puts("}},");
+
   TYPE(WGPUQueueDescriptor, WGPUQueueDescriptor);
   FIELD(WGPUQueueDescriptor, nextInChain);
   putchar(',');
   FIELD(WGPUQueueDescriptor, label);
   puts("}},");
+
   TYPE(WGPUDeviceDescriptor, WGPUDeviceDescriptor);
   FIELD(WGPUDeviceDescriptor, nextInChain);
   putchar(',');
@@ -206,6 +243,7 @@ int main (void) {
   putchar(',');
   FIELD(WGPUDeviceDescriptor, uncapturedErrorCallbackInfo);
   puts("}},");
+
   TYPE(WGPUBufferDescriptor, WGPUBufferDescriptor);
   FIELD(WGPUBufferDescriptor, nextInChain);
   putchar(',');
@@ -217,6 +255,7 @@ int main (void) {
   putchar(',');
   FIELD(WGPUBufferDescriptor, mappedAtCreation);
   puts("}},");
+
   TYPE(WGPUBufferBindingLayout, WGPUBufferBindingLayout);
   FIELD(WGPUBufferBindingLayout, nextInChain);
   putchar(',');
@@ -226,11 +265,13 @@ int main (void) {
   putchar(',');
   FIELD(WGPUBufferBindingLayout, minBindingSize);
   puts("}},");
+
   TYPE(WGPUSamplerBindingLayout, WGPUSamplerBindingLayout);
   FIELD(WGPUSamplerBindingLayout, nextInChain);
   putchar(',');
   FIELD(WGPUSamplerBindingLayout, type);
   puts("}},");
+
   TYPE(WGPUTextureBindingLayout, WGPUTextureBindingLayout);
   FIELD(WGPUTextureBindingLayout, nextInChain);
   putchar(',');
@@ -240,6 +281,7 @@ int main (void) {
   putchar(',');
   FIELD(WGPUTextureBindingLayout, multisampled);
   puts("}},");
+
   TYPE(WGPUStorageTextureBindingLayout, WGPUStorageTextureBindingLayout);
   FIELD(WGPUStorageTextureBindingLayout, nextInChain);
   putchar(',');
@@ -249,6 +291,7 @@ int main (void) {
   putchar(',');
   FIELD(WGPUStorageTextureBindingLayout, viewDimension);
   puts("}},");
+
   TYPE(WGPUBindGroupLayoutEntry, WGPUBindGroupLayoutEntry);
   FIELD(WGPUBindGroupLayoutEntry, nextInChain);
   putchar(',');
@@ -266,6 +309,7 @@ int main (void) {
   putchar(',');
   FIELD(WGPUBindGroupLayoutEntry, storageTexture);
   puts("}},");
+
   TYPE(WGPUBindGroupLayoutDescriptor, WGPUBindGroupLayoutDescriptor);
   FIELD(WGPUBindGroupLayoutDescriptor, nextInChain);
   putchar(',');
@@ -275,6 +319,7 @@ int main (void) {
   putchar(',');
   FIELD(WGPUBindGroupLayoutDescriptor, entries);
   puts("}},");
+
   TYPE(WGPUPipelineLayoutDescriptor, WGPUPipelineLayoutDescriptor);
   FIELD(WGPUPipelineLayoutDescriptor, nextInChain);
   putchar(',');
@@ -286,6 +331,7 @@ int main (void) {
   putchar(',');
   FIELD(WGPUPipelineLayoutDescriptor, immediateSize);
   puts("}},");
+
   TYPE(WGPUShaderSourceSPIRV, WGPUShaderSourceSPIRV);
   FIELD(WGPUShaderSourceSPIRV, chain);
   putchar(',');
@@ -293,16 +339,19 @@ int main (void) {
   putchar(',');
   FIELD(WGPUShaderSourceSPIRV, code);
   puts("}},");
+
   TYPE(WGPUShaderSourceWGSL, WGPUShaderSourceWGSL);
   FIELD(WGPUShaderSourceWGSL, chain);
   putchar(',');
   FIELD(WGPUShaderSourceWGSL, code);
   puts("}},");
+
   TYPE(WGPUShaderModuleDescriptor, WGPUShaderModuleDescriptor);
   FIELD(WGPUShaderModuleDescriptor, nextInChain);
   putchar(',');
   FIELD(WGPUShaderModuleDescriptor, label);
   puts("}},");
+
   TYPE(WGPUComputeState, WGPUComputeState);
   FIELD(WGPUComputeState, nextInChain);
   putchar(',');
@@ -314,6 +363,7 @@ int main (void) {
   putchar(',');
   FIELD(WGPUComputeState, constants);
   puts("}},");
+
   TYPE(WGPUComputePipelineDescriptor, WGPUComputePipelineDescriptor);
   FIELD(WGPUComputePipelineDescriptor, nextInChain);
   putchar(',');
@@ -323,6 +373,7 @@ int main (void) {
   putchar(',');
   FIELD(WGPUComputePipelineDescriptor, compute);
   puts("}},");
+
   TYPE(WGPUBindGroupEntry, WGPUBindGroupEntry);
   FIELD(WGPUBindGroupEntry, nextInChain);
   putchar(',');
@@ -338,6 +389,7 @@ int main (void) {
   putchar(',');
   FIELD(WGPUBindGroupEntry, textureView);
   puts("}},");
+
   TYPE(WGPUBindGroupDescriptor, WGPUBindGroupDescriptor);
   FIELD(WGPUBindGroupDescriptor, nextInChain);
   putchar(',');
@@ -349,16 +401,19 @@ int main (void) {
   putchar(',');
   FIELD(WGPUBindGroupDescriptor, entries);
   puts("}},");
+
   TYPE(WGPUCommandEncoderDescriptor, WGPUCommandEncoderDescriptor);
   FIELD(WGPUCommandEncoderDescriptor, nextInChain);
   putchar(',');
   FIELD(WGPUCommandEncoderDescriptor, label);
   puts("}},");
+
   TYPE(WGPUCommandBufferDescriptor, WGPUCommandBufferDescriptor);
   FIELD(WGPUCommandBufferDescriptor, nextInChain);
   putchar(',');
   FIELD(WGPUCommandBufferDescriptor, label);
   puts("}},");
+
   TYPE(WGPUPassTimestampWrites, WGPUPassTimestampWrites);
   FIELD(WGPUPassTimestampWrites, nextInChain);
   putchar(',');
@@ -368,6 +423,7 @@ int main (void) {
   putchar(',');
   FIELD(WGPUPassTimestampWrites, endOfPassWriteIndex);
   puts("}},");
+
   TYPE(WGPUComputePassDescriptor, WGPUComputePassDescriptor);
   FIELD(WGPUComputePassDescriptor, nextInChain);
   putchar(',');
@@ -375,6 +431,7 @@ int main (void) {
   putchar(',');
   FIELD(WGPUComputePassDescriptor, timestampWrites);
   puts("}},");
+
   TYPE(WGPUQuerySetDescriptor, WGPUQuerySetDescriptor);
   FIELD(WGPUQuerySetDescriptor, nextInChain);
   putchar(',');

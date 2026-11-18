@@ -1,5 +1,9 @@
-/* Test fixture for nupp import-c: a small self-contained C header. */
+/* Test fixture for nupp import-c: a small self-contained C header, the one
+ * importctest, buildtest and the import-c documentation use for the ordinary
+ * cases: macro constants, structs, a union, bitfields and functions. */
 
+/* Three macros that evaluate to constants, and one, MINI_SKIP, that names
+ * code and must be skipped rather than imported. */
 #define MINI_MAX 64
 #define MINI_FLAG (1 << 3)
 #define MINI_NAME "mini"
@@ -34,5 +38,5 @@ size_t mini_len (const char *s);
 int mini_printf (const char *fmt, ...);
 struct miniPoint mini_translate (struct miniPoint p, double dx, double dy);
 
-/* function pointer parameter */
+/* A function pointer parameter. */
 void mini_each (void (*fn)(int), int n);

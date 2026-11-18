@@ -1,5 +1,6 @@
 /* Test fixture for nupp import-c: structs whose C layout a rendering that
  * names only their fields would get wrong, beside structs it gets right. */
+
 #ifndef NUPP_LAYOUT_H
 #define NUPP_LAYOUT_H
 

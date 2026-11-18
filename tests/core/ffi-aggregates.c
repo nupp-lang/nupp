@@ -1,9 +1,21 @@
-// The C side of catalog-ffi-aggregates: functions taking and answering
-// structs by value in each of the ways AAPCS64 and Apple pass them. The
-// guest runner builds it with cc into a directory DYLD_LIBRARY_PATH names.
-#include <stdint.h>
+/* The C side of catalog-ffi-aggregates: functions taking and answering
+ * structs by value in each of the ways AAPCS64 and Apple pass them. The
+ * guest runner builds it with cc into a directory DYLD_LIBRARY_PATH names.
+ *
+ * The spill functions fill the argument registers before the struct, so
+ * the struct goes where the ABI puts what no longer fits. Each part of the
+ * answer is weighted by its own power of ten, so a sum read back shows which
+ * argument went missing or arrived in another's place. */
+
 #include <pthread.h>
+#include <stdint.h>
 #include <stdlib.h>
+
+/* What walk_thread answers when its visitor never ran on the thread, and
+ * when the thread could not be started at all. The visitor's own answers
+ * are 0 and 1, so neither can be mistaken for one. */
+#define THREAD_VISIT_NOT_RUN 2
+#define THREAD_NOT_STARTED 3
 
 typedef struct {
   float x, y;
@@ -49,16 +61,18 @@ typedef struct {
   double value;
 } MixedFloat;
 
+/* The shape of libclang's CXCursor: two integers and three pointers. */
 typedef struct {
   int32_t kind, extra;
   void *data[3];
 } Cursor;
 
+/* An integer beside a float, which neither register class holds whole. */
 MixedFloat mixed_float (MixedFloat value, double scale) {
   return (MixedFloat){value.tag + 1, value.value * scale};
 }
 
-// Homogeneous aggregates of floats, in s and d registers both ways.
+/* Homogeneous aggregates of floats, in s and d registers both ways. */
 F2 f2_scale (F2 p, float k) {
   return (F2){p.x * k, p.y * k};
 }
@@ -79,8 +93,8 @@ double d3_sum (D3 d) {
   return d.v[0] + d.v[1] + d.v[2];
 }
 
-// Aggregates of floats past the float registers: on the stack at their
-// members' alignment, the float registers then spent.
+/* Aggregates of floats past the float registers: on the stack at their
+ * members' alignment, the float registers then spent. */
 double d4_spill (double a, double b, double c, double d, double e, double f,
                  D4 r, double tail) {
   return a + b + c + d + e + f + r.a * 10 + r.b * 100 + r.c * 1000 +
@@ -93,7 +107,7 @@ float f3_spill (double a, double b, double c, double d, double e, double f,
          s.z * 1000 + tail * 10000;
 }
 
-// Composites of up to 16 bytes, in x registers both ways.
+/* Composites of up to 16 bytes, in x registers both ways. */
 I2 i2_swap (I2 v) {
   return (I2){v.b, v.a};
 }
@@ -110,18 +124,18 @@ int64_t l12_sum (L12 v) {
   return v.a + v.b;
 }
 
-// A composite past the integer registers: on the stack in whole words, the
-// integer registers then spent.
+/* A composite past the integer registers: on the stack in whole words, the
+ * integer registers then spent. */
 int64_t l12_spill (int64_t a, int64_t b, int64_t c, int64_t d, int64_t e,
                    int64_t f, int64_t g, L12 v, int64_t tail) {
   return a + b + c + d + e + f + g + v.a * 100 + v.b * 1000 + tail * 10000;
 }
 
-// Larger composites: by reference to the caller's copy, and answered
-// through the memory x8 names.
+/* Larger composites: by reference to the caller's copy, and answered
+ * through the memory x8 names. */
 L3 l3_add (L3 x, L3 y) {
   L3 r = {x.a + y.a, x.b + y.b, x.c + y.c};
-  x.a = -1;  // the caller's copy, not the caller's struct
+  x.a = -1; /* the caller's copy, not the caller's struct */
 
   return r;
 }
@@ -136,9 +150,10 @@ L3 l3_make (int64_t a, int64_t b, int64_t c) {
   return (L3){a, b, c};
 }
 
-// A walk that hands each struct it visits to a C visitor by value, which
-// AAPCS64 passes by reference, as libclang's clang_visitChildren does: it
-// stops when the visitor answers 0.
+/* A walk that hands each struct it visits to a C visitor by value, which
+ * AAPCS64 passes by reference, as libclang's clang_visitChildren does: it
+ * stops when the visitor answers 0. Item i's members are i + 1 scaled by 1,
+ * 10 and 100, so the visitor can tell which item it holds. */
 typedef unsigned (*Visitor)(L3 item, L3 parent, void *data);
 
 unsigned walk_l3 (Visitor visit, void *data, int64_t count) {
@@ -155,6 +170,8 @@ unsigned walk_l3 (Visitor visit, void *data, int64_t count) {
   return 1;
 }
 
+/* One visit with a cursor-shaped struct, whose pointers are the small
+ * integers 9, 10 and 11 so the visitor can check each arrived in place. */
 typedef unsigned (*CursorVisitor)(Cursor item, Cursor parent, void *data);
 
 unsigned walk_cursor (CursorVisitor visit, void *data) {
@@ -167,6 +184,7 @@ unsigned walk_cursor (CursorVisitor visit, void *data) {
   return visit(item, parent, data);
 }
 
+/* A visit to make from another thread, and what it answered. */
 typedef struct {
   Visitor visit;
   void *data;
@@ -180,12 +198,14 @@ static void *foreign_thread (void *data) {
   return NULL;
 }
 
+/* Calls the visitor from a thread the guest did not start, which the guest
+ * must refuse rather than run its callback there. */
 unsigned walk_thread (Visitor visit, void *data) {
-  ThreadCall call = {visit, data, 2};
+  ThreadCall call = {visit, data, THREAD_VISIT_NOT_RUN};
   pthread_t thread;
 
   if (pthread_create(&thread, NULL, foreign_thread, &call)) {
-    return 3;
+    return THREAD_NOT_STARTED;
   }
 
   /* Never return stack-owned callback data without quiescence. */
