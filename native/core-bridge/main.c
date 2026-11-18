@@ -26,6 +26,13 @@
 
 #define ARRAY_LENGTH(array) (sizeof(array) / sizeof(*(array)))
 
+/* Bundle code is ARM64 code, so it runs nowhere else. */
+#if defined(__aarch64__) || defined(__arm64__)
+#define HOST_SUPPORTED 1
+#else
+#define HOST_SUPPORTED 0
+#endif
+
 /* Every word the transport reads or writes is a little-endian uint64. */
 enum { WORD_BYTES = 8 };
 
@@ -275,6 +282,7 @@ static int seal_code (unsigned char *code, size_t bytes) {
 }
 
 #ifdef NUPP_CORE_GUARD
+
 /* The guard maps scratch with an inaccessible page on each side and fills it
  * above a high-water mark with CANARY, which must survive the entry, so an
  * entry that strays outside the scratch it declared fails. The mark comes
@@ -369,7 +377,9 @@ static int call_entry (Entry entry, const uint64_t *packet, uint64_t *output,
 
   return 0;
 }
+
 #else
+
 /* Without the guard, scratch is exactly the region the bundle declares. */
 static int scratch_high_water (size_t scratch_bytes, size_t *high_water) {
   *high_water = scratch_bytes;
@@ -407,6 +417,7 @@ static int call_entry (Entry entry, const uint64_t *packet, uint64_t *output,
 
   return 0;
 }
+
 #endif
 
 /* Reads the code and data regions, which must end the file. */
@@ -462,10 +473,10 @@ static int enter (const struct bundle *bundle, const struct regions *regions,
  * entry's status and output words, which the caller frees. */
 static int execute (const char *path, const uint64_t *words, size_t count,
                     uint64_t **answer, size_t *length, uint64_t *status) {
-#if !defined(__aarch64__) && !defined(__arm64__)
+  if (!HOST_SUPPORTED)
+    return error(
+        "standalone bridge requires little-endian ARM64 macOS or Linux");
 
-  return error("standalone bridge requires little-endian ARM64 macOS or Linux");
-#endif
   int result = 1;
   struct bundle bundle = {0};
   struct regions regions = {0};

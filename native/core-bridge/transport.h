@@ -36,4 +36,5 @@ uint64_t nupp_io_cancel (uint64_t ticket);
 
 /* Waits for a job to finish, answers its result, and forgets the ticket. */
 uint64_t nupp_io_settle (uint64_t ticket);
+
 #endif
