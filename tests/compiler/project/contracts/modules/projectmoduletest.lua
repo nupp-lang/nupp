@@ -8,6 +8,68 @@ local compiledRuntimeSources = require("helpers.projectfixture").compiledRuntime
 
 local M = {}
 
+function M.moduleChecksAgainstPartialCycleInterfacesAreCheckedAgain()
+    local files = {
+        ["nupp.lua"] = 'return {include = {"."}}\n',
+        [
+            "m.nupp"
+        ] = [[
+module m
+const d = require("d")
+export const K: integer = 7
+export function f(): integer
+    return K + d.one()
+end
+]],
+        [
+            "d.nupp"
+        ] = [[
+module d
+export function one(): integer
+    return 1
+end
+export function late(): integer
+    const u: any = require("u")
+    return u.g() as integer
+end
+]],
+        ["u.nupp"] = [[
+module u
+const m = require("m")
+export function g(): integer
+    return m.K + m.f()
+end
+]],
+    }
+    local dir = tempProject(files)
+    local env = compilerEnv.new(dir, {cache = false})
+    local root, diagnostics, rootType, rootExports = compilerEnv.checkModuleSource(
+        env,
+        dir .. "/m.nupp",
+        files["m.nupp"]
+    )
+    testAssert.eq(#diagnostics, 0)
+    local partial = assert(env.loaded.u)
+    assert(#partial.compatDiagnostics > 0, "the recursive check sees m before K is declared")
+    local checked, current = compilerEnv.checkModuleSource(env, dir .. "/u.nupp", files["u.nupp"])
+    testAssert.eq(#current, 0, "a runtime compile must check against m's completed interface")
+    assert(checked ~= partial.result, "a check against a partial interface cannot be reused")
+    local again, _, againType, againExports = compilerEnv.checkModuleSource(env, dir .. "/m.nupp", files["m.nupp"])
+    assert(
+        root == again and rootType == againType and rootExports == againExports,
+        "the cycle's root keeps its completed interface"
+    )
+    local reused = compilerEnv.checkModuleSource(env, dir .. "/u.nupp", files["u.nupp"])
+    assert(reused == checked, "the fresh completed check can be reused")
+    local partialParent = env.loaded.d.result
+    local parent, parentDiagnostics = compilerEnv.checkModuleSource(env, dir .. "/d.nupp", files["d.nupp"])
+    testAssert.eq(#parentDiagnostics, 0)
+    assert(parent ~= partialParent, "callers of a partial check must also be checked again")
+    local parentAgain = compilerEnv.checkModuleSource(env, dir .. "/d.nupp", files["d.nupp"])
+    assert(parentAgain == parent, "a caller checked against completed dependencies can be reused")
+    os.execute("rm -rf " .. string.format("%q", dir))
+end
+
 function M.moduleSourceChecksReuseOnlyMatchingSourceAndContext()
     local dir = tempProject({["nupp.lua"] = 'return {include = {"."}}\n'})
     local env = compilerEnv.new(dir, {cache = false})
