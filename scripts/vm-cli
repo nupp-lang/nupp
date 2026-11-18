@@ -433,6 +433,21 @@ def execution_environment(cache=None):
     return env
 
 
+def seed_emit(pair, output, extras, env, what, entry=None, includes=None):
+    """The pinned execution seed lowering these sources. It goes through
+    `scripts/bootstrap-compiler.lua`, as `scripts/bootstrap-compiler` and the
+    fixpoint's first stage do: that hands the seed this checkout's declarations
+    and package namespace reader, without which its checker refuses imports
+    between standard-library roots newer than it is. One path, so the fixpoint
+    proves the one a cold build takes."""
+    runner = pair / "runtime"
+    command = [str(runner), "exec", str(pair / "compiler.image"), "nupp.tools.vm.root", "run",
+               str(ROOT / "scripts/bootstrap-compiler.lua"), "emit", str(ROOT), str(output), extras]
+    if entry:
+        command += [entry, *([includes] if includes else [])]
+    run_step(command, emission_environment(digest(runner), env), what)
+
+
 def build_from(args, out, target, image):
     # Per-module lowering kept between emits (nupp.tools.vm.emitcache).
     cache = None if args.no_cache else (args.cache or out / "emit-cache")
@@ -458,11 +473,8 @@ def build_from(args, out, target, image):
             seed = "image"
     if seed == "image":
         pair = execution_seed()
-        seed_image = pair / "compiler.image"
         runner = pair / "runtime"
-        run_step([str(runner), "run", str(seed_image), "nupp.tools.vm.project", "emit", str(ROOT),
-                  "nupp.tools.vm.root", root_extras(), "--output", str(image)],
-                 emission_environment(digest(runner), execution_environment(cache)), "seed root emit")
+        seed_emit(pair, image, root_extras(), execution_environment(cache), "seed root emit")
         # A pinned image is an older compiler: what it lowers is these sources
         # as its lowerer spells them. One more pass lowers them with their own
         # lowerer, which is the image the fixpoint verifies.
@@ -567,7 +579,8 @@ def lowering_image(out, target, cache):
         if installed:
             print("vm-cli: installed compiler cannot emit this lowering; using the verified execution seed",
                   file=sys.stderr)
-        emit(execution_seed(), execution_environment(cache))
+        seed_emit(execution_seed(), image, LOWERING_EXTRAS, execution_environment(cache),
+                  "seed emit of the lowering image", "nupp.compiler.clif.lower", "src")
     if not image.is_file():
         raise ValueError("the lowering image was not written")
     return image

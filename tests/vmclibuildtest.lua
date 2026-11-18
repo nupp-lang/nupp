@@ -35,6 +35,14 @@ case "$command" in
     exec)
         image=$1
         shift 2
+        # The seed lowering through `scripts/bootstrap-compiler.lua`:
+        # `run SCRIPT emit ROOT OUTPUT EXTRAS [ENTRY [INCLUDES]]`.
+        if [ "$1" = run ] && [ "${2##*/}" = bootstrap-compiler.lua ]; then
+            printf 'bootstrap by=%s entry=%s\n' "$image" "${7:-nupp.tools.vm.root}" >> emits.log
+            read=$(cksum < src/compiler.nupp | cut -d ' ' -f 1)
+            printf 'image %s\nnupp.tools.vm.root\n' "$read" > "$5"
+            exit 0
+        fi
         case " $* " in *" --help "*) echo "Usage: fixture root CLI"; exit 0 ;; esac
         printf 'RAN %s %s\n' "$(head -n 1 "$image")" "$*"
         ;;
@@ -251,6 +259,30 @@ function M.theNewestGenerationLowersEveryRebuild()
     end
     assert(readFile(dir .. "/.nupp/vm-cli/emitter") == nil, "a pin was left behind")
     assert(io.open(legacy) == nil, "the per-image cache trees were kept")
+    remove(dir)
+end
+
+-- The stage zero lowers a cold build the way the fixpoint's first stage does,
+-- through `scripts/bootstrap-compiler.lua`, which hands the seed the checkout's
+-- declarations and namespace reader; run bare, the seed's checker refuses
+-- imports between standard roots newer than it is. What it lowered then lowers
+-- these sources once more.
+function M.theStageZeroLowersThroughTheBootstrapScript()
+    local dir = plantedTree()
+    local status, out = run(dir, "python3 scripts/vm-cli build --seed image --no-aot")
+    assert(status == 0, out)
+    local lines = emits(dir)
+    assert(
+        lines[1] == "bootstrap by=" .. dir .. "/seed/compiler.image entry=nupp.tools.vm.root",
+        "the stage zero was not run through the bootstrap script: " .. table.concat(lines, "\n")
+    )
+    assert(
+        (lines[2] or ""):match("^emit by=" .. (dir .. "/build/vm-cli/stage1.image"):gsub("%p", "%%%0") .. " "),
+        "what the stage zero lowered did not lower these sources again: " .. table.concat(lines, "\n")
+    )
+    for _, line in ipairs(lines) do
+        assert(not line:find("emit by=" .. dir .. "/seed/", 1, true), "the seed ran bare: " .. line)
+    end
     remove(dir)
 end
 

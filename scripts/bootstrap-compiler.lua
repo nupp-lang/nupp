@@ -74,7 +74,11 @@ function bootstrap.reader(root)
     return #image
 end
 
-function bootstrap.emit(root, output, additions)
+-- Every emit the seed runs goes through here, whatever it lowers: the seed's
+-- own checker, without the checkout's declarations and namespace reader,
+-- refuses imports between standard roots it predates. `entry` defaults to the
+-- root CLI, and `includes` names explicit source roots (`project.emit`).
+function bootstrap.emit(root, output, additions, entry, includes)
     local modules = additions or extras(root)
     local manifest = assert(loadfile(root .. "/nupp.lua"))()
     local generated = require("nupp.compiler.vm.resources").source(root, manifest)
@@ -103,14 +107,14 @@ function bootstrap.emit(root, output, additions)
     )
     io.stderr:write("bootstrap declarations: ", tostring(count), " source resources\n")
     io.stderr:write("bootstrap namespace reader: ", tostring(bootstrap.reader(root)), " bytes\n")
-    local image = require("nupp.tools.vm.project").emit(root, "nupp.tools.vm.root", modules)
+    local image = require("nupp.tools.vm.project").emit(root, entry or "nupp.tools.vm.root", modules, includes)
     local file = assert(io.open(output, "wb"))
     file:write(image)
     file:close()
 end
 
 if arg and arg[1] == "emit" then
-    bootstrap.emit(assert(arg[2]), assert(arg[3]), arg[4])
+    bootstrap.emit(assert(arg[2]), assert(arg[3]), arg[4], arg[5], arg[6])
 end
 
 return bootstrap
