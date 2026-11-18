@@ -1,0 +1,92 @@
+@!internal
+module nupp.runtime.provider.markdownlibrary
+
+-- The checkout renderer loads a separately provisioned C library, named by
+-- `NUPP_MARKDOWN_LIBRARY` or handed to `open`. The core substitutes its
+-- direct, checked C provider for this module.
+const native = require("nupp.vm.foreign")
+const textcodec = require("nupp.runtime.provider.markdowntext")
+const MESSAGE = "HTML site generation is unavailable without a Markdown library. Use --kind markdown or --kind json, or set NUPP_MARKDOWN_LIBRARY to the library's path."
+
+local loaded: any = nil
+local opened: string? = nil
+
+local function location(): string?
+    if opened ~= nil then
+        return opened
+    end
+    local path = os.getenv("NUPP_MARKDOWN_LIBRARY")
+
+    return path ~= "" and path or nil
+end
+
+--- Names the library to load when `NUPP_MARKDOWN_LIBRARY` does not.
+export function open(path: string): nil
+    opened = path
+end
+
+export function available(): boolean
+    return location() ~= nil
+end
+
+local function library(): any
+    if loaded == nil then
+        local handle = native.load(assert(location()))
+        local revision = native.bind(handle, "nupp_markdown_revision", {params = {}, result = "pointer"})
+        assert(
+            native.string(revision()) == "27d942c8b0a62d192f616e5bf3578f4b6a89e180/definition-list-1",
+            "Markdown header/library mismatch"
+        )
+        loaded = {
+            new = native.bind(handle, "nupp_markdown_new", {
+                params = {},
+                result = "pointer"
+            }),
+            render = native.bind(handle, "nupp_markdown_render", {
+                params = {"pointer", {kind = "pointer", readonly = true}, "uint64", "uint64"},
+                result = "int32"
+            }),
+            text = native.bind(handle, "nupp_markdown_text", {params = {"pointer"}, result = "pointer"}),
+            size = native.bind(handle, "nupp_markdown_size", {params = {"pointer"}, result = "uint64"}),
+            free = native.bind(handle, "nupp_markdown_free", {params = {"pointer"}, result = "void"})
+        }
+    end
+
+    return loaded
+end
+
+export function render(text: string): (string?, string?)
+    if not available() then
+        return nil, MESSAGE
+    end
+    if type(text) ~= "string" then
+        error("bad argument #1 to 'render' (string expected, got " .. type(text) .. ")", 2)
+    end
+    assert(#text <= 8388608, "Markdown input exceeds 8 MiB")
+    local decoded = textcodec.lossy(text)
+    assert(#decoded <= 8388608, "Markdown decoded input exceeds 8 MiB")
+    local calls = library()
+    local document = assert(calls.new(), "Markdown allocation failed")
+    local ok, result = pcall(function()
+        assert(
+            calls.render(document, decoded, #decoded, 134217728) == 0,
+            "Markdown resource limit or allocation failure"
+        )
+        local size = assert(math.tointeger(tonumber(calls.size(document))))
+        assert(size <= 33554432, "Markdown output exceeds 32 MiB")
+        local output = assert(calls.text(document), "Markdown output is missing")
+        local copied = native.string(output, size)
+        native.close(output)
+
+        return copied
+    end)
+    calls.free(document)
+    native.close(document)
+    if not ok then
+        error(result, 0)
+    end
+
+    return result
+end
+
+export const unavailable = MESSAGE

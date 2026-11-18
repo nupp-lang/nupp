@@ -8,7 +8,7 @@ module nupp.core.catalogclihosts
 local hash = require("nupp.compiler.hash")
 local nativehash = require("nupp.compiler.nativehash")
 local clock = require("nupp.runtime.provider.wallclock")
-local markdown = require("nupp.tools.doc.markdownhost")
+local markdown = require("nupp.runtime.provider.markdownlibrary")
 local cdecl = require("nupp.compiler.cinterop.cdecl")
 
 local score = 0

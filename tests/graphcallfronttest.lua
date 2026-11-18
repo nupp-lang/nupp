@@ -674,7 +674,7 @@ function M.coreClocksUseTheSharedTimerProvider()
 end
 
 function M.coreMarkdownUsesTheCheckedRuntimeProvider()
-    assert(graph.coremodule("nupp.tools.doc.markdownhost") == "nupp.runtime.provider.coremarkdown")
+    assert(graph.coremodule("nupp.runtime.provider.markdownlibrary") == "nupp.runtime.provider.coremarkdown")
     -- Executed by the standalone-core markdown case, including its C owner.
 end
 

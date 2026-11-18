@@ -30,6 +30,10 @@ local record Document is own.Closeable
     end
 end
 
+--- The core carries its library as a sidecar, so there is nothing to name.
+export function open(_path: string): nil
+end
+
 export function available(): boolean
     return true
 end

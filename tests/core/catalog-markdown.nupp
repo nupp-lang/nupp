@@ -1,6 +1,6 @@
 module nupp.core.catalogmarkdown
 
-const markdown = require("nupp.tools.doc.markdownhost")
+const markdown = require("nupp.runtime.provider.markdownlibrary")
 const codec = require("nupp.runtime.provider.markdowntext")
 
 assert(markdown.render("# Title\n") == "<h1>Title</h1>\n")
