@@ -251,6 +251,30 @@ function M.theNativeCoreSelectsWhatNativeCodeDoes()
     })
 end
 
+-- The core's guest and unit regression step (acceptance.nupp --ci) follows
+-- what the core runs and how its programs are lowered, and nothing else.
+function M.theCoreSurfaceNamesWhatTheCoreRegressionStepRuns()
+    for _, path in ipairs({
+        "src/nupp/runtime/core/frames.nupp",
+        "src/nupp/core/guestbuild.nupp",
+        "src/nupp/compiler/vm/programgraph.nupp",
+        "src/nupp/compiler/s0/select.nupp",
+        "tests/core/guests/inventory.json",
+        "tests/core/units/run.lua"
+    }) do
+        local selection = classifier().classify({path})
+        test(selection.surfaces.core, path .. " should reach the core surface")
+        test(selection.jobs["macos-integration"], path .. " should select macos-integration")
+    end
+    for _, path in ipairs({
+        "src/nupp/compiler/check/callexpr.nupp",
+        "src/nupp/runtime/scheduler.nupp",
+        "tests/tools/lsp/lsptest.lua"
+    }) do
+        test(not classifier().classify({path}).surfaces.core, path .. " should not reach the core surface")
+    end
+end
+
 function M.packagingChangeSelectsEveryPlatform()
     selects("templates/library/nupp.lua", {"linux-integration", "macos-integration", "windows-integration"})
 end

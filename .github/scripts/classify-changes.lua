@@ -92,6 +92,14 @@ local rules = {
     -- runtime units the core runs, so it reaches what core runtime code does.
     {"^src/nupp/core/", {"native"}},
     {"^src/nupp/io/", {"library", "native"}},
+    -- What the native core runs and how its programs are lowered and selected:
+    -- the core's guests and units run against their inventoried baseline
+    -- (tests/core/guests/acceptance.nupp) when any of it changes.
+    {"^src/nupp/runtime/core/", {"core"}},
+    {"^src/nupp/core/", {"core"}},
+    {"^src/nupp/compiler/vm/", {"core"}},
+    {"^src/nupp/compiler/s0/", {"core"}},
+    {"^tests/core/", {"core"}},
     -- The host facility's browser and native providers both implement it.
     {"^src/os/host%.nupp$", {"library", "browser", "native"}},
     {"^src/math/random%.nupp$", {"library", "browser"}},
@@ -254,6 +262,12 @@ function classifier.classify(paths)
         local why = "shared compiler, runtime, packaging or test code changed"
         select(jobs, "macos-integration", why, reasons)
         select(jobs, "windows-integration", why, reasons)
+    end
+    -- The core's regression step runs only on macOS ARM64, the one target the
+    -- core runs on before the flip; the macOS leg composer adds it when the
+    -- selection names the `core` surface.
+    if surfaces.core then
+        select(jobs, "macos-integration", "the native core or its lowering changed", reasons)
     end
 
     if surfaces.compiler or surfaces.aot or surfaces.library or surfaces.native then
