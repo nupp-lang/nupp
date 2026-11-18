@@ -297,6 +297,50 @@ function M.environmentsInOneProcessShareHeadersByContent()
     os.execute("rm -rf '" .. dir .. "'")
 end
 
+-- Environments that keep no stores share the modules they check when everything a
+-- check reads is the same: a suite making one per case otherwise checked every runtime
+-- module its fixture required again in each. An edit to a project file is a new
+-- family, so the module is checked again and answers with the edit.
+function M.environmentsThatKeepNoStoresShareCheckedModules()
+    local dir = tempProject({
+        ["nupp.lua"] = 'return { include = { "src" } }\n',
+        ["src/dep.nupp"] = "module dep\n\nexport function value(): integer return 1 end\n",
+    })
+    local checkMod = require("nupp.compiler.check")
+    local function resolve()
+        local env = envMod.new(dir, {cache = false})
+        local original = checkMod.check
+        local checks = 0
+        checkMod.check = function(parsed, path, ...)
+            if tostring(path):match("/src/dep%.nupp$") then
+                checks = checks + 1
+            end
+            return original(parsed, path, ...)
+        end
+        local ok, exports = pcall(envMod.resolveModuleExports, env, "dep")
+        checkMod.check = original
+        assert(ok, tostring(exports))
+        return checks, exports
+    end
+
+    local firstChecks, first = resolve()
+    assert(firstChecks == 1, "the first environment checks the module")
+    local secondChecks, second = resolve()
+    assert(secondChecks == 0, "the second environment checked it again")
+    assert(second == first, "and shares the first one's answer")
+
+    local file = assert(io.open(dir .. "/src/dep.nupp", "wb"))
+    file:write("module dep\n\nexport function value(): string return 'one' end\n")
+    file:close()
+    local thirdChecks, third = resolve()
+    assert(thirdChecks == 1 and third ~= first, "an edited module is checked again")
+    assert(
+        tostring(third.values.value) ~= tostring(first.values.value),
+        "and answers with the edit: " .. tostring(third.values.value)
+    )
+    os.execute("rm -rf '" .. dir .. "'")
+end
+
 -- Content-keyed stores move; the build state does not.
 function M.namedCacheDirectoryHoldsTheStoresThatAnswerAboutContent()
     local dir = tempProject({
