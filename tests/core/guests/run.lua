@@ -1100,10 +1100,10 @@ local function check(ok, label)
     return ok
 end
 
--- The bridge and its ABI/scratch guard, built once with cargo.
+-- The C bridge and its ABI/scratch guard, built once with its contract tests.
 local function tools(selectedCases)
-    -- Kernel FFI imports are artifact-relative on both transports. Stage the
-    -- verified upstream sidecar before any jobs/shards start, with its notice.
+    -- Kernel FFI imports are artifact-relative. Stage the verified upstream
+    -- sidecar before any jobs/shards start, with its notice.
     local provisionStatus, provisionOutput = shell("sh " .. quote(ROOT .. "/scripts/native-libraries") .. " libffi")
     assert(provisionStatus == 0, "libffi provisioning failed: " .. provisionOutput)
     local ffiPrefix = assert(provisionOutput:match("([^\r\n]+)\r?\n?$"), "libffi provisioning returned no path")
@@ -1172,36 +1172,11 @@ local function tools(selectedCases)
         )
         assert(status == 0, "Markdown provider staging failed: " .. output)
     end
-    local transport = os.getenv("NUPP_CORE_TRANSPORT") or "rust"
-    if transport == "c" then
-        local status, output = shell("sh " .. quote(ROOT .. "/scripts/core-bridge") .. " --test")
-        assert(status == 0, "C bridge contract build failed: " .. output)
-        local prefix = assert(output:match("([^\r\n]+)\r?\n?$"), "C bridge build returned no path")
-        return prefix .. "/nupp-core", prefix .. "/nupp-core-guard"
-    end
-    assert(transport == "rust", "unknown core transport: " .. transport)
-    local target = ROOT .. "/build/core-bridge"
-    local manifest = quote(ROOT .. "/native/crates/core-bridge/Cargo.toml")
-    local status, output = shell(
-        (
-            "cargo +stable build --manifest-path %s --offline --locked --bin nupp-core --target-dir %s"
-        ):format(manifest, quote(target))
-    )
-    assert(status == 0, "bridge build failed: " .. output)
-    status, output = shell(
-        (
-            "cargo +stable test --manifest-path %s --offline --locked --no-run --message-format=json --target-dir %s"
-        ):format(manifest, quote(target))
-    )
-    assert(status == 0, "guard build failed: " .. output)
-    local guard
-    for line in output:gmatch("[^\n]+") do
-        if line:find('"profile":{[^}]*"test":true') and line:find('"executable":"') then
-            guard = line:match('"executable":"([^"]+)"')
-        end
-    end
+    local status, output = shell("sh " .. quote(ROOT .. "/scripts/core-bridge") .. " --test")
+    assert(status == 0, "C bridge contract build failed: " .. output)
+    local prefix = assert(output:match("([^\r\n]+)\r?\n?$"), "C bridge build returned no path")
 
-    return target .. "/debug/nupp-core", assert(guard, "guard test executable not found")
+    return prefix .. "/nupp-core", prefix .. "/nupp-core-guard"
 end
 
 -- Stage the source snapshots the closed guest builds read: the canonical core

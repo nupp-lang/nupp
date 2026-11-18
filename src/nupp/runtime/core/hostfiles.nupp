@@ -129,7 +129,7 @@ local function permissionsOf(flags: uint64): int64
 end
 
 -- A pool open job's word for filecalls' `flags`
--- (native/crates/core-bridge/src/pool.rs): the C open flags, the mode above MODE_SHIFT;
+-- (native/core-bridge/io.c): the C open flags, the mode above MODE_SHIFT;
 -- -1 for flags open refuses.
 export function poolFlags(flags: uint64): int64
     local mode = openFlags(flags)

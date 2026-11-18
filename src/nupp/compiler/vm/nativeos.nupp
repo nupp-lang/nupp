@@ -67,7 +67,7 @@ export function importCount(): integer
 end
 
 -- How many symbols and libraries one program's foreign calls may resolve: the words of
--- the bridge's table (`SLOTS` in native/crates/core-bridge/src/library.rs).
+-- the bridge's table (`symbols` in native/core-bridge/main.c).
 const FOREIGN_SLOTS: integer = 1024
 
 export function foreignSlots(): integer

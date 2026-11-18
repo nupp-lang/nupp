@@ -6,7 +6,8 @@
 --
 -- `run.lua generate` rewrites the generated runtime files from their generators.
 --
--- NUPP_CORE_BRIDGE selects a prebuilt bridge; otherwise cargo builds one.
+-- NUPP_CORE_BRIDGE selects a prebuilt bridge; otherwise scripts/core-bridge
+-- builds one.
 local runner = require("nupp.core.unitrunner")
 local sharedcache = require("nupp.core.sharedcache")
 local kernelcompiler = require("nupp.core.kernelcompiler")
@@ -78,15 +79,10 @@ local function bridge()
     if given then
         return given
     end
-    local target = ROOT .. "/build/core-bridge"
-    local status, output = shell(
-        (
-            "cargo +stable build --manifest-path %s --offline --locked --bin nupp-core --target-dir %s"
-        ):format(quote(ROOT .. "/native/crates/core-bridge/Cargo.toml"), quote(target))
-    )
+    local status, output = shell("sh " .. quote(ROOT .. "/scripts/core-bridge"))
     assert(status == 0, "bridge build failed: " .. output)
 
-    return target .. "/debug/nupp-core"
+    return assert(output:match("([^\r\n]+)\r?\n?$"), "bridge build returned no path") .. "/nupp-core"
 end
 
 -- Each unit: its fixture modules, the dispatched functions with their arity,

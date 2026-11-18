@@ -622,7 +622,7 @@ import contextlib, io, json, runpy, subprocess
 from pathlib import Path
 from types import SimpleNamespace
 root = Path.cwd()
-CORE = ('src/nupp/runtime/core/', 'src/nupp/core/', 'native/crates/core-bridge/')
+CORE = ('src/nupp/runtime/core/', 'src/nupp/core/', 'native/core-bridge/')
 fixtures = {
     'src/runtime-input.nupp': 'runtime source',
     'native/crates/vm/src/input.rs': 'Rust glue',

@@ -231,7 +231,7 @@ function M.theNativeCoreSelectsWhatNativeCodeDoes()
     for _, path in ipairs({
         "src/nupp/runtime/core/frames.nupp",
         "src/nupp/core/guestbuild.nupp",
-        "native/crates/core-bridge/src/main.rs"
+        "native/core-bridge/main.c"
     }) do
         selects(path, {
             "fast-checks",

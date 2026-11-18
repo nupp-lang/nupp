@@ -37,10 +37,10 @@
 -- The VM runs the source through `bin/nupp run`, the CLI's linked runtime:
 -- an interpreter with no JIT compiled in, so NO_JIT changes nothing there.
 -- The core bundles come from the guest runner (`run.lua benchworkloads
--- workloadLoops` in ../guests); the bridge from its cargo build.
+-- workloadLoops` in ../guests); the bridge from scripts/core-bridge.
 local HERE = debug.getinfo(1, "S").source:match("^@(/.*)/[^/]*$")
 local ROOT = os.getenv("NUPP_COMPILER_ROOT") or (HERE and HERE .. "/../../..") or "../../.."
-local BRIDGE = os.getenv("NUPP_CORE_BRIDGE") or ROOT .. "/build/core-bridge/debug/nupp-core"
+local BRIDGE = os.getenv("NUPP_CORE_BRIDGE") or ROOT .. "/build/c-core-bridge/nupp-core"
 local SOURCE = ROOT .. "/bench/vm/workloads.bench.nupp"
 local CASES = {"fib", "closures", "records", "tables", "strings", "loops"}
 
