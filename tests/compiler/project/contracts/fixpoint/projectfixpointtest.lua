@@ -184,21 +184,59 @@ function M.coreFixpointRefusesACoreSeedThatRanOnTheRustVm()
     assert(tostring(found.reason):find("^stage 1 ran on the Rust VM: ") ~= nil, tostring(found.reason))
 end
 
--- Until compilerselfbuild produces a core compiler image, the compiler's own
--- recipe stops before building anything and says what is missing.
-function M.compilerRecipeWaitsForTheSelfBuildSwitch()
+-- The compiler's own recipe builds every stage with scripts/core-self-build,
+-- whose switch names the command that emits the compiler as a core bundle.
+function M.compilerRecipeBuildsWithTheSelfBuildSwitch()
     local root = require("helpers.paths").absoluteTests .. "/.."
-    local script = assert(read(root .. "/scripts/core-self-build"))
-    if not script:find("\nSELF_BUILD=''\n", 1, true) then
-        return
-    end
     local dir = tempProject({["manifest.json"] = '{\n  "format": "nupp-core-seed-1",\n}\n'})
     local recipe = corefixpoint.compilerRecipe(root, dir, "/bin/echo")
-    local found = corefixpoint.runCore(root, dir .. "/out", quiet, recipe)
     remove(dir)
     testAssert.eq(recipe.seedRuntime, "core", "the seed's runtime is read from its manifest")
-    assert(not found.ok, "the core fixpoint does not run without the switch")
-    assert(tostring(found.reason):find("SELF_BUILD", 1, true), tostring(found.reason))
+    testAssert.eq(recipe.ready(), nil, "the switch is set")
+    local command = recipe.command("/core", "/compiler.bundle", "/stage")
+    testAssert.eq(command[1], "sh", "a stage runs through the script")
+    assert(command[2]:match("/scripts/core%-self%-build$"), tostring(command[2]))
+    testAssert.eq(
+        table.concat(command, " ", 3),
+        "core /core /compiler.bundle /stage",
+        "a stage runs the previous compiler on the core"
+    )
+end
+
+-- scripts/core-self-build runs the compiler on the core with the switch's
+-- arguments, and names that pair for the child compilers it starts.
+function M.coreSelfBuildRunsTheSwitchOnTheCorePair()
+    if package.config:sub(1, 1) == "\\" then
+        return
+    end
+    local root = require("helpers.paths").absoluteTests .. "/.."
+    local dir = tempProject({})
+    local runtime = dir .. "/nupp-core"
+    write(
+        runtime,
+        table.concat({
+            "#!/bin/sh",
+            ("printf '%%s\\n' \"$@\" > '%s/arguments'"):format(dir),
+            ("printf '%%s\\n' \"$NUPP_CORE_RUNTIME\" \"$NUPP_CORE_COMPILER\" > '%s/pair'"):format(dir),
+            "",
+        }, "\n")
+    )
+    process.run({"chmod", "755", runtime})
+    local status = process.run(
+        {"sh", root .. "/scripts/core-self-build", "core", "nupp-core", "compiler.bundle", "out"},
+        {cwd = dir}
+    )
+    local arguments, pair = read(dir .. "/arguments"), read(dir .. "/pair")
+    remove(dir)
+    testAssert.eq(status, 0, "the stand-in core ran")
+    assert(
+        tostring(arguments):match("^/[^\n]*/compiler%.bundle\n/dev/null\n/dev/null\n__core%-compiler\nout\n$"),
+        "the compiler emits itself into the stage's directory: " .. tostring(arguments)
+    )
+    assert(
+        tostring(pair):match("^/[^\n]*/nupp%-core\n/[^\n]*/compiler%.bundle\n$"),
+        "children run on the same pair, named from the root: " .. tostring(pair)
+    )
 end
 
 -- A compiler on the core starts a child compiler, a checkout's bin/nupp, on

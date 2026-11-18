@@ -21,7 +21,7 @@ ROOT=$(CDPATH= cd -- "$(dirname "$0")/.." && pwd)
 # (`nupp.tools.vm.corecompiler`). Setting it is the one step that moves `nupp
 # fixpoint --runtime core`, the seed package and a flipped bin/nupp from their
 # small-input fixtures to the real compiler.
-SELF_BUILD=''
+SELF_BUILD='__core-compiler'
 
 # `$1` from the root of the file system.
 absolute() {
