@@ -27,6 +27,11 @@ compression = ["dep:nupp-native-compression"]
 net = ["dep:nupp-native-net", "dep:nupp-native-tls", "dep:ring"]
 http = ["dep:nupp-native-http", "dep:url"]
 markdown = ["dep:pulldown-cmark"]
+# Retired: links nothing. A compiler generation built before the regex
+# facility was removed still names it when it rebuilds its successor, and
+# without the feature that rebuild fails and the old generation keeps
+# running. Remove once the stage-zero pin has moved past the removal.
+regex = []
 # Optional in-process C declaration inspection for compiler hosts.
 c-headers = ["dep:libloading", "dep:serde_json"]
 # Dynamic native C calls and callback trampolines.
