@@ -149,9 +149,9 @@ typedef struct nupp_resource_type {
 
 typedef struct nupp_extension {
   uint32_t abi_version; /* NUPP_EXTENSION_ABI_VERSION */
-  uint32_t size;        /* sizeof(nupp_extension) */
-  const char *module;   /* the module name `require` loads */
-  const char *target;   /* NUPP_EXTENSION_TARGET */
+  uint32_t size; /* sizeof(nupp_extension) */
+  const char *module; /* the module name `require` loads */
+  const char *target; /* NUPP_EXTENSION_TARGET */
   const nupp_function_entry *functions;
   size_t function_count;
   const nupp_resource_type *resource_types;

@@ -9,23 +9,24 @@
 #endif
 
 #ifdef _WIN32
-static DWORD WINAPI concurrent(LPVOID unused)
+static DWORD WINAPI concurrent (LPVOID unused)
 #else
-static void *concurrent(void *unused)
+static void *concurrent (void *unused)
 #endif
 {
   (void)unused;
+
   for (int i = 0; i < 16; i++) {
     nupp_markdown *doc = nupp_markdown_new();
     assert(doc && nupp_markdown_render(doc, "# Thread", 8, 65536) == 0);
     assert(!strcmp(nupp_markdown_text(doc), "<h1>Thread</h1>\n"));
     nupp_markdown_free(doc);
   }
+
   return 0;
 }
 
-int main(void)
-{
+int main (void) {
   assert(!strcmp(nupp_markdown_revision(),
                  "27d942c8b0a62d192f616e5bf3578f4b6a89e180/definition-list-1"));
 
@@ -34,13 +35,16 @@ int main(void)
     assert(doc);
     int status =
         nupp_markdown_render(doc, "Term\n: first\n\n    - child\n", 25, budget);
+
     if (status) {
       assert(status == -1);
       assert(!nupp_markdown_text(doc));
       assert(!nupp_markdown_size(doc));
-    } else {
+    }
+    else {
       assert(nupp_markdown_text(doc));
     }
+
     assert(nupp_markdown_render(doc, "x", 1, 65536) == -3);
     nupp_markdown_free(doc);
   }
@@ -82,5 +86,6 @@ int main(void)
 #endif
 
   puts("Markdown ownership/resource checks passed");
+
   return 0;
 }

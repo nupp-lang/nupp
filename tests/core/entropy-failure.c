@@ -11,14 +11,16 @@
 #define GUARDED 64
 #define WRITTEN 17
 
-int getentropy(void *buffer, size_t size)
-{
+int getentropy (void *buffer, size_t size) {
   if (size == GUARDED) {
     memset(buffer, 0xA5, WRITTEN);
     errno = EACCES;
+
     return -1;
   }
+
   int (*real)(void *, size_t) =
       (int (*)(void *, size_t))dlsym(RTLD_NEXT, "getentropy");
+
   return real(buffer, size);
 }

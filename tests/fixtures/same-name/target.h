@@ -1,1 +1,1 @@
-int included_same_name(void);
+int included_same_name (void);

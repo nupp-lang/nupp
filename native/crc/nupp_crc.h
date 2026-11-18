@@ -11,9 +11,9 @@ extern "C" {
  * words covers two writable uint64_t, disjoint from data's length bytes.
  * NULL data is allowed only for an empty update. Invalid calls change nothing.
  */
-int32_t nuppCrcUpdate(uint32_t id, int32_t reset, uint64_t words[2],
-                      const uint8_t *data, size_t length);
-const char *nuppCrcLastError(void);
+int32_t nuppCrcUpdate (uint32_t id, int32_t reset, uint64_t words[2],
+                       const uint8_t *data, size_t length);
+const char *nuppCrcLastError (void);
 #ifdef __cplusplus
 }
 #endif

@@ -17,54 +17,54 @@ enum algorithm {
 
 /* What each algorithm XORs into its register to finish a checksum. It is also
  * each one's initial register. */
-static uint64_t final_xor(enum algorithm id)
-{
+static uint64_t final_xor (enum algorithm id) {
   switch (id) {
-  case CRC32_IEEE:
-  case CRC32_CASTAGNOLI:
-    return UINT32_MAX;
-  case CRC64_ECMA_182:
-    return 0;
-  case CRC64_NVME:
-    break;
+    case CRC32_IEEE:
+    case CRC32_CASTAGNOLI:
+      return UINT32_MAX;
+    case CRC64_ECMA_182:
+      return 0;
+    case CRC64_NVME:
+      break;
   }
+
   return UINT64_MAX;
 }
 
-static int valid(uint32_t id, int32_t reset, const uint64_t *words,
-                 const uint8_t *data, size_t length)
-{
+static int valid (uint32_t id, int32_t reset, const uint64_t *words,
+                  const uint8_t *data, size_t length) {
   /* NULL data is valid at this boundary for an empty update only. */
   return id >= CRC32_IEEE && id <= CRC64_NVME && (reset == 0 || reset == 1) &&
          words && length <= PTRDIFF_MAX && (data || !length);
 }
 
 /* Continues the raw register over count bytes. */
-static uint64_t update(enum algorithm id, uint64_t state, const uint8_t *data,
-                       int count)
-{
+static uint64_t update (enum algorithm id, uint64_t state, const uint8_t *data,
+                        int count) {
   switch (id) {
-  case CRC32_IEEE:
-    return crc32_gzip_refl((uint32_t)state ^ UINT32_MAX, data, count) ^
-           UINT32_MAX;
-  case CRC32_CASTAGNOLI:
-    return crc32_iscsi((unsigned char *)data, count, (uint32_t)state);
-  /* ISA-L's normal ECMA complements both its seed and its result. */
-  case CRC64_ECMA_182:
-    return ~crc64_ecma_norm(~state, data, count);
-  case CRC64_NVME:
-    return ~crc64_rocksoft_refl(~state, data, count);
+    case CRC32_IEEE:
+      return crc32_gzip_refl((uint32_t)state ^ UINT32_MAX, data, count) ^
+             UINT32_MAX;
+    case CRC32_CASTAGNOLI:
+      return crc32_iscsi((unsigned char *)data, count, (uint32_t)state);
+    /* ISA-L's normal ECMA complements both its seed and its result. */
+    case CRC64_ECMA_182:
+      return ~crc64_ecma_norm(~state, data, count);
+    case CRC64_NVME:
+      return ~crc64_rocksoft_refl(~state, data, count);
   }
+
   return state;
 }
 
-int32_t nuppCrcUpdate(uint32_t id, int32_t reset, uint64_t words[2],
-                      const uint8_t *data, size_t length)
-{
+int32_t nuppCrcUpdate (uint32_t id, int32_t reset, uint64_t words[2],
+                       const uint8_t *data, size_t length) {
   if (!valid(id, reset, words, data, length))
     return 1;
+
   const uint64_t xorout = final_xor(id);
   uint64_t state = reset ? xorout : words[0];
+
   /* iSCSI takes a signed int length, so feed every algorithm at most
    * INT_MAX bytes at a time. An empty update never reaches ISA-L. */
   while (length) {
@@ -73,12 +73,13 @@ int32_t nuppCrcUpdate(uint32_t id, int32_t reset, uint64_t words[2],
     data += count;
     length -= count;
   }
+
   words[0] = state;
   words[1] = state ^ xorout;
+
   return 0;
 }
 
-const char *nuppCrcLastError(void)
-{
+const char *nuppCrcLastError (void) {
   return "invalid CRC algorithm, input, or state";
 }

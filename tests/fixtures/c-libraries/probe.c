@@ -11,20 +11,21 @@
 #include <openssl/ssl.h>
 #include <curl/curl.h>
 
-static void hexadecimal(const unsigned char *bytes, size_t size, char *out)
-{
+static void hexadecimal (const unsigned char *bytes, size_t size, char *out) {
   static const char digits[] = "0123456789abcdef";
+
   for (size_t i = 0; i < size; ++i) {
     out[i * 2] = digits[bytes[i] >> 4];
     out[i * 2 + 1] = digits[bytes[i] & 15];
   }
+
   out[size * 2] = 0;
 }
 
-static void codecs(void)
-{
+static void codecs (void) {
   static const unsigned char input[] = "native codec\0binary\xffnative codec";
   const int windows[] = {31, 15, -15};
+
   for (unsigned i = 0; i < 3; ++i) {
     unsigned char compressed[256], output[256];
     z_stream encode = {0}, decode = {0};
@@ -46,6 +47,7 @@ static void codecs(void)
     assert(decode.total_out == sizeof(input) &&
            !memcmp(input, output, sizeof(input)));
     assert(inflateEnd(&decode) == Z_OK);
+
     if (i < 2) {
       compressed[size - 1] ^= 1;
       memset(&decode, 0, sizeof(decode));
@@ -60,8 +62,7 @@ static void codecs(void)
   }
 }
 
-static void cryptography(void)
-{
+static void cryptography (void) {
   unsigned char output[EVP_MAX_MD_SIZE];
   unsigned size = 0;
   char hex[EVP_MAX_MD_SIZE * 2 + 1];
@@ -82,8 +83,7 @@ static void cryptography(void)
   SSL_CTX_free(context);
 }
 
-int main(void)
-{
+int main (void) {
 #if defined(__APPLE__) && defined(__aarch64__)
   const char *target = "aarch64-apple-darwin";
 #elif defined(__APPLE__) && defined(__x86_64__)
@@ -113,10 +113,12 @@ int main(void)
   assert(!(version->features & (CURL_VERSION_HTTP2 | CURL_VERSION_HTTP3 |
                                 CURL_VERSION_BROTLI | CURL_VERSION_ZSTD)));
   unsigned protocols = 0;
+
   for (const char *const *name = version->protocols; *name; ++name) {
     assert(!strcmp(*name, "http") || !strcmp(*name, "https"));
     ++protocols;
   }
+
   assert(protocols == 2);
   CURL *easy = curl_easy_init();
   assert(easy);
@@ -143,5 +145,6 @@ int main(void)
          offsetof(OSSL_PARAM, data_type), offsetof(OSSL_PARAM, data),
          offsetof(OSSL_PARAM, data_size), offsetof(OSSL_PARAM, return_size));
   curl_global_cleanup();
+
   return 0;
 }

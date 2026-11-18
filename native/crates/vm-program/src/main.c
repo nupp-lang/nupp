@@ -26,9 +26,8 @@ _Static_assert(offsetof(struct nupp_aot_table, pcs) == 80, "linked PC offset");
 
 __attribute__((weak)) const struct nupp_aot_table nupp_aot_table_v1 = {0};
 
-int nupp_vm_program_main(void);
+int nupp_vm_program_main (void);
 
-int main(void)
-{
+int main (void) {
   return nupp_vm_program_main();
 }

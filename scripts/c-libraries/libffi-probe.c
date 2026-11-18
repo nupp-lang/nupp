@@ -30,19 +30,16 @@ _Static_assert(FFI_TYPE_UINT32 == 9 && FFI_TYPE_SINT32 == 10 &&
                    FFI_TYPE_UINT64 == 11 && FFI_TYPE_SINT64 == 12,
                "ffi integer code drift");
 
-static int32_t add(int32_t a, int32_t b)
-{
+static int32_t add (int32_t a, int32_t b) {
   return a + b;
 }
 
-static void callback(ffi_cif *cif, void *result, void **args, void *data)
-{
+static void callback (ffi_cif *cif, void *result, void **args, void *data) {
   (void)cif;
   *(ffi_arg *)result = (ffi_arg)(*(int32_t *)args[0] + *(int32_t *)data);
 }
 
-int main(void)
-{
+int main (void) {
   const uint32_t endian = 1;
   assert(*(const unsigned char *)&endian == 1);
   assert(ffi_get_version_number() == FFI_VERSION_NUMBER);
@@ -70,5 +67,6 @@ int main(void)
          "\"closureBytes\":%zu}\n",
          ffi_get_version(), sizeof(ffi_cif), sizeof(ffi_type),
          sizeof(ffi_closure));
+
   return 0;
 }

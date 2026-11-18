@@ -7,8 +7,7 @@
          _Alignof(T))
 #define FIELD(T, F) printf("\"" #F "\":%zu", offsetof(T, F))
 
-int main(void)
-{
+int main (void) {
   puts("{");
   TYPE(WGPUNativeDisplayHandle, WGPUNativeDisplayHandle);
   FIELD(WGPUNativeDisplayHandle, type);
@@ -386,5 +385,6 @@ int main(void)
   FIELD(WGPUQuerySetDescriptor, count);
   puts("}}");
   puts("}");
+
   return 0;
 }
