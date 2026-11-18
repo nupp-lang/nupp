@@ -27,7 +27,11 @@ kept = {}
 if collectgarbage("restart") == 0 and collectgarbage("isrunning") == true then
     score = score + 16
 end
-if type(collectgarbage("step")) == "boolean" and collectgarbage("count") <= count + 64 then
+-- A step need not finish a cycle (interleaved collection is always partway
+-- through one), so the bound is read after a whole collection.
+local stepped = collectgarbage("step")
+collectgarbage("collect")
+if type(stepped) == "boolean" and collectgarbage("count") <= count + 64 then
     score = score + 32
 end
 local option: any = "bogus"
