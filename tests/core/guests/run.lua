@@ -62,6 +62,17 @@ local HEAVY = {workloadLoops = true, compilerselfbuild = true}
 -- Compiler-sized workloads prepare a host baseline before explicit selection.
 -- The fixpoint's small compiler is run by tests/core/guests/fixpoint.lua.
 local EXPLICIT = {compilerselfbuild = true, fixpointcompiler = true}
+-- Cases whose program loads the Markdown provider: the renderer itself, and
+-- the ones carrying the CLI, whose documentation host resolves it.
+local MARKDOWN = {
+    markdown = true,
+    clihosts = true,
+    hostlayout = true,
+    compilercheck = true,
+    compilerwarmcheck = true,
+    compilerbuild = true,
+    compilerselfbuild = true
+}
 -- Results at BENCH_SCALE=2, run in normal mode only. Loops stays out: its 30
 -- million iterations take ten seconds at either scale.
 local SCALED = {
@@ -1190,7 +1201,7 @@ local function tools(selectedCases)
                 ) .. " && mv " .. quote(library .. ".pending") .. " " .. quote(library)
             )
             assert(status == 0, "artifact-relative fixture build failed: " .. output)
-        elseif case[1] == "markdown" or case[1] == "clihosts" then
+        elseif MARKDOWN[case[1]] then
             needsMarkdown = true
         end
     end
