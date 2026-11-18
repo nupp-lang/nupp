@@ -265,6 +265,38 @@ function M.makingAnEnvironmentDoesNotReadTheProject()
     os.execute("rm -rf '" .. dir .. "'")
 end
 
+-- Every environment in a process shares the headers it worked out, keyed by content:
+-- a test that made one per case at the repository's root otherwise parsed every file
+-- in it again each time. A file edited between two environments is a new key, so the
+-- second one reads the edit, and an unchanged one is not parsed a second time.
+function M.environmentsInOneProcessShareHeadersByContent()
+    local dir = tempProject({
+        ["nupp.lua"] = 'return { include = { "src" } }\n',
+        ["src/m.nupp"] = "export function before(): integer return 1 end\n",
+        ["src/other.nupp"] = "export function unchanged(): integer return 2 end\n",
+    })
+    local parser = require("nupp.compiler.syntax.parser")
+    local first = envMod.ensureProjectIndex(envMod.new(dir, {cache = false}))
+    assert(first.byName.before and not first.byName.after, "the first index reads the file as it was")
+
+    local file = assert(io.open(dir .. "/src/m.nupp", "wb"))
+    file:write("export function after(): integer return 1 end\n")
+    file:close()
+    local env = envMod.new(dir, {cache = false})
+    local original = parser.parse
+    local parsed = {}
+    parser.parse = function(text, path, ...)
+        parsed[#parsed + 1] = path
+        return original(text, path, ...)
+    end
+    local ok, second = pcall(envMod.ensureProjectIndex, env)
+    parser.parse = original
+    assert(ok, tostring(second))
+    assert(second.byName.after and not second.byName.before, "the edit reached the next environment")
+    assert(#parsed == 1 and parsed[1]:match("/src/m%.nupp$"), "only the edited file was parsed again")
+    os.execute("rm -rf '" .. dir .. "'")
+end
+
 -- Content-keyed stores move; the build state does not.
 function M.namedCacheDirectoryHoldsTheStoresThatAnswerAboutContent()
     local dir = tempProject({
