@@ -20,16 +20,17 @@ name = "nupp-vm"
 path = "src/main.rs"
 
 [features]
-default = ["jit", "c-headers", "native-ffi", "compression", "net", "http"]
+default = ["jit", "c-headers", "native-ffi", "net", "http"]
 # The native facilities a program may reach. A program binary's runtime links
 # the ones its program does; the compiler's links all of them.
-compression = ["dep:nupp-native-compression"]
 net = ["dep:nupp-native-net", "dep:nupp-native-tls", "dep:ring"]
 http = ["dep:nupp-native-http", "dep:url"]
-# Retired: link nothing. A compiler generation built before the regex and
-# Markdown facilities were removed still names them when it rebuilds its
-# successor, and without them that rebuild fails and the old generation keeps
-# running. Remove once the stage-zero pin has moved past the removals.
+# Retired: link nothing. A compiler generation built before the regex,
+# Markdown and compression facilities were removed still names them when it
+# rebuilds its successor, and without them that rebuild fails and the old
+# generation keeps running. Remove once the stage-zero pin has moved past the
+# removals. Compression is Nupp over the pinned zlib now.
+compression = []
 markdown = []
 regex = []
 # Optional in-process C declaration inspection for compiler hosts.
@@ -56,9 +57,7 @@ allocation-metrics = ["dep:serde_json"]
 [dependencies]
 serde_json = { version = "1", optional = true }
 nupp-native-platform = { path = "../platform", features = ["uuid"] }
-nupp-native-checksum = { path = "../checksum" }
 nupp-native-files = { path = "../files" }
-nupp-native-compression = { path = "../compression", optional = true }
 nupp-native-net = { path = "../net", optional = true }
 nupp-native-tls = { path = "../tls", optional = true }
 nupp-native-http = { path = "../http", optional = true }

@@ -59,21 +59,7 @@ function probe.run(): integer
         ["nupp.runtime.provider.nativeuuid"] = {"uuid4", "uuid7"},
         ["nupp.simd"] = {"horizontal", "reducer"},
         ["nupp.vm.clock"] = {"now", "wallTime", "sleep"},
-        [
-            "nupp.vm.compression"
-        ] = {
-            "encoderCreate",
-            "encoderWrite",
-            "encoderFlush",
-            "encoderFinish",
-            "encoderRelease",
-            "decoderCreate",
-            "decoderRead",
-            "decoderFinishInput",
-            "decoderRelease"
-        },
         ["nupp.vm.coroutine"] = {"create", "wrap", "isyieldable", "resume", "yield", "status", "running", "close"},
-        ["nupp.vm.crc"] = {"update"},
         [
             "nupp.vm.files"
         ] = {

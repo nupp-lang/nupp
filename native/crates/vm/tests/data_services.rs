@@ -1,4 +1,4 @@
-use nupp_vm::{builtins, interp::Interp, numeric, persist, value::Value};
+use nupp_vm::{builtins, interp::Interp, persist, value::Value};
 
 fn vm() -> Interp {
     let mut vm = Interp::new();
@@ -44,84 +44,6 @@ fn uuid_service_has_no_restored_random_state() {
     for name in ["uuid.uuid4", "uuid.uuid7"] {
         let value = call(&mut restored, name, &[])[0];
         assert!(generated.insert(String::from_utf8(restored.bytes_of(value).to_vec()).unwrap()));
-    }
-}
-
-#[test]
-fn crc_state_and_snapshots_survive_collection_and_graph_transfer() {
-    let mut vm = vm();
-    for (id, expected) in [
-        (1, 0xcbf43926),
-        (2, 0xe3069283),
-        (3, 0x6c40df5f0b497347),
-        (4, 0xae8b14860a799888),
-    ] {
-        let first = vm.intern("1234");
-        vm.register(first);
-        let values = call(
-            &mut vm,
-            "crc.update",
-            &[Value::num(id as f64), Value::NIL, first, Value::num(4.0)],
-        );
-        assert_eq!(values.len(), 2);
-        for &value in &values {
-            vm.register(value);
-        }
-        let saved = persist::save_graph(&mut vm, &values, &persist::Policies::default()).unwrap();
-        let mut other = self::vm();
-        let roots =
-            persist::load_graph(&mut other, &saved, &persist::Policies::default(), None).unwrap();
-        for &root in &roots {
-            other.register(root);
-        }
-        let empty = other.intern("");
-        let unchanged = call(
-            &mut other,
-            "crc.update",
-            &[Value::num(id as f64), roots[0], empty, Value::num(0.0)],
-        );
-        assert_eq!(
-            numeric::word(&other, unchanged[0], true),
-            numeric::word(&other, roots[0], true)
-        );
-        assert_eq!(
-            numeric::word(&other, unchanged[1], true),
-            numeric::word(&other, roots[1], true)
-        );
-        let tail = other.intern("56789");
-        let answer = call(
-            &mut other,
-            "crc.update",
-            &[Value::num(id as f64), roots[0], tail, Value::num(5.0)],
-        );
-        assert_eq!(numeric::word(&other, answer[1], true), expected);
-    }
-}
-
-#[test]
-fn crc_rejects_invalid_ids_states_and_ranges_without_retaining_roots() {
-    let mut vm = vm();
-    let bytes = vm.intern("abc");
-    vm.register(bytes);
-    for (id, state, count) in [
-        (0.0, Value::NIL, 3.0),
-        (1.5, Value::NIL, 3.0),
-        (5.0, Value::NIL, 3.0),
-        (1.0, Value::num(-1.0), 3.0),
-        (1.0, Value::NIL, -1.0),
-        (1.0, Value::NIL, 4.0),
-        (1.0, Value::NIL, 0.5),
-    ] {
-        let handles = vm.handles.len();
-        assert!(std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-            call(
-                &mut vm,
-                "crc.update",
-                &[Value::num(id), state, bytes, Value::num(count)],
-            )
-        }))
-        .is_err());
-        assert_eq!(vm.handles.len(), handles);
     }
 }
 

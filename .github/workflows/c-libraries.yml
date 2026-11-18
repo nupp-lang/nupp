@@ -13,7 +13,7 @@ on:
       - 'scripts/native-libraries'
       - 'scripts/c-libraries/**'
       - 'scripts/test-libffi'
-      - 'native/crates/checksum/csrc/**'
+      - 'native/crc/**'
       - 'native/markdown/**'
       - 'tests/fixtures/markdown/**'
       - 'tests/fixtures/c-libraries/**'

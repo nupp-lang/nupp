@@ -1,8 +1,8 @@
 //! `nupp.snapshot`: the public layer over `persist`.
 //!
 //! Three things live here rather than in the graph format. Standard providers
-//! whose handles live in Rust side tables (`nfiles`, `nnet`, `nhttp`,
-//! `ncompression`) take part in VM checkpoints through sentinel resources:
+//! whose handles live in Rust side tables (`nfiles`, `nnet`, `nhttp`) take
+//! part in VM checkpoints through sentinel resources:
 //! files reopen at their saved offsets after a verification or strategy
 //! check, and the rest refuse with the open handles counted. Nupp code
 //! registers its own resources per operation (capture a descriptor, restore
@@ -34,7 +34,6 @@ type Result<T> = std::result::Result<T, String>;
 pub const FILES: &str = "nupp.io.files.handles";
 pub const NET: &str = "nupp.net.handles";
 pub const HTTP: &str = "nupp.http.handles";
-pub const COMPRESSION: &str = "nupp.compression.handles";
 const SENTINEL_PREFIX: &str = "nupp.vm.snapshot:";
 /// The files provider's handle record, refused by graph saves while open.
 const FILE_IDENTITY: &str = "nupp.runtime.provider.nativefiles:File";
@@ -361,14 +360,6 @@ fn http_counts(vm: &Interp) -> Vec<(&'static str, usize)> {
 fn http_counts(_: &Interp) -> Vec<(&'static str, usize)> {
     Vec::new()
 }
-#[cfg(feature = "compression")]
-fn compression_counts(vm: &Interp) -> Vec<(&'static str, usize)> {
-    vm.ncompression.open_counts().to_vec()
-}
-#[cfg(not(feature = "compression"))]
-fn compression_counts(_: &Interp) -> Vec<(&'static str, usize)> {
-    Vec::new()
-}
 fn open(counts: &[(&str, usize)]) -> bool {
     counts.iter().any(|(_, n)| *n != 0)
 }
@@ -404,17 +395,10 @@ fn net_reason(vm: &Interp) -> String {
 fn http_reason(vm: &Interp) -> String {
     format!("{} open; finish or release them before capturing", describe(&http_counts(vm)))
 }
-fn compression_reason(vm: &Interp) -> String {
-    format!(
-        "{} open; their codec state is native. Finish or release them before capturing",
-        describe(&compression_counts(vm))
-    )
-}
-
 /// The refusals every capture and restore carries. The files codec belongs
 /// only to whole-VM checkpoints, where its sentinel is reachable.
 fn refusals(codecs: &mut ResourceCodecs) {
-    let counted: [(&'static str, fn(&Interp) -> String); 3] = [(NET, net_reason), (HTTP, http_reason), (COMPRESSION, compression_reason)];
+    let counted: [(&'static str, fn(&Interp) -> String); 2] = [(NET, net_reason), (HTTP, http_reason)];
     for (kind, reason) in counted {
         codecs.entry(kind.into()).or_insert_with(|| Box::new(Refuse { kind, reason: Reason::Counted(reason) }));
     }
@@ -436,8 +420,7 @@ pub(crate) fn before_checkpoint(vm: &mut Interp, codecs: &mut ResourceCodecs) {
     let files = !vm.nfiles.open.is_empty() || vm.nfiles.snapshot.configured();
     let net = open(&net_counts(vm));
     let http = open(&http_counts(vm));
-    let compression = open(&compression_counts(vm));
-    for (kind, live) in [(FILES, files), (NET, net), (HTTP, http), (COMPRESSION, compression)] {
+    for (kind, live) in [(FILES, files), (NET, net), (HTTP, http)] {
         let key = format!("{SENTINEL_PREFIX}{kind}");
         let sentinel = match vm.loaded.get(&key) {
             Some(&t) => t,

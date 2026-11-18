@@ -1,9 +1,12 @@
 # Native CRC with ISA-L
 
-`bytes.checksum` reaches `nupp.vm.crc.update` through the built-in checksum
-catalog. The native VM bridge now calls the C adapter in
-`native/crates/checksum/csrc/crc.c`, which calls ISA-L. VM persistence uses
-the same CRC-32 path. No Nupp CRC arithmetic was added.
+`bytes.checksum` reaches `nupp.runtime.core.crccodec` through the built-in
+checksum catalog. That module is Nupp over checked FFI to the C adapter in
+`native/crc/crc.c`, which calls ISA-L, and the VM and the native core run the
+same binding. The library is the logical `nuppcrc`, which the compiler binds to
+the shared library `NUPP_CRC_LIBRARY` names; `bin/nupp` provisions it through
+`scripts/c-library-paths`. VM persistence links the static archive for its
+CRC-32 frames. No Nupp CRC arithmetic was added, and no Rust CRC code remains.
 
 `scripts/toolchain isal` builds a digest-pinned CRC-only subset of ISA-L
 2.32.1 using upstream's CMake source lists, assembly, runtime CPU dispatch,
@@ -15,14 +18,11 @@ An x86 build needs NASM 2.14.01 or later. ARM builds use the C compiler's
 assembler. Cross compilation is refused without an explicit target adapter.
 The retained GNU Windows VM and MSVC C consumers have separate cache targets.
 
-The static archive contains the upstream implementations and adapter. Native
-VMs and packaged programs link those bytes, so no CRC shared sidecar or Rust
-tool is needed to run them. The shared C bundle can also be consumed with
-just a C compiler; it contains no Rust. Release archives already copy
-`host/notices`, including the ISA-L license. The frozen VM itself still needs
-Rust to build: removing its compiler/runtime, Markdown, networking, compression
-and other Rust consumers is separate work. This change does not claim a
-Rust-free compiler setup or whole-program build.
+The static archive contains the upstream implementations and adapter; the VM
+links it for persistence. Checksums load the shared library, and a packaged
+program carries it as a sidecar beside its other bound libraries. The C
+bundle can be consumed with just a C compiler; it contains no Rust. Release
+archives already copy `host/notices`, including the ISA-L license.
 
 ## State contract
 
@@ -42,11 +42,9 @@ refreshes the non-consuming snapshot. Calls are bounded to `INT_MAX` before
 narrowing for iSCSI. Null nonempty input, invalid IDs/reset values, null state,
 and lengths above `PTRDIFF_MAX` fail without changing either word.
 
-Native `crc-fast` calls and VM's direct `crc32fast` calls are removed.
-`crc-fast` remains only for the retained browser/Wasm runtime, whose C build
-and dispatch contract have not migrated. `crc32fast` remains transitive through
-flate2 and the Cranelift object crate. These entries must stay in the workspace
-lockfile until their actual consumers migrate.
+The Rust checksum crate, `crc-fast` and the VM's direct `crc32fast` calls are
+removed. `crc32fast` remains transitive through flate2, which Reqwest's
+decompression still pulls in, and the Cranelift object crate.
 
 ## Checks
 
@@ -62,9 +60,8 @@ chunking without a multi-gigabyte allocation. A short C benchmark covers 16 B,
 
 The five-target pinned-C workflow blocks Cargo, rustc, rustup and cargo-c
 while checking this path. Each platform must pass on its own; baseline C
-vectors alone prove neither SIMD nor platform acceptance. The retained Rust
-bridge tests and Nupp hash-stream tests check actual public routing, including
-state transfer and persistence.
+vectors alone prove neither SIMD nor platform acceptance. The Nupp hash-stream
+tests check actual public routing, including state transfer.
 
 ## Other ISA-L functions
 

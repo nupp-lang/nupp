@@ -3,7 +3,7 @@ architecture=''
 case "$TARGET" in aarch64-apple-darwin) architecture=arm64 ;; x86_64-apple-darwin) architecture=x86_64 ;; esac
 set --
 if [ "$SYSTEM" = windows ]; then set -- -G Ninja; fi
-cmake -S "$ROOT/native/crates/checksum/csrc" -B "$staged/build" \
+cmake -S "$ROOT/native/crc" -B "$staged/build" \
     "$@" \
     -DCMAKE_BUILD_TYPE=Release -DCMAKE_C_COMPILER="$CC" \
     -DCMAKE_OSX_ARCHITECTURES="$architecture" -DCMAKE_INSTALL_NAME_DIR=@rpath \

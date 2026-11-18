@@ -98,7 +98,7 @@ function stage.resolve(effects: {[string]: any}?, overrides: {[string]: boolean}
 end
 
 --- Builds the VM runtime a program binary is stamped onto, linking the
---- native `facilities` its image reaches -- "compression", "net", "http" --
+--- native `facilities` its image reaches -- "net", "http" --
 --- and none it does not.
 function stage.vmRuntime(facilities: {string}): string?, string?
     local compilerRoot = envMod.compilerRoot()

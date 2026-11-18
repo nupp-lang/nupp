@@ -506,7 +506,7 @@ fn structurally_corrupt_graphs_never_panic() {
     for at in 21..valid.len() {
         let mut bytes = valid.clone();
         bytes[at] ^= 0xff;
-        let hash = nupp_crc::update(1, None, &bytes[21..]).unwrap()[1] as u32;
+        let hash = nupp_vm::persist::crc32(&bytes[21..]);
         bytes[17..21].copy_from_slice(&hash.to_le_bytes());
         let answer = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
             persist::load_graph(&mut vm, &bytes, &Policies::default(), None)

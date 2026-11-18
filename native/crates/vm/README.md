@@ -1329,9 +1329,11 @@ The data services below close that dependency.
 
 ## UUIDs and checksums
 
-The VM supplies UUID generation and resumable CRC checksums through shared Rust
-implementations. Public checksum and digest APIs run with managed storage and
-require no FFI provider in their image.
+The VM supplies UUID generation through a shared Rust implementation. CRC
+checksums are Nupp over the pinned ISA-L bundle's checked binding
+(`nupp.runtime.core.crccodec`), which the native core calls too; persistence
+frames link the same bundle statically. Digest APIs run with managed storage
+and require no FFI provider in their image.
 
 ```sh
 python3 native/crates/vm/tests/data-services-smoke.py compiler.image --output /tmp/vm-data
@@ -1735,7 +1737,7 @@ runtime. Emit the object once, then build the runtime with that object:
 cargo build --release -p nupp-vm --features aot --offline
 build/rust/target/release/nupp-vm aot COMPILER_IMAGE /tmp/compiler.o --frames
 NUPP_AOT_OBJECT=/tmp/compiler.o cargo build --release -p nupp-vm \
-  --no-default-features --features aot-linked,c-headers,native-ffi,compression,net,http --offline
+  --no-default-features --features aot-linked,c-headers,native-ffi,net,http --offline
 python3 native/crates/vm/tests/compiler-aot-smoke.py COMPILER_IMAGE \
   --binary build/rust/target/release/nupp-vm --manifest /tmp/compiler.o.manifest \
   --frames --output /tmp/compiler-aot-acceptance
@@ -2176,12 +2178,12 @@ under 10 ms. Linking a program's AOT object stays compatible: the AOT check
 hashes the loaded image, which is the appended one.
 
 The runtime is `scripts/toolchain vm-runtime FACILITIES`: `aot-linked` and
-`native-ffi` without Cranelift, fat LTO, stripped. Compression, networking
-and HTTP (with the URL parser) are now crate features, on by default; the
-build links the ones the image requires through `nupp.vm.compression`,
-`nupp.vm.net`, `nupp.vm.http` and `nupp.vm.uri`. A hello world is
-2,295,072 bytes; with networking and HTTP, 4.9 MB. The compiler's own linked
-runtime must name `compression,net,http` explicitly now.
+`native-ffi` without Cranelift, fat LTO, stripped. Networking and HTTP (with
+the URL parser) are crate features, on by default; the build links the ones
+the image requires through `nupp.vm.net`, `nupp.vm.http` and `nupp.vm.uri`.
+Compression is Nupp over the pinned zlib through native C calls, so it needs
+no feature. A hello world is 2,295,072 bytes; with networking and HTTP,
+4.9 MB. The compiler's own linked runtime must name `net,http` explicitly.
 
 The program is its entry module's body, run on a scheduled task with the
 arguments in `arg` (`arg[0]` the executable), exiting 0 when it returns and 1
@@ -2912,8 +2914,8 @@ resource that only becomes reachable through a `beforeSave` hook is refused by
 name. Registrations are per operation, like policies; a save that reaches a
 tracked table with none names its kind.
 
-**Standard providers in whole-VM checkpoints.** `nfiles`, `nnet`, `nhttp` and
-`ncompression` keep handles in Rust side tables that Nupp values refer to by
+**Standard providers in whole-VM checkpoints.** `nfiles`, `nnet` and `nhttp`
+keep handles in Rust side tables that Nupp values refer to by
 number, so before this a checkpoint silently saved dangling numbers. Now
 `save_vm` first registers a sentinel table per provider with open handles (a
 `vm.loaded` entry under `nupp.vm.snapshot:<kind>`, rooted through
@@ -2932,7 +2934,7 @@ never opened a handle checkpoints byte-identically to before.
   carries them even with no file open. Reopening uses
   `OpenFile::reopen`, which never creates or truncates. A failure part way
   drops the files reopened so far before any is published.
-- `nupp.net.handles`, `nupp.http.handles`, `nupp.compression.handles`: refused
+- `nupp.net.handles`, `nupp.http.handles`: refused
   with the open handles counted, for example "1 network listener open; sockets
   cannot be restored into another VM". A caller-supplied codec of the kind is
   the explicit strategy.

@@ -17,7 +17,8 @@ The boundary is deliberately narrow:
 | --- | --- | --- |
 | language and compiler | Nupp | types, effects, ownership, suspension policy, facility selection, lowering to VM images |
 | VM runtime | Rust | image loading and verification, the interpreter, the heap and collector, tasks and scheduling, native C calls |
-| native facilities | Rust | files, paths, clocks, UUIDs, URI, HTTP, TCP, UDP, path sockets, TLS, processes, compression |
+| native facilities | Rust | files, paths, clocks, UUIDs, URI, HTTP, TCP, UDP, path sockets, TLS, processes |
+| pinned C libraries | Nupp over checked FFI | DEFLATE through zlib and CRC through ISA-L |
 
 Native resources cross into Nupp as plain values and handles. Nupp code never
 receives a Rust reference, future, Tokio handle, or Reqwest response. Executor
@@ -34,7 +35,6 @@ files, paths, clocks, UUIDs and processes; the optional facilities are:
 
 | Facility | Reached through | Rust implementation |
 | --- | --- | --- |
-| `compression` | compression | `flate2` |
 | `net` | sockets and TLS | Tokio and `socket2`, with Rustls for TLS |
 | `http` | the HTTP client and URI | Reqwest over Tokio and Rustls, and the `url` crate |
 | `markdown` | Markdown rendering | `pulldown-cmark` |

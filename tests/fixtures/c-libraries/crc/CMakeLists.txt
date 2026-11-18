@@ -1,7 +1,7 @@
 cmake_minimum_required(VERSION 3.20)
 project(nupp_crc_probe C)
 set(CMAKE_C_STANDARD 11)
-set(adapter "${CMAKE_CURRENT_SOURCE_DIR}/../../../../native/crates/checksum/csrc")
+set(adapter "${CMAKE_CURRENT_SOURCE_DIR}/../../../../native/crc")
 unset(CRC_LIBRARY CACHE)
 find_library(CRC_LIBRARY NAMES nupp_crc_static PATHS "${NUPP_ISAL}/lib" NO_DEFAULT_PATH REQUIRED)
 function(forced name)

@@ -26,10 +26,12 @@ compiled-runtime = []
 # The native facilities a program may reach, as `nupp-vm` names them.
 native-ffi = ["nupp-vm/native-ffi"]
 native-runtime = ["nupp-vm/native-runtime"]
-compression = ["nupp-vm/compression"]
 net = ["nupp-vm/net"]
 http = ["nupp-vm/http"]
 c-headers = ["nupp-vm/c-headers"]
+# Retired: links nothing. Compression is Nupp over the pinned zlib now, and a
+# program cache an older compiler wrote can still name it.
+compression = []
 
 [dependencies]
 nupp-vm = { path = "../vm", default-features = false, features = ["aot-linked"] }

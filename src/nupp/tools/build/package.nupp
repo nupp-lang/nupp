@@ -305,7 +305,7 @@ local function programPayload(
     -- its second lowered everything again to keep what the first had not.
     local emitDir = cached .. "-emit"
     -- shortcut: version the facility catalog here; bump it when a facility retires.
-    local record = cached .. ".emit-facilities-v2"
+    local record = cached .. ".emit-facilities-v3"
     local libraryRecord = cached .. ".emit-libraries"
     local seeded: {string}? = nil
     local seededLibraries: {string}? = nil

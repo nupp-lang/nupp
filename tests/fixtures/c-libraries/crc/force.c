@@ -35,4 +35,4 @@ uint64_t crc64_rocksoft_refl_pmull(uint64_t, const uint8_t *, uint64_t);
 #undef INT_MAX
 #define INT_MAX 31
 #endif
-#include "../../../../native/crates/checksum/csrc/crc.c"
+#include "../../../../native/crc/crc.c"

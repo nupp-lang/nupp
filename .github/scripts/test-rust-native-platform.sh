@@ -34,8 +34,6 @@ RUSTDOC=$(rustup which rustdoc)
 export RUSTC RUSTDOC
 
 "$CARGO" test --locked --package nupp-native-files --features lane
-"$CARGO" test --locked --package nupp-native-checksum
-"$CARGO" test --locked --package nupp-native-compression
 "$CARGO" test --locked --package nupp-native-process
 "$CARGO" test --locked --package nupp-native-net
 "$CARGO" test --locked --package nupp-native-tls

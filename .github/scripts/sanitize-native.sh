@@ -106,7 +106,6 @@ cargo_test --package nupp-native-abi
 cargo_test --package nupp-native-platform --features uuid
 cargo_test --package nupp-native-runtime --features async
 cargo_test --package nupp-native-files --features lane
-cargo_test --package nupp-native-compression
 # ThreadSanitizer on macOS defers a signal until its thread next enters an
 # interceptor it counts as blocking, and kevent is not one. Tokio learns of a
 # child's exit through SIGCHLD there, so every wait on a child stalls until the

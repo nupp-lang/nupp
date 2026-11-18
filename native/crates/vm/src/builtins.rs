@@ -30,7 +30,7 @@ pub const NAMES: &[&str] = &[
     "storage.allocateBytes", "storage.borrowString", "storage.copy", "storage.fill", "storage.sizeOf", "storage.string", "storage.decodeUint8", "storage.encodeUint8", "storage.decodeInt8", "storage.encodeInt8", "storage.decodeUint16", "storage.encodeUint16", "storage.decodeInt16", "storage.encodeInt16", "storage.decodeUint32", "storage.encodeUint32", "storage.decodeInt32", "storage.encodeInt32", "storage.decodeUint64", "storage.encodeUint64", "storage.decodeInt64", "storage.encodeInt64", "storage.decodeFloat32", "storage.encodeFloat32", "storage.decodeFloat64", "storage.encodeFloat64", "storage.castBytes", "storage.castElements", "storage.scalar", "storage.descriptor", "storage.allocateArray", "storage.boundedCount", "storage.index", "storage.write", "storage.add", "storage.sub",
     "simd.reducer.orderedSum", "simd.reducer.pairwiseSum", "simd.reducer.compensatedSum", "simd.reducer.algebraicSum", "simd.reducer.orderedProduct", "simd.reducer.pairwiseProduct", "simd.reducer.algebraicProduct", "simd.reducer.orderedDot", "simd.reducer.pairwiseDot", "simd.reducer.algebraicDot", "simd.reducer.wrappingSum", "simd.reducer.wrappingProduct", "simd.reducer.andBits", "simd.reducer.orBits", "simd.reducer.xorBits", "simd.reducer.any", "simd.reducer.all", "simd.reducer.count", "simd.reducer.integerMin", "simd.reducer.integerMax", "simd.reducer.integerArgMin", "simd.reducer.integerArgMax", "simd.reducer.propagatingMin", "simd.reducer.propagatingMax", "simd.reducer.propagatingArgMin", "simd.reducer.propagatingArgMax", "simd.reducer.numberMin", "simd.reducer.numberMax", "simd.reducer.numberArgMin", "simd.reducer.numberArgMax",
     "simd.reducerAdd", "simd.reducerValue", "simd.indirect",
-    "uuid.uuid4", "uuid.uuid7", "crc.update",
+    "uuid.uuid4", "uuid.uuid7", "retired.crc.update",
     "io.stdin.read", "io.stdout.flush", "io.stderr.flush", "io.flush", "io.stdout.setvbuf", "io.stderr.setvbuf",
     "io.popen", "process.spawn", "process.poll", "process.kill", "process.read", "process.write", "process.closeStream", "process.reap", "process.waitReady", "process.pipeRead", "process.pipeWrite", "process.pipeClose",
     "crypto.randomBytes", "system.availableParallelism", "collectgarbage", "os.date", "xpcall", "io.type", "io.lines", "vm.encodePlain", "vm.decodePlain",
@@ -59,9 +59,11 @@ pub const NAMES: &[&str] = &[
     "retired.lpeg.Cb", "retired.lpeg.Carg", "retired.lpeg.Cp", "retired.lpeg.Cs", "retired.lpeg.Ct", "retired.lpeg.Cf", "retired.lpeg.Cg", "retired.lpeg.P",
     "retired.lpeg.S", "retired.lpeg.R", "retired.lpeg.utfR", "retired.lpeg.locale", "retired.lpeg.setmaxstack", "retired.lpeg.type", "retired.lpeg.__mul", "retired.lpeg.__add",
     "retired.lpeg.__pow", "retired.lpeg.__len", "retired.lpeg.__div", "retired.lpeg.__mod", "retired.lpeg.__unm", "retired.lpeg.__sub",
+    // Retired: compression lived here until it became Nupp over the pinned
+    // zlib (2026-11-17). The ids stay reserved for linked objects.
+    "retired.ncompression.encoderCreate", "retired.ncompression.encoderWrite", "retired.ncompression.encoderFlush", "retired.ncompression.encoderFinish", "retired.ncompression.encoderRelease",
+    "retired.ncompression.decoderCreate", "retired.ncompression.decoderRead", "retired.ncompression.decoderFinishInput", "retired.ncompression.decoderRelease",
     // Provider primitives, installed as `nupp.vm.<family>` (`crate::interp::PROVIDER_FAMILIES`).
-    "ncompression.encoderCreate", "ncompression.encoderWrite", "ncompression.encoderFlush", "ncompression.encoderFinish", "ncompression.encoderRelease",
-    "ncompression.decoderCreate", "ncompression.decoderRead", "ncompression.decoderFinishInput", "ncompression.decoderRelease",
     "nnet.snapshot", "nnet.sleep",
     "nnet.listen", "nnet.listenPath", "nnet.listenerPort", "nnet.accept", "nnet.closeListener",
     "nnet.connect", "nnet.connectPath", "nnet.connectPoll", "nnet.closeConnect",
@@ -690,7 +692,6 @@ enum Special {
     VmCachedigest,
     VmProcessid,
     UuidUuid4,
-    CrcUpdate,
     ClockNow,
     Xpcall,
     IoLines,
@@ -744,7 +745,6 @@ fn classify(name: &str) -> Special {
     if name == "vm.cacheDigest" { return Special::VmCachedigest; }
     if name == "vm.processId" { return Special::VmProcessid; }
     if name == "uuid.uuid4" || name == "uuid.uuid7" { return Special::UuidUuid4; }
-    if name == "crc.update" { return Special::CrcUpdate; }
     if name == "clock.now" { return Special::ClockNow; }
     if name == "xpcall" { return Special::Xpcall; }
     if name == "io.lines" { return Special::IoLines; }
@@ -762,7 +762,7 @@ fn classify(name: &str) -> Special {
     if name == "vm.hotPatch" { return Special::VmHotpatch; }
     if name.starts_with("simd.") || name.starts_with("storage.") || name.starts_with("wide.") || name.starts_with("scalar.u64.")
         || matches!(name, "math.type" | "math.tointeger" | "math.sin" | "math.cos" | "math.tan" | "math.asin" | "math.acos" | "math.atan" | "math.atan2" | "math.exp" | "math.ldexp" | "math.random" | "math.randomseed" | "math.cosh" | "math.sinh" | "math.tanh" | "math.deg" | "math.rad" | "math.log10" | "math.pow" | "table.new" | "cleanup.describe" | "file.setvbuf" | "file.flush")
-        || name.starts_with("files.") || name.starts_with("path.") || name.starts_with("nfiles.") || name.starts_with("ncompression.") || name.starts_with("nnet.") || name.starts_with("nhttp.") || name == "nuri.parse" || name.starts_with("utf8.") || name.starts_with("terminal.") || name.starts_with("scalar.") || name.starts_with("sharing.") { return Special::Tail; }
+        || name.starts_with("files.") || name.starts_with("path.") || name.starts_with("nfiles.") || name.starts_with("nnet.") || name.starts_with("nhttp.") || name == "nuri.parse" || name.starts_with("utf8.") || name.starts_with("terminal.") || name.starts_with("scalar.") || name.starts_with("sharing.") { return Special::Tail; }
     Special::Plain
 }
 
@@ -1054,19 +1054,6 @@ pub fn call(it: &mut Interp, id: u32, args: &[Value]) -> Outs {
             let value = if name == "uuid.uuid4" { nupp_native_platform::uuid4() } else { nupp_native_platform::uuid7() };
             return outs![it.heap_new_string(&value.unwrap_or_else(|e| it.err(&e)))];
         }
-        Special::CrcUpdate => {
-            let id = crate::numeric::double(it, arg(args, 0));
-            if !(1.0..=4.0).contains(&id) || id.fract() != 0.0 { it.err("unknown CRC algorithm"); }
-            let state = if arg(args, 1) == Value::NIL { None } else { Some(crate::numeric::word(it, arg(args, 1), true)) };
-            let bytes = crate::storage::borrowed_bytes(it, arg(args, 2), arg(args, 3));
-            let [state, snapshot] = nupp_crc::update(id as u32, state, bytes).unwrap_or_else(|e| it.err(e));
-            let scope = it.open_scope();
-            let state = it.box_integer(crate::numeric::Integer { bits: state, unsigned: true }); it.handles.push(state);
-            let snapshot = it.box_integer(crate::numeric::Integer { bits: snapshot, unsigned: true });
-            let result = outs![state, snapshot];
-            it.close_scope(scope);
-            return result;
-        }
         Special::ClockNow => {
             let millis = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH)
                 .unwrap_or_default().as_secs_f64() * 1000.0;
@@ -1277,7 +1264,6 @@ pub fn call(it: &mut Interp, id: u32, args: &[Value]) -> Outs {
             }
             if name.starts_with("files.") || name.starts_with("path.") { return files(it, name, args); }
             if name.starts_with("nfiles.") { return crate::nfiles::call(it, name, args); }
-            if name.starts_with("ncompression.") { return crate::ncompression::call(it, name, args); }
             if name.starts_with("nnet.") { return crate::nnet::call(it, name, args); }
             if name.starts_with("nhttp.") { return crate::nhttp::call(it, name, args); }
             if *name == "nuri.parse" { return crate::nhttp::parse_uri(it, args); }

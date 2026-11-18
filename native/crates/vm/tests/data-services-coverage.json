@@ -329,7 +329,7 @@
   "reproduce": [
     "python3 native/crates/vm/tests/data-services-smoke.py SEED --output OUTPUT",
     "FRAME_AOT=1 NUPP_VM_BUILD_PROFILE=release sh native/crates/vm/tests/no-jit-smoke.sh IMAGE nupp.tests.vmdata run",
-    "cargo test -p nupp-vm -p nupp-native-checksum -p nupp-native-platform --release --offline -- --test-threads=1",
+    "cargo test -p nupp-vm -p nupp-native-platform --release --offline -- --test-threads=1",
     "cargo test -p nupp-vm --release --no-default-features --offline -- --test-threads=1",
     "python3 native/crates/vm/tests/corpus-smoke.py SEED --suite digesttest --suite utilbitsettest --suite utilstoretest --engine threaded --gc-interleave --output OUTPUT",
     "python3 native/crates/vm/tests/project-smoke.py SEED",

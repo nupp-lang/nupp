@@ -323,6 +323,22 @@ impl<'a> Reader<'a> {
         }
     }
 }
+unsafe extern "C" {
+    /// The pinned ISA-L bundle's adapter (`native/crc/crc.c`), which the build
+    /// script links: id 1 is CRC-32/ISO-HDLC, and `words[1]` its checksum.
+    fn nuppCrcUpdate(id: u32, reset: i32, words: *mut u64, data: *const u8, length: usize) -> i32;
+}
+
+/// The CRC-32 (ISO-HDLC) a frame's payload is checked with, as
+/// `nupp.compiler.project.plaincodec` computes it.
+pub fn crc32(data: &[u8]) -> u32 {
+    let mut words = [0u64; 2];
+    // SAFETY: both ranges are live and disjoint, and none is retained.
+    let status = unsafe { nuppCrcUpdate(1, 1, words.as_mut_ptr(), data.as_ptr(), data.len()) };
+    assert_eq!(status, 0, "ISA-L refused a CRC-32 update");
+    words[1] as u32
+}
+
 fn frame(kind: u8, payload: Vec<u8>) -> Result<Vec<u8>> {
     if payload.len() > LIMIT {
         return Err("persistence data exceeds 256 MiB limit".into());
@@ -331,7 +347,7 @@ fn frame(kind: u8, payload: Vec<u8>) -> Result<Vec<u8>> {
     w.0.extend(MAGIC);
     w.byte(kind);
     w.u64(payload.len() as u64);
-    w.0.extend((nupp_crc::update(1, None, &payload).unwrap()[1] as u32).to_le_bytes());
+    w.0.extend(crc32(&payload).to_le_bytes());
     w.0.extend(payload);
     Ok(w.0)
 }
@@ -350,7 +366,7 @@ fn unframe(data: &[u8], kind: u8) -> Result<&[u8]> {
     let hash = r.u32()? as u32;
     let data = r.take(n as usize)?;
     r.done()?;
-    if nupp_crc::update(1, None, data).unwrap()[1] as u32 != hash {
+    if crc32(data) != hash {
         return Err("persistence checksum mismatch".into());
     }
     Ok(data)
