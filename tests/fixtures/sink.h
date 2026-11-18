@@ -5,7 +5,10 @@
 
 #include <stdbool.h>
 
-struct SinkPoint { double x; double y; };
+struct SinkPoint {
+  double x;
+  double y;
+};
 
 bool nuppSinkOpen(const char *path);
 void nuppSinkCategory(int base, int category, const char *name);

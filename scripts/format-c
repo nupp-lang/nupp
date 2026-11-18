@@ -12,15 +12,10 @@ esac
 cd "$(git rev-parse --show-toplevel)"
 
 # Every C file the repository owns, which is every tracked one but these:
-# the header-import fixtures, whose exact text the C-header tests read; the
-# Rust VM's FFI fixtures, which go with the VM at the flip; and the libuv
+# the Rust VM's FFI fixtures, which go with the VM at the flip, and the libuv
 # probe, which lands from another tree.
 set --
 for file in $(git ls-files '*.c' '*.h'); do
-    case "$file" in
-        tests/fixtures/*/*) ;;
-        tests/fixtures/*) continue ;;
-    esac
     case "$file" in
         native/crates/vm/*|tests/fixtures/libuv/*) continue ;;
     esac

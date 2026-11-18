@@ -5,7 +5,7 @@
 struct partialOpaque;
 
 struct partialHolder {
-    struct partialOpaque inner;
+  struct partialOpaque inner;
 };
 
 int partial_add(int a, int b);

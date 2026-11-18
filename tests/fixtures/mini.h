@@ -6,24 +6,24 @@
 #define MINI_SKIP do_not_import(this)
 
 struct miniPoint {
-    double x;
-    double y;
+  double x;
+  double y;
 };
 
 struct miniBox {
-    struct miniPoint min;
-    struct miniPoint max;
-    unsigned int flags;
+  struct miniPoint min;
+  struct miniPoint max;
+  unsigned int flags;
 };
 
 union miniValue {
-    int integer_value;
-    double number_value;
+  int integer_value;
+  double number_value;
 };
 
 struct miniBits {
-    unsigned int ready : 1;
-    unsigned int mode : 3;
+  unsigned int ready : 1;
+  unsigned int mode : 3;
 };
 
 int mini_add(int a, int b);
