@@ -26,13 +26,13 @@ struct miniBits {
   unsigned int mode : 3;
 };
 
-int mini_add(int a, int b);
-double mini_scale(double v, float factor);
-const char *mini_name(void);
-void mini_fill(struct miniPoint *p, unsigned int n);
-size_t mini_len(const char *s);
-int mini_printf(const char *fmt, ...);
-struct miniPoint mini_translate(struct miniPoint p, double dx, double dy);
+int mini_add (int a, int b);
+double mini_scale (double v, float factor);
+const char *mini_name (void);
+void mini_fill (struct miniPoint *p, unsigned int n);
+size_t mini_len (const char *s);
+int mini_printf (const char *fmt, ...);
+struct miniPoint mini_translate (struct miniPoint p, double dx, double dy);
 
 /* function pointer parameter */
-void mini_each(void (*fn)(int), int n);
+void mini_each (void (*fn)(int), int n);

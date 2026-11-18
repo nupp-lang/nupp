@@ -8,5 +8,5 @@ struct partialHolder {
   struct partialOpaque inner;
 };
 
-int partial_add(int a, int b);
-double partial_scale(double v);
+int partial_add (int a, int b);
+double partial_scale (double v);

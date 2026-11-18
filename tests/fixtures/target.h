@@ -1,3 +1,3 @@
 #include "same-name/target.h"
 
-int requested_target(void);
+int requested_target (void);

@@ -3,4 +3,4 @@
 
 #include "chain_base.h"
 
-chain_size_t chain_len(const char *s);
+chain_size_t chain_len (const char *s);

@@ -15,4 +15,4 @@ enum miniSigned { MINI_ERROR = -1, MINI_NONE = 0 };
    compile. The first meaning is the one that survives. */
 #define MINI_OK 999
 
-int mini_status(enum miniStatus s);
+int mini_status (enum miniStatus s);

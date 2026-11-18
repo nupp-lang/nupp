@@ -10,11 +10,11 @@ struct SinkPoint {
   double y;
 };
 
-bool nuppSinkOpen(const char *path);
-void nuppSinkCategory(int base, int category, const char *name);
-void nuppSinkClose(void);
-unsigned long nuppSinkCount(void);
-double nuppSinkScale(float factor, struct SinkPoint *p);
-unsigned char *nuppSinkBytes(unsigned char *data, const unsigned char *source);
+bool nuppSinkOpen (const char *path);
+void nuppSinkCategory (int base, int category, const char *name);
+void nuppSinkClose (void);
+unsigned long nuppSinkCount (void);
+double nuppSinkScale (float factor, struct SinkPoint *p);
+unsigned char *nuppSinkBytes (unsigned char *data, const unsigned char *source);
 
 #endif

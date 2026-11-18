@@ -61,9 +61,9 @@ struct layout_holds_vector {
   layout_v4sf v;
 };
 
-float layout_vector_first(layout_v4sf v);
+float layout_vector_first (layout_v4sf v);
 double _Complex layout_complex_make(double re, double im);
-double layout_complex_real(double _Complex z);
+double layout_complex_real (double _Complex z);
 
 /* A bool bitfield reads back as a boolean. */
 struct layout_flags {
@@ -73,7 +73,7 @@ struct layout_flags {
 
 /* An incomplete type is a handle, never a value. */
 typedef struct layout_opaque layout_opaque;
-layout_opaque *layout_opaque_new(void);
+layout_opaque *layout_opaque_new (void);
 
 /* These import, and lay out exactly as C lays them out. */
 struct layout_inner {
@@ -99,6 +99,6 @@ union layout_value {
   uint8_t bytes[12];
 };
 
-void layout_use(layout_mixed *mixed, union layout_value *value);
+void layout_use (layout_mixed *mixed, union layout_value *value);
 
 #endif
