@@ -11,7 +11,11 @@
 #include <stddef.h>
 #include <stdint.h>
 
+/* How each call is exported: a Windows DLL exports what its build defines
+ * and imports what its users see, unless the provider is linked statically,
+ * and elsewhere every call has default visibility. */
 #if defined(_WIN32)
+
 #if defined(NUPP_NATIVE_STATIC)
 #define NUPP_NATIVE_EXPORT
 #elif defined(NUPP_NATIVE_BUILD)
@@ -19,12 +23,17 @@
 #else
 #define NUPP_NATIVE_EXPORT __declspec(dllimport)
 #endif
+
 #else
+
 #define NUPP_NATIVE_EXPORT __attribute__((visibility("default")))
+
 #endif
 
+/* The version nuppNativeAbiVersion answers; a loader accepts only its own. */
 #define NUPP_NATIVE_ABI_VERSION 2u
 
+/* The status every int32_t call returns. */
 #define NUPP_NATIVE_OK 0
 #define NUPP_NATIVE_INVALID_ARGUMENT 1
 /* A handle table or a provider resource limit is exhausted. */
@@ -49,6 +58,7 @@
  * outputs have a fixed size and no length output, are the exceptions, and a
  * UUID does end in a NUL. */
 
+/* The bits of nuppNativeFeatures, one for each family a provider carries. */
 #define NUPP_NATIVE_FEATURE_BASE (UINT64_C(1) << 0)
 #define NUPP_NATIVE_FEATURE_UUID (UINT64_C(1) << 1)
 #define NUPP_NATIVE_FEATURE_GPU (UINT64_C(1) << 2)
@@ -131,12 +141,17 @@ NUPP_NATIVE_EXPORT int32_t nuppNativeWait (uint64_t generation,
 
 /* Present when NUPP_NATIVE_FEATURE_COMPRESSION is set. Input and output
  * ranges are borrowed only for one call. */
+
+/* The formats an encoder writes and a decoder reads. */
 #define NUPP_NATIVE_COMPRESSION_GZIP 1u
 #define NUPP_NATIVE_COMPRESSION_ZLIB 2u
 #define NUPP_NATIVE_COMPRESSION_DEFLATE_RAW 3u
+
+/* The state each write, read, flush or finish call reports. */
 #define NUPP_NATIVE_COMPRESSION_NEED_INPUT 1u
 #define NUPP_NATIVE_COMPRESSION_NEED_OUTPUT 2u
 #define NUPP_NATIVE_COMPRESSION_FINISHED 3u
+
 NUPP_NATIVE_EXPORT
 int32_t nuppNativeCompressionEncoderCreate (uint32_t format, uint32_t level,
                                             uint64_t *output);
@@ -535,6 +550,8 @@ NUPP_NATIVE_EXPORT int32_t nuppNativeUuid7 (uint8_t *output, size_t capacity);
 /* Present when NUPP_NATIVE_FEATURE_URI is set. URI values are immutable
  * generational handles. Text and components are copied into caller-owned
  * storage. */
+
+/* The part of a URI nuppNativeUriPart copies out. */
 #define NUPP_NATIVE_URI_TEXT 0u
 #define NUPP_NATIVE_URI_SCHEME 1u
 #define NUPP_NATIVE_URI_AUTHORITY 2u
@@ -544,6 +561,7 @@ NUPP_NATIVE_EXPORT int32_t nuppNativeUuid7 (uint8_t *output, size_t capacity);
 #define NUPP_NATIVE_URI_PATH 6u
 #define NUPP_NATIVE_URI_QUERY 7u
 #define NUPP_NATIVE_URI_FRAGMENT 8u
+
 NUPP_NATIVE_EXPORT int32_t nuppNativeUriParse (const uint8_t *data,
                                                size_t length, uint64_t *output);
 NUPP_NATIVE_EXPORT int32_t nuppNativeUriRelease (uint64_t uri);
@@ -612,11 +630,13 @@ typedef struct {
 #define NUPP_NATIVE_HTTP_PROXY_ENVIRONMENT 0
 #define NUPP_NATIVE_HTTP_PROXY_NONE 1
 #define NUPP_NATIVE_HTTP_PROXY_EXPLICIT 2
+
 /* NuppNativeHttpRequest.body_kind. */
 #define NUPP_NATIVE_HTTP_BODY_NONE 0u
 #define NUPP_NATIVE_HTTP_BODY_INLINE 1u
 #define NUPP_NATIVE_HTTP_BODY_UPLOAD 2u
 #define NUPP_NATIVE_HTTP_BODY_FILE 3u
+
 /* NuppNativeHttpHead.state, and the states nuppNativeHttpBodyRead writes. */
 #define NUPP_NATIVE_HTTP_HEAD_PENDING 0u
 #define NUPP_NATIVE_HTTP_HEAD_READY 1u

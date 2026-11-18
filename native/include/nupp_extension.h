@@ -23,6 +23,7 @@
  * through its own definitions, which its `extension_header` test holds to
  * every size and offset here.
  */
+
 #ifndef NUPP_EXTENSION_H
 #define NUPP_EXTENSION_H
 
@@ -33,13 +34,15 @@
 extern "C" {
 #endif
 
+/* The version an extension's entry carries; the VM accepts only its own. */
 #define NUPP_EXTENSION_ABI_VERSION 1u
 
 /* The symbol the VM looks up: a `nupp_extension_entry`. */
 #define NUPP_EXTENSION_ENTRY nupp_extension_v1
 #define NUPP_EXTENSION_ENTRY_NAME "nupp_extension_v1"
 
-/* The target an extension was built for, as the VM spells its own. */
+/* The target an extension was built for, as the VM spells its own: the
+ * architecture, then the operating system, joined by a hyphen. */
 #if defined(__aarch64__) || defined(_M_ARM64)
 #define NUPP_EXTENSION_ARCH "aarch64"
 #elif defined(__x86_64__) || defined(_M_X64)
@@ -47,6 +50,7 @@ extern "C" {
 #else
 #define NUPP_EXTENSION_ARCH "unknown"
 #endif
+
 #if defined(__APPLE__)
 #define NUPP_EXTENSION_OS "macos"
 #elif defined(__linux__)
@@ -56,6 +60,7 @@ extern "C" {
 #else
 #define NUPP_EXTENSION_OS "unknown"
 #endif
+
 #define NUPP_EXTENSION_TARGET NUPP_EXTENSION_ARCH "-" NUPP_EXTENSION_OS
 
 /* The kinds of value a slot holds. */
@@ -68,6 +73,7 @@ extern "C" {
 
 /* What a host function and the host table answer. */
 typedef int32_t nupp_status;
+
 #define NUPP_OK 0
 #define NUPP_ERROR 1
 #define NUPP_SUSPENDED 2
