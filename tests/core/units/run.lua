@@ -1296,9 +1296,34 @@ UNITS[#UNITS + 1] = {
     end
 }
 
+-- `run.lua list` names every unit and its fixture modules, for
+-- acceptance.nupp's inventory.
+if arg[1] == "list" then
+    for _, unit in ipairs(UNITS) do
+        local paths = {}
+        for _, name in ipairs(unit.modules) do
+            local path = unit.paths and unit.paths[name] or HERE .. "/nupp/core/" .. name .. ".nupp"
+            paths[#paths + 1] = path:sub(1, #ROOT + 1) == ROOT .. "/" and path:sub(#ROOT + 2) or path
+        end
+        print(("unit %s %s"):format(unit.name, table.concat(paths, " ")))
+    end
+    os.exit(0)
+end
+
 local only = {}
 for index = 2, #arg do
     only[arg[index]] = true
+end
+-- A unit named that does not exist is refused rather than run as nothing.
+do
+    local known = {}
+    for _, unit in ipairs(UNITS) do
+        known[unit.name] = true
+    end
+    for name in pairs(only) do
+        assert(known[name], "unknown core unit selection: " .. name)
+    end
+    assert(arg[1] == nil or arg[1] == "all" or arg[1] == "normal" or arg[1] == "spill", "unknown unit mode: " .. arg[1])
 end
 
 -- The core library's call and text ids are generated from their one
@@ -1540,8 +1565,12 @@ for _, unit in ipairs(UNITS) do
                     break
                 end
             end
+            -- A unit that does not build fails itself; the run goes on.
             if not dropped then
-                error(message, 0)
+                failures = failures + 1
+                print(("FAIL %s %s build: %s"):format(unit.name, mode, message:match("^[^\n]*"):sub(1, 200)))
+                print(("RESULT %s %s"):format(unit.name, mode))
+                goto nextmode
             end
             failures = failures + 1
             print(("FAIL %s %s %s: not lowered: %s"):format(unit.name, mode, name, message:sub(1, 200)))
@@ -1628,6 +1657,8 @@ for _, unit in ipairs(UNITS) do
             end
             ::nextcase::
         end
+        print(("RESULT %s %s"):format(unit.name, mode))
+        ::nextmode::
     end
     ::continue::
 end

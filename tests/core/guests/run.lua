@@ -980,6 +980,26 @@ end
 local JOBS = math.tointeger(tonumber(os.getenv("NUPP_GUEST_JOBS") or "")) or 8
 local queue = {}
 local pool = nil
+-- Records a job the watchdog killed; set once `check` exists.
+local jobTimedOut
+-- NUPP_GUEST_JOB_TIMEOUT bounds each bridge and guard run, in seconds: one
+-- that outlives it is killed with its whole process group and reported as
+-- timed out, so a guest that spins fails its case instead of the run.
+local JOB_TIMEOUT = math.tointeger(tonumber(os.getenv("NUPP_GUEST_JOB_TIMEOUT") or "")) or 0
+local TIMED_OUT = "nupp guest job timed out after "
+-- The job runs in a process group of its own, which is what a timeout kills.
+local WATCHDOG = [[
+my $limit = shift;
+my $pid = fork;
+die "fork: $!" unless defined $pid;
+if ($pid == 0) { setpgrp(0, 0); exec "/bin/sh", @ARGV; exit 127 }
+$SIG{ALRM} = sub { kill "KILL", -$pid; waitpid $pid, 0; print STDERR "\n]]
+    .. TIMED_OUT
+    .. [[${limit}s\n"; exit 124 };
+alarm $limit;
+waitpid $pid, 0;
+exit($? & 127 ? 128 + ($? & 127) : $? >> 8);
+]]
 
 local function defer(phase, command, done)
     if EMIT_ONLY then
@@ -1001,8 +1021,12 @@ local function defer(phase, command, done)
         )
         pool = {directory = directory, writer = assert(io.open(directory .. "/queue", "w"))}
     end
-    queue[#queue + 1] = {phase = phase, case = timing.case, done = done}
+    queue[#queue + 1] = {phase = phase, case = timing.case, label = timing.label, done = done}
     local base = directory .. "/" .. #queue
+    if JOB_TIMEOUT > 0 then
+        write(base .. ".job", command .. "\n")
+        command = ("perl -e %s %d %s"):format(quote(WATCHDOG), JOB_TIMEOUT, quote(base .. ".job"))
+    end
     local file = assert(io.open(base .. ".sh", "wb"))
     file:write(
         "began=$(date +%s)\n{ " .. command .. "\n} > " .. quote(
@@ -1032,7 +1056,14 @@ local function drain()
         local code, began, ended = (assert(read(base .. ".status"), "job status missing")):match("^(%d+) (%d+) (%d+)")
         timing.phase, timing.case = job.phase, job.case
         account(tonumber(ended) - tonumber(began))
-        job.done(tonumber(code), read(base .. ".out") or "")
+        local printed = read(base .. ".out") or ""
+        -- A run the watchdog killed says only that: what it left half
+        -- written is no result to check.
+        if JOB_TIMEOUT > 0 and tonumber(code) == 124 and printed:find(TIMED_OUT, 1, true) then
+            jobTimedOut(job)
+        else
+            job.done(tonumber(code), printed)
+        end
     end
 end
 
@@ -1098,6 +1129,10 @@ local function check(ok, label)
     end
 
     return ok
+end
+
+jobTimedOut = function(job)
+    check(false, ("%s %s timed out after %ds"):format(job.label or job.case, job.phase, JOB_TIMEOUT))
 end
 
 -- The C bridge and its ABI/scratch guard, built once with its contract tests.
@@ -1536,7 +1571,7 @@ local function shards(selectedCases, bridge, guard)
         local log = read(("%s/shard-%d.log"):format(OUT, index)) or ""
         local done, bad = log:match("shard result (%d+) (%d+)")
         for line in log:gmatch("[^\n]+") do
-            if line:match("^FAIL ") then
+            if line:match("^FAIL ") or line:match("^RESULT ") then
                 print(line)
             end
         end
@@ -1553,6 +1588,14 @@ local function shards(selectedCases, bridge, guard)
 end
 
 local function main()
+    -- `run.lua --list` names every case, and whether a run of every case
+    -- includes it, for acceptance.nupp's inventory.
+    if arg[1] == "--list" then
+        for _, case in ipairs(CASES) do
+            print(("case %s %s"):format(case[1], EXPLICIT[case[1]] and "explicit" or "default"))
+        end
+        return
+    end
     os.execute("mkdir -p " .. quote(OUT))
     -- Its parent wrote the generated case a shard reads.
     if not os.getenv("NUPP_GUEST_SHARD") then
@@ -1754,8 +1797,31 @@ local function main()
         end
         for _, mode in ipairs(REFUSED[name] and {} or MODES) do
             local label = name .. "-" .. mode
-            timing.case = name
-            local selected = selection(name, mode)
+            timing.case, timing.label = name, label
+            -- A program that does not compile fails its own case, with what
+            -- the guest build's inventory says keeps it from compiling, and
+            -- the run goes on to the next.
+            local chosen, selected = pcall(selection, name, mode)
+            if not chosen then
+                check(false, ("%s selection: %s"):format(label, tostring(selected):match("^[^\n]*")))
+                if mode == MODES[1] then
+                    local listed, refusals = pcall(function()
+                        compiler()
+                        return guestbuild.inventory(name)
+                    end)
+                    if listed then
+                        for _, owner in ipairs(refusals.owners or {}) do
+                            check(
+                                false,
+                                (
+                                    "%s refused %s: %s"
+                                ):format(label, owner.owner, tostring(owner.problem):match("^[^\n]*"))
+                            )
+                        end
+                    end
+                end
+                goto nextmode
+            end
             check(selected.caseName == name and selected.mode == mode, label .. " identity")
             -- The binary chunks it loads, where it reads them.
             for _, chunk in ipairs(selected.chunks or {}) do
@@ -1767,8 +1833,9 @@ local function main()
             for _, source in ipairs(TEXT_SOURCES[name] or {}) do
                 sourceChunk(source[1], source[2])
             end
-            if mode == "spill" then
-                local normal = selections[name .. "-normal"]
+            -- A normal program that did not compile has failed already.
+            local normal = selections[name .. "-normal"]
+            if mode == "spill" and normal then
                 check(same(selected.programs, normal.programs), label .. " stream independent of mode")
                 for _, item in ipairs(selected.metrics) do
                     check(item.integerRegisters == 0 and item.floatRegisters == 0, label .. " spills everything")
@@ -2066,6 +2133,7 @@ local function main()
                     guarded(label .. " completes within budget", bundle, input, highWater, expected)
                 end
             end
+            ::nextmode::
         end
     end
 
@@ -2087,9 +2155,10 @@ local function main()
             for _, case in ipairs(selectedCases) do
                 present = present or case[1] == name
             end
-            if present then
+            -- A case whose program did not compile has failed already.
+            if present and selections[name .. "-" .. mode] then
                 local label = ("audit-%s-%s-%s"):format(name, mode, scenario)
-                timing.case, timing.phase = "audit " .. name, "audit select"
+                timing.case, timing.phase, timing.label = "audit " .. name, "audit select", label
                 local began = os.time()
                 compiler()
                 local selected = UNITS
@@ -2166,6 +2235,13 @@ local function main()
     summary("seconds by phase", timing.phases, 100)
     summary("slowest cases", timing.cases, 12)
     summary("processor seconds in selection", guestbuild and guestbuild.timings or {}, 100)
+    -- Each case and mode whose every check has run, which acceptance.nupp
+    -- reads beside the failures: a case that has none was never finished.
+    for _, case in ipairs(selectedCases) do
+        for _, mode in ipairs(REFUSED[case[1]] and {} or MODES) do
+            print(("RESULT %s %s"):format(case[1], mode))
+        end
+    end
     print(("%d checks, %d failed, %ds"):format(checks, #failures, os.time() - started))
     if shard then
         print(("shard result %d %d"):format(checks, #failures))
