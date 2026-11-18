@@ -114,7 +114,8 @@ do
     local r = assert(io.open(base .. "-big", "r"))
     check(r:read("a") == big)
     r:close()
-    check(os.execute("rm " .. base .. "-big " .. base .. "-written") == true)
+    -- os.execute answers main's Lua 5.1 status (5bafa3970), where the twin has true.
+    check(os.execute("rm " .. base .. "-big " .. base .. "-written") as integer == 0)
 end
 
 -- The mode must be "r" or "w".
