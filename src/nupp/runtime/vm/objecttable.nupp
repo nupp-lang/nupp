@@ -375,6 +375,26 @@ export function coreprobe(table: voidptr, capacity: uint64, mask: uint64, key: u
     end
     local bucket: uint64 = corehash(key) & mask
     local probes: uint64 = 0ULL
+    -- Every key but an uninterned (long) string equals only itself: a short
+    -- string is interned, so one with the same bytes is the same object.
+    -- Those probes compare words and never read the resident key's header.
+    local text = corestring(key)
+    if text == 0ULL
+        or native.word(native.load8(native.pointer(text), native.fieldOffset<heap.Header>("flags")))
+        & heap.F_INTERNED ~= 0ULL
+    then
+        local dead = DEAD_KEY | (key & values.PAYLOAD)
+        local object = key & values.TAG_MASK == values.TAG_OBJ
+        while probes < capacity do
+            local found = native.load64(table, native.index(bucket * 16ULL))
+            if found == key or found == values.NIL or object and found == dead then
+                return bucket
+            end
+            bucket = (bucket + 1ULL) & mask
+            probes = probes + 1ULL
+        end
+        return NO_BUCKET
+    end
     while probes < capacity do
         local found = native.load64(table, native.index(bucket * 16ULL))
         -- Scanned NIL keys are opaque. Unscanned deleted keys remain live
