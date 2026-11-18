@@ -64,10 +64,21 @@ runs:
       with:
         version: v0.19.0
     # A cache that cannot be reached compiles instead of failing the build.
+    # IGNORE_SERVER_IO_ERROR covers requests, not the server's startup, and
+    # the Actions cache has refused startup ("Egress is over the account
+    # limit"). So the server starts here, once: later compiles reuse it, and
+    # if it cannot start, the job compiles without sccache rather than every
+    # compile failing. scripts/sccache-wrapper covers the same failure later
+    # in a job, but Cargo cannot run that script on Windows.
     - shell: bash
       run: |
         echo "SCCACHE_GHA_ENABLED=true" >> "$GITHUB_ENV"
         echo "SCCACHE_IGNORE_SERVER_IO_ERROR=1" >> "$GITHUB_ENV"
+        export SCCACHE_GHA_ENABLED=true SCCACHE_IGNORE_SERVER_IO_ERROR=1
+        if ! sccache --start-server; then
+          echo "::warning::sccache could not start; this job compiles without it"
+          echo "RUSTC_WRAPPER=" >> "$GITHUB_ENV"
+        fi
 
     # The pinned nightly. A hosted runner carries only stable, and
     # `scripts/toolchain` installs the pinned channel the first time a build
