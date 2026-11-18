@@ -1,0 +1,49 @@
+module nupp.core.catalogcompilercomptime
+
+-- `nupp build` on the core of a program whose values come from comptime
+-- blocks: the checker evaluates them and quotes each result as source, which
+-- the lowering parses in its place. An integer and a float, each a bit.
+const root = require("nupp.tools.vm.root")
+
+@allow("unused-binding")
+const _DYNAMIC_REQUIRES = [[
+@requires-dynamically nupp.compiler.vm.corechunk
+]]
+
+local score = 0
+local bit = 1
+
+local function check(ok: boolean): nil
+    if ok then
+        score = score | bit
+    end
+    bit = bit << 1
+end
+
+local function write(path: string, text: string): nil
+    local file = assert(io.open(path, "wb"))
+    file:write(text)
+    file:close()
+end
+
+write(
+    "main.nupp",
+    "@comptime\nlocal function twice(n: integer): integer\n    return n * 2\nend\n\n"
+    .. "local value: integer = comptime do\n    return twice(21)\nend\n"
+    .. "local ratio: number = comptime do\n    return 0.5\nend\nprint(value, ratio)\n"
+)
+write(
+    "nupp.lua",
+    "return {include = {\".\"}, build = {default = \"app\", targets = {app = "
+    .. "{kind = \"binary\", entries = {\"main\"}, stub = \"nupp\", output = \"build/app\"}}}}\n"
+)
+check(root.main({"build"}) == 0)
+local popen: any = io.popen
+local ran = popen("./build/app")
+local printed = ran and ran:read("a")
+if ran then
+    ran:close()
+end
+check(printed == "42\t0.5\n")
+
+export const result = score

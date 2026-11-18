@@ -71,7 +71,9 @@ local MARKDOWN = {
     compilercheck = true,
     compilerwarmcheck = true,
     compilerbuild = true,
-    compilerselfbuild = true
+    compilerselfbuild = true,
+    compilercomptime = true,
+    compilerderive = true
 }
 -- Results at BENCH_SCALE=2, run in normal mode only. Loops stays out: its 30
 -- million iterations take ten seconds at either scale.
@@ -96,8 +98,14 @@ local CASES = {
     {"stringdynamic", 0x7FFF000000000001},
     -- Concatenation of floats and integers through dynamic values.
     {"concatnumbers", 0x7FFF000000000007},
+    -- Results led by nils, directly, through tail calls and function values.
+    {"callsleadingnils", 0x7FFF00000000000F},
     -- A record with an array part: iteration and absent fields.
     {"recordsarraypart", 0x7FFF00000000001F},
+    -- Table constructors mixing named fields and positional items.
+    {"tablesmixedconstructor", 0x7FFF00000000000F},
+    -- A weak-keyed cache whose values hold their keys, across collections.
+    {"weakwrappers", 0x7FFF000000000007},
     -- A record without an array part read at integer keys.
     {"recordsintegerkeys", 0x7FFF00000000000F},
     {"stringmetaonly", 0x7FFF000000000001},
@@ -365,6 +373,10 @@ local CASES = {
     {"compilerselfbuild", 0x7FFF000000000007},
     -- The small compiler the core fixpoint is checked on, lowering in memory.
     {"fixpointcompiler", 0x7FFF000000000007},
+    -- `nupp build` on the core of values from comptime blocks.
+    {"compilercomptime", 0x7FFF000000000003},
+    -- `nupp build` on the core of a command record `io.cli` derives.
+    {"compilerderive", 0x7FFF000000000003},
     -- Lua's debug.getinfo: sources, lines and names by level and of values.
     {"debuggetinfo", 0x7FFF00000001FFFF},
     -- Instances of a Nupp module compiled as a chunk: fresh state, requires
@@ -481,6 +493,7 @@ end
 -- spaced by a share of what lives, so the full-scale workloads stay linear;
 -- records and strings, at seconds a run there, run so in normal mode alone.
 local STRESS = {
+    weakwrappers = true,
     ownedcallables = true,
     scalartypeof = true,
     optionalmethodcleanups = true,
@@ -635,6 +648,12 @@ local SETUP = {
     -- the compiler checkout named for the VM runtime a binary is stamped onto.
     compilerbuild = (
         "d=$(mktemp -d '%s/build.XXXXXX') && cd \"$d\" && export NUPP_COMPILER_ROOT='%s'; "
+    ):format(OUT, ROOT),
+    compilercomptime = (
+        "d=$(mktemp -d '%s/comptime.XXXXXX') && cd \"$d\" && export NUPP_COMPILER_ROOT='%s'; "
+    ):format(OUT, ROOT),
+    compilerderive = (
+        "d=$(mktemp -d '%s/derive.XXXXXX') && cd \"$d\" && export NUPP_COMPILER_ROOT='%s'; "
     ):format(OUT, ROOT),
     compilerselfbuild = (
         "cd '%s' && export NUPP_COMPILER_ROOT='%s' NUPP_CACHE_DIR='%s/build/self-build-core/cache'; "

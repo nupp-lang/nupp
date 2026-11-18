@@ -1,0 +1,52 @@
+module nupp.core.catalogcompilerderive
+
+-- `nupp build` on the core of a command record derived by `io.cli`: the
+-- derive provider runs in the comptime worker and its recipe is materialized
+-- into the program, which then runs. Each check is a bit.
+const root = require("nupp.tools.vm.root")
+
+@allow("unused-binding")
+const _DYNAMIC_REQUIRES = [[
+@requires-dynamically nupp.compiler.vm.corechunk
+]]
+
+local score = 0
+local bit = 1
+
+local function check(ok: boolean): nil
+    if ok then
+        score = score | bit
+    end
+    bit = bit << 1
+end
+
+local function write(path: string, text: string): nil
+    local file = assert(io.open(path, "wb"))
+    file:write(text)
+    file:close()
+end
+
+write(
+    "main.nupp",
+    "local cli = require(\"io.cli\")\n\n--- Say something.\n@cli(\"say\")\n@derive(cli.command)\n"
+    .. "local record Say\n    --- Select the representation.\n"
+    .. "    @cli(value = \"FORMAT\", constantaliases = {json = \"json\", text = \"text\"})\n"
+    .. "    format: \"text\" | \"json\" = \"text\"\n\n    --- Repeat it.\n    loud: boolean = false\n\n"
+    .. "    function run(self): integer\n        print(self.format, self.loud)\n        return 0\n    end\nend\n\n"
+    .. "print(Say ~= nil)\n"
+)
+write(
+    "nupp.lua",
+    "return {include = {\".\"}, build = {default = \"app\", targets = {app = "
+    .. "{kind = \"binary\", entries = {\"main\"}, stub = \"nupp\", output = \"build/app\"}}}}\n"
+)
+check(root.main({"build"}) == 0)
+local popen: any = io.popen
+local ran = popen("./build/app")
+local printed = ran and ran:read("a")
+if ran then
+    ran:close()
+end
+check(printed == "true\n")
+
+export const result = score

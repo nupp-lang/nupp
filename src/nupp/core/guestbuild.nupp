@@ -145,7 +145,10 @@ local CASES: {[string]: {
     numericsteps = {fixture = "catalog-numeric-steps", version = 8},
     stringdynamic = {fixture = "catalog-string-dynamic", version = 8},
     concatnumbers = {fixture = "catalog-concat-numbers", version = 8},
+    callsleadingnils = {fixture = "catalog-calls-leading-nils", version = 8},
     recordsarraypart = {fixture = "catalog-records-array-part", version = 8},
+    tablesmixedconstructor = {fixture = "catalog-tables-mixed-constructor", version = 8},
+    weakwrappers = {fixture = "catalog-weak-wrappers", version = 8},
     recordsintegerkeys = {fixture = "catalog-records-integer-keys", version = 8},
     stringmetaonly = {fixture = "catalog-string-metatable-only", version = 8},
     stringmetatable = {fixture = "catalog-string-metatable", version = 8},
@@ -474,6 +477,8 @@ local CASES: {[string]: {
         follow = true,
         modules = {"catalog-fixpoint-lowering", "catalog-fixpoint-emitter"}
     },
+    compilercomptime = {fixture = "catalog-compiler-comptime", version = 8, follow = true, modules = buildextras()},
+    compilerderive = {fixture = "catalog-compiler-derive", version = 8, follow = true, modules = buildextras()},
     -- The bench harness's own entry: the bench/vm workloads under debug.bench.
     benchworkloads = {
         fixture = "bench/vm/workloads.bench",

@@ -1,0 +1,75 @@
+module nupp.core.catalogweakwrappers
+
+-- A weak-keyed cache whose values hold their keys, as the compiler's
+-- construction wrappers are kept: an entry lives while its key does, and
+-- once both are garbage the entry goes with them, so a later key never finds
+-- an earlier key's value. Rounds of fresh keys and garbage drive collections
+-- through the cache. Each check is a bit.
+local wrappers: any = setmetatable({}, {__mode = "k"})
+
+local function of(node: any): any
+    local wrapper = wrappers[node]
+    if wrapper == nil then
+        wrapper = {kind = "newExpr", call = node, inferredType = node.inferredType, node}
+        wrappers[node] = wrapper
+    end
+
+    return wrapper
+end
+
+local function sound(node: any): boolean
+    local wrapper = of(node)
+    return wrapper.call == node and wrapper[1] == node and wrapper[2] == nil and wrapper.kind == "newExpr"
+end
+
+local wrong = 0
+local kept: {any} = {}
+for round = 1, 60 do
+    local nodes: {any} = {}
+    for index = 1, 400 do
+        local node: any = {kind = "call", index = index, inferredType = {tag = "nominal", round = round}}
+        nodes[index] = node
+        if not sound(node) then
+            wrong = wrong + 1
+        end
+    end
+    -- Garbage of the same shapes, so freed slots are taken again.
+    for index = 1, 400 do
+        local _ = {kind = "garbage", index = index, {index}}
+    end
+    for index = 1, 400, 7 do
+        if not sound(nodes[index]) then
+            wrong = wrong + 1
+        end
+    end
+    -- Some keys live on across rounds.
+    kept[#kept + 1] = nodes[round]
+    for _, node in ipairs(kept) do
+        if not sound(node) then
+            wrong = wrong + 1
+        end
+    end
+end
+
+local score = 0
+if wrong == 0 then
+    score = score | 1
+end
+collectgarbage()
+local live = 0
+for _ in pairs(wrappers) do
+    live = live + 1
+end
+-- The kept keys' entries stay; the rest may be gone.
+if live >= #kept and live <= #kept + 400 then
+    score = score | 2
+end
+for _, node in ipairs(kept) do
+    if not sound(node) then
+        wrong = wrong + 1
+    end
+end
+if wrong == 0 then
+    score = score | 4
+end
+export const result = score
