@@ -1,0 +1,30 @@
+module nupp.core.catalogfixpointemitter
+
+-- The fixpoint compiler's files: what it reads and what it writes.
+
+--- The bytes of `path`.
+export function read(path: string): string
+    local file = assert(io.open(path, "rb"), "cannot read " .. path)
+    local bytes = file:read("a") as string
+    file:close()
+
+    return bytes
+end
+
+--- Writes `bytes` to `path`.
+export function write(path: string, bytes: string): nil
+    local file = assert(io.open(path, "wb"), "cannot write " .. path)
+    file:write(bytes)
+    file:close()
+end
+
+--- Makes `path` and its parents.
+export function directory(path: string): nil
+    local quoted = (path:gsub("'", "'\\''"))
+    assert(os.execute("mkdir -p '" .. quoted .. "'"), "cannot make " .. path)
+end
+
+--- The last part of `path`.
+export function basename(path: string): string
+    return path:match("([^/]+)$") or path
+end

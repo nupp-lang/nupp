@@ -1,0 +1,24 @@
+module nupp.core.catalogfixpointlowering
+
+-- The fixpoint compiler's lowering: a source through the compiler's own
+-- lexer, listed a token to a line by its kind, position and text.
+const lexer = require("nupp.compiler.syntax.lexer")
+const triviaarena = require("nupp.compiler.syntax.triviaarena")
+
+-- The core has no FFI: the lexer keeps its trivia in tables.
+triviaarena.installDefault(require("nupp.compiler.syntax.triviaarena.table"))
+
+--- The listing of `source`, and how many tokens it holds; nil when it does
+--- not lex.
+export function lower(source: string, name: string): (string?, integer)
+    local tokens, errors = lexer.lex(source, "=" .. name)
+    if #errors > 0 then
+        return nil, 0
+    end
+    local lines: {string} = {}
+    for _, token in ipairs(tokens) do
+        lines[#lines + 1] = ("%d:%d %s %s"):format(token.line, token.col, token.kind, token.text)
+    end
+
+    return table.concat(lines, "\n") .. "\n", #tokens
+end

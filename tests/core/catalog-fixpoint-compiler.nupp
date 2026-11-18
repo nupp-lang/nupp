@@ -1,0 +1,68 @@
+module nupp.core.catalogfixpointcompiler
+
+-- A small compiler for the core fixpoint's small-input check
+-- (tests/core/guests/fixpoint.lua): it runs on the core, lowers each source it
+-- is given through the compiler's real lexer into a token listing -- the
+-- runtime outputs of its build -- and emits itself as the next stage's
+-- compiler, as a self-hosting compiler does.
+--
+--   OUTPUT COMPILER SOURCE...   OUTPUT/compiler.bundle is COMPILER, and
+--                               OUTPUT/runtime/NAME.tokens lists SOURCE NAME
+--   --check SOURCE...           lowers in memory only, for the guest harness
+--   --vm ...                    first starts the Rust VM, as a compiler that
+--                               reached for it would, which a core stage refuses
+--   --help                      says how it is used
+const lowering = require("nupp.core.catalogfixpointlowering")
+const emitter = require("nupp.core.catalogfixpointemitter")
+
+local arguments: any = rawget(_G, "arg")
+local given: {string} = {}
+local index = 1
+while arguments ~= nil and arguments[index] ~= nil do
+    given[#given + 1] = arguments[index] as string
+    index = index + 1
+end
+
+local score = 0
+if given[1] == "--help" then
+    print("Usage: fixpoint-compiler OUTPUT COMPILER SOURCE... | --check SOURCE...")
+    score = 7
+elseif given[1] == "--check" then
+    local lowered = 0
+    local tokens = 0
+    local stable = true
+    for at = 2, #given do
+        local listing, count = lowering.lower(emitter.read(given[at]), given[at])
+        if listing ~= nil then
+            lowered = lowered + 1
+            tokens = tokens + count
+            stable = stable and lowering.lower(emitter.read(given[at]), given[at]) == listing
+        end
+    end
+    if #given > 1 and lowered == #given - 1 then
+        score = score | 1
+    end
+    if tokens > 100 then
+        score = score | 2
+    end
+    if stable then
+        score = score | 4
+    end
+else
+    if given[1] == "--vm" then
+        table.remove(given, 1)
+        os.execute('"$NUPP_VM_BINARY" exec "$NUPP_VM_CLI_IMAGE" nupp.tools.vm.root --help')
+    end
+    local output, compiler = given[1], given[2]
+    assert(output ~= nil and compiler ~= nil, "usage: fixpoint-compiler OUTPUT COMPILER SOURCE...")
+    emitter.directory(output .. "/runtime")
+    emitter.write(output .. "/compiler.bundle", emitter.read(compiler))
+    for at = 3, #given do
+        local listing = lowering.lower(emitter.read(given[at]), given[at])
+        assert(listing ~= nil, "cannot lower " .. given[at])
+        emitter.write(output .. "/runtime/" .. emitter.basename(given[at]) .. ".tokens", listing as string)
+    end
+    score = 7
+end
+
+export const result = score

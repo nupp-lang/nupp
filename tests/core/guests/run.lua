@@ -60,7 +60,8 @@ local STRESSED = os.getenv("NUPP_GUEST_STRESS") ~= "0"
 -- but the ABI guard, which runs the program again, is left to the others.
 local HEAVY = {workloadLoops = true, compilerselfbuild = true}
 -- Compiler-sized workloads prepare a host baseline before explicit selection.
-local EXPLICIT = {compilerselfbuild = true}
+-- The fixpoint's small compiler is run by tests/core/guests/fixpoint.lua.
+local EXPLICIT = {compilerselfbuild = true, fixpointcompiler = true}
 -- Results at BENCH_SCALE=2, run in normal mode only. Loops stays out: its 30
 -- million iterations take ten seconds at either scale.
 local SCALED = {
@@ -345,6 +346,8 @@ local CASES = {
     -- `nupp build` on the core: a library, then a VM binary that is run.
     {"compilerbuild", 0x7FFF00000000003F},
     {"compilerselfbuild", 0x7FFF000000000007},
+    -- The small compiler the core fixpoint is checked on, lowering in memory.
+    {"fixpointcompiler", 0x7FFF000000000007},
     -- Lua's debug.getinfo: sources, lines and names by level and of values.
     {"debuggetinfo", 0x7FFF00000001FFFF},
     -- Instances of a Nupp module compiled as a chunk: fresh state, requires
@@ -730,7 +733,10 @@ local TEXT_SOURCES = {testrunner = {{"tests/cache.lua", "nupp:test-cache"}}}
 local ARGUMENTS = {
     hostlibrary = "alpha beta",
     benchworkloads = "--case fib --json --out /dev/null",
-    testrunner = "--jobs=1 --json --no-color " .. table.concat(RUNNER_SUITES, " ")
+    testrunner = "--jobs=1 --json --no-color " .. table.concat(RUNNER_SUITES, " "),
+    fixpointcompiler = (
+        "--check %s/tests/core/catalog-fixpoint-compiler.nupp %s/tests/core/catalog-fixpoint-lowering.nupp"
+    ):format(ROOT, ROOT)
 }
 -- Cases whose program the core refuses to compile, and what it says.
 local REFUSED = {}

@@ -463,6 +463,14 @@ local CASES: {[string]: {
     -- `nupp build` on the core the same way: a library, then a VM binary.
     compilerbuild = {fixture = "catalog-compiler-build", version = 8, follow = true, modules = buildextras()},
     compilerselfbuild = {fixture = "catalog-compiler-self-build", version = 8, follow = true, modules = buildextras()},
+    -- The small compiler `nupp fixpoint --runtime core` is checked on before
+    -- the real one can build itself there (tests/core/guests/fixpoint.lua).
+    fixpointcompiler = {
+        fixture = "catalog-fixpoint-compiler",
+        version = 8,
+        follow = true,
+        modules = {"catalog-fixpoint-lowering", "catalog-fixpoint-emitter"}
+    },
     -- The bench harness's own entry: the bench/vm workloads under debug.bench.
     benchworkloads = {
         fixture = "bench/vm/workloads.bench",
