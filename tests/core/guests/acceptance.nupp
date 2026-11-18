@@ -18,9 +18,11 @@
 --                    fail the run
 --   --target TRIPLE  refuse to run anywhere but that host
 --   --timeout N      seconds one bridge or guard run may take (default 1800)
---   --part I/N       only the I-th of N slices of the selections, for a CI
---                    job that splits the run between runners
+--   --part I/N       only the I-th of N slices of the selections: a CI job
+--                    that splits the run, or an inventory refreshed a
+--                    slice at a time
 --   --jobs N         bridge and guard runs at once (default 2)
+--   --shards N       guest processes selecting at once (default 1)
 --
 -- Without --inventory or --ci it runs the selections named and fails on any
 -- failure. Nothing here runs an empty or unknown selection, and the
@@ -40,8 +42,9 @@ const PROCESS_TIMEOUTS = 4
 -- And the guest run, which selects its cases one after another, by this many
 -- seconds more for each case it runs.
 const CASE_SECONDS = 120
--- The guest run is one process of this many shards, which share the jobs.
-const GUEST_SHARDS = 2
+-- The guest run is one process of this many shards by default, which share
+-- the jobs. Each shard selects in a compiler of its own, gigabytes large.
+const DEFAULT_SHARDS = 1
 const MODES = {"normal", "spill"}
 -- Owner given to a row nothing has been decided for: --ci fails on it.
 const UNOWNED = "unowned"
@@ -150,10 +153,20 @@ local options: {
     target: string?,
     timeout: integer,
     jobs: integer,
+    shards: integer,
     part: integer,
     parts: integer,
     names: {string}
-} = {inventory = false, ci = false, timeout = DEFAULT_TIMEOUT, jobs = DEFAULT_JOBS, part = 1, parts = 1, names = {}}
+} = {
+    inventory = false,
+    ci = false,
+    timeout = DEFAULT_TIMEOUT,
+    jobs = DEFAULT_JOBS,
+    shards = DEFAULT_SHARDS,
+    part = 1,
+    parts = 1,
+    names = {}
+}
 do
     local args = io.cli.args
     local index: integer = 1
@@ -187,6 +200,8 @@ do
             options.target = value(given)
         elseif given == "--timeout" then
             options.timeout = count(given, value(given))
+        elseif given == "--shards" then
+            options.shards = count(given, value(given))
         elseif given == "--jobs" then
             options.jobs = count(given, value(given))
         elseif given == "--part" then
@@ -209,9 +224,6 @@ do
 end
 if options.inventory and options.ci then
     fail("--inventory and --ci are separate runs")
-end
-if options.inventory and options.parts > 1 then
-    fail("--inventory runs every part")
 end
 for _, name in ipairs(SHORTCUTS) do
     local set = os.getenv(name)
@@ -405,7 +417,7 @@ local function normalized(text: string): string
     line = line:gsub(ROOT:gsub("%p", "%%%0"), "<root>")
     line = line:gsub("0x%x%x%x%x%x%x+", "0x*")
     line = line:gsub("%s+$", "")
-    if #line > 240 then
+    if #line > 243 then
         line = line:sub(1, 240) .. "..."
     end
 
@@ -473,10 +485,39 @@ local function unitLine(line: string): nil
     addFailure(rowFor(rowId("unit", "harness")), text)
 end
 
+-- The pinned OpenSSL the crypto codec case binds (docs/native-core-bindings.md),
+-- provisioned once and named as the case needs it, unless the caller names
+-- its own. Empty where it cannot be provisioned: that case then fails alone.
+local function cryptoLibraries(): string
+    if os.getenv("NUPP_CRYPTO_LIBRARY") ~= nil then
+        return ""
+    end
+    local status, output = capture(quote(ROOT .. "/scripts/toolchain") .. " openssl")
+    local prefix = output:match("([^\r\n]+)%s*$")
+    if status ~= 0 or prefix == nil then
+        return ""
+    end
+    local _, system = capture("uname -s")
+    local suffix = system:match("Darwin") and ".dylib" or ".so"
+
+    return (
+        "NUPP_CRYPTO_LIBRARY=%s NUPP_SSL_LIBRARY=%s "
+    ):format(quote(prefix .. "/lib/libcrypto" .. suffix), quote(prefix .. "/lib/libssl" .. suffix))
+end
+
 local function guestScript(names: {string}, shards: integer): string
     return (
-        "cd %s && NUPP_COMPILER_ROOT=%s NUPP_GUEST_SHARDS=%d NUPP_GUEST_JOBS=%d NUPP_GUEST_JOB_TIMEOUT=%d %s run run.lua %s"
-    ):format(quote(GUESTS), quote(ROOT), shards, options.jobs, options.timeout, quote(NUPP), table.concat(names, " "))
+        "cd %s && %sNUPP_COMPILER_ROOT=%s NUPP_GUEST_SHARDS=%d NUPP_GUEST_JOBS=%d NUPP_GUEST_JOB_TIMEOUT=%d %s run run.lua %s"
+    ):format(
+        quote(GUESTS),
+        cryptoLibraries(),
+        quote(ROOT),
+        shards,
+        options.jobs,
+        options.timeout,
+        quote(NUPP),
+        table.concat(names, " ")
+    )
 end
 
 -- The guest cases chosen, in one sharded harness run; then any case the run
@@ -491,7 +532,7 @@ local function runGuests(guests: {Selection}): nil
     end
     local limit = options.timeout * PROCESS_TIMEOUTS + CASE_SECONDS * #names
     print(("acceptance: %d guest cases, log in %s/guests.log"):format(#names, OUT))
-    local _, timedOut, printed = bounded("guests", guestScript(names, GUEST_SHARDS), limit)
+    local _, timedOut, printed = bounded("guests", guestScript(names, options.shards), limit)
     for line in printed:gmatch("[^\n]+") do
         guestLine(line)
     end
@@ -737,14 +778,22 @@ if options.inventory then
             merged[id] = nil
         end
     end
-    -- A whole run decides the harness rows too.
-    if #options.names == 0 then
+    -- A whole run decides the harness rows too; a part or a named run only
+    -- adds to them.
+    if #options.names == 0 and options.parts == 1 then
         merged["guest:harness"], merged["unit:harness"] = nil, nil
     end
     for id, row in pairs(rows) do
-        local previous = baseline[id]
+        local previous = merged[id]
+        -- The harness rows a part finds join what the other parts found.
+        if previous ~= nil and id:match(":harness$") then
+            for _, failure in ipairs(previous.failures) do
+                addFailure(row, failure)
+            end
+            table.sort(row.failures)
+        end
         if row.status ~= "pass" then
-            row.owner = previous ~= nil and previous.owner or UNOWNED
+            row.owner = baseline[id] ~= nil and (baseline[id] as Row).owner or UNOWNED
         end
         merged[id] = row
     end
