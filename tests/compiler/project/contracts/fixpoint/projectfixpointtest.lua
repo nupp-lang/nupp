@@ -104,7 +104,14 @@ end
 local function quiet()
 end
 
+-- The stand-in core is a shell script and the seeds are POSIX paths printed by
+-- `echo`. The core fixpoint starts on ARM64 hosts; Windows has no core yet.
+local noCore = hostSystem == "windows"
+
 function M.coreFixpointAgreesOverEveryStageArtifact()
+    if noCore then
+        return
+    end
     local dir, recipe = coreFixture("same")
     local found = corefixpoint.runCore(dir, dir .. "/out", quiet, recipe)
     local ok, problem = pcall(function()
@@ -124,6 +131,9 @@ end
 -- The negative control: the compilers agree byte for byte, and only what the
 -- build emitted beside them differs. The fixpoint fails and names it.
 function M.fixpointFailsWhenOnlyARuntimeOutputDiffers()
+    if noCore then
+        return
+    end
     local dir, recipe = coreFixture("differ")
     local found = corefixpoint.runCore(dir, dir .. "/out", quiet, recipe)
     local same = read(dir .. "/out/stage2/compiler.bundle") == read(dir .. "/out/stage3/compiler.bundle")
@@ -134,6 +144,9 @@ function M.fixpointFailsWhenOnlyARuntimeOutputDiffers()
 end
 
 function M.coreFixpointRefusesAStageThatRanOnTheRustVm()
+    if noCore then
+        return
+    end
     local dir, recipe = coreFixture("vm")
     local found = corefixpoint.runCore(dir, dir .. "/out", quiet, recipe)
     remove(dir)
@@ -155,6 +168,9 @@ end
 
 -- A core seed is held to the core like the stages after it.
 function M.coreFixpointRefusesACoreSeedThatRanOnTheRustVm()
+    if noCore then
+        return
+    end
     local dir, recipe = coreFixture("same")
     recipe.seedRuntime = "core"
     recipe.seed = function(directory, env)
@@ -188,6 +204,9 @@ end
 -- Once a host's pin names a core seed, the VM fixpoint has nothing to start
 -- from, and no VM seed is fetched in its place.
 function M.vmFixpointRefusesACoreSeed()
+    if noCore then
+        return
+    end
     local dir = tempProject({["seed/manifest.json"] = '{\n  "format": "nupp-core-seed-1",\n}\n'})
     local found = corefixpoint.run(dir, dir .. "/out", quiet, "echo " .. dir .. "/seed")
     remove(dir)
