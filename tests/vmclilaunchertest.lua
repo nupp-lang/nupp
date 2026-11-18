@@ -17,6 +17,11 @@ local ROOT = HERE .. "/.."
 
 local M = {}
 
+-- Planted trees are their own git repositories. The person's global git
+-- configuration must not reach them: an excludes file that ignores bin/ made
+-- `git add bin` fail in these cases on one machine.
+local GIT_ISOLATED = "export GIT_CONFIG_NOSYSTEM=1 GIT_CONFIG_GLOBAL=/dev/null && "
+
 local function capture(command)
     local p = assert(io.popen(command))
     local out = p:read("*a")
@@ -393,7 +398,7 @@ function M.realSourceFingerprintIncludesRunnerBytesWithoutTimestamps()
     assert(os.execute(("mkdir -p '%s/tests'"):format(dir)) == 0)
     plant("tests/run.lua", "-- original runner\n")
     assert(os.execute(("cp '%s/scripts/vm-cli' '%s/scripts/vm-cli'"):format(ROOT, dir)) == 0)
-    assert(os.execute(("cd '%s' && git init -q && git add bin scripts src templates tests"):format(dir)) == 0)
+    assert(os.execute(("cd '%s' && " .. GIT_ISOLATED .. "git init -q && git add bin scripts src templates tests"):format(dir)) == 0)
     -- current/status validate only receipt bytes. This fake package never builds
     -- or runs a compiler; sourceNow supplies the actual script's fingerprint.
     plant(
@@ -463,7 +468,7 @@ esac
     )
     plant("compiler.image", "module nupp.tools.vm.root 0 root\n")
     assert(os.execute(("chmod +x '%s/runtime.fake'"):format(dir)) == 0)
-    assert(os.execute(("cd '%s' && git init -q && git add bin scripts src templates tests"):format(dir)) == 0)
+    assert(os.execute(("cd '%s' && " .. GIT_ISOLATED .. "git init -q && git add bin scripts src templates tests"):format(dir)) == 0)
     plant(
         "install-control.py",
         [=[
@@ -743,7 +748,7 @@ reuse(True)
 print('RUNTIME_CACHE_SCOPE_OK')
 ]=]
     )
-    local output = capture(("cd '%s' && python3 runtime-cache-control.py 2>&1"):format(dir))
+    local output = capture(("cd '%s' && " .. GIT_ISOLATED .. "python3 runtime-cache-control.py 2>&1"):format(dir))
     assert(output:find("RUNTIME_CACHE_SCOPE_OK", 1, true), output)
     remove(dir)
 end
