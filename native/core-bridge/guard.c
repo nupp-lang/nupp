@@ -10,10 +10,13 @@
  * CORE_TEST_EXPECTED or CORE_TEST_STATUS for what the entry must answer,
  * CORE_TEST_ARGUMENTS for the guest's command-line arguments, and
  * CORE_TEST_HIGH_WATER for its scratch canary (main.c). */
+
+/* The transport itself, with its main renamed so this file can have one. */
 #define NUPP_CORE_GUARD 1
 #define main bootstrap_main
 #include "main.c"
 #undef main
+
 #ifdef __APPLE__
 #include <crt_externs.h>
 #endif

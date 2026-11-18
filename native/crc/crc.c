@@ -3,8 +3,10 @@
  * dispatch belong to ISA-L. ISA-L takes and answers finalized checksums, while
  * Nupp keeps the raw register so a stream can be resumed. */
 #include "nupp_crc.h"
+
 #include "crc.h"
 #include "crc64.h"
+
 #include <limits.h>
 
 /* The algorithm ids nupp_crc.h documents. */

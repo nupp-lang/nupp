@@ -4,9 +4,12 @@
  * writable, that the ABI probe the guard relies on detects clobbering, and
  * the I/O pool's cancellation, settling and completion order. They
  * complement, rather than replace, running actual Nupp guests. */
+
+/* The transport itself, with its main renamed so this file can have one. */
 #define main bootstrap_main
 #include "../../native/core-bridge/main.c"
 #undef main
+
 #include <assert.h>
 #include <fcntl.h>
 #include <signal.h>

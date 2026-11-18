@@ -7,6 +7,7 @@
  * as a uint64, when it fails. */
 #ifndef NUPP_CORE_TRANSPORT_H
 #define NUPP_CORE_TRANSPORT_H
+
 #include <stdint.h>
 
 /* The work a job does, and what its word and bytes are. */

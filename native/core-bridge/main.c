@@ -7,9 +7,13 @@
  * tests/core/bridge-contracts.c include it whole, with main renamed, so they
  * can reach its static functions; guard.c also defines NUPP_CORE_GUARD, which
  * fences scratch and checks that the entry preserves the C ABI. */
+
+/* MAP_ANONYMOUS, realpath and the rest of POSIX the bridge uses. */
 #define _DARWIN_C_SOURCE 1
 #define _GNU_SOURCE 1
+
 #include "transport.h"
+
 #include <dlfcn.h>
 #include <errno.h>
 #include <limits.h>
@@ -20,6 +24,7 @@
 #include <sys/mman.h>
 #include <sys/stat.h>
 #include <unistd.h>
+
 #ifdef __APPLE__
 #include <libkern/OSCacheControl.h>
 #endif
