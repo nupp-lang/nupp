@@ -27,15 +27,29 @@ endif()
 include("${ISAL_SOURCE}/cmake/crc.cmake")
 list(TRANSFORM CRC_SOURCES PREPEND "${ISAL_SOURCE}/")
 add_library(crc_objects OBJECT ${CRC_SOURCES} crc.c)
-target_include_directories(crc_objects PRIVATE "${ISAL_SOURCE}/include" "${ISAL_SOURCE}" "${ISAL_SOURCE}/crc")
+target_include_directories(
+  crc_objects
+  PRIVATE "${ISAL_SOURCE}/include" "${ISAL_SOURCE}" "${ISAL_SOURCE}/crc"
+)
 if(CPU_AARCH64)
   target_compile_definitions(crc_objects PRIVATE aarch64)
-  target_compile_definitions(crc_objects PRIVATE $<$<COMPILE_LANGUAGE:ASM>:__ASSEMBLY__>)
+  target_compile_definitions(
+    crc_objects
+    PRIVATE $<$<COMPILE_LANGUAGE:ASM>:__ASSEMBLY__>
+  )
 endif()
 add_library(nupp_crc SHARED $<TARGET_OBJECTS:crc_objects>)
 add_library(nupp_crc_static STATIC $<TARGET_OBJECTS:crc_objects>)
 set_target_properties(nupp_crc PROPERTIES WINDOWS_EXPORT_ALL_SYMBOLS ON)
 set_target_properties(nupp_crc_static PROPERTIES OUTPUT_NAME nupp_crc_static)
-install(TARGETS nupp_crc nupp_crc_static LIBRARY DESTINATION lib ARCHIVE DESTINATION lib RUNTIME DESTINATION bin)
+install(
+  TARGETS nupp_crc nupp_crc_static
+  LIBRARY DESTINATION lib
+  ARCHIVE DESTINATION lib
+  RUNTIME DESTINATION bin
+)
 install(FILES nupp_crc.h DESTINATION include)
-install(FILES "${ISAL_SOURCE}/include/crc.h" "${ISAL_SOURCE}/include/crc64.h" DESTINATION include/isa-l)
+install(
+  FILES "${ISAL_SOURCE}/include/crc.h" "${ISAL_SOURCE}/include/crc64.h"
+  DESTINATION include/isa-l
+)

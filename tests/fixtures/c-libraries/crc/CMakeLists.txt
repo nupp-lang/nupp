@@ -3,19 +3,42 @@ project(nupp_crc_probe C)
 set(CMAKE_C_STANDARD 11)
 set(adapter "${CMAKE_CURRENT_SOURCE_DIR}/../../../../native/crc")
 unset(CRC_LIBRARY CACHE)
-find_library(CRC_LIBRARY NAMES nupp_crc_static PATHS "${NUPP_ISAL}/lib" NO_DEFAULT_PATH REQUIRED)
+find_library(
+  CRC_LIBRARY
+  NAMES nupp_crc_static
+  PATHS "${NUPP_ISAL}/lib"
+  NO_DEFAULT_PATH
+  REQUIRED
+)
 function(forced name)
   add_library(${name} OBJECT force.c)
-  target_include_directories(${name} PRIVATE "${NUPP_ISAL}/include/isa-l" "${adapter}")
-  target_compile_definitions(${name} PRIVATE nuppCrcUpdate=${name} nuppCrcLastError=${name}Error ${ARGN})
+  target_include_directories(
+    ${name}
+    PRIVATE "${NUPP_ISAL}/include/isa-l" "${adapter}"
+  )
+  target_compile_definitions(
+    ${name}
+    PRIVATE nuppCrcUpdate=${name} nuppCrcLastError=${name}Error ${ARGN}
+  )
 endfunction()
 forced(crc_base NUPP_FORCE_BASE)
 forced(crc_small_chunks NUPP_FORCE_BASE NUPP_FORCE_SMALL_CHUNKS)
-add_executable(crc-probe probe.c $<TARGET_OBJECTS:crc_base> $<TARGET_OBJECTS:crc_small_chunks>)
+add_executable(
+  crc-probe
+  probe.c
+  $<TARGET_OBJECTS:crc_base>
+  $<TARGET_OBJECTS:crc_small_chunks>
+)
 target_include_directories(crc-probe PRIVATE "${NUPP_ISAL}/include")
 target_link_libraries(crc-probe PRIVATE "${CRC_LIBRARY}")
 unset(CRC_SHARED_LIBRARY CACHE)
-find_library(CRC_SHARED_LIBRARY NAMES nupp_crc PATHS "${NUPP_ISAL}/lib" NO_DEFAULT_PATH REQUIRED)
+find_library(
+  CRC_SHARED_LIBRARY
+  NAMES nupp_crc
+  PATHS "${NUPP_ISAL}/lib"
+  NO_DEFAULT_PATH
+  REQUIRED
+)
 add_executable(crc-shared-probe shared.c)
 target_include_directories(crc-shared-probe PRIVATE "${NUPP_ISAL}/include")
 target_link_libraries(crc-shared-probe PRIVATE "${CRC_SHARED_LIBRARY}")
@@ -34,5 +57,8 @@ if(MSVC)
   target_compile_options(crc-shared-probe PRIVATE /UNDEBUG)
 else()
   target_compile_options(crc-probe PRIVATE -UNDEBUG -Wall -Wextra -Werror)
-  target_compile_options(crc-shared-probe PRIVATE -UNDEBUG -Wall -Wextra -Werror)
+  target_compile_options(
+    crc-shared-probe
+    PRIVATE -UNDEBUG -Wall -Wextra -Werror
+  )
 endif()
