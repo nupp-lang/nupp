@@ -46,6 +46,14 @@ end
 -- Which engine runs the suites this process loads. Every suite record says so.
 local engine = "vm"
 
+-- NUPP_TEST_WORKTRACE names a directory each process records the compiler work
+-- its cases do in (`tests/helpers/worktrace.lua`), to find work repeated.
+local worktrace = nil
+if (os.getenv("NUPP_TEST_WORKTRACE") or "") ~= "" then
+    worktrace = require("helpers.worktrace")
+    worktrace.install(os.getenv("NUPP_TEST_WORKTRACE"))
+end
+
 -- On the VM a suite's `require` of a project or standard module the runner image
 -- does not carry compiles that module from source into an image of its own,
 -- which shares every module already loaded rather than lowering copies. LuaJIT
@@ -3704,6 +3712,9 @@ local function runSuite(suiteInfo, slices)
     -- is compiled here, and a Lua one runs its top level here, so a suite can cost
     -- seconds before its first case starts.
     local suiteBefore = now()
+    if worktrace then
+        worktrace.case(suiteInfo.name, "<setup>")
+    end
     local loaded = preloadedSuites[suiteInfo.name]
     preloadedSuites[suiteInfo.name] = nil
     local suite, removeLoader, loadElapsed, hooks, cases
@@ -3812,6 +3823,9 @@ local function runSuite(suiteInfo, slices)
                 io.stderr:write("__case__:", name, "\n")
             end
             local caseBefore = now()
+            if worktrace then
+                worktrace.case(suiteInfo.name, name)
+            end
             local caseContext = {facts = {}, metrics = {}, capabilities = {}, fixtures = {}, fixture = resolveFixture,}
             local ok, err, stdout, stderr = capture(function()
                 rawset(_G, "__NUPP_TEST_CASE_CONTEXT", caseContext)
