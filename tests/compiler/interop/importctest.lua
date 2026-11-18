@@ -587,6 +587,19 @@ local function layoutImported()
     return layoutImport
 end
 
+-- The line of the fixture that first names `name`. The fixture is formatted
+-- like any other C, so its lines move; the refusals must follow them.
+local function declaredAt(name)
+    local number = 0
+    for line in io.lines(HERE .. "/fixtures/layout.h") do
+        number = number + 1
+        if line:find("%f[%w_]" .. name .. "%f[^%w_]") then
+            return number
+        end
+    end
+    error(name .. " is not in layout.h")
+end
+
 function M.aStructTheRenderingCannotLayOutIsRefusedWithItsLine()
     local imported = layoutImported()
     local byName = {}
@@ -594,24 +607,24 @@ function M.aStructTheRenderingCannotLayOutIsRefusedWithItsLine()
         byName[disposition.name] = disposition
     end
     local refused = {
-        layout_tagged = {"anonymous-member", 10},
-        layout_bits = {"unnamed-member", 20},
-        layout_wire = {"layout-mismatch", 29},
-        layout_aligned = {"layout-mismatch", 34},
-        layout_typedef_aligned = {"layout-mismatch", 41},
-        layout_pragma_packed = {"pragma-pack", 47},
-        layout_holds_vector = {"unsupported-field-type", 56},
-        layout_flags = {"unsupported-field-type", 65},
-        layout_vector_first = {"unsupported-c-type", 60},
-        layout_complex_make = {"unsupported-c-type", 61},
-        layout_complex_real = {"unsupported-c-type", 62},
+        layout_tagged = {"anonymous-member"},
+        layout_bits = {"unnamed-member"},
+        layout_wire = {"layout-mismatch"},
+        layout_aligned = {"layout-mismatch"},
+        layout_typedef_aligned = {"layout-mismatch"},
+        layout_pragma_packed = {"pragma-pack"},
+        layout_holds_vector = {"unsupported-field-type"},
+        layout_flags = {"unsupported-field-type"},
+        layout_vector_first = {"unsupported-c-type"},
+        layout_complex_make = {"unsupported-c-type"},
+        layout_complex_real = {"unsupported-c-type"},
     }
     for name, want in pairs(refused) do
         local disposition = byName[name]
         assert(disposition, name .. " has no disposition")
         testAssert.eq(disposition.kind, "skipped", name)
         testAssert.eq(disposition.reason, want[1], name .. " reason")
-        testAssert.eq(disposition.line, want[2], name .. " line")
+        testAssert.eq(disposition.line, declaredAt(name), name .. " line")
         assert(
             not imported.text:find("cdef struct " .. name .. "\n", 1, true)
             and not imported.text:find("cdef function " .. name .. "(", 1, true),
@@ -621,9 +634,17 @@ function M.aStructTheRenderingCannotLayOutIsRefusedWithItsLine()
     for _, name in ipairs({"layout_inner", "layout_mixed", "layout_value", "layout_opaque"}) do
         testAssert.eq(byName[name] and byName[name].kind, "type-only", name)
     end
-    assertContains(imported.text, "skipped struct layout_tagged at layout.h:10", "the comment says where the struct is")
+    assertContains(
+        imported.text,
+        "skipped struct layout_tagged at layout.h:" .. declaredAt("layout_tagged"),
+        "the comment says where the struct is"
+    )
     local warned = table.concat(imported.warnings, "\n")
-    assertContains(warned, "layout.h:29: skipped struct layout_wire", "a layout refusal is a warning on the way out")
+    assertContains(
+        warned,
+        "layout.h:" .. declaredAt("layout_wire") .. ": skipped struct layout_wire",
+        "a layout refusal is a warning on the way out"
+    )
 end
 
 function M.anIncompleteStructIsMarkedAsAHandle()
