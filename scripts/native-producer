@@ -9,6 +9,16 @@ PAIR="$ROOT/.nupp/vm-cli/$GENERATION"
 unset NUPP_LUA_REFERENCE GC_STRESS GC_INTERLEAVE GC_ORACLE NUPP_PRIVATE_PRODUCER_BUILD
 export NUPP_VM_AUTO_REBUILD=0 NO_JIT=1 NUPP_COMPILER_ROOT="$ROOT"
 export NUPP_VM_BINARY="$PAIR/runtime" NUPP_VM_CLI_IMAGE="$PAIR/compiler.image"
+# The pinned C libraries the standard library binds by logical name, named as
+# bin/nupp names them: a guest carrying the compiler resolves them as it is
+# selected. A variable already set wins.
+LIBRARIES=$(sh "$ROOT/scripts/c-library-paths" 2>/dev/null || true)
+for key in NUPP_ZLIB_LIBRARY NUPP_CRC_LIBRARY; do
+    value=$(printf '%s\n' "$LIBRARIES" | sed -n "s/^$key=//p")
+    if [ -n "$value" ] && [ -z "$(eval "printf '%s' \"\${$key:-}\"")" ]; then
+        export "$key=$value"
+    fi
+done
 run() {
     "$PAIR/runtime" exec "$PAIR/compiler.image" nupp.tools.vm.root run "$ROOT/scripts/native-producer-driver.lua" "$@"
 }
