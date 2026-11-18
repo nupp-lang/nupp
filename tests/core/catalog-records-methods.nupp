@@ -50,13 +50,24 @@ local function nominalTests(): nil
         return true
     end
 
+    -- A record's declaration is callable through a protected metatable, so no
+    -- __eq can make two declarations equal and fool a nominal test.
     local equality = {__eq = equal}
-    setmetatable(firstClass, equality)
-    setmetatable(secondClass, equality)
+    assert(getmetatable(firstClass) == false)
+
+    local function replace(class: any): (boolean, any)
+        return pcall(function(): any
+            return setmetatable(class, equality)
+        end)
+    end
+
+    local replaced, problem = replace(firstClass)
+    assert(not replaced and string.find(tostring(problem), "cannot change a protected metatable", 1, true) ~= nil)
+    assert(not replace(secondClass))
+    assert(firstClass ~= secondClass)
     firstClass.__metatable = "protected record"
     local first = First(value = 1)
     local second = Second(value = 1)
-    assert(firstClass == secondClass)
     assert(getmetatable(first) == "protected record")
     assert(isFirst(first))
     assert(not isFirst(second))
