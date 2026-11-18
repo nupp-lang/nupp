@@ -184,6 +184,15 @@ function cli.main(argv: {string}): integer
         local builder = require("nupp.tools.vm.runtimebuild") as {main: function({string}): integer}
 
         return builder.main(rest)
+    elseif name == "__core-compiler" then
+        -- The compiler emitting itself as a core bundle (scripts/core-self-build).
+        local rest: {string} = {}
+        for index = 2, #argv do
+            rest[#rest + 1] = argv[index]
+        end
+        local emitter = require("nupp.tools.vm.corecompiler") as {main: function({string}): integer}
+
+        return emitter.main(rest)
     end
     local schemaStatus = writeSchema(argv)
     if schemaStatus ~= nil then

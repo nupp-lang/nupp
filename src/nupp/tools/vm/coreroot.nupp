@@ -1,0 +1,33 @@
+module nupp.tools.vm.coreroot
+
+-- The compiler CLI's entry on the native core. The VM starts the CLI by naming
+-- `nupp.tools.vm.root` and its `main`; the core runs a program's entry module
+-- instead, so this one hands the C bridge's arguments to that same `main` and
+-- answers with its status. `nupp __core-compiler` emits the compiler as a core
+-- bundle of this program (`nupp.tools.vm.corecompiler`), which scripts/core-cli
+-- runs as `runtime compiler.bundle /dev/null /dev/null ARGUMENT...`.
+const root = require("nupp.tools.vm.root")
+
+-- A project's nupp.lua is a text chunk, which the core compiles with the
+-- compiler the program carries.
+@allow("unused-binding")
+const _DYNAMIC_REQUIRES = [[
+@requires-dynamically nupp.compiler.vm.corechunk
+]]
+
+local arguments: any = rawget(_G, "arg")
+local argv: {string} = {}
+local index: integer = 1
+while arguments ~= nil and arguments[index] ~= nil do
+    argv[index] = arguments[index] as string
+    index += 1
+end
+
+local status = root.main(argv)
+io.stdout:flush()
+io.stderr:flush()
+if status ~= 0 then
+    os.exit(status)
+end
+
+export const result = status

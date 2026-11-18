@@ -479,6 +479,16 @@ local CASES: {[string]: {
     -- `nupp build` on the core the same way: a library, then a VM binary.
     compilerbuild = {fixture = "catalog-compiler-build", version = 8, follow = true, modules = buildextras()},
     compilerselfbuild = {fixture = "catalog-compiler-self-build", version = 8, follow = true, modules = buildextras()},
+    -- The compiler as the core runs it: the CLI's core entry and what
+    -- `nupp build` carries beside it. `nupp __core-compiler` emits it.
+    corecompiler = {
+        fixture = "src/nupp/tools/vm/coreroot",
+        version = 8,
+        follow = true,
+        rooted = true,
+        module = "nupp.tools.vm.coreroot",
+        modules = buildextras()
+    },
     -- The small compiler `nupp fixpoint --runtime core` is checked on before
     -- the real one can build itself there (tests/core/guests/fixpoint.lua).
     fixpointcompiler = {
@@ -1547,6 +1557,40 @@ export function sourceChunk(path: string, display: string?): (string?, string?)
     local bytes, problem = corechunk.compile(compiled, display or path, display or "@" .. path)
 
     return bytes and chunkfiles.contents(text, bytes as string), problem
+end
+
+-- Where the program a declared case names is staged, under the checkout: a
+-- source declaring its module is checked as that module, where the project
+-- finds it by its name.
+const PROGRAM_STAGE = "build/core-guest-programs/source"
+
+--- Declares a case for the program whose entry is the source at `fixture`, a
+--- path under the checkout without its `.nupp`, and returns the case's name. A
+--- program `nupp __core-compiler` is asked to emit is built as one. An entry
+--- that declares its module is staged where that name finds it; one that
+--- declares none is the module its path names.
+export function declareProgram(fixture: string): string
+    local root = assert(os.getenv("NUPP_COMPILER_ROOT"))
+    local path = root .. "/" .. fixture .. NUPP_SUFFIX
+    local source = read(path)
+    local parsed = parser.parse(source, path)
+    assert(#parsed.errors == 0, "guest program parse failed: " .. path)
+    local module = cst.declaredModule(parsed.root)
+    local staged = fixture
+    if module ~= nil then
+        staged = PROGRAM_STAGE .. "/" .. (module as string):gsub("%.", "/")
+        local directory = (root .. "/" .. staged):match("^(.*)/[^/]+$") as string
+        assert(os.execute("mkdir -p '" .. directory:gsub("'", "'\\''") .. "'"), "cannot create " .. directory)
+        local file = assert(io.open(root .. "/" .. staged .. NUPP_SUFFIX, "wb"), "cannot stage " .. fixture)
+        file:write(source)
+        file:close()
+    else
+        module = (fixture:gsub("/", "."))
+    end
+    local caseName = "program:" .. fixture
+    CASES[caseName] = {fixture = staged, version = 8, follow = true, rooted = true, module = module}
+
+    return caseName
 end
 
 -- The modules a case names beside its entry, as written for a generated case.

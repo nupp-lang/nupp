@@ -385,6 +385,62 @@ export function selectUnits(
     return result
 end
 
+-- What the C bridge reads (native/core-bridge/main.c): its magic, then the
+-- format and architecture versions, the entry's offset, the code's and the
+-- data's sizes, the scratch it maps and the words of output it keeps.
+const BUNDLE_MAGIC = "NUPPCORE"
+const BUNDLE_FORMAT = 1
+const BUNDLE_ARCHITECTURE = 1
+const BUNDLE_OUTPUT_WORDS = 1
+
+local function u64(value: integer): string
+    local bytes: {integer} = {}
+    for at = 0, 7 do
+        bytes[at + 1] = (value >> (at * 8)) & 255
+    end
+
+    return string.char(table.unpack(bytes))
+end
+
+-- `words`, each four little-endian bytes. Each is its own `string.char` of
+-- four: the VM's keeps only the first 128 of a longer argument list.
+local function wordBytes(words: {integer}): string
+    local parts: {string} = {}
+    for index, word in ipairs(words) do
+        parts[index] = string.char(word & 255, (word >> 8) & 255, (word >> 16) & 255, (word >> 24) & 255)
+    end
+
+    return table.concat(parts)
+end
+
+--- The core bundle the C bridge runs for case `caseName` in normal mode with
+--- `capacity` bytes of scratch: the guest's runtime and program, selected,
+--- linked and encoded as `selectUnits` does, written without its published
+--- hex. A case that loads binary chunks has none to load beside a bundle, and
+--- is refused.
+export function bundle(caseName: string, capacity: integer): string
+    assert(capacity == 65536 or capacity == 131072 or capacity == 1048576, "explicit guest scratch capacity")
+    local source = guestbuild.guest(caseName, "normal", nil, false)
+    assert(#source.chunks == 0, "a bundle carries no binary chunks: " .. caseName)
+    local output = shim.build(source, source.selected, capacity)
+    local packed = writer.encode(source.executable, source.scopes, output.dispatch, #output.words * 4, source.raises)
+    local code = wordBytes(output.words)
+
+    return table.concat({
+        BUNDLE_MAGIC,
+        u64(BUNDLE_FORMAT),
+        u64(BUNDLE_ARCHITECTURE),
+        u64(output.entry),
+        u64(#code),
+        u64(#packed.bytes),
+        u64(capacity),
+        u64(BUNDLE_OUTPUT_WORDS),
+        u64(0),
+        code,
+        packed.bytes
+    })
+end
+
 export function compile(caseName: string, mode: string, capacityText: string): string
     return serialize(caseName, mode, capacityText, nil)
 end

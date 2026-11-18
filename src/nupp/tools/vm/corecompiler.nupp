@@ -1,0 +1,96 @@
+module nupp.tools.vm.corecompiler
+
+--[[
+`nupp __core-compiler OUTPUT [ENTRY]`: the compiler built from the checkout
+`NUPP_COMPILER_ROOT` names, emitted as a core bundle -- the program the C
+bridge runs as `runtime OUTPUT/compiler.bundle /dev/null /dev/null ARGUMENT...`
+(scripts/core-cli). Its entry is `nupp.tools.vm.coreroot`, which hands those
+arguments to the CLI.
+
+It is how the compiler builds itself for the native core: the same guest
+build, selection and artifact writer the core's guest programs go through
+(`nupp.core.guestbuild`, `nupp.core.guestprogramproducer`), run by whichever
+compiler runs this command, on the VM or on the core. `scripts/core-self-build`
+names it, and `nupp fixpoint --runtime core` holds two stages of it to the
+same bytes.
+
+With ENTRY, a source under the checkout without its `.nupp`, it emits that
+program instead, as OUTPUT/NAME.bundle after the entry's file name. Nothing is
+kept between builds: what it emits follows from the sources alone.
+]]
+const fs = require("nupp.compiler.fs")
+const process = require("nupp.compiler.process")
+
+-- The scratch a unit-built guest maps: its collector's call chain spills there.
+const SCRATCH = 1048576
+-- The guest case of the compiler itself (nupp.core.guestbuild).
+const COMPILER_CASE = "corecompiler"
+const COMPILER_BUNDLE = "compiler.bundle"
+const USAGE = "usage: nupp __core-compiler OUTPUT [ENTRY]"
+const USAGE_STATUS = 2
+const FAILURE_STATUS = 1
+
+-- Where the guest project finds the Markdown library (nupp.core.guestbuild),
+-- which the compiler's documentation host binds.
+const MARKDOWN_DIRECTORY = "build/core-guests/lib"
+
+-- Stages the pinned Markdown library where the guest project finds it, unless
+-- NUPP_MARKDOWN_LIBRARY names one, building it on first use
+-- (`scripts/toolchain cmark`).
+local function stageMarkdown(root: string): nil
+    local named = os.getenv("NUPP_MARKDOWN_LIBRARY")
+    if named ~= nil and named ~= "" then
+        return
+    end
+    local status, built = process.capture({"sh", fs.join(root, "scripts/toolchain"), "cmark"}, {cwd = root})
+    assert(status == 0, "the Markdown library did not build: " .. built)
+    local prefix = assert(built:match("([^\r\n]+)\r?\n?$"), "scripts/toolchain cmark named no library")
+    local filename = require("nupp.compiler.project.libraries").filename("nupp_markdown")
+    local directory = fs.join(root, MARKDOWN_DIRECTORY)
+    assert(fs.exists(directory) or fs.mkdir(directory), "cannot create " .. directory)
+    local destination = fs.join(directory, filename)
+    local pending = destination .. "." .. fs.stagingSuffix()
+    assert(fs.copyFile(fs.join(prefix, "lib/" .. filename), pending), "cannot stage " .. filename)
+    assert(os.rename(pending, destination), "cannot stage " .. destination)
+end
+
+local function fail(message: string, status: integer): integer
+    io.stderr:write("nupp: ", message, "\n")
+
+    return status
+end
+
+--- Runs the command with `argv`, the arguments after its name.
+---
+--- @return the process exit status
+export function main(argv: {string}): integer
+    local output, entry = argv[1], argv[2]
+    if output == nil or output == "" or #argv > 2 then
+        return fail(USAGE, USAGE_STATUS)
+    end
+    local root = os.getenv("NUPP_COMPILER_ROOT")
+    if root == nil or root == "" then
+        return fail("__core-compiler builds the checkout NUPP_COMPILER_ROOT names, and none is named", FAILURE_STATUS)
+    end
+    local ok, problem = pcall(function(): nil
+        local guestbuild = require("nupp.core.guestbuild")
+        local producer = require("nupp.core.guestprogramproducer")
+        local caseName, name = COMPILER_CASE, COMPILER_BUNDLE
+        stageMarkdown(root as string)
+        if entry ~= nil then
+            local fixture = (entry as string):gsub("%.nupp$", "")
+            local base = fs.basename(fixture)
+            caseName, name = guestbuild.declareProgram(fixture), base .. ".bundle"
+        end
+        local bytes = producer.bundle(caseName, SCRATCH)
+        assert(fs.exists(output as string) or fs.mkdir(output as string), "cannot create " .. output)
+        local path = fs.join(output, name)
+        local written, why = fs.writeFile(path, bytes)
+        assert(written, "cannot write " .. path .. ": " .. tostring(why))
+    end)
+    if not ok then
+        return fail("the core bundle did not build: " .. tostring(problem), FAILURE_STATUS)
+    end
+
+    return 0
+end
