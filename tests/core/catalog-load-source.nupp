@@ -11,7 +11,11 @@ const _DYNAMIC_REQUIRES = [[
 ]]
 const helper = require("nupp.core.catalogloadhelper")
 const luaload = require("nupp.runtime.luaload")
-const path = (os.getenv("NUPP_GUEST_TEMP") or "/tmp") .. "/catalog-load-source.lua"
+-- A name of its own: the harness runs this program in several modes at once,
+-- each writing and loading the file.
+const path = (
+    os.getenv("NUPP_GUEST_TEMP") or "/tmp"
+) .. "/catalog-load-source-" .. string.sub(os.tmpname(), -6) .. ".lua"
 
 local function cites(message: any, text: string): boolean
     return string.find(tostring(message), text, 1, true) ~= nil
