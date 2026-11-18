@@ -1,0 +1,66 @@
+#!/bin/sh
+# Builds the compiler from these sources for the native core: its core compiler
+# (OUTPUT/compiler.bundle) and every runtime output the build writes beside it.
+#
+#   scripts/core-self-build core RUNTIME COMPILER OUTPUT
+#       the core compiler COMPILER builds it, running on the core runtime RUNTIME
+#   scripts/core-self-build vm-seed PAIR OUTPUT
+#       the pinned VM execution seed PAIR builds it, which only stage one of
+#       `nupp fixpoint --runtime core` does, and only until the flip
+#   scripts/core-self-build --ready
+#       whether the switch below is set
+#
+# `nupp fixpoint --runtime core` builds its stages with this, and a host the
+# pins flip to the core installs the compiler it builds (scripts/core-cli).
+set -eu
+ROOT=$(CDPATH= cd -- "$(dirname "$0")/.." && pwd)
+
+# SWITCH (nr-three-stage-driver, nr-seed-package, nr-flip-pin): the compiler
+# CLI arguments with which the compiler built from these sources emits its own
+# core compiler and runtime outputs into the directory named after them. Empty
+# until compilerselfbuild produces a core compiler image; setting it is the one
+# step that moves `nupp fixpoint --runtime core`, the seed package and a flipped
+# bin/nupp from their small-input fixtures to the real compiler.
+SELF_BUILD=''
+
+usage() {
+    echo "usage: scripts/core-self-build core RUNTIME COMPILER OUTPUT | vm-seed PAIR OUTPUT | --ready" >&2
+    exit 2
+}
+
+not_ready() {
+    echo "core-self-build: the compiler cannot build itself for the core yet;" \
+        "SELF_BUILD in scripts/core-self-build is set once compilerselfbuild produces a core compiler image" >&2
+    exit 3
+}
+
+case "${1:-}" in
+    --ready)
+        [ -n "$SELF_BUILD" ] || not_ready
+        ;;
+    core)
+        [ "$#" -eq 4 ] || usage
+        [ -n "$SELF_BUILD" ] || not_ready
+        mkdir -p "$4"
+        export NUPP_COMPILER_ROOT="$ROOT"
+        # shellcheck disable=SC2086 # the switch is a list of arguments
+        exec "$2" "$3" /dev/null /dev/null $SELF_BUILD "$4"
+        ;;
+    vm-seed)
+        [ "$#" -eq 3 ] || usage
+        [ -n "$SELF_BUILD" ] || not_ready
+        pair=$2 output=$3
+        mkdir -p "$output"
+        # The seed lowers these sources into a VM compiler, as the VM fixpoint's
+        # stage one does, and that compiler builds the core one on the seed.
+        python3 "$ROOT/scripts/bootstrap-seed" run "$pair" exec "$pair/compiler.image" nupp.tools.vm.root run \
+            "$ROOT/scripts/bootstrap-compiler.lua" emit "$ROOT" "$output/.seed.image"
+        status=0
+        # shellcheck disable=SC2086 # the switch is a list of arguments
+        python3 "$ROOT/scripts/bootstrap-seed" run "$pair" exec "$output/.seed.image" nupp.tools.vm.root \
+            $SELF_BUILD "$output" || status=$?
+        rm -f "$output/.seed.image"
+        exit "$status"
+        ;;
+    *) usage ;;
+esac

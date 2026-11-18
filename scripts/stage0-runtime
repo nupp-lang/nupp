@@ -1,0 +1,27 @@
+#!/bin/sh
+# Prints the runtime this host's pinned stage zero runs on: `vm` or `core`.
+#
+#   scripts/stage0-runtime          vm | core
+#   scripts/stage0-runtime --host   the host triple the core seed pins name
+#
+# `core` when scripts/toolchain.pins lists this host in STAGE0_CORE_HOSTS, and
+# `vm` otherwise. That list is the switch the flip moves: bin/nupp, the build,
+# `scripts/toolchain stage0-seed` and `nupp fixpoint` all ask here, and a host
+# it names runs on the native core with no fallback to the Rust VM.
+set -eu
+ROOT=$(CDPATH= cd -- "$(dirname "$0")/.." && pwd)
+
+case "$(uname -s 2>/dev/null):$(uname -m 2>/dev/null)" in
+    Darwin:arm64) host=aarch64-apple-darwin ;;
+    Linux:aarch64 | Linux:arm64) host=aarch64-unknown-linux-gnu ;;
+    *) host=unsupported ;;
+esac
+if [ "${1:-}" = --host ]; then
+    printf '%s\n' "$host"
+    exit 0
+fi
+hosts=$(sed -n "s/^STAGE0_CORE_HOSTS=['\"]*\([^'\"]*\)['\"]*\$/\1/p" "$ROOT/scripts/toolchain.pins")
+case " $hosts " in
+    *" $host "*) printf 'core\n' ;;
+    *) printf 'vm\n' ;;
+esac

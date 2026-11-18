@@ -748,4 +748,73 @@ print('RUNTIME_CACHE_SCOPE_OK')
     remove(dir)
 end
 
+-- The flip: a host scripts/toolchain.pins lists in STAGE0_CORE_HOSTS runs every
+-- command on the installed core compiler (scripts/core-cli), and never on the
+-- VM generation the tree still holds. The core generation's runtime here is a
+-- stand-in that answers as the C bridge does and says what it was handed.
+local CORE_RUNTIME = [=[#!/bin/sh
+if [ "$#" -lt 3 ]; then
+    echo 'nupp-core: usage: nupp-core BUNDLE INPUT OUTPUT [ARGUMENT...]' >&2
+    exit 1
+fi
+bundle=$1
+shift 3
+printf 'CORE %s %s\n' "$(tail -c 4 "$bundle")" "$*"
+]=]
+
+local function flippedTree()
+    local dir, plant = plantedTree()
+    local host = capture(("sh '%s/scripts/stage0-runtime' --host"):format(dir)):match("^(%S+)")
+    local pins = assert(readFile(dir .. "/scripts/toolchain.pins"))
+    pins = pins:gsub("\nSTAGE0_CORE_HOSTS=[^\n]*", "\nSTAGE0_CORE_HOSTS=" .. host)
+    plant("scripts/toolchain.pins", pins)
+    assert(os.execute(("touch -t 202001010000 '%s/scripts/toolchain.pins'"):format(dir)) == 0)
+    assert(os.execute(("mkdir -p '%s/core'"):format(dir)) == 0)
+    plant("core/runtime", CORE_RUNTIME)
+    plant("core/compiler.bundle", "NUPPCORE" .. string.rep("\0", 64) .. "core")
+    assert(os.execute(("chmod 755 '%s/core/runtime'"):format(dir)) == 0)
+
+    return dir, plant
+end
+
+function M.aFlippedHostRunsTheInstalledCoreCompiler()
+    local dir = flippedTree()
+    assert(capture(("cd '%s' && sh scripts/stage0-runtime"):format(dir)) == "core\n", "the pin flips this host")
+    local installed = capture(
+        ("cd '%s' && sh scripts/core-cli install core/runtime core/compiler.bundle 2>&1"):format(dir)
+    )
+    assert(installed:find("/.nupp/core-cli/", 1, true), installed)
+    local out = ran(dir, "check src")
+    assert(out:find("CORE core check src", 1, true), "the core compiler did not run: " .. out)
+    assert(not out:find("RAN gen0", 1, true), "the VM generation ran on a flipped host: " .. out)
+    edit(dir)
+    out = ran(dir, "check src")
+    assert(not out:find("rebuilding the VM compiler", 1, true), "a flipped host rebuilt the VM compiler: " .. out)
+    assert(builds(dir) == 0, "a flipped host asked scripts/vm-cli to build")
+    remove(dir)
+end
+
+function M.aFlippedHostRefusesAVmCompilerFromTheEnvironment()
+    local dir = flippedTree()
+    os.execute(
+        ("cd '%s' && sh scripts/core-cli install core/runtime core/compiler.bundle > /dev/null 2>&1"):format(dir)
+    )
+    local out = capture(("cd '%s' && NUPP_VM_CLI_IMAGE=some.image ./bin/nupp check 2>&1; echo status=$?"):format(dir))
+    assert(out:find("this host runs on the native core", 1, true), out)
+    assert(out:find("status=1", 1, true), out)
+    assert(not out:find("CORE", 1, true) and not out:find("RAN", 1, true), out)
+    remove(dir)
+end
+
+-- With no core compiler installed and no core seed pinned, the command fails:
+-- the VM seed and the VM generation are not a fallback.
+function M.aFlippedHostWithNoCoreSeedDoesNotFallBack()
+    local dir = flippedTree()
+    local out = capture(("cd '%s' && %s ./bin/nupp check 2>&1; echo status=$?"):format(dir, ENV))
+    assert(out:find("no core seed is pinned", 1, true), out)
+    assert(out:find("status=1", 1, true), out)
+    assert(not out:find("RAN gen0", 1, true), "the VM generation ran on a flipped host: " .. out)
+    remove(dir)
+end
+
 return M

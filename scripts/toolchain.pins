@@ -44,6 +44,21 @@ STAGE0_IMAGE_TAG=v0.0.15-native-api-seed.6
 STAGE0_IMAGE_SHA256=ab1b144840350699ef459b9b4db218834ffcec94a0f9d1c9597f335370cfc665
 STAGE0_IMAGE_URL='https://github.com/nupp-lang/nupp/releases/download/${STAGE0_IMAGE_TAG}/nupp-stage0-${STAGE0_IMAGE_TAG}.image.gz'
 
+# The flip. A host listed here runs on the native core: its stage zero is the
+# core seed below rather than the VM seed and image above, and bin/nupp, the
+# build and `nupp fixpoint` run on the core through scripts/core-cli, with no
+# fallback to the Rust VM. Hosts not listed keep the VM seed until their
+# target's bring-up moves them (`scripts/stage0-runtime` reads this).
+STAGE0_CORE_HOSTS=
+
+# The core seed for each host: the compiler and C bridge pair `nupp fixpoint
+# --runtime core --package-seed` packages, as the release that publishes it
+# names the archive. The digest is of the archive; `scripts/toolchain
+# core-seed` verifies it before unpacking, and the manifest inside it before
+# running anything. Empty until a seed is published (nr-publish-core-seed).
+STAGE0_CORE_URL_AARCH64_APPLE_DARWIN=
+STAGE0_CORE_SHA256_AARCH64_APPLE_DARWIN=
+
 # Shared C libraries used directly by Nupp's checked FFI. Keep one artifact
 # for each dependency across the codec, HTTP, TLS and crypto providers.
 ISAL_VERSION=2.32.1

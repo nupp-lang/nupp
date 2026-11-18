@@ -62,6 +62,19 @@ c_libraries() {
 
 c_libraries
 
+# The flip. On a host scripts/toolchain.pins lists in STAGE0_CORE_HOSTS
+# (`scripts/stage0-runtime`), every command runs on the native core through
+# scripts/core-cli, and nothing below -- the VM compiler, its rebuild, its
+# bootstrap from the VM seed -- is reached. There is no fallback to it, so a
+# VM compiler selected by the environment is refused rather than run.
+if [ "$(sh "$ROOT/scripts/stage0-runtime")" = core ]; then
+    if [ -n "${NUPP_VM_CLI_IMAGE:-}" ]; then
+        echo "nupp: NUPP_VM_CLI_IMAGE selects a VM compiler, and this host runs on the native core" >&2
+        exit 1
+    fi
+    exec sh "$ROOT/scripts/core-cli" run "$@"
+fi
+
 # A verified local VM package is an installed compiler snapshot. Publish a new
 # snapshot with scripts/vm-cli install; source edits do not rebuild its workers.
 # Pin the selected immutable generation in the environment before any child can

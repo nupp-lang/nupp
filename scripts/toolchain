@@ -45,7 +45,8 @@ usage: scripts/toolchain COMPONENT...
        scripts/toolchain --all
        scripts/toolchain --prefix
 
-Components: luajit luarocks stage0-image stage0-seed
+Components: luajit luarocks stage0-image stage0-seed core-seed
+            core-seed-install ARCHIVE SHA256
             rust-vendor OUTPUT
             vm-runtime FACILITIES, vm-program FACILITIES PAYLOAD
             archive DIRECTORY OUTPUT
@@ -452,6 +453,96 @@ stage0_image() {
     rm -rf "$staged"
     trap - EXIT HUP INT TERM
     native_path "$file"
+}
+
+# --- the core seed --------------------------------------------------------------
+
+# The stage zero of a host the pins flip to the native core
+# (`scripts/stage0-runtime`): the compiler and the C bridge it runs on, packaged
+# by `nupp fixpoint --runtime core --package-seed`. It is cached by its archive's
+# digest, like the stage-zero image, and shared by every checkout that pins it.
+CORE_SEED_FILES='NOTICE.md compiler.bundle manifest.json runtime'
+
+# Whether a core seed's files are the ones its manifest names, for this host.
+core_seed_verify() {
+    seed_dir=$1
+    seed_manifest="$seed_dir/manifest.json"
+    [ -f "$seed_manifest" ] || return 1
+    grep -q '^  "format": "nupp-core-seed-1",$' "$seed_manifest" || return 1
+    grep -q "^  \"host\": \"$(sh "$ROOT/scripts/stage0-runtime" --host)\",\$" "$seed_manifest" || return 1
+    for seed_file in NOTICE.md compiler.bundle runtime; do
+        seed_pattern=$(printf '%s' "$seed_file" | sed 's/\./\\./g')
+        seed_expected=$(sed -n "s/^    \"$seed_pattern\": \"\([0-9a-f]*\)\",\{0,1\}\$/\1/p" "$seed_manifest")
+        [ "${#seed_expected}" -eq 64 ] || return 1
+        [ "$(sha256 "$seed_dir/$seed_file")" = "$seed_expected" ] || return 1
+    done
+    [ -x "$seed_dir/runtime" ]
+}
+
+# Whether the pair runs: the runtime is the core's C bridge, which says so in
+# its own words, and the compiler answers `--help` on it.
+core_seed_runs() {
+    seed_dir=$1
+    "$seed_dir/runtime" 2>&1 | grep -q '^nupp-core: usage: nupp-core BUNDLE INPUT OUTPUT' || return 1
+    seed_help=$(NUPP_COMPILER_ROOT=$ROOT "$seed_dir/runtime" "$seed_dir/compiler.bundle" /dev/null /dev/null --help) \
+        || return 1
+    case "$seed_help" in *Usage:*) return 0 ;; esac
+    return 1
+}
+
+# Installs the core seed archive `$1`, whose digest must be `$2`: the digest is
+# checked before a byte is unpacked, its entries before any is written, the
+# manifest before anything runs, and the pair runs before it is cached.
+core_seed_install() {
+    seed_archive=$1 seed_digest=$2
+    case "$seed_digest" in "" | *[!0-9a-f]*) die "invalid core seed digest: $seed_digest" ;; esac
+    [ "${#seed_digest}" -eq 64 ] || die "invalid core seed digest: $seed_digest"
+    seed_out="$CACHE/core-seed/$seed_digest"
+    if [ -f "$seed_out/.complete" ]; then
+        core_seed_verify "$seed_out" || die "the cached core seed $seed_out no longer matches its manifest"
+        native_path "$seed_out"
+        return 0
+    fi
+    [ -f "$seed_archive" ] || die "no core seed archive at $seed_archive"
+    seed_found=$(sha256 "$seed_archive")
+    [ "$seed_found" = "$seed_digest" ] \
+        || die "the core seed archive has digest $seed_found, expected $seed_digest; refusing to unpack it"
+    seed_entries=$(tar -tzf "$seed_archive" | LC_ALL=C sort | tr '\n' ' ')
+    [ "$seed_entries" = "$CORE_SEED_FILES " ] || die "the core seed archive holds unexpected entries: $seed_entries"
+    mkdir -p "$CACHE/core-seed"
+    seed_staged="$seed_out.$$"
+    rm -rf "$seed_staged"
+    mkdir -p "$seed_staged"
+    # shellcheck disable=SC2064
+    trap "rm -rf '$seed_staged'" EXIT HUP INT TERM
+    tar -xzf "$seed_archive" -C "$seed_staged" || die "the core seed archive did not unpack"
+    [ -z "$(find "$seed_staged" -mindepth 1 ! -type f)" ] \
+        || die "the core seed archive holds entries that are not regular files"
+    core_seed_verify "$seed_staged" || die "the core seed's files are not the ones its manifest names for this host"
+    core_seed_runs "$seed_staged" || die "the core seed does not run on this host"
+    printf 'done\n' > "$seed_staged/.complete"
+    if ! mv "$seed_staged" "$seed_out" 2>/dev/null; then
+        core_seed_verify "$seed_out" || die "cannot install the core seed at $seed_out"
+        rm -rf "$seed_staged"
+    fi
+    trap - EXIT HUP INT TERM
+    native_path "$seed_out"
+}
+
+# The core seed the pins name for this host, fetched and installed.
+core_seed() {
+    seed_host=$(sh "$ROOT/scripts/stage0-runtime" --host)
+    seed_key=$(printf '%s' "$seed_host" | tr 'a-z-' 'A-Z_')
+    eval "seed_url=\${STAGE0_CORE_URL_$seed_key:-}"
+    eval "seed_sha=\${STAGE0_CORE_SHA256_$seed_key:-}"
+    [ -n "$seed_sha" ] && [ -n "$seed_url" ] \
+        || die "no core seed is pinned for $seed_host in scripts/toolchain.pins; the VM seed is not a fallback"
+    if [ -f "$CACHE/core-seed/$seed_sha/.complete" ]; then
+        core_seed_install "" "$seed_sha"
+        return 0
+    fi
+    seed_file=$(archive "nupp-core-seed-$seed_host-$(printf '%s' "$seed_sha" | cut -c1-16)" "$seed_url" "$seed_sha")
+    core_seed_install "$seed_file" "$seed_sha"
 }
 
 # --- notices ----------------------------------------------------------------
@@ -1293,6 +1384,13 @@ case "$1" in
         native_path "$VM_PROGRAM_OUT"
         exit 0
         ;;
+    core-seed-install)
+        # A candidate core seed that is not pinned yet, as a cold bootstrap
+        # from a freshly packaged archive installs it.
+        [ "$#" -eq 3 ] || die "usage: scripts/toolchain core-seed-install ARCHIVE SHA256"
+        core_seed_install "$2" "$3"
+        exit 0
+        ;;
     archive)
         # Any directory as a release carries it, so a rebuild of a tag
         # reproduces the digest its release published.
@@ -1310,7 +1408,16 @@ for component in "$@"; do
         luajit)   build_luajit;   native_path "$PREFIX/luajit" ;;
         luarocks) build_luarocks; native_path "$PREFIX/luarocks" ;;
         stage0-image) stage0_image ;;
-        stage0-seed) python3 "$ROOT/scripts/bootstrap-seed" fetch --cache "$CACHE" ;;
+        # A host the pins flip to the core gets the core seed, and the VM seed
+        # is never fetched for it.
+        stage0-seed)
+            if [ "$(sh "$ROOT/scripts/stage0-runtime")" = core ]; then
+                core_seed
+            else
+                python3 "$ROOT/scripts/bootstrap-seed" fetch --cache "$CACHE"
+            fi
+            ;;
+        core-seed) core_seed ;;
         *) note "unknown component $component"; usage ;;
     esac
 done
