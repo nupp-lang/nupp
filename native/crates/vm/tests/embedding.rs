@@ -1,14 +1,32 @@
-//! The Rust embedding API: a typed host module registered in process and
-//! checked against its `.d.nupp` declaration, exports called with typed
-//! values, rooted handles and callbacks, tasks parked on host requests the
-//! host completes from another thread, and resources through checkpoints.
-//! Every VM runs the collector in stress mode with the root oracle and
-//! quarantine, on both interpreter loops.
-use nupp_extension::Module;
-use nupp_vm::embed::{Arg, Out, Vm};
-use nupp_vm::scheduler::Status;
+//! The Rust embedding API: a typed native module (`tests/extension/counter.c`,
+//! built apart with the system C compiler) registered in process and checked
+//! against its `.d.nupp` declaration, exports called with typed values, rooted
+//! handles and callbacks, tasks parked on host requests the module completes
+//! from another thread, and resources through checkpoints. Every VM runs the
+//! collector in stress mode with the root oracle and quarantine, on both
+//! interpreter loops.
+#![cfg(all(feature = "native-ffi", unix))]
 
-use counter::module as counter;
+use nupp_vm::embed::{Arg, Module, Out, Vm};
+use nupp_vm::scheduler::Status;
+use std::sync::OnceLock;
+
+#[path = "extension/built.rs"]
+mod built;
+use built::Built;
+
+/// `demo.counter`, loaded afresh: each load is a module of its own, which
+/// one VM binds.
+fn counter() -> Module {
+    static BUILT: OnceLock<Built> = OnceLock::new();
+    Module::load(&BUILT.get_or_init(|| Built::c(&[])).library).unwrap()
+}
+
+/// A module of `tests/extension/fixtures.c`, chosen by `fixture`.
+fn fixture_module(fixture: &str) -> (Module, Built) {
+    let built = Built::source("fixtures", &fixture.to_lowercase(), &[&format!("FIXTURE_{fixture}")]);
+    (Module::load(&built.library).unwrap(), built)
+}
 
 const DECLARATION: &str = include_str!("extension/counter.d.nupp");
 
@@ -75,8 +93,7 @@ fn a_mismatched_or_incomplete_registration_is_refused_before_it_runs() {
     let extra = DECLARATION.replace("fail: function(message: string)", "fail: function(message: string)\n    reset: function()");
     let error = vm.register(counter(), &extra).unwrap_err();
     assert_eq!(error.0, "demo.counter declares reset, which the extension does not register");
-    let mut named = Module::new("demo.named");
-    named.function("point", "function(): Point", |_| Ok(vec![]));
+    let (named, _built) = fixture_module("NAMED");
     let error = vm.register(named, "local record Named\n point: function(): Point\nend\nreturn Named").unwrap_err();
     assert!(error.0.contains("returns Point, which the boundary cannot check"), "{error}");
     // Nothing of a refused module was installed; a correct one still registers.
@@ -207,9 +224,7 @@ fn resources_are_saved_and_restored_through_their_hooks() {
 fn a_resource_without_hooks_fails_the_checkpoint_by_name() {
     let mut vm = Vm::new();
     stressed(&mut vm, true);
-    let mut module = Module::new("demo.unsaved");
-    let kind = module.resource::<Vec<u8>>("Scratch");
-    module.function("make", "function(): any", move |call| Ok(vec![call.new_resource(kind, vec![1, 2, 3])?.into()]));
+    let (module, _built) = fixture_module("UNSAVED");
     vm.register(module, "local record Unsaved\n    make: function(): any\nend\nreturn Unsaved").unwrap();
     let m = vm.require("demo.unsaved").unwrap();
     let Out::Root(make) = vm.field(&m, "make").unwrap() else { panic!() };

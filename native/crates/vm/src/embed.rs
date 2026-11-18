@@ -1,29 +1,29 @@
 //! The Rust embedding API: a Nupp VM inside a Rust program.
 //!
 //! A [`Vm`] owns one isolated runtime. The embedder loads verified images into
-//! it, registers typed host modules ([`nupp_extension::Module`]) checked
-//! against their `.d.nupp` declarations, calls Nupp exports with typed values,
-//! keeps VM values alive across calls with [`Root`]s, and drives the task
-//! scheduler, including tasks parked on host functions the embedder completes
-//! later from any thread. The same module, built as a separate library with
-//! `nupp_extension::export!`, is what a Nupp program loads with `require`.
+//! it, registers native modules ([`Module`]: a C description as
+//! `include/nupp_extension.h` defines it) checked against their `.d.nupp`
+//! declarations, calls Nupp exports with typed values, keeps VM values alive
+//! across calls with [`Root`]s, and drives the task scheduler, including tasks
+//! parked on host functions the module completes later from any thread. The
+//! same library is what a Nupp program loads with `require` when its
+//! declaration names it with `@extension`.
 //!
 //! ```ignore
 //! let mut vm = Vm::new();
 //! vm.load_image(&image)?;
-//! vm.register(game_module(), GAME_DECLARATION)?;
+//! vm.register(Module::load("libgame.so".as_ref())?, GAME_DECLARATION)?;
 //! let step = vm.export("game.main", "step")?;
 //! let task = vm.spawn(&step, &[Arg::Integer(3)])?;
 //! let results = vm.run(task)?;
 //! ```
 //!
 //! Everything here runs on the thread that owns the `Vm`. Values never cross
-//! to another thread except as plain data through a host function's
-//! [`nupp_extension::Request`].
+//! to another thread except as plain data through a host function's request.
+use crate::extension::abi;
 use crate::interp::Interp;
 use crate::scheduler::Status;
 use crate::value::Value;
-use nupp_extension::{abi, Descriptor, Module};
 
 pub use crate::scheduler::{Event, TaskId};
 
@@ -122,16 +122,52 @@ impl Out {
     }
 }
 
-/// A registered module's storage, kept alive by the VM it is bound to.
-pub struct Owned(Box<Descriptor>);
-impl Owned {
-    fn new(module: Module) -> Owned {
-        Owned(Box::new(module.into_descriptor()))
+/// A native module's C description and what keeps it valid: the shared
+/// library it came from, or whatever the embedder hands over with it.
+pub struct Module {
+    name: String,
+    descriptor: *const abi::Extension,
+    owner: Box<dyn std::any::Any>,
+}
+impl Module {
+    /// The module a shared library exports through `nupp_extension_v1`. The
+    /// library stays loaded while the module, and then the VM bound to it,
+    /// lives.
+    #[cfg(all(feature = "native-ffi", not(target_family = "wasm")))]
+    pub fn load(path: &std::path::Path) -> Result<Module> {
+        let library = unsafe { crate::library::Library::open(path.as_os_str(), false) }
+            .map_err(|e| Error(format!("cannot load native module {}: {e}", path.display())))?;
+        let entry = unsafe { library.symbol(std::ffi::CStr::from_bytes_with_nul(abi::ENTRY_SYMBOL).unwrap()) }
+            .map(|s| unsafe { std::mem::transmute::<*mut std::ffi::c_void, abi::Entry>(s) })
+            .map_err(|_| Error(format!("{} is not a Nupp extension: it exports no nupp_extension_v1", path.display())))?;
+        let descriptor = unsafe { entry() };
+        unsafe { Module::from_descriptor(descriptor, Box::new(library)) }
     }
+
+    /// A module from a description the embedder links in itself.
+    ///
+    /// # Safety
+    /// `descriptor` and everything it points to must stay valid and unchanged
+    /// while `owner` lives.
+    pub unsafe fn from_descriptor(descriptor: *const abi::Extension, owner: Box<dyn std::any::Any>) -> Result<Module> {
+        if descriptor.is_null() {
+            return Err(Error("the extension entry point answered no description".into()));
+        }
+        let module = unsafe { (*descriptor).module };
+        if module.is_null() {
+            return Err(Error("the extension description names no module".into()));
+        }
+        let name = unsafe { std::ffi::CStr::from_ptr(module) }.to_string_lossy().into_owned();
+        Ok(Module { name, descriptor, owner })
+    }
+
+    /// The module name `require` loads.
+    pub fn name(&self) -> &str {
+        &self.name
+    }
+
     pub(crate) fn into_parts(self) -> (*const abi::Extension, Box<dyn std::any::Any>) {
-        // The description lives inside the box, which moving the box does not move.
-        let descriptor = self.0.extension();
-        (descriptor, self.0)
+        (self.descriptor, self.owner)
     }
 }
 
@@ -205,7 +241,7 @@ impl Vm {
     /// then what `require(name)` answers in this VM.
     pub fn register(&mut self, module: Module, declaration: &str) -> Result<()> {
         let name = module.name().to_string();
-        let (descriptor, owner) = Owned::new(module).into_parts();
+        let (descriptor, owner) = module.into_parts();
         crate::extension::register(&mut self.interp, descriptor, owner, &name, declaration).map_err(Error)?;
         Ok(())
     }
@@ -516,7 +552,7 @@ impl Vm {
     /// checked again, before their resources are restored.
     pub fn restore(checkpoint: &[u8], modules: Vec<(Module, String)>) -> Result<Vm> {
         let shared = std::rc::Rc::new(std::cell::RefCell::new(
-            modules.into_iter().map(|(m, d)| (m.name().to_string(), (Owned::new(m), d))).collect::<std::collections::HashMap<_, _>>(),
+            modules.into_iter().map(|(m, d)| (m.name().to_string(), (m, d))).collect::<std::collections::HashMap<_, _>>(),
         ));
         let mut codecs = crate::persist::ResourceCodecs::new();
         codecs.insert(crate::extension::RESOURCE_KIND.into(), Box::new(SharedCodec(shared.clone())));
@@ -538,7 +574,7 @@ impl Vm {
 
 /// The checkpoint codec with the embedder's modules, which a restore binds
 /// when it reaches the first resource of one.
-struct SharedCodec(std::rc::Rc<std::cell::RefCell<std::collections::HashMap<String, (Owned, String)>>>);
+struct SharedCodec(std::rc::Rc<std::cell::RefCell<std::collections::HashMap<String, (Module, String)>>>);
 impl crate::persist::ResourceCodec for SharedCodec {
     fn save(&mut self, vm: &Interp, object: Value) -> crate::persist::Result<Vec<u8>> {
         crate::extension::Codec::default().save(vm, object)

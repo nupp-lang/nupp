@@ -1,6 +1,6 @@
-//! The C ABI of `nupp_extension.h`, field for field. Both the VM and every
-//! extension use these definitions; the VM's `c-headers` test holds them to
-//! the header's sizes and offsets.
+//! The C ABI of `include/nupp_extension.h`, field for field, as the VM reads
+//! it. Extensions are written against the header; the `extension_header` test
+//! holds these definitions to its sizes and offsets.
 #![allow(non_camel_case_types)]
 use std::ffi::{c_char, c_void};
 

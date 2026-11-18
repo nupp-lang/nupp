@@ -130,7 +130,7 @@ static nupp_status call_with(const nupp_host *host, nupp_call *call, nupp_handle
 static nupp_status apply(const nupp_host *host, nupp_call *call, void *self, void *data, const nupp_slot *args, size_t nargs,
                          nupp_slot *results, size_t nresults) {
     (void)self, (void)data, (void)nargs, (void)nresults;
-    int64_t y;
+    int64_t y = 0;
     if (call_with(host, call, args[0].as.handle, args[1].as.integer, &y) != NUPP_OK) return NUPP_ERROR;
     integer(&results[0], y + 1);
     return NUPP_OK;
@@ -152,7 +152,7 @@ static nupp_status call_kept(const nupp_host *host, nupp_call *call, void *self,
     (void)data, (void)nargs, (void)nresults;
     instance *i = self;
     if (!i->kept) RAISE("nothing is kept");
-    int64_t y;
+    int64_t y = 0;
     if (call_with(host, call, i->kept, args[0].as.integer, &y) != NUPP_OK) return NUPP_ERROR;
     integer(&results[0], y);
     return NUPP_OK;

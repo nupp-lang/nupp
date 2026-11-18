@@ -20,11 +20,12 @@ use crate::declaration::{self, Declaration, Signature, Ty};
 use crate::heap::{KIND_CLOSURE, KIND_RECORD, KIND_TABLE};
 use crate::interp::{Interp, State as TaskState};
 use crate::value::Value;
-use nupp_extension::abi;
 use std::collections::HashMap;
 use std::ffi::{c_char, c_void, CStr};
 use std::rc::Rc;
 use std::sync::{Arc, Mutex};
+
+pub mod abi;
 
 /// The first runtime function id of a host function.
 pub const FUNCTION_BASE: u32 = 1 << 20;
@@ -40,8 +41,18 @@ pub fn target() -> String {
     abi::target()
 }
 
+/// A value a completion carries: plain data, which may cross threads.
+#[derive(Debug, Clone, PartialEq)]
+pub enum Plain {
+    Nil,
+    Boolean(bool),
+    Integer(i64),
+    Number(f64),
+    String(Vec<u8>),
+}
+
 /// A completion of a suspended call, as plain data from any thread.
-pub type Completion = Result<Vec<nupp_extension::Value>, String>;
+pub type Completion = Result<Vec<Plain>, String>;
 
 /// One module bound to one VM: its description, its instance and what owns
 /// the code (a loaded library, or the embedder's descriptor).
@@ -1005,14 +1016,13 @@ fn finish(vm: &mut Interp, function: &Rc<Function>, completion: Completion) -> c
     }
     let mut outs = crate::builtins::Outs::new();
     for (i, t) in function.signature.results.iter().enumerate() {
-        let value = values.get(i).cloned().unwrap_or(nupp_extension::Value::Nil);
+        let value = values.get(i).cloned().unwrap_or(Plain::Nil);
         let slot = match &value {
-            nupp_extension::Value::Nil => abi::Slot::NIL,
-            nupp_extension::Value::Boolean(b) => abi::Slot::boolean(*b),
-            nupp_extension::Value::Integer(n) => abi::Slot::integer(*n),
-            nupp_extension::Value::Number(n) => abi::Slot::number(*n),
-            nupp_extension::Value::String(s) => abi::Slot::string(s),
-            nupp_extension::Value::Handle(_) => abi::Slot::NIL,
+            Plain::Nil => abi::Slot::NIL,
+            Plain::Boolean(b) => abi::Slot::boolean(*b),
+            Plain::Integer(n) => abi::Slot::integer(*n),
+            Plain::Number(n) => abi::Slot::number(*n),
+            Plain::String(s) => abi::Slot::string(s),
         };
         match value_of(&mut context, &slot, Some(t), &format!("result {}", i + 1)) {
             Ok(v) => outs.push(v),
@@ -1165,13 +1175,13 @@ unsafe extern "C" fn host_complete(request: *mut abi::Request, results: *const a
         let mut values = Vec::with_capacity(slots.len());
         for slot in slots {
             values.push(match slot.kind {
-                abi::NIL => nupp_extension::Value::Nil,
-                abi::BOOLEAN => nupp_extension::Value::Boolean(unsafe { slot.value.boolean } != 0),
-                abi::INTEGER => nupp_extension::Value::Integer(unsafe { slot.value.integer }),
-                abi::NUMBER => nupp_extension::Value::Number(unsafe { slot.value.number }),
+                abi::NIL => Plain::Nil,
+                abi::BOOLEAN => Plain::Boolean(unsafe { slot.value.boolean } != 0),
+                abi::INTEGER => Plain::Integer(unsafe { slot.value.integer }),
+                abi::NUMBER => Plain::Number(unsafe { slot.value.number }),
                 abi::STRING => {
                     let s = unsafe { slot.value.string };
-                    nupp_extension::Value::String(if s.length == 0 { Vec::new() } else { unsafe { std::slice::from_raw_parts(s.bytes as *const u8, s.length) }.to_vec() })
+                    Plain::String(if s.length == 0 { Vec::new() } else { unsafe { std::slice::from_raw_parts(s.bytes as *const u8, s.length) }.to_vec() })
                 }
                 _ => return send(request, Err("a completion cannot carry handles; complete with plain values".into())),
             });
@@ -1252,7 +1262,7 @@ pub(crate) static HOST: abi::Host = abi::Host {
 /// returned, by name; a module with a library path reloads its library.
 #[derive(Default)]
 pub struct Codec {
-    pub(crate) modules: HashMap<String, (crate::embed::Owned, String)>,
+    pub(crate) modules: HashMap<String, (crate::embed::Module, String)>,
 }
 
 fn put(out: &mut Vec<u8>, bytes: &[u8]) {

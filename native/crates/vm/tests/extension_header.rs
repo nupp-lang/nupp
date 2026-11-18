@@ -1,18 +1,18 @@
-//! `include/nupp_extension.h` and the Rust ABI in `nupp-extension` describe
-//! one layout: libclang reads the header, and every struct's size and every
-//! field's offset must equal the Rust definition's.
+//! `include/nupp_extension.h` and the VM's reading of it (`extension::abi`)
+//! describe one layout: libclang reads the header, and every struct's size and
+//! every field's offset must equal the VM's definition's.
 #![cfg(feature = "c-headers")]
-use nupp_extension::abi;
+use nupp_vm::extension::abi;
 use nupp_vm::cdecl::Registry;
 use serde_json::{json, Value};
 use std::mem::{offset_of, size_of};
 
 fn header() -> String {
-    let text = include_str!("../include/nupp_extension.h");
+    let text = include_str!("../../../include/nupp_extension.h");
     // Parsed in memory with no system headers: the fixed-width types are
-    // declared here for the LP64 targets the VM runs on.
-    let prelude = "typedef unsigned long size_t; typedef int int32_t; typedef unsigned int uint32_t; \
-                   typedef long long int64_t; typedef unsigned long long uint64_t;\n";
+    // declared from the compiler's own spelling of them on this target.
+    let prelude = "typedef __SIZE_TYPE__ size_t; typedef __INT32_TYPE__ int32_t; typedef __UINT32_TYPE__ uint32_t; \
+                   typedef __INT64_TYPE__ int64_t; typedef __UINT64_TYPE__ uint64_t;\n";
     let body: String = text.lines().filter(|l| !l.starts_with("#include")).map(|l| format!("{l}\n")).collect();
     format!("{prelude}{body}")
 }
@@ -30,7 +30,7 @@ fn layout(registry: &mut Registry, name: &str) -> (usize, Vec<(String, usize)>) 
 }
 
 #[test]
-fn the_header_and_the_rust_abi_agree() {
+fn the_header_and_the_vm_abi_agree() {
     assert_eq!(size_of::<usize>(), 8, "the header check assumes an LP64 target");
     let mut registry = Registry::new().unwrap();
     registry.execute(&json!({"operation":"declare","text":header()})).unwrap();

@@ -1,93 +1,23 @@
-//! Native extensions: `demo.counter` built as a separate shared library, from
-//! C against `include/nupp_extension.h` with the system compiler and from Rust
-//! with the SDK in its own Cargo target, and loaded when a program requires
-//! the module its image declares. The checks run before the library's own
+//! Native extensions: `demo.counter` built as a separate shared library from C
+//! against `include/nupp_extension.h` with the system compiler, and loaded
+//! when a program requires the module its image declares. The checks run before the library's own
 //! code; the library stays loaded while its VM lives; a checkpoint reloads it
 //! before restoring its resources. Collector stress with the root oracle and
 //! quarantine throughout, on both interpreter loops.
 #![cfg(all(feature = "native-ffi", unix))]
 
 use nupp_vm::embed::{Arg, Out, Vm};
-use std::path::{Path, PathBuf};
-use std::process::Command;
 
 const PROGRAM: &str = include_str!("extension/main.bytecode");
 const DECLARATION: &str = include_str!("extension/counter.d.nupp");
 
-fn temporary(label: &str) -> PathBuf {
-    static NEXT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
-    let sequence = NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-    let nonce = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos();
-    let root = std::env::temp_dir().join(format!("nupp-extension-{label}-{}-{nonce}-{sequence}", std::process::id()));
-    std::fs::create_dir_all(root.join("lib")).unwrap();
-    root
-}
+#[path = "extension/built.rs"]
+mod built;
+use built::Built;
 
-fn library_file() -> &'static str {
-    if cfg!(target_os = "macos") { "libcounter.dylib" } else { "libcounter.so" }
-}
-
-/// `tests/extension/counter.c`, built independently into `<root>/lib`.
-struct Built {
-    root: PathBuf,
-    library: PathBuf,
-}
-impl Built {
-    fn c(defines: &[&str]) -> Built {
-        let root = temporary("c");
-        let library = root.join("lib").join(library_file());
-        let crate_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
-        let mut command = Command::new(std::env::var("CC").unwrap_or_else(|_| "cc".into()));
-        command.args(["-std=c11", "-O2", "-Wall", "-Werror"]).arg("-I").arg(crate_dir.join("include"));
-        if cfg!(target_os = "macos") {
-            command.arg("-dynamiclib");
-        } else {
-            command.args(["-shared", "-fPIC", "-pthread"]);
-        }
-        for d in defines {
-            command.arg(format!("-D{d}"));
-        }
-        let output = command
-            .arg(crate_dir.join("tests/extension/counter.c"))
-            .arg("-o")
-            .arg(&library)
-            .output()
-            .expect("an independent C compiler is required for extension acceptance");
-        assert!(output.status.success(), "{}", String::from_utf8_lossy(&output.stderr));
-        Built { root, library }
-    }
-    /// The SDK example crate, built by a separate Cargo invocation into its
-    /// own target directory: it links the SDK and never the VM.
-    fn rust() -> Built {
-        let root = temporary("rust");
-        let target = PathBuf::from(env!("CARGO_TARGET_TMPDIR")).join("counter-extension");
-        let manifest = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../counter-extension/Cargo.toml");
-        let output = Command::new(env!("CARGO"))
-            .args(["build", "--release", "--offline", "--manifest-path"])
-            .arg(&manifest)
-            .env("CARGO_TARGET_DIR", &target)
-            .output()
-            .expect("cargo is required to build the Rust extension");
-        assert!(output.status.success(), "{}", String::from_utf8_lossy(&output.stderr));
-        let library = root.join("lib").join(library_file());
-        // Copied to a fresh name, so this test's library is its alone.
-        std::fs::copy(target.join("release").join(library_file()), &library).unwrap();
-        Built { root, library }
-    }
-    fn marker(&self, suffix: &str) -> usize {
-        let mut path = self.library.clone().into_os_string();
-        path.push(format!(".{suffix}"));
-        std::fs::read(Path::new(&path)).map(|b| b.len()).unwrap_or(0)
-    }
-    /// The program image, declaring `demo.counter` as this library's module.
-    fn image(&self) -> String {
-        image_naming(self.library.to_str().unwrap(), DECLARATION)
-    }
-}
-impl Drop for Built {
-    fn drop(&mut self) {
-        let _ = std::fs::remove_dir_all(&self.root);
-    }
+/// The program image, declaring `demo.counter` as `built`'s module.
+fn image(built: &Built) -> String {
+    image_naming(built.library.to_str().unwrap(), DECLARATION)
 }
 
 /// The `extension` line an emitter writes: the declaration's bytes, with
@@ -120,7 +50,7 @@ fn integer(out: &[Out]) -> i64 {
     out[0].as_integer().unwrap_or_else(|| panic!("expected an integer, got {out:?}"))
 }
 
-/// The module's behavior, the same whichever language built it.
+/// The module's behavior.
 fn exercise(vm: &mut Vm) {
     let sum = vm.export("demo.main", "sum").unwrap();
     assert_eq!(integer(&vm.call(&sum, &[Arg::Integer(2), Arg::Integer(3)]).unwrap()), 8);
@@ -171,7 +101,7 @@ fn a_c_extension_loads_when_its_module_is_required() {
     let built = Built::c(&[]);
     for threaded in [false, true] {
         let mut vm = Vm::new();
-        vm.load_image(&built.image()).unwrap();
+        vm.load_image(&image(&built)).unwrap();
         stressed(&mut vm, threaded);
         assert_eq!(built.marker("init"), if threaded { 1 } else { 0 });
         exercise(&mut vm);
@@ -182,21 +112,10 @@ fn a_c_extension_loads_when_its_module_is_required() {
 }
 
 #[test]
-fn a_rust_extension_built_apart_loads_the_same_way() {
-    let built = Built::rust();
-    for threaded in [false, true] {
-        let mut vm = Vm::new();
-        vm.load_image(&built.image()).unwrap();
-        stressed(&mut vm, threaded);
-        exercise(&mut vm);
-    }
-}
-
-#[test]
 fn a_signature_mismatch_is_refused_before_the_extension_initializes() {
     let built = Built::c(&["COUNTER_NUMBERS"]);
     let mut vm = Vm::new();
-    vm.load_image(&built.image()).unwrap();
+    vm.load_image(&image(&built)).unwrap();
     let error = vm.require("demo.counter").unwrap_err();
     assert!(
         error.0.contains("demo.counter.add is declared function(int64, int64): int64, but the extension registers function(number, number): number"),
@@ -227,7 +146,7 @@ fn a_signature_mismatch_is_refused_before_the_extension_initializes() {
 fn the_library_stays_loaded_while_its_vm_lives() {
     let built = Built::c(&[]);
     let mut vm = Vm::new();
-    vm.load_image(&built.image()).unwrap();
+    vm.load_image(&image(&built)).unwrap();
     stressed(&mut vm, true);
     let sum = vm.export("demo.main", "sum").unwrap();
     assert_eq!(integer(&vm.call(&sum, &[Arg::Integer(1), Arg::Integer(1)]).unwrap()), 3);
@@ -256,7 +175,7 @@ fn a_checkpoint_reloads_the_library_before_restoring_its_resources() {
     let built = Built::c(&[]);
     for threaded in [false, true] {
         let mut vm = Vm::new();
-        vm.load_image(&built.image()).unwrap();
+        vm.load_image(&image(&built)).unwrap();
         stressed(&mut vm, threaded);
         let use_counter = vm.export("demo.main", "use_counter").unwrap();
         let remember = vm.export("demo.main", "remember").unwrap();

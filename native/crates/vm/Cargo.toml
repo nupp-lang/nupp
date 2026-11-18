@@ -62,7 +62,6 @@ nupp-native-net = { path = "../net", optional = true }
 nupp-native-tls = { path = "../tls", optional = true }
 nupp-native-http = { path = "../http", optional = true }
 nupp-native-abi = { path = "../abi" }
-nupp-extension = { path = "../extension" }
 url = { version = "2.5", optional = true }
 nupp-native-process = { path = "../process" }
 cranelift-codegen = { version = "0.135", optional = true }
@@ -82,9 +81,6 @@ ring = { version = "0.17.14", optional = true, default-features = false }
 
 [target.'cfg(not(target_family = "wasm"))'.dependencies]
 libffi = { version = "5.1.1", optional = true }
-
-[dev-dependencies]
-nupp-counter-extension = { path = "../counter-extension" }
 
 [lints.rust]
 unsafe_op_in_unsafe_fn = "allow"

@@ -1,19 +1,20 @@
-use nupp_extension::{Module, Value};
-use nupp_vm::embed::{Arg, Out, Root, Vm};
+//! Numbers crossing the native boundary: `numeric.boundary` from
+//! `tests/extension/fixtures.c`, whose functions answer their argument or a
+//! fixed value, so what the tests see is the VM's own checks and conversions.
+#![cfg(all(feature = "native-ffi", unix))]
+
+use nupp_vm::embed::{Arg, Module, Out, Root, Vm};
+use std::sync::OnceLock;
+
+#[path = "extension/built.rs"]
+mod built;
+use built::Built;
 
 fn fixture() -> (Vm, Root) {
+    static BUILT: OnceLock<Built> = OnceLock::new();
+    let built = BUILT.get_or_init(|| Built::source("fixtures", "numeric", &["FIXTURE_NUMERIC"]));
     let mut vm = Vm::new();
-    let mut module = Module::new("numeric.boundary");
-    for (name, signature) in [
-        ("number", "function(number): number"),
-        ("integer", "function(integer): int64"),
-        ("float", "function(float): float64"),
-        ("float32", "function(float32): float32"),
-    ] {
-        module.function(name, signature, |call| Ok(vec![call.value(0)]));
-    }
-    module.function("narrowResult", "function(): float32", |_| Ok(vec![Value::Number(0.1)]));
-    module.function("floatResult", "function(): float64", |_| Ok(vec![Value::Integer(9007199254740993)]));
+    let module = Module::load(&built.library).unwrap();
     vm.register(module, "local record Boundary\n number: function(number): number\n integer: function(int64): integer\n float: function(float64): float\n float32: function(float32): float32\n narrowResult: function(): float32\n floatResult: function(): float64\nend\nreturn Boundary").unwrap();
     vm.interp().heap.stress_steps = true;
     vm.interp().heap.oracle = true;

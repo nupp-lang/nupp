@@ -6,17 +6,18 @@ redirects: learn/projects/embedding
 
 # Native modules
 
-A native module is a typed Nupp module whose functions are Rust or C. It reaches
-a program one of two ways, and the program cannot tell which:
+A native module is a typed Nupp module whose functions are C, or any language
+that can export a C ABI. It is a shared library that reaches a program one of
+two ways, and the program cannot tell which:
 
 - An application that embeds the VM registers the module in process.
-- A program run by `nupp` loads the module from a shared library built apart
-  from it, when it first requires the module.
+- A program run by `nupp` loads the module when it first requires it.
 
-Either way the module arrives through one versioned C ABI, and either way it is
-checked against the module's `.d.nupp` declaration before any of its code runs.
-The declaration is what typed callers were checked against, so a library that
-registers another signature is refused, not called.
+Either way the module arrives through one versioned C ABI,
+`native/include/nupp_extension.h`, and either way it is checked against the
+module's `.d.nupp` declaration before any of its code runs. The declaration is
+what typed callers were checked against, so a library that registers another
+signature is refused, not called.
 
 ## Declaring the module
 
@@ -77,136 +78,16 @@ A result declared as a named record type or a union is refused when the module
 registers, because the boundary cannot check it. Declare it `any` instead.
 Variadic and generic host functions are refused, too.
 
-## Writing it in Rust
+## Writing it in C
 
-The `nupp-extension` crate is the Rust SDK. A `Module` is a name, functions
-under their declared Nupp types, and resource types:
-
-```rust
-use nupp_extension::{Module, Value};
-
-pub fn module() -> Module {
-    let mut module = Module::new("demo.counter");
-    module.function("add", "function(a: integer, b: integer): integer", |call| {
-        let sum = call.integer(0)?.checked_add(call.integer(1)?).ok_or("the sum overflows")?;
-        Ok(vec![sum.into()])
-    });
-    module.function("apply", "function(f: function(integer): integer, x: integer): integer", |call| {
-        let (f, x) = (call.handle(0)?, call.integer(1)?);
-        let out = call.invoke(f, &[x.into()], 1)?;
-        Ok(vec![(out[0].as_integer().ok_or("not an integer")? + 1).into()])
-    });
-    module
-}
-```
-
-A function answers its results or an error. An `Err` raises at the Nupp call
-site with its message, and a panic raises the same way rather than unwinding
-into the VM.
-
-- **Handles.** A table, record or function argument arrives as a `Handle`,
-  valid for the call. `call.retain(handle)` makes one that outlives the call,
-  until `call.release`. `call.invoke(f, args, n)` calls a Nupp function on the
-  VM's thread, inside the call.
-- **Suspension.** `call.suspend()` parks the calling task and hands back a
-  `Request`, which any thread completes with plain values or fails with a
-  message. The task resumes at the call with those values, or raises the
-  message there. Only a call from a task can park; a call that cannot is
-  refused with the function named.
-- **Resources.** `module.saved_resource::<T>(name, save, restore)` makes a type
-  of native object the VM owns and the module keeps a `T` for.
-  `call.new_resource`, `call.resource` and `call.close_resource` make one,
-  reach its `T` and drop it.
-
-```rust
-module.function("later", "function(text: string, ms: integer): string", |call| {
-    let reversed: String = call.str(0)?.chars().rev().collect();
-    let ms = call.integer(1)?;
-    let request = call.suspend()?;
-    std::thread::spawn(move || {
-        std::thread::sleep(std::time::Duration::from_millis(ms as u64));
-        request.complete(vec![Value::from(reversed)]);
-    });
-    Ok(vec![])
-});
-```
-
-## Embedding the VM
-
-`nupp_vm::embed::Vm` is one isolated runtime. Load the images a project
-compiles to, register native modules with their declarations, and call the
-program's exports:
-
-```rust
-use nupp_vm::embed::{Arg, Vm};
-
-let mut vm = Vm::new();
-vm.load_image(&image)?;
-vm.register(counter::module(), include_str!("demo/counter.d.nupp"))?;
-
-let sum = vm.export("demo.main", "sum")?;
-let out = vm.call(&sum, &[Arg::Integer(2), Arg::Integer(3)])?;
-```
-
-Registration is refused, naming the function and both types, when a declared
-function is missing or registered under another type:
-
-```text
-demo.counter.add is declared function(number, number): number, but the extension registers function(integer, integer): integer
-```
-
-`Vm::call` runs a function to its end on the caller's stack, so nothing it
-calls may park. A task can: `Vm::spawn` starts one, `Vm::run_ready` runs what is
-ready, and `Vm::run` drives the scheduler until a given task ends, sleeping
-until the next timer and blocking for host completions when nothing else can
-move.
-
-```rust
-let fetch = vm.export("demo.main", "fetch")?;
-let task = vm.spawn(&fetch, &[Arg::from("olleh")])?;
-let results = vm.run(task)?; // "hello", completed from another thread
-```
-
-Values come out as `Out`: scalars and strings by value, anything else as a
-`Root`. A root keeps its value alive across calls and collections until
-`Vm::release`; `Vm::read` reads it and `Arg::Root` passes it back in.
-
-The `embed_host` example in the VM crate does all of this, then saves the VM
-and restores it into a second one.
-
-## Loading it as an extension
-
-The same module becomes an extension when a shared library exports it:
-
-```rust
-nupp_extension::export!(module);
-```
-
-```toml
-[lib]
-name = "counter"
-crate-type = ["cdylib"]
-```
-
-The library depends on `nupp-extension` alone, never on the VM, and is built
-by itself. When a program first requires `demo.counter`, the runtime finds the
-library its declaration names, by the rules `foreign.load` uses: a path is
-opened as written, a bare name gains the platform's prefix and extension and is
-searched for, and an `@` name is looked for at or above the requiring module's
-directory, then at or above the executable's.
-
-Before any of the library's code runs but its entry point, the runtime refuses
-it when its ABI version is not the runtime's, it was built for another target,
-it provides another module, or any declared function is missing or registered
-under another type. Only then does it call the library's `init`. The library
-stays loaded while the VM that loaded it lives; each VM loads a module once.
-
-## The C ABI
-
-`native/crates/vm/include/nupp_extension.h` is the ABI. A C extension includes
-it and nothing else of Nupp's:
+An extension includes `nupp_extension.h` and nothing else of Nupp's, and links
+nothing of Nupp's. It describes the module in static data: the module name, the
+target it was built for, its functions under their declared Nupp types, and its
+resource types. One exported entry point answers that description:
 
 ```c
+#include "nupp_extension.h"
+
 static nupp_status add(const nupp_host *host, nupp_call *call, void *instance, void *data,
                        const nupp_slot *args, size_t nargs, nupp_slot *results, size_t nresults) {
     int64_t sum;
@@ -231,12 +112,147 @@ const nupp_extension *NUPP_EXTENSION_ENTRY(void) { return &extension; }
 ```
 
 Values cross as `nupp_slot`s: scalars and strings by value, everything else as
-an opaque `nupp_handle`. The `nupp_host` table the VM passes to every call
-raises errors, retains and releases handles, invokes Nupp functions, suspends
-calls and completes them from any thread, and makes and drops resources. Every
-entry that takes a `nupp_call` runs on the VM's thread, inside that call, and
-nothing may unwind through the table. A host table only grows: a later ABI
-appends entries and reports its size.
+an opaque `nupp_handle`. The arguments are already checked against the declared
+parameter types when the function runs, and its `nresults` result slots start
+as nil. A function answers `NUPP_OK` with its results, `NUPP_ERROR` after
+`host->raise`, which raises the message at the Nupp call site, or
+`NUPP_SUSPENDED` after `host->suspend`. Nothing may unwind through the VM.
+
+The `nupp_host` table the VM passes to every call is the rest of the API:
+
+- **Handles.** A table, record or function argument arrives as a handle, valid
+  for the call. `retain` makes one that outlives the call, until `release`.
+  `invoke` calls a Nupp function on the VM's thread, inside the call; when it
+  answers `NUPP_ERROR`, returning `NUPP_ERROR` raises that error to the caller
+  with its original value.
+- **Suspension.** `suspend` parks the calling task and hands back a request,
+  which any thread completes once with plain values (`complete`) or fails with a
+  message (`fail`). The task resumes at the call with those values, or raises
+  the message there. Only a call from a task can park; where the call cannot,
+  `suspend` answers null with the refusal raised, naming the function.
+- **Resources.** A `nupp_resource_type` is a kind of native object the VM owns
+  and the extension keeps the data of. `new_resource` makes one owning a
+  pointer, `resource` answers that pointer for a live object of the type, and
+  `close_resource` drops it now. Its type's `drop` hook runs when the object is
+  closed or its VM ends, and its `save` and `restore` hooks carry it through a
+  checkpoint.
+- **Instances.** The optional `init` hook runs once per VM after every check
+  passed and may set an instance pointer that every call receives; `shutdown`
+  runs when the VM ends, after its resources were dropped. Every entry that
+  takes a `nupp_call` runs on the VM's thread, inside that call.
+
+A host table only grows: a later ABI appends entries and reports its size.
+
+```c
+typedef struct {
+    const nupp_host *host;
+    nupp_request *request;
+    char *text;
+    size_t length;
+} job;
+
+static void *finish(void *arg) {
+    job *j = arg;
+    nupp_slot result = {.kind = NUPP_STRING};
+    result.as.string.bytes = j->text;
+    result.as.string.length = j->length;
+    j->host->complete(j->request, &result, 1);
+    free(j->text);
+    free(j);
+    return NULL;
+}
+
+/* function(text: string): string, answered from another thread. */
+static nupp_status later(const nupp_host *host, nupp_call *call, void *instance, void *data,
+                         const nupp_slot *args, size_t nargs, nupp_slot *results, size_t nresults) {
+    job *j = calloc(1, sizeof *j);
+    j->host = host;
+    j->length = args[0].as.string.length;
+    j->text = malloc(j->length);
+    memcpy(j->text, args[0].as.string.bytes, j->length);
+    j->request = host->suspend(call);
+    if (!j->request) {
+        free(j->text);
+        free(j);
+        return NUPP_ERROR;
+    }
+    pthread_t thread;
+    pthread_create(&thread, NULL, finish, j);
+    pthread_detach(thread);
+    return NUPP_SUSPENDED;
+}
+```
+
+`native/crates/vm/tests/extension/counter.c` is the whole `demo.counter`
+module: resources saved through a checkpoint, retained callbacks and parked
+calls completed from its own threads.
+
+## Building and loading it
+
+Build the module as a shared library with any C compiler; it needs only the
+header:
+
+```sh
+cc -std=c11 -shared -fPIC -pthread -Inative/include counter.c -o libcounter.so
+```
+
+On macOS use `-dynamiclib` and name it `libcounter.dylib`. When a program
+first requires `demo.counter`, the runtime finds the library its declaration
+names, by the rules `foreign.load` uses: a path is opened as written, a bare
+name gains the platform's prefix and extension and is searched for, and an `@`
+name is looked for at or above the requiring module's directory, then at or
+above the executable's.
+
+Before any of the library's code runs but its entry point, the runtime refuses
+it when its ABI version is not the runtime's, it was built for another target,
+it provides another module, or any declared function is missing or registered
+under another type. Only then does it call the library's `init`. The library
+stays loaded while the VM that loaded it lives; each VM loads a module once.
+
+## Embedding the VM
+
+`nupp_vm::embed::Vm` is one isolated runtime for a Rust application. Load the
+images a project compiles to, register native modules with their
+declarations, and call the program's exports:
+
+```rust
+use nupp_vm::embed::{Arg, Module, Vm};
+
+let mut vm = Vm::new();
+vm.load_image(&image)?;
+vm.register(Module::load("libcounter.so".as_ref())?, include_str!("demo/counter.d.nupp"))?;
+
+let sum = vm.export("demo.main", "sum")?;
+let out = vm.call(&sum, &[Arg::Integer(2), Arg::Integer(3)])?;
+```
+
+`Module::load` opens a library and reads its entry point; an application that
+links the description in itself passes it to `Module::from_descriptor` with
+whatever keeps it valid. Registration is refused, naming the function and both
+types, when a declared function is missing or registered under another type:
+
+```text
+demo.counter.add is declared function(number, number): number, but the extension registers function(int64, int64): int64
+```
+
+`Vm::call` runs a function to its end on the caller's stack, so nothing it
+calls may park. A task can: `Vm::spawn` starts one, `Vm::run_ready` runs what is
+ready, and `Vm::run` drives the scheduler until a given task ends, sleeping
+until the next timer and blocking for host completions when nothing else can
+move.
+
+```rust
+let fetch = vm.export("demo.main", "fetch")?;
+let task = vm.spawn(&fetch, &[Arg::from("olleh")])?;
+let results = vm.run(task)?; // "hello", completed from another thread
+```
+
+Values come out as `Out`: scalars and strings by value, anything else as a
+`Root`. A root keeps its value alive across calls and collections until
+`Vm::release`; `Vm::read` reads it and `Arg::Root` passes it back in.
+
+The `embed_host` example in the VM crate does all of this with
+`counter.c`, then saves the VM and restores it into a second one.
 
 ## Checkpoints
 

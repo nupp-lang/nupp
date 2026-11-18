@@ -3002,13 +3002,16 @@ and whose listening socket is refused.
 images, registers typed host modules, calls exports with typed values
 (`Arg`/`Out`), keeps values alive with `Root`s, and drives the scheduler
 (`spawn`, `run_ready`, `run`, `wait`, `cancel`, `finish`). A host module is a
-`nupp_extension::Module` (the new `native/crates/extension` SDK crate): a name,
-functions under their declared Nupp types, and resource types. The same module
-built as a shared library with `nupp_extension::export!` is a native extension
-a program loads with `require`. Both reach the VM through one versioned C ABI,
-`include/nupp_extension.h`, mirrored field for field by `nupp_extension::abi`;
-`tests/extension_header.rs` (the `c-headers` feature) reads the header with
-libclang and holds every size and offset to the Rust layout.
+C description (`embed::Module`, from a shared library's `nupp_extension_v1`
+entry or linked in by the embedder): a name, functions under their declared
+Nupp types, and resource types. The same library is a native extension a
+program loads with `require`. Both reach the VM through one versioned C ABI,
+`native/include/nupp_extension.h`, which the VM reads through
+`extension::abi`; `tests/extension_header.rs` (the `c-headers` feature) reads
+the header with libclang and holds every size and offset to that layout.
+(Until 2026-11-17 a Rust SDK, the `nupp-extension` crate, built the same
+description from Rust closures; it was removed with its `counter-extension`
+example in favor of the header alone.)
 
 **Declarations are the contract.** A module is checked against the `.d.nupp`
 declaration its callers were checked with, before any of its code runs: the
@@ -3070,22 +3073,21 @@ bound a library: an extension's library stays loaded while its VM lives, and on
 VM drop resources are dropped, then `shutdown` runs, then the library closes.
 Each VM loads a module once; two VMs share the platform's reference count.
 
-Evidence: `tests/embedding.rs` (in-process module, both interpreter loops,
+Evidence: `tests/embedding.rs` (in-process module from
+`tests/extension/counter.c`, both interpreter loops,
 collector stress with the root oracle and quarantine: typed calls and refusals,
 mismatched and incomplete registrations, three tasks parked on requests
 completed from other threads, failed completion, cancellation draining,
 callbacks, retained handles through 50 stressed calls, wide integers, resources
 through checkpoint and restore, refusal of an unhooked resource and of a
 restore missing its module); `tests/native_extension.rs` (the same module built
-from `tests/extension/counter.c` with the system compiler and from the
-`nupp-counter-extension` crate by a separate Cargo build into its own target,
-loaded on require from an image declaration; refusal before `init` with
+from `tests/extension/counter.c` with the system compiler, loaded on require from an image declaration; refusal before `init` with
 markers proving `init` never ran and the library closed; library unloading only
 after VM drop; checkpoint restore in a fresh VM reloading the library before
 its resource); `tests/extension-smoke.py` (the typed `tests/extension-project`
-program lowered by a VM compiler seed and run against both libraries).
+program lowered by a VM compiler seed and run against the library).
 `examples/embed_host.rs` is the embedding walk-through.
-`tests/extension-smoke.py` passes against both libraries on the Rust,
+`tests/extension-smoke.py` passes against the library on the Rust,
 threaded, JIT and compiled-frame engines under collector stress: typed calls,
 callbacks, a retained function, resources, a call parked in the run driver,
 sibling tasks parked at once, a failed completion, and a CLI checkpoint whose

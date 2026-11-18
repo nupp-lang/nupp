@@ -18,8 +18,10 @@
  * VM's thread, inside that call. `complete` and `fail` may be called from any
  * thread. Nothing may unwind through these functions.
  *
- * The Rust definitions in the `nupp-extension` crate mirror this header; the
- * VM's `c-headers` test checks the two agree on every size and offset.
+ * This header is the whole interface: an extension includes it and nothing
+ * else of Nupp's, and links nothing of Nupp's. The VM reads these structures
+ * through its own definitions, which its `extension_header` test holds to
+ * every size and offset here.
  */
 #ifndef NUPP_EXTENSION_H
 #define NUPP_EXTENSION_H
