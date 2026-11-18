@@ -1170,7 +1170,14 @@ local function programCatalog(caseName: string, fixture: string, version: intege
         end
         local declared = assert(named, "guest module declaration required: " .. name)
         local diagnostics
-        if project then
+        -- A library module is checked in the shared project even for a
+        -- program of one fixture, which reaches it only now: an environment
+        -- that indexes no project types its own requires as any.
+        local checkingProject: any = project
+        if checkingProject == nil and libraryModule(name) then
+            checkingProject = checkedProject(root)
+        end
+        if checkingProject then
             -- A fixture is checked as its staged copy; a library module
             -- the program carries, where it lives.
             if not libraryModule(name) and not rooted then
@@ -1178,7 +1185,7 @@ local function programCatalog(caseName: string, fixture: string, version: intege
                 assert(read(path) == source, "staged guest source differs: " .. name)
             end
             local checking = os.clock()
-            local checked = project.checkFile(path)
+            local checked = checkingProject.checkFile(path)
             timings["compile check"] = (timings["compile check"] or 0) + os.clock() - checking
             parsed, diagnostics = assert(checked.result, "checked guest result required"), checked.diags
         else
