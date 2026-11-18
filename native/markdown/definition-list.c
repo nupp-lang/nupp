@@ -37,50 +37,74 @@
 #include <stdlib.h>
 #include <string.h>
 
+/* What a node this extension owns is: the list, one of its terms, or one of
+ * its definitions. Zero is left unused, so a node's role is never zero. */
 enum role { LIST = 1, TERM, DEFINITION };
 
+/* The last argument of cmark_parser_advance_offset: whether its count is in
+ * bytes or in columns, where a tab spans to the next tab stop. */
+enum { BYTES = 0, COLUMNS = 1 };
+
+/* As in a list item, more spaces than this after the marker start indented
+ * code, so the definition's content begins one space after the marker. */
+enum { CODE_INDENT = 4 };
+
+/* The state the extension keeps on each node it owns, as cmark user data. */
 typedef struct {
   enum role role;
+  /* A definition's content column: a line indented this far continues it. */
   int padding;
+  /* A blank line came between the definition and what came before it, or
+   * between two of its blocks. */
   int loose;
+  /* The number of the last blank line the definition held, or zero. */
   int blank_line;
+  /* The definition's first line was only its marker. */
   int starts_blank;
 } block;
 
-static block *data (cmark_node *node) {
+static block *state (cmark_node *node) {
   return (block *)cmark_node_get_user_data(node);
 }
 
-static void release (cmark_mem *mem, void *value) {
+static void free_state (cmark_mem *mem, void *value) {
   mem->free(value);
 }
 
+/* Claims node for the extension in the given role, with fresh state that the
+ * node frees with itself. */
 static void mark (cmark_syntax_extension *ext, cmark_node *node,
                   enum role role) {
   cmark_mem *mem = cmark_syntax_extension_get_private(ext);
   block *value = mem->calloc(1, sizeof(*value));
   value->role = role;
   cmark_node_set_user_data(node, value);
-  cmark_node_set_user_data_free_func(node, release);
+  cmark_node_set_user_data_free_func(node, free_state);
   cmark_node_set_syntax_extension(node, ext);
 }
 
+/* Whether node exists, belongs to the extension and plays the given role. */
 static int is (cmark_syntax_extension *ext, cmark_node *node, enum role role) {
   return node && cmark_node_get_syntax_extension(node) == ext &&
-         data(node)->role == role;
+         state(node)->role == role;
 }
 
-static int contain (cmark_syntax_extension *ext, cmark_node *node,
-                    cmark_node_type child) {
+/* A term holds only inlines, as the paragraph it was; a list or definition
+ * holds any block. */
+static int can_contain (cmark_syntax_extension *ext, cmark_node *node,
+                        cmark_node_type child) {
   return is(ext, node, TERM)
              ? (child & CMARK_NODE_TYPE_MASK) == CMARK_NODE_TYPE_INLINE
              : child != CMARK_NODE_DOCUMENT;
 }
 
-static int inlines (cmark_syntax_extension *ext, cmark_node *node) {
+/* Only a term's text is parsed as inlines; a definition's is in its blocks. */
+static int contains_inlines (cmark_syntax_extension *ext, cmark_node *node) {
   return is(ext, node, TERM);
 }
 
+/* The last source line a block holds. A paragraph's recorded end line can lag
+ * its content until it is finalized, so the content's lines count too. */
 static int end_line (cmark_node *node) {
   int end = cmark_node_get_start_line(node) - 1;
   const char *content = cmark_node_get_string_content(node);
@@ -95,6 +119,8 @@ static int end_line (cmark_node *node) {
                                              : cmark_node_get_end_line(node);
 }
 
+/* Whether a paragraph holds a term, rather than only link reference
+ * definitions. */
 static int has_term (cmark_syntax_extension *ext, cmark_node *term) {
   const char *text = cmark_node_get_string_content(term);
 
@@ -116,8 +142,14 @@ static int has_term (cmark_syntax_extension *ext, cmark_node *term) {
   return found;
 }
 
-static int match (cmark_syntax_extension *ext, cmark_parser *parser,
-                  unsigned char *input, int len, cmark_node *node) {
+/* cmark's question for each open block on each new line: does the line
+ * continue it? A list always does, leaving the answer to its children, and a
+ * term, one line long, never does. A definition takes blank lines, unless it is
+ * still empty and opened with nothing after its marker, and lines indented to
+ * its content column, which it consumes. Lazy continuation lines are
+ * upstream's. */
+static int match_block (cmark_syntax_extension *ext, cmark_parser *parser,
+                        unsigned char *input, int len, cmark_node *node) {
   (void)len;
 
   if (is(ext, node, LIST)) {
@@ -131,30 +163,62 @@ static int match (cmark_syntax_extension *ext, cmark_parser *parser,
   if (cmark_parser_is_blank(parser)) {
     cmark_node *last = cmark_node_last_child(node);
 
-    if (!last && data(node)->starts_blank) {
+    if (!last && state(node)->starts_blank) {
       return 0;
     }
 
-    if (last && data(node)->blank_line &&
-        cmark_node_get_start_line(last) > data(node)->blank_line) {
-      data(node)->loose = 1;
+    /* A blank line between two of the definition's blocks loosens it. */
+    if (last && state(node)->blank_line &&
+        cmark_node_get_start_line(last) > state(node)->blank_line) {
+      state(node)->loose = 1;
     }
 
-    data(node)->blank_line = cmark_parser_get_line_number(parser);
+    state(node)->blank_line = cmark_parser_get_line_number(parser);
 
     return 1;
   }
 
-  if (cmark_parser_get_indent(parser) < data(node)->padding) {
+  if (cmark_parser_get_indent(parser) < state(node)->padding) {
     return 0;
   }
 
-  cmark_parser_advance_offset(parser, (const char *)input, data(node)->padding,
-                              1);
+  cmark_parser_advance_offset(parser, (const char *)input, state(node)->padding,
+                              COLUMNS);
 
   return 1;
 }
 
+/* Records where the definition's content starts, and moves the parser past
+ * its marker and the spaces before that content. start is the marker's
+ * byte offset in input and indent its column. */
+static void begin_content (cmark_parser *parser, cmark_node *definition,
+                           unsigned char *input, int len, int start,
+                           int indent) {
+  int spaces = 0;
+
+  while (start + 1 + spaces < len && input[start + 1 + spaces] == ' ') {
+    spaces++;
+  }
+
+  int after = spaces > CODE_INDENT ? 1 : spaces;
+  state(definition)->padding = indent + 1 + after;
+  int content = start + 1 + spaces;
+
+  while (content < len && (input[content] == ' ' || input[content] == '\t')) {
+    content++;
+  }
+
+  state(definition)->starts_blank =
+      content == len || input[content] == '\n' || input[content] == '\r';
+  cmark_parser_advance_offset(parser, (const char *)input,
+                              start + 1 - cmark_parser_get_offset(parser),
+                              BYTES);
+  cmark_parser_advance_offset(parser, (const char *)input, after, COLUMNS);
+}
+
+/* cmark's question for a line no open block took: does it open one here? A
+ * line whose first non-space is `:` opens a definition when it follows a
+ * term's paragraph or another definition of the same list. */
 static cmark_node *open_block (cmark_syntax_extension *ext, int indented,
                                cmark_parser *parser, cmark_node *parent,
                                unsigned char *input, int len) {
@@ -165,10 +229,15 @@ static cmark_node *open_block (cmark_syntax_extension *ext, int indented,
     return NULL;
   }
 
+  /* The paragraph before the marker, or the definition before it when the
+   * line continues a list. */
   cmark_node *term = cmark_node_get_type(parent) == CMARK_NODE_PARAGRAPH
                          ? parent
                          : cmark_node_last_child(parent);
-  cmark_node *list = NULL;
+  /* The list the new definition joins, or, when its term joins a list
+   * already open, the definition itself. */
+  cmark_node *list;
+  /* A blank line separates the definition from what came before it. */
   int loose;
 
   if (is(ext, parent, LIST) && is(ext, term, DEFINITION)) {
@@ -194,15 +263,13 @@ static cmark_node *open_block (cmark_syntax_extension *ext, int indented,
     cmark_node *owner = cmark_node_parent(term);
     loose = cmark_parser_get_line_number(parser) > end_line(term) + 1;
 
+    /* Adding a child to the term while it is the open paragraph finalizes
+     * it, which must come before it is claimed as a term. */
     if (is(ext, owner, LIST)) {
-      list = owner;
-      /* Finalize the open paragraph before reclassifying it. */
-      cmark_node *next =
-          cmark_parser_add_child(parser, parent == term ? term : list,
-                                 CMARK_NODE_CUSTOM_BLOCK, start + 1);
+      list = cmark_parser_add_child(parser, parent == term ? term : owner,
+                                    CMARK_NODE_CUSTOM_BLOCK, start + 1);
       mark(ext, term, TERM);
-      mark(ext, next, DEFINITION);
-      list = next;
+      mark(ext, list, DEFINITION);
     }
     else {
       list = cmark_parser_add_child(parser, parent == term ? term : owner,
@@ -224,53 +291,38 @@ static cmark_node *open_block (cmark_syntax_extension *ext, int indented,
     mark(ext, definition, DEFINITION);
   }
 
-  data(definition)->loose = loose;
-  int spaces = 0;
-
-  while (start + 1 + spaces < len && input[start + 1 + spaces] == ' ') {
-    spaces++;
-  }
-
-  int after = spaces > 4 ? 1 : spaces;
-  data(definition)->padding = indent + 1 + after;
-  int content = start + 1 + spaces;
-
-  while (content < len && (input[content] == ' ' || input[content] == '\t')) {
-    content++;
-  }
-
-  data(definition)->starts_blank =
-      content == len || input[content] == '\n' || input[content] == '\r';
-  cmark_parser_advance_offset(parser, (const char *)input,
-                              start + 1 - cmark_parser_get_offset(parser), 0);
-  cmark_parser_advance_offset(parser, (const char *)input, after, 1);
+  state(definition)->loose = loose;
+  begin_content(parser, definition, input, len, start, indent);
 
   return definition;
 }
 
-static void tags (cmark_node *node, const char *enter, const char *leave) {
+/* Has node render as the given HTML around its children. */
+static void render_as (cmark_node *node, const char *enter, const char *leave) {
   cmark_node_set_type(node, CMARK_NODE_CUSTOM_INLINE);
   cmark_node_set_on_enter(node, enter);
   cmark_node_set_on_exit(node, leave);
 }
 
-static void render_list (cmark_syntax_extension *ext, cmark_node *node) {
+/* Whether any of the list's definitions is loose: separated by a blank line
+ * from what came before it, or holding blocks a blank line apart. */
+static int is_loose (cmark_syntax_extension *ext, cmark_node *list) {
   int loose = 0;
 
-  for (cmark_node *dd = cmark_node_first_child(node); dd;
+  for (cmark_node *dd = cmark_node_first_child(list); dd;
        dd = cmark_node_next(dd)) {
     if (!is(ext, dd, DEFINITION)) {
       continue;
     }
 
-    if (data(dd)->loose) {
+    if (state(dd)->loose) {
       loose = 1;
     }
 
     cmark_node *last = cmark_node_last_child(dd);
 
-    if (last && data(dd)->blank_line &&
-        cmark_node_get_start_line(last) > data(dd)->blank_line) {
+    if (last && state(dd)->blank_line &&
+        cmark_node_get_start_line(last) > state(dd)->blank_line) {
       loose = 1;
     }
 
@@ -285,22 +337,30 @@ static void render_list (cmark_syntax_extension *ext, cmark_node *node) {
     }
   }
 
+  return loose;
+}
+
+/* Gives a finished list its HTML: <dl> around it, <dt> and <dd> around its
+ * terms and definitions, and, in a tight list, definitions' paragraphs
+ * without their <p>. */
+static void render_list (cmark_syntax_extension *ext, cmark_node *node) {
+  int loose = is_loose(ext, node);
   cmark_node_set_on_enter(node, "<dl>\n");
   cmark_node_set_on_exit(node, "</dl>\n");
 
   for (cmark_node *child = cmark_node_first_child(node); child;
        child = cmark_node_next(child)) {
     if (is(ext, child, TERM)) {
-      tags(child, "<dt>", "</dt>\n");
+      render_as(child, "<dt>", "</dt>\n");
     }
     else {
-      tags(child, "<dd>", "</dd>\n");
+      render_as(child, "<dd>", "</dd>\n");
 
       if (!loose) {
         for (cmark_node *p = cmark_node_first_child(child); p;
              p = cmark_node_next(p)) {
           if (cmark_node_get_type(p) == CMARK_NODE_PARAGRAPH) {
-            tags(p, "", "");
+            render_as(p, "", "");
           }
         }
       }
@@ -308,8 +368,11 @@ static void render_list (cmark_syntax_extension *ext, cmark_node *node) {
   }
 }
 
-static void process (cmark_syntax_extension *ext, cmark_node *node) {
-  /* Split around ordinary blocks, preserving their original position. */
+/* A list stays open past every line, so it also collects the ordinary blocks
+ * that follow it. Moves each of those out to stand after the list, in order,
+ * gathers the terms and definitions after one into a new list, and renders
+ * every list. */
+static void split_list (cmark_syntax_extension *ext, cmark_node *node) {
   cmark_node *tail = node;
   cmark_node *segment = node;
 
@@ -349,6 +412,8 @@ static void process (cmark_syntax_extension *ext, cmark_node *node) {
   render_list(ext, node);
 }
 
+/* Runs once the document is parsed: splits and renders every list, each
+ * after its contents, so a list nested in a definition is done first. */
 static cmark_node *postprocess (cmark_syntax_extension *ext,
                                 cmark_parser *parser, cmark_node *root) {
   (void)parser;
@@ -359,7 +424,7 @@ static cmark_node *postprocess (cmark_syntax_extension *ext,
     cmark_node *node = cmark_iter_get_node(iter);
 
     if (event == CMARK_EVENT_EXIT && is(ext, node, LIST)) {
-      process(ext, node);
+      split_list(ext, node);
     }
   }
 
@@ -372,9 +437,9 @@ cmark_syntax_extension *nupp_definition_list_new (cmark_mem *mem) {
   cmark_syntax_extension *ext =
       cmark_syntax_extension_new("nupp_definition_list");
   cmark_syntax_extension_set_private(ext, mem, NULL);
-  cmark_syntax_extension_set_can_contain_func(ext, contain);
-  cmark_syntax_extension_set_contains_inlines_func(ext, inlines);
-  cmark_syntax_extension_set_match_block_func(ext, match);
+  cmark_syntax_extension_set_can_contain_func(ext, can_contain);
+  cmark_syntax_extension_set_contains_inlines_func(ext, contains_inlines);
+  cmark_syntax_extension_set_match_block_func(ext, match_block);
   cmark_syntax_extension_set_open_block_func(ext, open_block);
   cmark_syntax_extension_set_postprocess_func(ext, postprocess);
 

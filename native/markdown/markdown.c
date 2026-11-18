@@ -1,5 +1,21 @@
-/* Bounded allocation boundary for upstream C code which assumes allocation
- * succeeds. No longjmp crosses a guest frame or calls guest code. */
+/* The Markdown renderer behind markdown.h: the pinned upstream cmark-gfm, with
+ * its tables and the colon definition lists of definition-list.c, made to
+ * write the HTML bytes of the renderer it replaced, whose frozen outputs are
+ * in tests/fixtures/markdown. The core's Markdown provider and the checkout's
+ * documentation host call it through FFI; docs/native-markdown.md describes
+ * the dialect and the byte policy.
+ *
+ * Upstream is used unchanged. Around it this file adds three things:
+ *
+ * - A bounded allocation boundary for upstream C code which assumes
+ *   allocation succeeds. Every allocation is charged to the document's budget
+ *   and tracked, and a failure longjmps back to nupp_markdown_render, which
+ *   frees what was tracked. No longjmp crosses a guest frame or calls guest
+ *   code.
+ * - Compatibility rendering, which writes tables, links, images, code, text,
+ *   block quotes and raw HTML the way the old renderer did.
+ * - A byte transport for NUL and an initial BOM, which cmark consumes before
+ *   any extension hook could see them (see transport_bytes). */
 
 #include "markdown.h"
 #include "definition-list.h"
@@ -35,6 +51,53 @@ static pthread_mutex_t lock = PTHREAD_MUTEX_INITIALIZER;
 
 #endif
 
+/* The upstream commit and the definition-list hook ABI this library is built
+ * from. Its callers compare it with the revision they were written for. */
+#define REVISION "27d942c8b0a62d192f616e5bf3578f4b6a89e180/definition-list-1"
+
+/* The largest input and budget nupp_markdown_render accepts. */
+#define MAX_INPUT_BYTES (8 * 1024 * 1024)
+#define MAX_BUDGET_BYTES (256 * 1024 * 1024)
+
+/* The UTF-8 byte order mark, which cmark skips at the start of its input. */
+#define UTF8_BOM "\xef\xbb\xbf"
+#define UTF8_BOM_BYTES 3
+
+/* The token as upstream percent-encodes it in a link destination (see
+ * transport_bytes): ESCAPED_ONE is RUN_BYTE and ESCAPED_MIDDLE the token's
+ * middle, each escaped byte ESCAPE_BYTES long. */
+#define ESCAPED_ONE "%01"
+#define ESCAPED_MIDDLE "%02%20%02"
+#define ESCAPE_BYTES 3
+#define ESCAPED_MIDDLE_BYTES 9
+
+/* How a link destination spells a transported NUL in HTML. */
+#define ESCAPED_NUL "%00"
+
+/* What nupp_markdown_render answers. */
+enum status {
+  RENDERED = 0,
+  /* The budget ran out, or an allocation failed. */
+  NO_RESOURCES = -1,
+  /* The input or the budget is larger than this library accepts. */
+  TOO_LARGE = -2,
+  /* No document, one already rendered, or a NULL input with a length. */
+  MISUSE = -3,
+};
+
+/* How a source line ends, as a document's line_endings records it. */
+enum line_ending { LF = 0, CR = 1, CRLF = 2 };
+
+/* The two bytes the transport's markers are made of (see transport_bytes). */
+enum { RUN_BYTE = 1, MIDDLE_BYTE = 2 };
+
+/* The flag find_raw_html sets on each input byte that raw HTML holds. */
+enum { IN_RAW_HTML = 1 };
+
+/* The header in front of each allocation. It links the allocation into its
+ * document's list, so that a failure can free everything, and records its
+ * size for resize. As a union it is padded to the strictest alignment, so
+ * the bytes after it suit any type. */
 typedef union allocation allocation;
 
 union allocation {
@@ -48,14 +111,23 @@ union allocation {
 };
 
 struct nupp_markdown {
+  /* Every live allocation, newest first. */
   allocation *allocations;
+  /* Where a failure inside cmark returns to. */
   jmp_buf failure;
+  /* The budget still unspent, and the byte length of text. */
   size_t remaining, size;
+  /* The rendered HTML, which may hold NUL. */
   char *text;
+  /* How each source line ends, indexed by line number from 1, and the
+   * number of entries. */
   unsigned char *line_endings;
   size_t lines;
+  /* Where the alt text of the image being rendered starts in the HTML. */
   bufsize_t image_alt;
+  /* The source's last line has no line break. */
   int unterminated_line;
+  /* nupp_markdown_render has been called. */
   int used;
 };
 
@@ -63,22 +135,38 @@ struct nupp_markdown {
  * private copy of upstream cmark; no guest callback or scheduler runs here. */
 static nupp_markdown *active;
 
+/* Abandons the render: returns to nupp_markdown_render's setjmp. */
+static void fail (void) {
+  longjmp(active->failure, 1);
+}
+
+/* Charges work that allocates nothing, such as a literal search, to the
+ * budget. */
+static void charge (size_t bytes) {
+  if (bytes > active->remaining) {
+    fail();
+  }
+
+  active->remaining -= bytes;
+}
+
+/* cmark's calloc: zeroed, tracked and charged with its header. */
 static void *allocate (size_t count, size_t width) {
   if (width && count > SIZE_MAX / width) {
-    longjmp(active->failure, 1);
+    fail();
   }
 
   size_t bytes = count * width;
 
   if (bytes > SIZE_MAX - sizeof(allocation) ||
       bytes + sizeof(allocation) > active->remaining) {
-    longjmp(active->failure, 1);
+    fail();
   }
 
   allocation *item = calloc(1, sizeof(allocation) + bytes);
 
   if (!item) {
-    longjmp(active->failure, 1);
+    fail();
   }
 
   active->remaining -= sizeof(allocation) + bytes;
@@ -95,6 +183,8 @@ static void *allocate (size_t count, size_t width) {
   return item + 1;
 }
 
+/* cmark's free. What it frees is not credited back, so the budget caps the
+ * total allocated rather than the most held at once. */
 static void release (void *ptr) {
   if (!ptr) {
     return;
@@ -116,6 +206,7 @@ static void release (void *ptr) {
   free(item);
 }
 
+/* cmark's realloc, as a fresh allocation and a copy. */
 static void *resize (void *ptr, size_t bytes) {
   void *result = allocate(1, bytes);
 
@@ -130,6 +221,7 @@ static void *resize (void *ptr, size_t bytes) {
 
 static cmark_mem memory = {allocate, resize, release};
 
+/* Whether needle occurs in haystack. Unlike strstr, either may hold NUL. */
 static int contains (const char *haystack, size_t bytes, const char *needle,
                      size_t length) {
   if (length > bytes) {
@@ -145,6 +237,7 @@ static int contains (const char *haystack, size_t bytes, const char *needle,
   return 0;
 }
 
+/* A new custom node that renders as enter, its children, then leave. */
 static cmark_node *tag (cmark_node_type type, const char *enter,
                         const char *leave) {
   cmark_node *node = cmark_node_new_with_mem(type, &memory);
@@ -154,8 +247,47 @@ static cmark_node *tag (cmark_node_type type, const char *enter,
   return node;
 }
 
+/* The tag that opens a table cell, with its column's alignment, which the
+ * table extension records as 'l', 'r', 'c' or none. */
+static const char *cell_open (int header, uint8_t alignment) {
+  const char *open = header ? "<th>" : "<td>";
+
+  if (alignment == 'l') {
+    open = header ? "<th style=\"text-align: left\">"
+                  : "<td style=\"text-align: left\">";
+  }
+
+  if (alignment == 'r') {
+    open = header ? "<th style=\"text-align: right\">"
+                  : "<td style=\"text-align: right\">";
+  }
+
+  if (alignment == 'c') {
+    open = header ? "<th style=\"text-align: center\">"
+                  : "<td style=\"text-align: center\">";
+  }
+
+  return open;
+}
+
 /* Preserve the old table HTML bytes using public AST accessors. The upstream
- * table parser and inline renderer still own all Markdown interpretation. */
+ * table parser and inline renderer still own all Markdown interpretation.
+ * Each table is replaced by custom nodes that write its tags around the
+ * cells' own inlines, so that
+ *
+ *   | a |
+ *   |---|
+ *   | 1 |
+ *
+ * renders as
+ *
+ *   <table><thead><tr><th>a</th></tr></thead><tbody>
+ *   <tr><td>1</td></tr>
+ *   </tbody></table>
+ *
+ * The replacement is a block, except in a tight list item, where it is a
+ * paragraph, which the item writes without <p>, and in a custom inline, such
+ * as a definition, where it is inline too. */
 static void table_html (cmark_node *root) {
   cmark_iter *iter = cmark_iter_new(root);
   cmark_event_type event;
@@ -189,6 +321,7 @@ static void table_html (cmark_node *root) {
     for (cmark_node *row = cmark_node_first_child(table); row;
          row = cmark_node_next(row)) {
       int header = cmark_gfm_extensions_get_table_row_is_header(row);
+      /* The first row after the header opens the body. */
       int body = !header && cmark_gfm_extensions_get_table_row_is_header(
                                 cmark_node_previous(row));
       cmark_node *tr =
@@ -202,25 +335,9 @@ static void table_html (cmark_node *root) {
 
       for (cmark_node *cell = cmark_node_first_child(row); cell;
            cell = cmark_node_next(cell), column++) {
-        const char *open = header ? "<th>" : "<td>";
-
-        if (alignment[column] == 'l') {
-          open = header ? "<th style=\"text-align: left\">"
-                        : "<td style=\"text-align: left\">";
-        }
-
-        if (alignment[column] == 'r') {
-          open = header ? "<th style=\"text-align: right\">"
-                        : "<td style=\"text-align: right\">";
-        }
-
-        if (alignment[column] == 'c') {
-          open = header ? "<th style=\"text-align: center\">"
-                        : "<td style=\"text-align: center\">";
-        }
-
         cmark_node *td =
-            tag(CMARK_NODE_CUSTOM_INLINE, open, header ? "</th>" : "</td>");
+            tag(CMARK_NODE_CUSTOM_INLINE, cell_open(header, alignment[column]),
+                header ? "</th>" : "</td>");
         cmark_node_append_child(tr, td);
 
         while (cmark_node_first_child(cell)) {
@@ -230,7 +347,7 @@ static void table_html (cmark_node *root) {
     }
 
     if (!cmark_node_insert_before(table, block)) {
-      longjmp(active->failure, 1);
+      fail();
     }
 
     cmark_node_free(table);
@@ -240,6 +357,10 @@ static void table_html (cmark_node *root) {
   cmark_iter_free(iter);
 }
 
+/* Writes text as the old renderer escaped it. Upstream's escaping escapes
+ * double quotes and leaves single quotes alone. The old renderer wrote
+ * double quotes bare in text, and in an attribute, where upstream escapes
+ * them, also escaped single quotes as &#39;. */
 static void escape_text (cmark_strbuf *html, const char *text, size_t size,
                          int attribute) {
   char byte = attribute ? '\'' : '"';
@@ -259,6 +380,8 @@ static void escape_text (cmark_strbuf *html, const char *text, size_t size,
   }
 }
 
+/* Writes a link destination as upstream does, except that `^` stays bare,
+ * as the old renderer left it. */
 static void escape_url (cmark_strbuf *html, const char *text) {
   for (const char *caret; (caret = strchr(text, '^')); text = caret + 1) {
     houdini_escape_href(html, (const unsigned char *)text,
@@ -270,6 +393,8 @@ static void escape_url (cmark_strbuf *html, const char *text) {
                       (bufsize_t)strlen(text));
 }
 
+/* Escapes the single quotes in the image alt text upstream has just written,
+ * from active->image_alt on, as &#39;. */
 static void image_alt_quotes (cmark_strbuf *html) {
   bufsize_t start = active->image_alt, size = html->size - start;
 
@@ -297,6 +422,10 @@ static void image_alt_quotes (cmark_strbuf *html) {
   release(alt);
 }
 
+/* Writes a link as <a href="..." title="...">...</a>, or an image as
+ * <img src="..." alt="..." title="..." />, with a title only when there is
+ * one. An image's alt text is its content, which upstream writes as plain
+ * text between the two events. */
 static void link_html (cmark_html_renderer *renderer, cmark_node *node,
                        cmark_event_type event) {
   cmark_strbuf *html = renderer->html;
@@ -333,12 +462,16 @@ static void link_html (cmark_html_renderer *renderer, cmark_node *node,
   cmark_strbuf_puts(html, image ? "\" />" : "\">");
 }
 
+/* Starts a new line unless the HTML is empty or already at one. */
 static void newline (cmark_strbuf *html) {
   if (html->size && html->ptr[html->size - 1] != '\n') {
     cmark_strbuf_putc(html, '\n');
   }
 }
 
+/* Writes inline code as <code>...</code>, or a code block as
+ * <pre><code class="language-...">...</code></pre> on a line of its own, the
+ * class naming the first word of its fence info when there is one. */
 static void code_html (cmark_strbuf *html, cmark_node *node, int block) {
   if (block) {
     newline(html);
@@ -363,8 +496,10 @@ static void code_html (cmark_strbuf *html, cmark_node *node, int block) {
   cmark_strbuf_puts(html, block ? "</code></pre>\n" : "</code>");
 }
 
-/* Upstream adds line breaks around raw HTML blocks. The prior renderer
- * emits only the block's source line breaks, including inside containers. */
+/* The HTML renderer of the compatibility extension, which prepare_tree gives
+ * every node the old renderer wrote differently. Upstream adds line breaks
+ * around raw HTML blocks. The prior renderer emits only the block's source
+ * line breaks, including inside containers. */
 static void compatible_html (cmark_syntax_extension *ext,
                              cmark_html_renderer *renderer, cmark_node *node,
                              cmark_event_type event, int options) {
@@ -403,6 +538,7 @@ static void compatible_html (cmark_syntax_extension *ext,
     return;
   }
 
+  /* What is left is a raw HTML block. */
   if (event != CMARK_EVENT_ENTER) {
     return;
   }
@@ -416,6 +552,8 @@ static void compatible_html (cmark_syntax_extension *ext,
   const char *literal = cmark_node_get_literal(node);
   size_t size = strlen(literal);
 
+  /* Upstream ends the block with a line break even where it ends the source
+   * on a line without one; the old renderer did not add it. */
   if (active->unterminated_line && size && literal[size - 1] == '\n') {
     size_t line = (size_t)cmark_node_get_start_line(node);
 
@@ -433,10 +571,10 @@ static void compatible_html (cmark_syntax_extension *ext,
   cmark_strbuf_put(html, (const unsigned char *)literal, (bufsize_t)size);
 }
 
-/* Pinned cmark stores each inline HTML literal as a view of the block's
- * normalized text. Cmark's source line can omit newlines in link destinations.
- * Use the view's exact byte position before get_literal converts it to a
- * string. */
+/* The source line an inline HTML literal starts on. Pinned cmark stores each
+ * inline HTML literal as a view of the block's normalized text. Cmark's
+ * source line can omit newlines in link destinations. Use the view's exact
+ * byte position before get_literal converts it to a string. */
 static size_t inline_html_line (cmark_node *node) {
   const cmark_chunk *literal = &node->as.literal;
   uintptr_t address = (uintptr_t)literal->data;
@@ -453,12 +591,7 @@ static size_t inline_html_line (cmark_node *node) {
     size_t offset = (size_t)(address - base);
     size_t line = (size_t)owner->start_line;
     size_t scan = owner->type == CMARK_NODE_PARAGRAPH ? size : offset;
-
-    if (scan > active->remaining) {
-      longjmp(active->failure, 1);
-    }
-
-    active->remaining -= scan;
+    charge(scan);
     size_t before = 0, after = 0;
 
     for (size_t at = 0; at < scan; at++) {
@@ -487,9 +620,91 @@ static size_t inline_html_line (cmark_node *node) {
   return (size_t)cmark_node_get_start_line(node);
 }
 
-static void compatible_text (cmark_node *root, cmark_syntax_extension *raw,
-                             const char *token, size_t marker,
-                             const char *plain, size_t base) {
+/* Whether the old renderer wrote node differently from upstream, so that the
+ * compatibility extension should render it: links, images, code, raw HTML
+ * blocks, text holding a double quote, and block quotes that end in raw
+ * HTML. */
+static int is_compatible (cmark_node *node, cmark_node_type type) {
+  return type == CMARK_NODE_HTML_BLOCK || type == CMARK_NODE_LINK ||
+         type == CMARK_NODE_IMAGE || type == CMARK_NODE_CODE ||
+         type == CMARK_NODE_CODE_BLOCK ||
+         (type == CMARK_NODE_TEXT &&
+          strchr(cmark_node_get_literal(node), '"')) ||
+         (type == CMARK_NODE_BLOCK_QUOTE &&
+          cmark_node_get_type(cmark_node_last_child(node)) ==
+              CMARK_NODE_HTML_BLOCK);
+}
+
+/* Gives a multi-line inline HTML literal back the line endings its source
+ * lines had, which cmark normalized to LF. */
+static void restore_line_endings (cmark_node *node) {
+  size_t line = inline_html_line(node);
+  const char *literal = cmark_node_get_literal(node);
+  size_t size = strlen(literal), to = 0;
+  /* Room for every byte to become two, as LF becomes CRLF. */
+  char *copy = allocate(size + 1, 2);
+
+  for (size_t at = 0; at < size; at++) {
+    if (literal[at] == '\n') {
+      unsigned char ending =
+          line < active->lines ? active->line_endings[line] : LF;
+
+      if (ending != LF) {
+        copy[to++] = '\r';
+      }
+
+      if (ending != CR) {
+        copy[to++] = '\n';
+      }
+
+      line++;
+    }
+    else {
+      copy[to++] = literal[at];
+    }
+  }
+
+  copy[to] = 0;
+  cmark_node_set_literal(node, copy);
+  release(copy);
+}
+
+/* Replaces each transport token in a code block's fence info with the plain
+ * marker. The token holds a space, which would end the info's first word,
+ * the language code_html writes. */
+static void restore_fence_info (cmark_node *node, const char *token,
+                                size_t marker, const char *plain, size_t base) {
+  const char *info = cmark_node_get_fence_info(node);
+
+  if (!info || !contains(info, strlen(info), token, marker)) {
+    return;
+  }
+
+  size_t size = strlen(info), from = 0, to = 0;
+  char *copy = allocate(1, size + 1);
+
+  while (from < size) {
+    if (marker <= size - from && !memcmp(info + from, token, marker)) {
+      memcpy(copy + to, plain, base);
+      to += base;
+      from += marker;
+    }
+    else {
+      copy[to++] = info[from++];
+    }
+  }
+
+  copy[to] = 0;
+  cmark_node_set_fence_info(node, copy);
+  release(copy);
+}
+
+/* Readies a parsed tree for rendering: gives the nodes the old renderer
+ * wrote differently to the compatibility extension, restores inline HTML's
+ * line endings and, while transporting bytes, fence info holding a token. */
+static void prepare_tree (cmark_node *root, cmark_syntax_extension *compatible,
+                          const char *token, size_t marker, const char *plain,
+                          size_t base) {
   cmark_iter *iter = cmark_iter_new(root);
   cmark_event_type event;
 
@@ -501,80 +716,104 @@ static void compatible_text (cmark_node *root, cmark_syntax_extension *raw,
       continue;
     }
 
-    if (type == CMARK_NODE_HTML_BLOCK || type == CMARK_NODE_LINK ||
-        type == CMARK_NODE_IMAGE || type == CMARK_NODE_CODE ||
-        type == CMARK_NODE_CODE_BLOCK ||
-        (type == CMARK_NODE_TEXT &&
-         strchr(cmark_node_get_literal(node), '"')) ||
-        (type == CMARK_NODE_BLOCK_QUOTE &&
-         cmark_node_get_type(cmark_node_last_child(node)) ==
-             CMARK_NODE_HTML_BLOCK)) {
-      cmark_node_set_syntax_extension(node, raw);
+    if (is_compatible(node, type)) {
+      cmark_node_set_syntax_extension(node, compatible);
     }
 
     if (type == CMARK_NODE_HTML_INLINE &&
         memchr(node->as.literal.data, '\n', (size_t)node->as.literal.len)) {
-      size_t line = inline_html_line(node);
-      const char *literal = cmark_node_get_literal(node);
-      size_t size = strlen(literal), to = 0;
-      char *copy = allocate(size + 1, 2);
-
-      for (size_t at = 0; at < size; at++) {
-        if (literal[at] == '\n') {
-          unsigned char ending =
-              line < active->lines ? active->line_endings[line] : 0;
-
-          if (ending) {
-            copy[to++] = '\r';
-          }
-
-          if (ending != 1) {
-            copy[to++] = '\n';
-          }
-
-          line++;
-        }
-        else {
-          copy[to++] = literal[at];
-        }
-      }
-
-      copy[to] = 0;
-      cmark_node_set_literal(node, copy);
-      release(copy);
+      restore_line_endings(node);
     }
 
     if (token && type == CMARK_NODE_CODE_BLOCK) {
-      const char *info = cmark_node_get_fence_info(node);
-
-      if (info && contains(info, strlen(info), token, marker)) {
-        size_t size = strlen(info), from = 0, to = 0;
-        char *copy = allocate(1, size + 1);
-
-        while (from < size) {
-          if (marker <= size - from && !memcmp(info + from, token, marker)) {
-            memcpy(copy + to, plain, base);
-            to += base;
-            from += marker;
-          }
-          else {
-            copy[to++] = info[from++];
-          }
-        }
-
-        copy[to] = 0;
-        cmark_node_set_fence_info(node, copy);
-        release(copy);
-      }
+      restore_fence_info(node, token, marker, plain, base);
     }
   }
 
   cmark_iter_free(iter);
 }
 
+/* Flags the bytes of a multi-line raw HTML literal that input does not hold
+ * whole. Container prefixes were removed by upstream. Match each literal
+ * fragment only on its upstream source line. */
+static void find_html_lines (const char *input, size_t bytes, cmark_node *node,
+                             const char *literal, unsigned char *html) {
+  const char *row = input;
+
+  for (int line = 1; line < cmark_node_get_start_line(node) && *row; line++) {
+    const char *end = strchr(row, '\n');
+    row = end ? end + 1 : input + bytes;
+  }
+
+  for (const char *part = literal; *part && *row;) {
+    const char *next = strchr(part, '\n'), *end = strchr(row, '\n');
+    size_t count = next ? (size_t)(next - part) : strlen(part);
+
+    if (!end) {
+      end = input + bytes;
+    }
+
+    for (const char *at = row; count && count <= (size_t)(end - at); at++) {
+      if (!memcmp(at, part, count)) {
+        memset(html + (at - input), IN_RAW_HTML, count);
+      }
+    }
+
+    if (!next || !*end) {
+      break;
+    }
+
+    part = next + 1;
+    row = end + 1;
+  }
+}
+
+/* Flags in html each byte of input that raw HTML holding the plain marker
+ * covers, so that transport_bytes keeps the plain marker there. */
+static void find_raw_html (cmark_node *root, const char *input, size_t bytes,
+                           const char *plain, unsigned char *html) {
+  cmark_iter *iter = cmark_iter_new(root);
+  cmark_event_type event;
+
+  while ((event = cmark_iter_next(iter)) != CMARK_EVENT_DONE) {
+    cmark_node *node = cmark_iter_get_node(iter);
+    cmark_node_type type = cmark_node_get_type(node);
+
+    if (event != CMARK_EVENT_ENTER ||
+        (type != CMARK_NODE_HTML_INLINE && type != CMARK_NODE_HTML_BLOCK)) {
+      continue;
+    }
+
+    const char *literal = cmark_node_get_literal(node);
+
+    if (!strstr(literal, plain)) {
+      continue;
+    }
+
+    /* The upstream AST, not a tag scanner, identifies raw HTML. Charge
+     * literal searches to the same finite native resource budget. */
+    charge(bytes);
+    size_t length = strlen(literal);
+    const char *found = strstr(input, literal);
+
+    for (const char *at = found; at; at = strstr(at + length, literal)) {
+      memset(html + (at - input), IN_RAW_HTML, length);
+    }
+
+    if (!found && strchr(literal, '\n')) {
+      find_html_lines(input, bytes, node, literal, html);
+    }
+  }
+
+  cmark_iter_free(iter);
+}
+
+/* Parses input and renders it as HTML. While transporting bytes, plain and
+ * token are its markers (see transport_bytes), and a non-NULL html asks for
+ * the bytes raw HTML holds to be flagged in it. */
 static char *render (const char *input, size_t bytes,
                      cmark_syntax_extension *definition,
-                     cmark_syntax_extension *raw, const char *token,
+                     cmark_syntax_extension *compatible, const char *token,
                      size_t marker, const char *plain, size_t base,
                      unsigned char *html) {
   cmark_parser *parser = cmark_parser_new_with_mem(
@@ -586,78 +825,10 @@ static char *render (const char *input, size_t bytes,
   cmark_node *root = cmark_parser_finish(parser);
 
   if (html) {
-    cmark_iter *iter = cmark_iter_new(root);
-    cmark_event_type event;
-
-    while ((event = cmark_iter_next(iter)) != CMARK_EVENT_DONE) {
-      cmark_node *node = cmark_iter_get_node(iter);
-      cmark_node_type type = cmark_node_get_type(node);
-
-      if (event != CMARK_EVENT_ENTER ||
-          (type != CMARK_NODE_HTML_INLINE && type != CMARK_NODE_HTML_BLOCK)) {
-        continue;
-      }
-
-      const char *literal = cmark_node_get_literal(node);
-
-      if (!strstr(literal, plain)) {
-        continue;
-      }
-
-      /* The upstream AST, not a tag scanner, identifies raw HTML. Charge
-       * literal searches to the same finite native resource budget. */
-      if (bytes > active->remaining) {
-        longjmp(active->failure, 1);
-      }
-
-      active->remaining -= bytes;
-      size_t length = strlen(literal);
-      const char *found = strstr(input, literal);
-
-      for (const char *at = found; at; at = strstr(at + length, literal)) {
-        memset(html + (at - input), 1, length);
-      }
-
-      if (!found && strchr(literal, '\n')) {
-        /* Container prefixes were removed by upstream. Match each
-         * literal fragment only on its upstream source line. */
-        const char *row = input;
-
-        for (int line = 1; line < cmark_node_get_start_line(node) && *row;
-             line++) {
-          const char *end = strchr(row, '\n');
-          row = end ? end + 1 : input + bytes;
-        }
-
-        for (const char *part = literal; *part && *row;) {
-          const char *next = strchr(part, '\n'), *end = strchr(row, '\n');
-          size_t count = next ? (size_t)(next - part) : strlen(part);
-
-          if (!end) {
-            end = input + bytes;
-          }
-
-          for (const char *at = row; count && count <= (size_t)(end - at);
-               at++) {
-            if (!memcmp(at, part, count)) {
-              memset(html + (at - input), 1, count);
-            }
-          }
-
-          if (!next || !*end) {
-            break;
-          }
-
-          part = next + 1;
-          row = end + 1;
-        }
-      }
-    }
-
-    cmark_iter_free(iter);
+    find_raw_html(root, input, bytes, plain, html);
   }
 
-  compatible_text(root, raw, token, marker, plain, base);
+  prepare_tree(root, compatible, token, marker, plain, base);
   table_html(root);
   char *result = cmark_render_html(
       root, CMARK_OPT_UNSAFE | CMARK_OPT_TABLE_PREFER_STYLE_ATTRIBUTES,
@@ -668,6 +839,281 @@ static char *render (const char *input, size_t bytes,
   return result;
 }
 
+/* Records how each source line ends, for restore_line_endings, and whether
+ * the last one ends at all, for compatible_html. */
+static void scan_lines (nupp_markdown *doc, const char *source, size_t bytes) {
+  doc->unterminated_line =
+      bytes && source[bytes - 1] != '\n' && source[bytes - 1] != '\r';
+  /* Line numbers start at 1 and the last line follows the last break, so
+   * the table has two entries more than the source has breaks. */
+  doc->lines = 2;
+
+  for (size_t at = 0; at < bytes; at++) {
+    if (source[at] == '\n' || source[at] == '\r') {
+      doc->lines++;
+
+      if (source[at] == '\r' && at + 1 < bytes && source[at + 1] == '\n') {
+        at++;
+      }
+    }
+  }
+
+  doc->line_endings = allocate(doc->lines, 1);
+  size_t line = 1;
+
+  for (size_t at = 0; at < bytes; at++) {
+    if (source[at] == '\r') {
+      doc->line_endings[line] = CR;
+
+      if (at + 1 < bytes && source[at + 1] == '\n') {
+        doc->line_endings[line] = CRLF;
+        at++;
+      }
+
+      line++;
+    }
+    else if (source[at] == '\n') {
+      line++;
+    }
+  }
+}
+
+/* Lossless byte transport, not Markdown preprocessing. cmark consumes NUL and
+ * an initial BOM before public hooks run, so they travel through it as
+ * markers made of RUN_BYTE and MIDDLE_BYTE, n being longer than any run of
+ * RUN_BYTE in the source or in its first rendering:
+ *
+ *   plain  n RUN_BYTE, MIDDLE_BYTE, MIDDLE_BYTE, n RUN_BYTE
+ *   token  n RUN_BYTE, MIDDLE_BYTE, ' ', MIDDLE_BYTE, n RUN_BYTE
+ *
+ * A NUL becomes the token, whose space keeps it from becoming a bare link
+ * destination, except in raw HTML, which keeps the plain marker; a rendering
+ * with every NUL as plain finds where raw HTML is. A BOM stays as text behind
+ * a plain marker, which shields it from cmark and is then dropped. In a link
+ * destination upstream percent-encodes the token as its url, n ESCAPED_ONE,
+ * ESCAPED_MIDDLE, n ESCAPED_ONE, which becomes ESCAPED_NUL, and n doubles
+ * until that url is absent from the source and the first rendering too. The
+ * markers are restored by explicit size, since the HTML then holds NUL. */
+typedef struct {
+  /* n, the length of each run of RUN_BYTE. */
+  size_t ones;
+  /* The plain marker, the token and the token's url. */
+  char *plain, *token, *url;
+  /* Their lengths. */
+  size_t base, marker, url_size;
+} markers;
+
+/* The least n longer than every run of RUN_BYTE in the source and in the
+ * NUL-terminated first rendering. */
+static size_t run_length (const char *source, size_t bytes, const char *html) {
+  size_t ones = 1, run = 0;
+
+  for (size_t i = 0; i < bytes; i++) {
+    run = source[i] == RUN_BYTE ? run + 1 : 0;
+
+    if (run >= ones) {
+      ones = run + 1;
+    }
+  }
+
+  run = 0;
+
+  for (const char *p = html; *p; p++) {
+    run = *p == RUN_BYTE ? run + 1 : 0;
+
+    if (run >= ones) {
+      ones = run + 1;
+    }
+  }
+
+  return ones;
+}
+
+/* Spells the token's url for m->ones, doubling it until the url occurs in
+ * neither the source nor the first rendering. */
+static void choose_url (markers *m, const char *source, size_t bytes,
+                        const char *html) {
+  for (;;) {
+    size_t ones = m->ones;
+    m->url_size = ones * (2 * ESCAPE_BYTES) + ESCAPED_MIDDLE_BYTES;
+    m->url = allocate(1, m->url_size + 1);
+
+    for (size_t i = 0; i < ones; i++) {
+      memcpy(m->url + i * ESCAPE_BYTES, ESCAPED_ONE, ESCAPE_BYTES);
+    }
+
+    memcpy(m->url + ones * ESCAPE_BYTES, ESCAPED_MIDDLE, ESCAPED_MIDDLE_BYTES);
+
+    for (size_t i = 0; i < ones; i++) {
+      memcpy(m->url + ones * ESCAPE_BYTES + ESCAPED_MIDDLE_BYTES +
+                 i * ESCAPE_BYTES,
+             ESCAPED_ONE, ESCAPE_BYTES);
+    }
+
+    if (!contains(source, bytes, m->url, m->url_size) &&
+        !strstr(html, m->url)) {
+      return;
+    }
+
+    release(m->url);
+    m->ones *= 2;
+  }
+}
+
+/* Builds the plain marker and the token for m->ones. */
+static void make_markers (markers *m) {
+  size_t ones = m->ones;
+  m->base = ones * 2 + 2;
+  m->marker = m->base + 1;
+  m->plain = allocate(1, m->base + 1);
+  m->token = allocate(1, m->marker + 1);
+  memset(m->plain, RUN_BYTE, m->base);
+  m->plain[ones] = m->plain[ones + 1] = MIDDLE_BYTE;
+  memset(m->token, RUN_BYTE, m->marker);
+  m->token[ones] = m->token[ones + 2] = MIDDLE_BYTE;
+  m->token[ones + 1] = ' ';
+}
+
+/* The source with every NUL as the plain marker, its line breaks as LF, and
+ * a plain marker in front of a BOM. Its length is left in size. */
+static char *substitute (const markers *m, const char *source, size_t bytes,
+                         size_t zeros, int bom, size_t *size) {
+  char *candidate =
+      allocate(1, bytes + zeros * (m->base - 1) + (bom ? m->base : 0) + 1);
+  size_t length = 0;
+
+  if (bom) {
+    memcpy(candidate, m->plain, m->base);
+    length += m->base;
+  }
+
+  for (size_t at = 0; at < bytes; at++) {
+    if (source[at] == 0) {
+      memcpy(candidate + length, m->plain, m->base);
+      length += m->base;
+    }
+    else if (source[at] == '\r') {
+      candidate[length++] = '\n';
+
+      if (at + 1 < bytes && source[at + 1] == '\n') {
+        at++;
+      }
+    }
+    else {
+      candidate[length++] = source[at];
+    }
+  }
+
+  *size = length;
+
+  return candidate;
+}
+
+/* The candidate again, with the token in place of each plain marker outside
+ * the raw HTML that html flags, the BOM's shield aside. Its length is left in
+ * encoded_size. */
+static char *encode (const markers *m, const char *candidate, size_t size,
+                     const unsigned char *html, size_t bytes, size_t zeros,
+                     int bom, size_t *encoded_size) {
+  char *encoded =
+      allocate(1, bytes + zeros * (m->marker - 1) + (bom ? m->base : 0) + 1);
+  size_t length = 0;
+
+  for (size_t at = 0; at < size;) {
+    if (m->base <= size - at && !memcmp(candidate + at, m->plain, m->base)) {
+      int keep_plain = html[at] || (bom && at == 0);
+      size_t width = keep_plain ? m->base : m->marker;
+      memcpy(encoded + length, keep_plain ? m->plain : m->token, width);
+      length += width;
+      at += m->base;
+    }
+    else {
+      encoded[length++] = candidate[at++];
+    }
+  }
+
+  *encoded_size = length;
+
+  return encoded;
+}
+
+/* Turns the markers in the rendered HTML back into the bytes they carried,
+ * in place, and records its length. */
+static void restore (nupp_markdown *doc, const markers *m, int bom) {
+  size_t from = 0, to = 0, length = strlen(doc->text);
+
+  while (from < length) {
+    if (m->marker <= length - from &&
+        !memcmp(doc->text + from, m->token, m->marker)) {
+      doc->text[to++] = 0;
+      from += m->marker;
+    }
+    else if (m->base <= length - from &&
+             !memcmp(doc->text + from, m->plain, m->base)) {
+      /* The first plain marker is the BOM's shield. */
+      if (bom) {
+        bom = 0;
+      }
+      else {
+        doc->text[to++] = 0;
+      }
+
+      from += m->base;
+    }
+    else if (m->url_size <= length - from &&
+             !memcmp(doc->text + from, m->url, m->url_size)) {
+      memcpy(doc->text + to, ESCAPED_NUL, ESCAPE_BYTES);
+      to += ESCAPE_BYTES;
+      from += m->url_size;
+    }
+    else {
+      doc->text[to++] = doc->text[from++];
+    }
+  }
+
+  doc->text[to] = 0;
+  doc->size = to;
+}
+
+/* Renders the source again with its NUL bytes and BOM transported, replacing
+ * the first rendering, doc->text. */
+static void transport_bytes (nupp_markdown *doc, const char *source,
+                             size_t bytes, int bom,
+                             cmark_syntax_extension *definition,
+                             cmark_syntax_extension *compatible) {
+  markers m;
+  m.ones = run_length(source, bytes, doc->text);
+  choose_url(&m, source, bytes, doc->text);
+  make_markers(&m);
+  size_t zeros = 0;
+
+  for (size_t at = 0; at < bytes; at++) {
+    if (source[at] == 0) {
+      zeros++;
+    }
+  }
+
+  size_t size, encoded_size;
+  char *candidate = substitute(&m, source, bytes, zeros, bom, &size);
+  unsigned char *html = allocate(size + 1, 1);
+  char *probe = render(candidate, size, definition, compatible, NULL, 0,
+                       m.plain, m.base, html);
+  release(probe);
+  char *encoded =
+      encode(&m, candidate, size, html, bytes, zeros, bom, &encoded_size);
+  release(candidate);
+  release(html);
+  release(doc->text);
+  doc->text = render(encoded, encoded_size, definition, compatible, m.token,
+                     m.marker, m.plain, m.base, NULL);
+  release(encoded);
+  restore(doc, &m, bom);
+  release(m.token);
+  release(m.plain);
+  release(m.url);
+}
+
+/* Frees every allocation the document holds, its HTML among them. */
 static void clear (nupp_markdown *doc) {
   while (doc->allocations) {
     allocation *next = doc->allocations->h.next;
@@ -680,7 +1126,7 @@ static void clear (nupp_markdown *doc) {
 }
 
 const char *nupp_markdown_revision (void) {
-  return "27d942c8b0a62d192f616e5bf3578f4b6a89e180/definition-list-1";
+  return REVISION;
 }
 
 nupp_markdown *nupp_markdown_new (void) {
@@ -690,13 +1136,13 @@ nupp_markdown *nupp_markdown_new (void) {
 int nupp_markdown_render (nupp_markdown *doc, const char *input, size_t bytes,
                           size_t budget) {
   if (!doc || doc->used || (!input && bytes)) {
-    return -3;
+    return MISUSE;
   }
 
   doc->used = 1;
 
-  if (bytes > 8 * 1024 * 1024 || budget > 256 * 1024 * 1024) {
-    return -2;
+  if (bytes > MAX_INPUT_BYTES || budget > MAX_BUDGET_BYTES) {
+    return TOO_LARGE;
   }
 
   LOCK();
@@ -704,215 +1150,33 @@ int nupp_markdown_render (nupp_markdown *doc, const char *input, size_t bytes,
   doc->remaining = budget;
   cmark_gfm_core_extensions_ensure_registered();
   cmark_syntax_extension *definition = nupp_definition_list_new(&memory);
-  cmark_syntax_extension *raw =
+  cmark_syntax_extension *compatible =
       cmark_syntax_extension_new("nupp_compatible_html");
-  cmark_syntax_extension_set_html_render_func(raw, compatible_html);
-  int status = -1;
+  cmark_syntax_extension_set_html_render_func(compatible, compatible_html);
+  int status = NO_RESOURCES;
 
   if (!setjmp(doc->failure)) {
     const char *source = input ? input : "";
-    doc->unterminated_line =
-        bytes && source[bytes - 1] != '\n' && source[bytes - 1] != '\r';
-    doc->lines = 2;
-
-    for (size_t at = 0; at < bytes; at++) {
-      if (source[at] == '\n' || source[at] == '\r') {
-        doc->lines++;
-
-        if (source[at] == '\r' && at + 1 < bytes && source[at + 1] == '\n') {
-          at++;
-        }
-      }
-    }
-
-    doc->line_endings = allocate(doc->lines, 1);
-    size_t line = 1;
-
-    for (size_t at = 0; at < bytes; at++) {
-      if (source[at] == '\r') {
-        doc->line_endings[line] = 1;
-
-        if (at + 1 < bytes && source[at + 1] == '\n') {
-          doc->line_endings[line] = 2;
-          at++;
-        }
-
-        line++;
-      }
-      else if (source[at] == '\n') {
-        line++;
-      }
-    }
-
-    doc->text = render(source, bytes, definition, raw, NULL, 0, NULL, 0, NULL);
-    int bom = bytes >= 3 && !memcmp(source, "\xef\xbb\xbf", 3);
+    scan_lines(doc, source, bytes);
+    doc->text =
+        render(source, bytes, definition, compatible, NULL, 0, NULL, 0, NULL);
+    int bom =
+        bytes >= UTF8_BOM_BYTES && !memcmp(source, UTF8_BOM, UTF8_BOM_BYTES);
 
     if (memchr(source, 0, bytes) || bom) {
-      /* Lossless byte transport, not Markdown preprocessing. cmark
-       * consumes NUL and an initial BOM before public hooks run. Pick
-       * a control sequence absent in source AND ordinary rendered HTML
-       * (including entity-decoded text), then restore by explicit size. */
-      size_t ones = 1, run = 0;
-
-      for (size_t i = 0; i < bytes; i++) {
-        run = source[i] == 1 ? run + 1 : 0;
-
-        if (run >= ones) {
-          ones = run + 1;
-        }
-      }
-
-      run = 0;
-
-      for (const char *p = doc->text; *p; p++) {
-        run = *p == 1 ? run + 1 : 0;
-
-        if (run >= ones) {
-          ones = run + 1;
-        }
-      }
-
-      char *url;
-      size_t url_size;
-
-      for (;;) {
-        url_size = ones * 6 + 9;
-        url = allocate(1, url_size + 1);
-
-        for (size_t i = 0; i < ones; i++) {
-          memcpy(url + i * 3, "%01", 3);
-        }
-
-        memcpy(url + ones * 3, "%02%20%02", 9);
-
-        for (size_t i = 0; i < ones; i++) {
-          memcpy(url + ones * 3 + 9 + i * 3, "%01", 3);
-        }
-
-        if (!contains(source, bytes, url, url_size) &&
-            !strstr(doc->text, url)) {
-          break;
-        }
-
-        release(url);
-        ones *= 2;
-      }
-
-      size_t base = ones * 2 + 2, marker = base + 1;
-      char *plain = allocate(1, base + 1), *token = allocate(1, marker + 1);
-      memset(plain, 1, base);
-      plain[ones] = plain[ones + 1] = 2;
-      memset(token, 1, marker);
-      token[ones] = token[ones + 2] = 2;
-      token[ones + 1] = ' ';
-      size_t zeros = 0;
-
-      for (size_t at = 0; at < bytes; at++) {
-        if (source[at] == 0) {
-          zeros++;
-        }
-      }
-
-      char *candidate =
-          allocate(1, bytes + zeros * (base - 1) + (bom ? base : 0) + 1);
-      size_t size = 0;
-
-      if (bom) {
-        memcpy(candidate, plain, base);
-        size += base;
-      }
-
-      for (size_t at = 0; at < bytes; at++) {
-        if (source[at] == 0) {
-          memcpy(candidate + size, plain, base);
-          size += base;
-        }
-        else if (source[at] == '\r') {
-          candidate[size++] = '\n';
-
-          if (at + 1 < bytes && source[at + 1] == '\n') {
-            at++;
-          }
-        }
-        else {
-          candidate[size++] = source[at];
-        }
-      }
-
-      unsigned char *html = allocate(size + 1, 1);
-      char *probe =
-          render(candidate, size, definition, raw, NULL, 0, plain, base, html);
-      release(probe);
-      char *encoded =
-          allocate(1, bytes + zeros * (marker - 1) + (bom ? base : 0) + 1);
-      size_t encoded_size = 0;
-
-      for (size_t at = 0; at < size;) {
-        if (base <= size - at && !memcmp(candidate + at, plain, base)) {
-          int raw = html[at] || (bom && at == 0);
-          size_t width = raw ? base : marker;
-          memcpy(encoded + encoded_size, raw ? plain : token, width);
-          encoded_size += width;
-          at += base;
-        }
-        else {
-          encoded[encoded_size++] = candidate[at++];
-        }
-      }
-
-      release(candidate);
-      release(html);
-      release(doc->text);
-      doc->text = render(encoded, encoded_size, definition, raw, token, marker,
-                         plain, base, NULL);
-      release(encoded);
-      size_t from = 0, to = 0, length = strlen(doc->text);
-
-      while (from < length) {
-        if (marker <= length - from &&
-            !memcmp(doc->text + from, token, marker)) {
-          doc->text[to++] = 0;
-          from += marker;
-        }
-        else if (base <= length - from &&
-                 !memcmp(doc->text + from, plain, base)) {
-          if (bom) {
-            bom = 0;
-          }
-          else {
-            doc->text[to++] = 0;
-          }
-
-          from += base;
-        }
-        else if (url_size <= length - from &&
-                 !memcmp(doc->text + from, url, url_size)) {
-          memcpy(doc->text + to, "%00", 3);
-          to += 3;
-          from += url_size;
-        }
-        else {
-          doc->text[to++] = doc->text[from++];
-        }
-      }
-
-      doc->text[to] = 0;
-      doc->size = to;
-      release(token);
-      release(plain);
-      release(url);
+      transport_bytes(doc, source, bytes, bom, definition, compatible);
     }
     else {
       doc->size = strlen(doc->text);
     }
 
-    status = 0;
+    status = RENDERED;
   }
   else {
     clear(doc);
   }
 
-  cmark_syntax_extension_free(cmark_get_default_mem_allocator(), raw);
+  cmark_syntax_extension_free(cmark_get_default_mem_allocator(), compatible);
   cmark_syntax_extension_free(cmark_get_default_mem_allocator(), definition);
   active = NULL;
   UNLOCK();
