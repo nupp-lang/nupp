@@ -161,14 +161,30 @@ cargo_dir() {
 # platform reliably carries a particular one.
 if command -v shasum >/dev/null 2>&1; then
     sha256_stdin() { shasum -a 256 | cut -d' ' -f1; }
+    sha256_files() { tr '\n' '\0' | xargs -0 shasum -a 256 --; }
 elif command -v sha256sum >/dev/null 2>&1; then
     sha256_stdin() { sha256sum | cut -d' ' -f1; }
+    sha256_files() { tr '\n' '\0' | xargs -0 sha256sum --; }
 elif command -v openssl >/dev/null 2>&1; then
     sha256_stdin() { openssl dgst -sha256 | sed 's/.*= *//'; }
+    sha256_files() { sha256_files_one_by_one; }
 else
     die "no sha256 tool found; install one of shasum, sha256sum or openssl"
 fi
 sha256() { sha256_stdin < "$1"; }
+sha256_files_one_by_one() {
+    while IFS= read -r file; do
+        printf '%s  %s\n' "$(sha256 "$file")" "$file"
+    done
+}
+
+# `PATH DIGEST` for each path on standard input, in the order given, from as few
+# hashing processes as the tool allows: one per file cost seconds every time a
+# runtime was asked for, and a test build asks once per case. Run from the
+# directory the paths are relative to.
+sha256_listed() {
+    sha256_files | sed 's/^\([0-9a-f]*\) [ *]\(.*\)$/\2 \1/'
+}
 
 # The pins that decide a native artifact, which is every pin but the stage-zero
 # one. That one names a Nupp release and a bundle of Lua; no C compiler ever
@@ -208,10 +224,7 @@ rust_sources_digest() {
                 -o -name 'Cargo.toml' -o -name 'build.rs' \) \
             2>/dev/null) || true
     } | LC_ALL=C sort | {
-        while IFS= read -r file; do
-            printf '%s ' "$file"
-            sha256 "$ROOT/$file"
-        done
+        (cd "$ROOT" && sha256_listed)
         printf 'scripts/toolchain.pins %s\n' "$(pins_digest)"
     } | sha256_stdin | cut -c1-16
 }
@@ -1375,6 +1388,8 @@ case "$1" in
         exit 0
         ;;
     vm-runtime)
+        # The core object and the runtime are both keyed by it.
+        RUST_SOURCES_DIGEST=$(rust_sources_digest)
         build_rust_vm_runtime "${2:-}"
         native_path "$RUST_VM_RUNTIME_OUT"
         exit 0
