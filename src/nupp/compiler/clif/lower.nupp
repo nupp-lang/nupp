@@ -2497,7 +2497,11 @@ export function compile(root: string, paths: {string}, options: any?): string
     local handlers = settings.handlers == true
     need(not handlers or settings.layouts ~= nil, "handler modules need the glue's layout file")
     trivia.installDefault(provider)
-    local env = environment.new(root, {cache = false, config = {include = settings.include or {"src"}}})
+    -- The core's own lowering binds no C library by machine path.
+    local env = environment.new(root, {
+        cache = false,
+        config = {include = settings.include or {"src"}, _standardLibraries = false}
+    })
     local modules: {[string]: Scope} = {}
     local scopes: {Scope} = {}
     local pending = {}

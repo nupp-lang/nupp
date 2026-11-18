@@ -34,6 +34,17 @@ export function filename(name: string, target: string?): string
     return "lib" .. name .. ".so"
 end
 
+--- The pinned C libraries the standard library binds by logical name, each
+--- bound when its environment variable names it. `scripts/c-library-paths`
+--- provisions them for a checkout and `bin/nupp` names them. A project's own
+--- `libraries` entry for one of these names replaces it, and the compiler's
+--- own image (`_standardLibraries = false`) binds none, so no building
+--- machine's path is part of it.
+export const STANDARD: {[string]: {
+    name: string,
+    env: string
+}} = {nuppzlib = {name = "z", env = "NUPP_ZLIB_LIBRARY"}, nuppcrc = {name = "nupp_crc", env = "NUPP_CRC_LIBRARY"},}
+
 local function regularFile(path: string): boolean
     return files.stat(path) == "file"
 end
@@ -61,7 +72,18 @@ export function resolve(root: string, config: any, options: any?): Plan
     local hostTarget = targetLayout.hostKey()
     local getenv = options.getenv or os.getenv
     local outDir = options.outDir or (config.build or {}).outDir or "build"
-    local configured = config.libraries or {}
+    local configured: {[string]: any} = {}
+    if config._standardLibraries ~= false then
+        for name, library in pairs(STANDARD) do
+            local path = getenv(library.env)
+            if path ~= nil and path ~= "" then
+                configured[name] = library
+            end
+        end
+    end
+    for name, library in pairs(config.libraries or {}) do
+        configured[name] = library
+    end
     local native = {}
     for name, dependency in pairs(config.dependencies or {}) do
         if dependency.kind == "c" or dependency.kind == "cargo" then

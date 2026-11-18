@@ -27,6 +27,11 @@ local function decode(
     outputWidth: integer
 ): boolean
     local input = malloc((#bytes + 1) as uint64)
+    -- zlib reads its input through a const pointer.
+    local source: const uint8*? = nil
+    @unsafe do
+        source = input as const uint8*
+    end
     local output = malloc((#expected + 64) as uint64)
     local consumed: integer = 0
     local written: integer = 0
@@ -49,7 +54,7 @@ local function decode(
             -- must neither retain a range nor rely on pointer arithmetic here.
             local _ = memcpy(input, bytes:sub(consumed + 1, consumed + count), count as uint64)
             local used, made, nextProgress, nextStatus = state:advance(
-                input,
+                source,
                 math.u32.wrap(count),
                 output,
                 math.u32.wrap(room),
@@ -77,6 +82,11 @@ end
 
 local function roundtrip(format: string, bytes: string, level: int32): boolean
     local input = malloc((#bytes + 1) as uint64)
+    -- zlib reads its input through a const pointer.
+    local source: const uint8*? = nil
+    @unsafe do
+        source = input as const uint8*
+    end
     local output = malloc(1ULL)
     local byte = Byte()
     local chunks: {string} = {}
@@ -87,7 +97,7 @@ local function roundtrip(format: string, bytes: string, level: int32): boolean
         for _ = 1, #bytes + 2048 do
             local _ = memcpy(input, bytes:sub(consumed + 1), (#bytes - consumed) as uint64)
             local used, made, nextProgress, status = state:advance(
-                input,
+                source,
                 math.u32.wrap(#bytes - consumed),
                 output,
                 1,

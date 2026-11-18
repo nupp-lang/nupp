@@ -2,13 +2,14 @@
 --[[Built-in Adler-32 and CRC algorithm descriptors.
 
 Each descriptor creates independent state. CRC updates borrow byte spans through
-ISA-L on native hosts without retaining them; value reads a non-consuming snapshot.
+the pinned ISA-L bundle (`nupp.runtime.core.crccodec`) without retaining them;
+value reads a non-consuming snapshot.
 ]]
 module nupp.checksum.internal.builtin
 
 const provider = require("nupp.digest.internal.checksumprovider")
 local span = require("nupp.mem.span")
-local crc = require("nupp.vm.crc")
+local crc = require("nupp.runtime.core.crccodec")
 
 local record AdlerState is provider.State
     @private high: integer
@@ -35,7 +36,7 @@ local record CrcState is provider.State
     @private snapshot: uint64
 
     function update(exclusive self, borrows bytes: span.Span<uint8>): nil
-        self.state, self.snapshot = crc.update(self.id, self.state, bytes:ref(), #bytes)
+        self.state, self.snapshot = crc.update(self.id, self.state, bytes)
     end
 
     function value(self): uint64
@@ -57,7 +58,7 @@ local record Algorithm is provider.Algorithm
         end
         const empty = ""
         local bytes = span.fromString(empty)
-        local state, snapshot = crc.update(self.id, nil, bytes:ref(), 0)
+        local state, snapshot = crc.update(self.id, nil, bytes)
 
         return CrcState(id = self.id, state = state, snapshot = snapshot)
     end

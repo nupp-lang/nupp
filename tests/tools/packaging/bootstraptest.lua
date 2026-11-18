@@ -169,6 +169,12 @@ function M.nativeCompilerResourcesCarryTheCliTestHarness()
     end
 end
 
+-- The C codecs the VM's providers bind as the core does.
+local SHARED_CORE = {
+    ["src/nupp/runtime/core/compressioncodec.nupp"] = true,
+    ["src/nupp/runtime/core/crccodec.nupp"] = true,
+}
+
 -- The runner's sources name the trees beside the native core one by one, so a
 -- tree added to src has to join them for a suite to load its modules.
 function M.theTestRunnerCarriesEverySourceButTheNativeCore()
@@ -182,7 +188,8 @@ function M.theTestRunnerCarriesEverySourceButTheNativeCore()
     for path in listing:lines() do
         if path:match("%.nupp$") and not path:match("%.d%.nupp$") then
             checked = checked + 1
-            local core = path:match("^src/nupp/runtime/core/") or path:match("^src/nupp/core/")
+            local core = (path:match("^src/nupp/runtime/core/") or path:match("^src/nupp/core/"))
+                and not SHARED_CORE[path]
             local matched = false
             for _, matches in ipairs(matchers) do
                 matched = matched or matches(path)

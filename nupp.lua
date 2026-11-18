@@ -368,6 +368,7 @@ local RESOURCES = {
         output = "nupp/compiler/nupp/digest/internal/checksumprovider.nupp"
     },
     {source = "src/nupp/checksum/internal/builtin.nupp", output = "nupp/compiler/nupp/checksum/internal/builtin.nupp"},
+    {source = "src/nupp/runtime/core/crccodec.nupp", output = "nupp/compiler/nupp/runtime/core/crccodec.nupp"},
     {
         source = "src/nupp/runtime/provider/nativecrc.nupp",
         output = "nupp/compiler/nupp/runtime/provider/nativecrc.nupp"
@@ -378,6 +379,10 @@ local RESOURCES = {
     {
         source = "src/nupp/runtime/provider/nativecompression.nupp",
         output = "nupp/compiler/nupp/runtime/provider/nativecompression.nupp"
+    },
+    {
+        source = "src/nupp/runtime/core/compressioncodec.nupp",
+        output = "nupp/compiler/nupp/runtime/core/compressioncodec.nupp"
     },
     {source = "src/nupp/util/internal/hash.nupp", output = "nupp/compiler/nupp/util/internal/hash.nupp"},
     {source = "src/nupp/util/internal/uuid.nupp", output = "nupp/compiler/nupp/util/internal/uuid.nupp"},
@@ -528,15 +533,18 @@ end
 
 -- The test runner's source set: all of src but the native core. The core's
 -- runtime (src/nupp/runtime/core) is compiled for the core, not for the VM
--- the runner is, and no suite loads its build tooling (src/nupp/core) by
--- name. A target's sources take globs but no exclusions, so the trees beside
--- the core are named one by one; bootstraptest holds the list to src.
+-- the runner is, but for the C codecs both runtimes bind, and no suite loads
+-- its build tooling (src/nupp/core) by name. A target's sources take globs but
+-- no exclusions, so the trees beside the core are named one by one;
+-- bootstraptest holds the list to src.
 local TEST_RUNNER_SOURCES = {
     "tests/tools/test/runner/main.nupp",
     "tests/tools/test/runner/job.nupp",
     "src/*.nupp",
     "src/nupp/*.nupp",
     "src/nupp/runtime/*.nupp",
+    "src/nupp/runtime/core/compressioncodec.nupp",
+    "src/nupp/runtime/core/crccodec.nupp",
 }
 for _, tree in ipairs({
     "src/bytes",

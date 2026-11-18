@@ -1,0 +1,30 @@
+#!/bin/sh
+# Print the pinned C libraries the standard library binds by logical name
+# (`nupp.compiler.project.libraries`), as the variables that name them.
+# Provisions each once per change to its pins through scripts/toolchain.
+set -eu
+ROOT=$(CDPATH= cd -- "$(dirname "$0")/.." && pwd)
+case "$(uname -s)" in
+    MINGW*|MSYS*)
+        # The VM is a GNU Windows program, and its C libraries are too.
+        target=${NUPP_NATIVE_TARGET:-x86_64-pc-windows-gnu}
+        zlib=$(NUPP_NATIVE_TARGET="$target" "$ROOT/scripts/toolchain" zlib)
+        isal=$(NUPP_NATIVE_TARGET="$target" "$ROOT/scripts/toolchain" isal)
+        # zlib's CMake names its DLL by toolchain; the artifact holds one.
+        set -- "$zlib"/bin/*z*.dll
+        [ "$#" -eq 1 ] || { echo "c-library-paths: expected one zlib DLL in $zlib/bin" >&2; exit 1; }
+        zlib=$(cygpath -m "$1")
+        crc=$(cygpath -m "$isal/bin/libnupp_crc.dll")
+        ;;
+    Darwin)
+        zlib="$("$ROOT/scripts/toolchain" zlib)/lib/libz.dylib"
+        crc="$("$ROOT/scripts/toolchain" isal)/lib/libnupp_crc.dylib"
+        ;;
+    *)
+        zlib="$("$ROOT/scripts/toolchain" zlib)/lib/libz.so"
+        crc="$("$ROOT/scripts/toolchain" isal)/lib/libnupp_crc.so"
+        ;;
+esac
+test -f "$zlib"
+test -f "$crc"
+printf 'NUPP_ZLIB_LIBRARY=%s\nNUPP_CRC_LIBRARY=%s\n' "$zlib" "$crc"

@@ -1,66 +1,220 @@
 @!internal
 --[[
-The VM's gzip, zlib, and raw DEFLATE provider for compression API 1: the same
-catalog and records as the LuaJIT provider, written over the VM's
-`nupp.vm.compression` primitives rather than the native library's C ABI. Each
-encoder and decoder owns one native stream handle, and every step reads and
-writes the spans it is given in place. Failed steps carry the stream's error in
-their reason.
+The native gzip, zlib, and raw DEFLATE provider for compression API 1, over the
+pinned zlib through the checked binding the native core uses
+(`nupp.runtime.core.compressioncodec`). Each encoder and decoder owns one zlib
+stream, and every step reads and writes the spans it is given in place, in
+bounded slices. Failed steps carry the stream's error in their reason.
 ]]
 module nupp.runtime.provider.nativecompression
 
 const contract = require("nupp.compression.contracts")
-const host = require("nupp.vm.compression")
+const codec = require("nupp.runtime.core.compressioncodec")
 const span = require("nupp.mem.span")
+const storage = require("nupp.runtime.storage")
 
-local function reason(prefix: string, problem: string?): string
-    return prefix .. ": " .. (problem or "unknown error")
+-- The most either range one zlib step is handed.
+const STEP_LIMIT = 65536
+-- Output room a flush is always given. zlib starts a fresh empty block on
+-- every flush call that ends with its output full, so a flush that only ever
+-- has a few bytes of room never ends; below this much room, a flush is
+-- produced into a staging buffer and handed out from there.
+const FLUSH_ROOM = 64
+const EMPTY = ""
+
+local REASONS: {
+    [integer]: string
+} = {
+    [-2] = "inconsistent stream state",
+    [-3] = "invalid or corrupt compressed data",
+    [-4] = "out of memory",
+    [-6] = "incompatible zlib version",
+}
+
+local function problem(prefix: string, status: int32): string
+    return prefix .. ": " .. (REASONS[status as integer] or "zlib error " .. status)
+end
+
+-- One bounded step over input[inputAt..] and output[outputAt..]: what it
+-- consumed and wrote, its progress and zlib's status.
+local function advance(
+    exclusive state: codec.State,
+    borrows input: span.Span<uint8>,
+    inputAt: integer,
+    exclusive output: span.ByteWriteSpan,
+    outputAt: integer,
+    flush: int32
+): (integer, integer, integer, int32)
+    local count = math.min(#input - inputAt + 1, STEP_LIMIT)
+    local room = math.min(#output - outputAt + 1, STEP_LIMIT)
+    local source = input:slice(inputAt, inputAt + count - 1)
+    local target = output:slice(outputAt, outputAt + room - 1)
+    local consumed: integer = 0
+    local written: integer = 0
+    local progress: integer = 0
+    local status: int32 = 0
+    do
+        local from, available = source:ref()
+        local into, space = target:ref()
+        @unsafe do
+            consumed, written, progress, status = state:advance(
+                from,
+                math.u32.wrap(available),
+                into as voidptr,
+                math.u32.wrap(space),
+                flush
+            )
+        end
+    end
+    own.drop(target)
+
+    return consumed, written, progress, status
 end
 
 local record Encoder is contract.Encoder
-    @private handle: integer
+    @private state: codec.State
+    @private ended: boolean = false
+    -- Flushed bytes not yet handed to the caller, and how many of them were.
+    @private staged: string = ""
+    @private delivered: integer = 0
 
     function close(takes self): nil
-        host.encoderRelease(self.handle)
+        self.state:close()
     end
+
+    -- Hands out staged flush bytes, answering how many it wrote and whether
+    -- any are left. Until all are delivered every call only delivers them.
+    @private deliver: function(exclusive self: Encoder, exclusive output: span.ByteWriteSpan): (integer, boolean)
+
+    -- Delivers staged bytes, then steps with `flush` into the remaining room
+    -- until the input is taken, the output is full, or the stream ends.
+    @private run: function(
+        exclusive self: Encoder,
+        borrows input: span.Span<uint8>,
+        exclusive output: span.ByteWriteSpan,
+        flush: int32
+    ): (integer?, integer?, integer?, string?)
 
     function write(
         exclusive self,
         borrows input: span.Span<uint8>,
         exclusive output: span.ByteWriteSpan
     ): (integer?, integer?, integer?, string?)
-        local consumed, written, status, problem = host.encoderWrite(self.handle, input, output)
-        if consumed == nil then
-            return nil, nil, nil, reason("compression encode failed", problem)
-        end
-
-        return consumed, written, status
+        return self:run(input, output, codec.noflush)
     end
 
     function flush(exclusive self, exclusive output: span.ByteWriteSpan): (integer?, integer?, string?)
-        local written, status, problem = host.encoderFlush(self.handle, output)
-        if written == nil then
-            return nil, nil, reason("compression flush failed", problem)
+        local delivered, pending = self:deliver(output)
+        if delivered > 0 or pending then
+            return delivered, pending and contract.needoutput or contract.needinput
         end
+        if self.ended then
+            return 0, contract.finished
+        end
+        if #output >= FLUSH_ROOM then
+            const empty = EMPTY
+            local _, written, status, reason = self:run(span.fromString(empty), output, codec.syncflush)
+            return written, status, reason
+        end
+        -- Too little room to flush in place: flush into a staging buffer,
+        -- refilling it until zlib leaves room over, and hand that out.
+        local buffer = storage.allocateBytes(FLUSH_ROOM)
+        local parts: {string} = {}
+        while true do
+            const empty = EMPTY
+            local room = span.writeCarray(buffer, FLUSH_ROOM)
+            local _, made, _, status = advance(self.state, span.fromString(empty), 1, room, 1, codec.syncflush)
+            own.drop(room)
+            if status ~= 0 then
+                return nil, nil, problem("compression flush failed", status)
+            end
+            parts[#parts + 1] = storage.string(buffer, made)
+            if made < FLUSH_ROOM then
+                break
+            end
+        end
+        self.staged, self.delivered = table.concat(parts), 0
+        delivered, pending = self:deliver(output)
 
-        return written, status
+        return delivered, pending and contract.needoutput or contract.needinput
     end
 
     function finish(exclusive self, exclusive output: span.ByteWriteSpan): (integer?, integer?, string?)
-        local written, status, problem = host.encoderFinish(self.handle, output)
-        if written == nil then
-            return nil, nil, reason("compression finish failed", problem)
-        end
-
-        return written, status
+        const empty = EMPTY
+        local _, written, status, reason = self:run(span.fromString(empty), output, codec.finishflush)
+        return written, status, reason
     end
 end
 
+function Encoder.deliver(exclusive self: Encoder, exclusive output: span.ByteWriteSpan): (integer, boolean)
+    local remaining = #self.staged - self.delivered
+    if remaining == 0 then
+        return 0, false
+    end
+    local count = math.min(remaining, #output)
+    const staged = self.staged
+    output:copyfrom(1, span.fromString(staged), self.delivered + 1, count)
+    self.delivered = self.delivered + count
+    if self.delivered == #self.staged then
+        self.staged, self.delivered = "", 0
+        return count, false
+    end
+
+    return count, true
+end
+
+function Encoder.run(
+    exclusive self: Encoder,
+    borrows input: span.Span<uint8>,
+    exclusive output: span.ByteWriteSpan,
+    flush: int32
+): (integer?, integer?, integer?, string?)
+    local written, pending = self:deliver(output)
+    if pending then
+        return 0, written, contract.needoutput
+    end
+    if self.ended then
+        return 0, written, contract.finished
+    end
+    local consumed: integer = 0
+    while written < #output do
+        local took, made, progress, status = advance(self.state, input, consumed + 1, output, written + 1, flush)
+        if status ~= 0 then
+            return nil, nil, nil, problem("compression encode failed", status)
+        end
+        consumed, written = consumed + took, written + made
+        if progress == codec.finished then
+            self.ended = true
+            return consumed, written, contract.finished
+        end
+        -- A step that left output room over has taken all it was given; only
+        -- input beyond its slice, or a full slice of output, needs another.
+        if progress ~= codec.needoutput and consumed == #input then
+            break
+        end
+        if took == 0 and made == 0 then
+            break
+        end
+    end
+    if written == #output and #output > 0 then
+        return consumed, written, contract.needoutput
+    end
+
+    return consumed, written, contract.needinput
+end
+
 local record Decoder is contract.Decoder
-    @private handle: integer
+    @private state: codec.State
+    @private concatenated: boolean
+    -- The current member ended; later input starts another or is trailing.
+    @private memberEnded: boolean = false
+    -- A whole member has ended, so later bytes follow a complete stream
+    -- rather than being part of the first one.
+    @private completedMember: boolean = false
+    @private ended: boolean = false
 
     function close(takes self): nil
-        host.decoderRelease(self.handle)
+        self.state:close()
     end
 
     function read(
@@ -68,52 +222,105 @@ local record Decoder is contract.Decoder
         borrows input: span.Span<uint8>,
         exclusive output: span.ByteWriteSpan
     ): (integer?, integer?, integer?, string?)
-        local consumed, written, status, problem = host.decoderRead(self.handle, input, output)
-        if consumed == nil then
-            return nil, nil, nil, reason("compression decode failed", problem)
+        if self.ended then
+            return 0, 0, contract.finished
+        end
+        local consumed: integer = 0
+        local written: integer = 0
+        while consumed < #input and written < #output do
+            if self.memberEnded then
+                if not self.concatenated then
+                    self.ended = true
+                    break
+                end
+                self.state:reset()
+                self.memberEnded = false
+            end
+            local took, made, progress, status = advance(
+                self.state,
+                input,
+                consumed + 1,
+                output,
+                written + 1,
+                codec.noflush
+            )
+            if status ~= 0 then
+                return nil, nil, nil, problem("compression decode failed", status)
+            end
+            consumed, written = consumed + took, written + made
+            if progress == codec.finished then
+                self.memberEnded, self.completedMember = true, true
+                if not self.concatenated then
+                    self.ended = true
+                    break
+                end
+            elseif took == 0 and made == 0 then
+                break
+            end
+        end
+        if self.ended then
+            return consumed, written, contract.finished
+        elseif written == #output and #output > 0 then
+            return consumed, written, contract.needoutput
         end
 
-        return consumed, written, status
+        return consumed, written, contract.needinput
     end
 
     function finishinput(exclusive self, exclusive output: span.ByteWriteSpan): (integer?, integer?, string?)
-        local written, status, problem = host.decoderFinishInput(self.handle, output)
-        if written == nil then
-            return nil, nil, reason("compression decode failed", problem)
+        if self.ended or self.memberEnded then
+            self.ended = true
+            return 0, contract.finished
+        end
+        const empty = EMPTY
+        local _, written, progress, status = advance(
+            self.state,
+            span.fromString(empty),
+            1,
+            output,
+            1,
+            codec.finishflush
+        )
+        if status ~= 0 then
+            return nil, nil, problem("compression decode failed", status)
+        end
+        if progress == codec.finished then
+            self.ended = true
+            return written, contract.finished
+        elseif self.completedMember and written == 0 then
+            -- Bytes after a complete member began another that never
+            -- finished. That is trailing data, not a truncated stream.
+            return nil, nil, "compression decode failed: compressed stream has trailing bytes that are not a complete member"
+        elseif written == #output and #output > 0 then
+            return written, contract.needoutput
         end
 
-        return written, status
+        return written, contract.needinput
     end
 end
 
 local record Format is contract.Format
     @readonly name: string
-    @private id: integer
 
     function createencoder(self, options: contract.FormatOptions?): contract.Encoder
         local level = options ~= nil and options.level or 6
-        local handle, problem = host.encoderCreate(self.id, level)
-        if handle == nil then
-            error("nupp: " .. (problem or "could not create a compression encoder"), 2)
+        if type(level) ~= "number" or level % 1 ~= 0 or level < 0 or level > 9 then
+            error("nupp: compression level must be between zero and nine", 2)
         end
 
-        return Encoder(handle = handle)
+        return Encoder(state = codec.create(self.name, true, math.i32.wrap(level)))
     end
 
     function createdecoder(self, options: contract.FormatOptions?): contract.Decoder
-        local concatenatedMembers = self.name == "gzip" and (options == nil or options.concatenatedmembers ~= false)
-        local handle, problem = host.decoderCreate(self.id, concatenatedMembers)
-        if handle == nil then
-            error("nupp: " .. (problem or "could not create a compression decoder"), 2)
-        end
+        local concatenated = self.name == "gzip" and (options == nil or options.concatenatedmembers ~= false)
 
-        return Decoder(handle = handle)
+        return Decoder(state = codec.create(self.name, false, 0), concatenated = concatenated)
     end
 end
 
 local formats: {[string]: contract.Format} = {}
-for name, id in pairs(contract.formatids) do
-    formats[name] = Format(name = name, id = id)
+for name in pairs(contract.formatids) do
+    formats[name] = Format(name = name)
 end
 
 local provider: contract.Provider = {formats = formats}

@@ -30,14 +30,12 @@ local HOST_MODULES: {
     ["nupp.runtime.provider.nativeuuid"] = true,
     ["nupp.runtime.provider.nativecrypto"] = true,
     ["nupp.vm.clock"] = true,
-    ["nupp.vm.crc"] = true,
     ["nupp.vm.coroutine"] = true,
     ["nupp.cli.internal.terminalhost"] = true,
     ["nupp.compiler.hostpid"] = true,
     ["nupp.compiler.nativehash"] = true,
     ["nupp.compiler.nativecdecl"] = true,
     ["nupp.vm.files"] = true,
-    ["nupp.vm.compression"] = true,
     ["nupp.vm.net"] = true,
     ["nupp.vm.http"] = true,
     ["nupp.vm.uri"] = true,
@@ -49,7 +47,6 @@ local HOST_MODULES: {
 local FACILITIES: {
     [string]: string
 } = {
-    ["nupp.vm.compression"] = "compression",
     ["nupp.vm.net"] = "net",
     ["nupp.vm.http"] = "http",
     ["nupp.vm.uri"] = "http",
@@ -354,6 +351,9 @@ local function emitFrom(
         config = chunk()
         assert(type(config) == "table", "manifest must return a table")
     end
+    -- The compiler's image names the standard library's C libraries by their
+    -- logical names rather than where this machine provisioned them.
+    config._standardLibraries = false
     local carried = entry == "nupp.tools.vm.root"
         and {["nupp.vm.cliResources"] = require("nupp.compiler.vm.resources").prepare(root, config)}
         or nil
@@ -603,7 +603,6 @@ project.ROOT_EXTRAS = "nupp.compiler.hostservices,nupp.compiler.fs,nupp.compiler
     .. "nupp.runtime.standardos,"
     .. "nupp.compiler.project.store,nupp.compiler.project.fingerprint,nupp.compiler.hash,"
     .. "nupp.compiler.project.preludecache,nupp.runtime.provider.nativeprocess,"
-    .. "nupp.runtime.provider.nativecompression,"
     .. "nupp.runtime.provider.nativefiles,nupp.runtime.provider.nativegpu,nupp.runtime.provider.nativehost,"
     .. "nupp.runtime.provider.nativenet,nupp.runtime.provider.nativepath,"
     .. "nupp.runtime.provider.nativetime,nupp.runtime.provider.nativetls,"

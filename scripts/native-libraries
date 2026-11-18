@@ -28,15 +28,15 @@ case "$(uname -s):$(uname -m)" in
 esac
 CC=${NUPP_CC:-cc}
 if [ "$SYSTEM" = windows ]; then CC=${NUPP_CC:-cl}; fi
-# The VM's ISA-L and checkout docs' Markdown can be provisioned with MinGW.
-# The C SDK lane uses MSVC.
+# The VM's ISA-L and zlib and checkout docs' Markdown can be provisioned with
+# MinGW. The C SDK lane uses MSVC.
 if [ "$SYSTEM" = windows ] && [ "${NUPP_NATIVE_TARGET:-}" = x86_64-pc-windows-gnu ]; then
     CC=${NUPP_CC:-gcc}
     case "$("$CC" -dumpmachine)" in *mingw*) ;; *) die 'Windows GNU needs a MinGW C compiler' ;; esac
 fi
 if [ "$SYSTEM" = windows ] && "$CC" -dumpmachine 2>/dev/null | grep -q mingw; then
     TARGET=x86_64-pc-windows-gnu
-    case "$*" in isal|cmark) ;; *) die 'GNU Windows is supported here only for ISA-L and Markdown' ;; esac
+    case "$*" in isal|cmark|zlib) ;; *) die 'GNU Windows is supported here only for ISA-L, zlib and Markdown' ;; esac
 fi
 [ "${NUPP_NATIVE_TARGET:-$TARGET}" = "$TARGET" ] || die 'cross compilation needs an explicit target toolchain; refusing host output for another target'
 command -v "$CC" >/dev/null 2>&1 || die "missing C compiler: $CC"
@@ -110,7 +110,7 @@ build() (
             dependencies="$(filehash "$ROOT/host/notices/libuv-LICENSE.txt") $(filehash "$ROOT/host/notices/libuv-LICENSE-extra.txt")"
             ;;
         isal) version=$ISAL_VERSION; sourceHash=$ISAL_SHA256; url=$ISAL_URL; asset="isa-l-$version.tar.gz"; sourceName="isa-l-$version"; notice=ISA-L-LICENSE.txt
-            dependencies=$({ find "$ROOT/native/crates/checksum/csrc" -type f | LC_ALL=C sort | while IFS= read -r file; do filehash "$file"; done; filehash "$ROOT/host/notices/ISA-L-CRC-LICENSE.txt"; } | hash)
+            dependencies=$({ find "$ROOT/native/crc" -type f | LC_ALL=C sort | while IFS= read -r file; do filehash "$file"; done; filehash "$ROOT/host/notices/ISA-L-CRC-LICENSE.txt"; } | hash)
             ;;
         cmark)
             version=$CMARK_REV; sourceHash=$CMARK_SHA256; url=$CMARK_URL; asset="cmark-gfm-$version.tar.gz"; sourceName="cmark-gfm-$version"; notice=cmark-gfm-LICENSE.txt

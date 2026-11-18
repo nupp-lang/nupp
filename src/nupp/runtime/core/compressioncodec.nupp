@@ -3,10 +3,9 @@ module nupp.runtime.core.compressioncodec
 
 const span = require("bytes.span")
 
--- The LP64 zlib stream ABI. Other layouts are deliberately not inferred from
--- this one: their target adapter must prove its header layout independently.
+-- zlib's stream on LP64 targets (Linux, macOS), where uLong is 64 bits.
 cdef struct ZStream
-    next_in: voidptr?
+    next_in: const uint8*?
     avail_in: uint32
     total_in: uint64
     next_out: voidptr?
@@ -22,16 +21,43 @@ cdef struct ZStream
     reserved: uint64
 end
 
-local type Stream = ZStream
--- Verified against upstream z_stream and the checker's Darwin ARM64 layout.
--- zlib's compile flags reject a library with different C integer/pointer widths.
-const STREAM_BYTES: int32 = 112
+-- The same stream on LLP64 targets (Windows), where uLong is 32 bits.
+cdef struct ZStreamLLP64
+    next_in: const uint8*?
+    avail_in: uint32
+    total_in: uint32
+    next_out: voidptr?
+    avail_out: uint32
+    total_out: uint32
+    msg: voidptr?
+    state: voidptr?
+    zalloc: voidptr?
+    zfree: voidptr?
+    opaque: voidptr?
+    data_type: int32
+    adler: uint32
+    reserved: uint32
+end
+
+-- Verified against upstream z_stream for each layout. zlib's compile flags
+-- name the widths of uInt, uLong and pointers, and a library whose widths match
+-- neither layout is refused before any stream is initialized.
+const LP64_BYTES: int32 = 112
+const LLP64_BYTES: int32 = 88
+const LP64_FLAGS = 0xa9ULL
+const LLP64_FLAGS = 0x25ULL
+-- uInt, uLong and pointer widths; z_off_t, the next field, differs between
+-- Windows C libraries and no stream carries it.
+const WIDTH_MASK = 0x3fULL
+const LAYOUT_MASK = 0xffULL
 
 cdef function zlibVersion(): const uint8* from"nuppzlib"
 cdef function zlibCompileFlags(): uint64 from"nuppzlib"
 cdef function strcmp(borrows actual: const uint8*, expected: string): int32
+-- Every stream entry takes the stream the layout selected. zlib retains its
+-- address until the matching end call, so it is never copied while live.
 cdef function deflateInit2_(
-    exclusive stream: Stream*,
+    exclusive stream: voidptr,
     level: int32,
     method: int32,
     window: int32,
@@ -41,15 +67,16 @@ cdef function deflateInit2_(
     size: int32
 ): int32 from"nuppzlib"
 cdef function inflateInit2_(
-    exclusive stream: Stream*,
+    exclusive stream: voidptr,
     window: int32,
     version: string,
     size: int32
 ): int32 from"nuppzlib"
-cdef function deflate(exclusive stream: Stream*, flush: int32): int32 from"nuppzlib"
-cdef function inflate(exclusive stream: Stream*, flush: int32): int32 from"nuppzlib"
-cdef function deflateEnd(exclusive stream: Stream*): int32 from"nuppzlib"
-cdef function inflateEnd(exclusive stream: Stream*): int32 from"nuppzlib"
+cdef function deflate(exclusive stream: voidptr, flush: int32): int32 from"nuppzlib"
+cdef function inflate(exclusive stream: voidptr, flush: int32): int32 from"nuppzlib"
+cdef function inflateReset(exclusive stream: voidptr): int32 from"nuppzlib"
+cdef function deflateEnd(exclusive stream: voidptr): int32 from"nuppzlib"
+cdef function inflateEnd(exclusive stream: voidptr): int32 from"nuppzlib"
 
 export const needinput: integer = 1
 export const needoutput: integer = 2
@@ -58,10 +85,29 @@ export const noflush: int32 = 0
 export const syncflush: int32 = 2
 export const finishflush: int32 = 4
 
+-- Which stream layout the loaded library was built for, once known.
+local layout: boolean? = nil
+
+local function narrowLayout(): boolean
+    if layout ~= nil then
+        return layout
+    end
+    local flags = zlibCompileFlags()
+    local narrow = false
+    if (flags & LAYOUT_MASK) ~= LP64_FLAGS then
+        assert((flags & WIDTH_MASK) == LLP64_FLAGS, "zlib needs a verified LP64 or LLP64 target ABI")
+        narrow = true
+    end
+    layout = narrow
+
+    return narrow
+end
+
 export function version(): string
+    local _ = narrowLayout()
     local value = zlibVersion()
     assert(strcmp(value, "1.4") == 0, "zlib header/library version mismatch")
-    assert((zlibCompileFlags() & 0xffULL) == 0xa9ULL, "zlib needs a verified LP64 target ABI")
+
     return "1.4"
 end
 
@@ -78,9 +124,14 @@ end
 
 -- The caller owns this stream and keeps both borrowed byte ranges alive for
 -- one bounded step. No input or output pointer survives that call.
-local function initialize(exclusive stream: Stream, format: string, encoding: boolean, level: int32): int32
+local function initialize(
+    exclusive stream: voidptr,
+    size: int32,
+    format: string,
+    encoding: boolean,
+    level: int32
+): int32
     local selected = version()
-    local size = STREAM_BYTES
     if encoding then
         assert(level >= 0 and level <= 9, "compression level must be between 0 and 9")
         return deflateInit2_(stream, level, 8, window(format), 8, 0, selected, size)
@@ -89,16 +140,27 @@ local function initialize(exclusive stream: Stream, format: string, encoding: bo
     return inflateInit2_(stream, window(format), selected, size)
 end
 
-local function close(exclusive stream: Stream, encoding: boolean): int32
+local function finish(exclusive stream: voidptr, encoding: boolean): int32
+    if encoding then
+        return deflateEnd(stream)
+    end
+
+    return inflateEnd(stream)
+end
+
+local function run(exclusive stream: voidptr, encoding: boolean, flush: int32): int32
+    if encoding then
+        return deflate(stream, flush)
+    end
+
+    return inflate(stream, flush)
+end
+
+local function closeWide(exclusive stream: ZStream, encoding: boolean): int32
     if stream.state == nil then
         return 0
     end
-    local status: int32 = 0
-    if encoding then
-        status = deflateEnd(stream)
-    else
-        status = inflateEnd(stream)
-    end
+    local status = finish(stream, encoding)
     stream.state = nil
     stream.next_in, stream.next_out = nil, nil
     stream.avail_in, stream.avail_out = 0, 0
@@ -106,57 +168,88 @@ local function close(exclusive stream: Stream, encoding: boolean): int32
     return status
 end
 
-local function step(
-    exclusive stream: Stream,
+local function closeNarrow(exclusive stream: ZStreamLLP64, encoding: boolean): int32
+    if stream.state == nil then
+        return 0
+    end
+    local status = finish(stream, encoding)
+    stream.state = nil
+    stream.next_in, stream.next_out = nil, nil
+    stream.avail_in, stream.avail_out = 0, 0
+
+    return status
+end
+
+local function stepWide(
+    exclusive stream: ZStream,
     encoding: boolean,
-    borrows input: voidptr?,
+    borrows input: const uint8*?,
     count: uint32,
     exclusive output: voidptr?,
     room: uint32,
     flush: int32
-): (integer, integer, integer, int32)
+): (integer, integer, int32)
     assert(stream.state ~= nil, "compression stream is closed")
-    assert(count == 0 or input ~= nil, "compression input is missing")
-    assert(room == 0 or output ~= nil, "compression output is missing")
-    assert(flush == noflush or flush == syncflush or flush == finishflush, "invalid compression flush")
-    if room == 0 then
-        return 0, 0, needoutput, 0
-    end
     @unsafe do
         stream.next_in, stream.avail_in = input, count
         stream.next_out, stream.avail_out = output, room
     end
-    local status: int32 = 0
-    if encoding then
-        status = deflate(stream, flush)
-    else
-        status = inflate(stream, flush)
-    end
+    local status = run(stream, encoding, flush)
     local consumed: integer = count - stream.avail_in
     local written: integer = room - stream.avail_out
     stream.next_in, stream.next_out = nil, nil
     stream.avail_in, stream.avail_out = 0, 0
-    local progress = needinput
-    if status == 1 then
-        progress = finished
-        status = 0
-    elseif written == room then
-        progress = needoutput
+
+    return consumed, written, status
+end
+
+local function stepNarrow(
+    exclusive stream: ZStreamLLP64,
+    encoding: boolean,
+    borrows input: const uint8*?,
+    count: uint32,
+    exclusive output: voidptr?,
+    room: uint32,
+    flush: int32
+): (integer, integer, int32)
+    assert(stream.state ~= nil, "compression stream is closed")
+    @unsafe do
+        stream.next_in, stream.avail_in = input, count
+        stream.next_out, stream.avail_out = output, room
     end
-    -- Z_BUF_ERROR means no progress is possible with the supplied input/output;
-    -- the caller decides whether that is a bounded refill or truncated EOF.
-    if status == -5 then
+    local status = run(stream, encoding, flush)
+    local consumed: integer = count - stream.avail_in
+    local written: integer = room - stream.avail_out
+    stream.next_in, stream.next_out = nil, nil
+    stream.avail_in, stream.avail_out = 0, 0
+
+    return consumed, written, status
+end
+
+-- Classifies one step: Z_STREAM_END finishes, a full output needs more room,
+-- and Z_BUF_ERROR only means no progress was possible with these ranges; the
+-- caller decides whether that is a bounded refill or a truncated EOF.
+local function progressOf(written: integer, room: uint32, status: int32): (integer, int32)
+    if status == 1 then
+        return finished, 0
+    elseif status == -5 then
         status = 0
+    end
+    if written == room then
+        return needoutput, status
     end
 
-    return consumed, written, progress, status
+    return needinput, status
 end
 
 -- The state is never published as an integer handle or recycled. Its private
 -- stream remains rooted at one address until close; affine ownership prevents
 -- checked aliases and the closed/failed guards also protect erased callers.
+-- Only the stream the loaded library's layout selects is ever initialized.
 export record State is own.Closeable
-    @private stream: Stream
+    @private wide: ZStream
+    @private narrow: ZStreamLLP64
+    @private llp64: boolean
     @private encoding: boolean
     @private closed: boolean = false
     @private failed: boolean = false
@@ -165,14 +258,33 @@ export record State is own.Closeable
 
     function close(takes self): nil
         if not self.closed then
-            local _ = close(self.stream, self.encoding)
+            if self.llp64 then
+                local _ = closeNarrow(self.narrow, self.encoding)
+            else
+                local _ = closeWide(self.wide, self.encoding)
+            end
             self.closed = true
         end
     end
 
+    --- Starts the next stream with the same settings, as a concatenated gzip
+    --- member does, keeping the allocated decoder state.
+    function reset(exclusive self): nil
+        assert(not self.closed and not self.failed, "compression stream is closed or failed")
+        assert(not self.encoding, "only a decoder starts another stream")
+        local status: int32 = 0
+        if self.llp64 then
+            status = inflateReset(self.narrow)
+        else
+            status = inflateReset(self.wide)
+        end
+        assert(status == 0, "compression reset failed: " .. status)
+        self.finishing, self.ended = false, false
+    end
+
     function advance(
         exclusive self,
-        borrows input: voidptr?,
+        borrows input: const uint8*?,
         count: uint32,
         exclusive output: voidptr?,
         room: uint32,
@@ -189,17 +301,31 @@ export record State is own.Closeable
         )
         -- Callers slice their rooted ranges before entering this bounded step.
         assert(count <= 65536 and room <= 65536, "compression step exceeds workspace limit")
+        assert(count == 0 or input ~= nil, "compression input is missing")
+        assert(room == 0 or output ~= nil, "compression output is missing")
+        assert(flush == noflush or flush == syncflush or flush == finishflush, "invalid compression flush")
         if flush == finishflush then
             self.finishing = true
         end
-        local consumed, written, progress, status = step(self.stream, self.encoding, input, count, output, room, flush)
-        if status ~= 0 then
+        if room == 0 then
+            return 0, 0, needoutput, 0
+        end
+        local consumed: integer = 0
+        local written: integer = 0
+        local status: int32 = 0
+        if self.llp64 then
+            consumed, written, status = stepNarrow(self.narrow, self.encoding, input, count, output, room, flush)
+        else
+            consumed, written, status = stepWide(self.wide, self.encoding, input, count, output, room, flush)
+        end
+        local progress, outcome = progressOf(written, room, status)
+        if outcome ~= 0 then
             self.failed = true
         elseif progress == finished then
             self.ended = true
         end
 
-        return consumed, written, progress, status
+        return consumed, written, progress, outcome
     end
 
     function spans(
@@ -212,7 +338,7 @@ export record State is own.Closeable
         local target, room = output:ref()
         assert(count <= 65536 and room <= 65536, "compression step exceeds workspace limit")
         @unsafe do
-            return self:advance(source as voidptr, math.u32.wrap(count), target as voidptr, math.u32.wrap(room), flush)
+            return self:advance(source, math.u32.wrap(count), target as voidptr, math.u32.wrap(room), flush)
         end
     end
 end
@@ -220,10 +346,21 @@ end
 export function create(format: string, encoding: boolean, level: int32): State
     -- Initialize after constructing the owner: zlib internally retains the
     -- address of this stream, so copying an initialized C struct is invalid.
-    local result = State(stream = ZStream(), encoding = encoding)
-    local status = initialize(result.stream, format, encoding, level)
+    local llp64 = narrowLayout()
+    local result = State(wide = ZStream(), narrow = ZStreamLLP64(), llp64 = llp64, encoding = encoding)
+    local status: int32 = 0
+    if llp64 then
+        status = initialize(result.narrow, LLP64_BYTES, format, encoding, level)
+    else
+        status = initialize(result.wide, LP64_BYTES, format, encoding, level)
+    end
     if status ~= 0 then
-        local _ = close(result.stream, encoding)
+        result.closed = true
+        if llp64 then
+            local _ = closeNarrow(result.narrow, encoding)
+        else
+            local _ = closeWide(result.wide, encoding)
+        end
         error("compression initialization failed: " .. status)
     end
 

@@ -33,6 +33,35 @@ if [ "${RUSTC_WRAPPER+x}" != x ] && command -v sccache >/dev/null 2>&1; then
     esac
     export RUSTC_WRAPPER
 fi
+# The pinned C libraries the standard library binds by logical name -- zlib
+# and the ISA-L CRC bundle (`nupp.compiler.project.libraries`) -- named before
+# anything here builds or runs a compiler. `.nupp/c-libraries` records where
+# scripts/c-library-paths provisioned them, until their pins or build scripts
+# change. A variable already set wins, and a checkout that cannot provision
+# them still runs: only a program binding one then reports it missing.
+c_libraries() {
+    record="$ROOT/.nupp/c-libraries"
+    if [ ! -f "$record" ] || [ -n "$(find "$ROOT/scripts/toolchain.pins" "$ROOT/scripts/native-libraries" \
+        "$ROOT/scripts/c-libraries" "$ROOT/scripts/c-library-paths" "$ROOT/native/crc" \
+        -newer "$record" 2>/dev/null | head -n 1)" ]; then
+        mkdir -p "$ROOT/.nupp"
+        pending="$record.$$"
+        if ! sh "$ROOT/scripts/c-library-paths" > "$pending" 2> "$record.log"; then
+            echo "nupp: could not provision the pinned C libraries (see $record.log)" >&2
+            : > "$pending"
+        fi
+        mv -f "$pending" "$record"
+    fi
+    while IFS='=' read -r key value; do
+        case "$key" in
+            NUPP_ZLIB_LIBRARY) [ -n "${NUPP_ZLIB_LIBRARY:-}" ] || { NUPP_ZLIB_LIBRARY=$value; export NUPP_ZLIB_LIBRARY; } ;;
+            NUPP_CRC_LIBRARY) [ -n "${NUPP_CRC_LIBRARY:-}" ] || { NUPP_CRC_LIBRARY=$value; export NUPP_CRC_LIBRARY; } ;;
+        esac
+    done < "$record"
+}
+
+c_libraries
+
 # A verified local VM package is an installed compiler snapshot. Publish a new
 # snapshot with scripts/vm-cli install; source edits do not rebuild its workers.
 # Pin the selected immutable generation in the environment before any child can
@@ -107,8 +136,8 @@ vm_sources_newer_than() {
     [ -n "$(find "$ROOT/src" "$ROOT/templates" \
         "$ROOT/native/crates/vm/src" "$ROOT/native/crates/vm/lib" "$ROOT/native/crates/vm/decls" \
         "$ROOT/native/crates/vm/csrc" "$ROOT/native/crates/vm/build.rs" "$ROOT/native/crates/vm/Cargo.toml" \
-        "$ROOT/native/crates/platform" "$ROOT/native/crates/checksum" "$ROOT/native/crates/files" \
-        "$ROOT/native/crates/compression" "$ROOT/native/crates/net" "$ROOT/native/crates/tls" \
+        "$ROOT/native/crates/platform" "$ROOT/native/crates/files" "$ROOT/native/crc" \
+        "$ROOT/native/crates/net" "$ROOT/native/crates/tls" \
         "$ROOT/native/crates/http" "$ROOT/native/crates/abi" "$ROOT/native/crates/process" \
         "$ROOT/Cargo.toml" "$ROOT/Cargo.lock" "$ROOT/scripts/vm-cli" "$ROOT/tests/run.lua" \
         -type f ! -name '.DS_Store' -newer "$1" 2>/dev/null | head -n 1)" ]
@@ -218,7 +247,6 @@ vm_cli_rebuild() {
     fi
     vm_release_build_lock
 }
-
 
 if [ -z "${NUPP_VM_CLI_IMAGE:-}" ] && [ -e "$VM_CLI/current" ] \
     && [ "${NUPP_VM_AUTO_REBUILD:-1}" != 0 ]; then

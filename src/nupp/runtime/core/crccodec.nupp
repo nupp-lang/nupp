@@ -1,0 +1,43 @@
+@!internal
+--[[
+CRC through the pinned ISA-L bundle's adapter (`native/crc/crc.c`), the one
+binding both the VM and the native core call. ISA-L does the arithmetic and
+selects its SIMD path at run time; the adapter converts between ISA-L's
+finalized seeds and the resumable raw register kept here.
+
+Algorithm ids: 1 CRC-32/ISO-HDLC, 2 CRC-32/iSCSI, 3 CRC-64/ECMA-182 and
+4 CRC-64/NVME. A state is the raw register, and every update also answers the
+checksum of everything so far without consuming the register.
+]]
+module nupp.runtime.core.crccodec
+
+const span = require("bytes.span")
+
+-- The adapter's two words: the raw register and its finalized checksum.
+cdef struct Words
+    state: uint64
+    snapshot: uint64
+end
+
+cdef function nuppCrcUpdate(
+    id: uint32,
+    reset: int32,
+    exclusive words: Words*,
+    borrows data: const uint8*?,
+    length: uint64
+): int32 from"nuppcrc"
+
+--- Continues `state` over `input`, or starts a new checksum when `state` is
+--- nil, and returns the new state and the checksum so far. Neither the input
+--- nor any address is retained.
+--- @raises string for an unknown algorithm or a rejected range
+export function update(id: integer, state: uint64?, borrows input: span.Span<uint8>): (uint64, uint64)
+    assert(id >= 1 and id <= 4 and id % 1 == 0, "unknown CRC algorithm")
+    local words = Words(state or 0ULL, 0ULL)
+    local reset: int32 = state == nil and 1 or 0
+    local source, count = input:ref()
+    local status = nuppCrcUpdate(math.u32.wrap(id), reset, words, source, count as uint64)
+    assert(status == 0, "invalid CRC input or state")
+
+    return words.state, words.snapshot
+end
