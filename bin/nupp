@@ -33,35 +33,6 @@ if [ "${RUSTC_WRAPPER+x}" != x ] && command -v sccache >/dev/null 2>&1; then
     esac
     export RUSTC_WRAPPER
 fi
-# The pinned C libraries the standard library binds by logical name -- zlib
-# and the ISA-L CRC bundle (`nupp.compiler.project.libraries`) -- named before
-# anything here builds or runs a compiler. `.nupp/c-libraries` records where
-# scripts/c-library-paths provisioned them, until their pins or build scripts
-# change. A variable already set wins, and a checkout that cannot provision
-# them still runs: only a program binding one then reports it missing.
-c_libraries() {
-    record="$ROOT/.nupp/c-libraries"
-    if [ ! -f "$record" ] || [ -n "$(find "$ROOT/scripts/toolchain.pins" "$ROOT/scripts/native-libraries" \
-        "$ROOT/scripts/c-libraries" "$ROOT/scripts/c-library-paths" "$ROOT/native/crc" \
-        -newer "$record" 2>/dev/null | head -n 1)" ]; then
-        mkdir -p "$ROOT/.nupp"
-        pending="$record.$$"
-        if ! sh "$ROOT/scripts/c-library-paths" > "$pending" 2> "$record.log"; then
-            echo "nupp: could not provision the pinned C libraries (see $record.log)" >&2
-            : > "$pending"
-        fi
-        mv -f "$pending" "$record"
-    fi
-    while IFS='=' read -r key value; do
-        case "$key" in
-            NUPP_ZLIB_LIBRARY) [ -n "${NUPP_ZLIB_LIBRARY:-}" ] || { NUPP_ZLIB_LIBRARY=$value; export NUPP_ZLIB_LIBRARY; } ;;
-            NUPP_CRC_LIBRARY) [ -n "${NUPP_CRC_LIBRARY:-}" ] || { NUPP_CRC_LIBRARY=$value; export NUPP_CRC_LIBRARY; } ;;
-        esac
-    done < "$record"
-}
-
-c_libraries
-
 # The flip. On a host scripts/toolchain.pins lists in STAGE0_CORE_HOSTS
 # (`scripts/stage0-runtime`), every command runs on the native core through
 # scripts/core-cli, and nothing below -- the VM compiler, its rebuild, its

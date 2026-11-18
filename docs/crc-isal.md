@@ -4,8 +4,8 @@
 checksum catalog. That module is Nupp over checked FFI to the C adapter in
 `native/crc/crc.c`, which calls ISA-L, and the VM and the native core run the
 same binding. The library is the logical `nuppcrc`, which the compiler binds to
-the shared library `NUPP_CRC_LIBRARY` names; `bin/nupp` provisions it through
-`scripts/c-library-paths`. VM persistence links the static archive for its
+the shared library `NUPP_CRC_LIBRARY` names, or else, in a source checkout,
+to the one `scripts/c-library-paths` builds the first time a program binds it. VM persistence links the static archive for its
 CRC-32 frames. No Nupp CRC arithmetic was added, and no Rust CRC code remains.
 
 `scripts/toolchain isal` builds a digest-pinned CRC-only subset of ISA-L

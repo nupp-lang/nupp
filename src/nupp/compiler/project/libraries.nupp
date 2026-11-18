@@ -34,16 +34,62 @@ export function filename(name: string, target: string?): string
     return "lib" .. name .. ".so"
 end
 
---- The pinned C libraries the standard library binds by logical name, each
---- bound when its environment variable names it. `scripts/c-library-paths`
---- provisions them for a checkout and `bin/nupp` names them. A project's own
---- `libraries` entry for one of these names replaces it, and the compiler's
---- own image (`_standardLibraries = false`) binds none, so no building
---- machine's path is part of it.
+--- The pinned C libraries the standard library binds by logical name. Each is
+--- bound to the shared library its environment variable names, or else, from
+--- a source checkout, to the one `scripts/c-library-paths` provisions once per
+--- machine: on the first use of the name, so a program that binds neither
+--- builds neither. A project's own `libraries` entry for one of these names
+--- replaces it, and the compiler's own image (`_standardLibraries = false`)
+--- binds none, so no building machine's path is part of it.
 export const STANDARD: {[string]: {
     name: string,
     env: string
 }} = {nuppzlib = {name = "z", env = "NUPP_ZLIB_LIBRARY"}, nuppcrc = {name = "nupp_crc", env = "NUPP_CRC_LIBRARY"},}
+
+-- The paths `scripts/c-library-paths` printed, by variable, once per process.
+local provisioned: {[string]: string}? = nil
+local provisionProblem: string? = nil
+
+local function checkoutScript(): string?
+    local envMod: any = require("nupp.compiler.project.env")
+    local root = envMod.compilerRoot()
+    if root == nil then
+        return nil
+    end
+    local script = fs.join(root, "scripts/c-library-paths")
+
+    return files.stat(script) == "file" and script or nil
+end
+
+-- Builds the checkout's pinned C libraries, or finds them built, and answers
+-- the path for one variable, or why there is none.
+local function provision(variable: string): (string?, string?)
+    if provisioned == nil and provisionProblem == nil then
+        local script = assert(checkoutScript())
+        local process: any = require("nupp.compiler.process")
+        local windows = package.config:sub(1, 1) == "\\"
+        local code, text = process.capture({windows and "sh.exe" or "sh", script})
+        local found: {[string]: string} = {}
+        for key, value in text:gmatch("(NUPP_[%w_]+_LIBRARY)=([^\r\n]+)") do
+            found[key] = value
+        end
+        if code ~= 0 then
+            provisionProblem = "cannot build the pinned C libraries:\n" .. text
+        else
+            provisioned = found
+        end
+    end
+    local path = provisioned and provisioned[variable] or nil
+    if path == nil then
+        return nil, provisionProblem or ("scripts/c-library-paths named no " .. variable)
+    end
+
+    return path, nil
+end
+
+-- Bindings resolved on first use, by the bindings table they belong to, with
+-- what their resolution depends on for `fingerprint`.
+local LAZY: {[any]: string} = setmetatable({}, {__mode = "k"})
 
 local function regularFile(path: string): boolean
     return files.stat(path) == "file"
@@ -73,11 +119,14 @@ export function resolve(root: string, config: any, options: any?): Plan
     local getenv = options.getenv or os.getenv
     local outDir = options.outDir or (config.build or {}).outDir or "build"
     local configured: {[string]: any} = {}
+    local deferred: {[string]: boolean} = {}
     if config._standardLibraries ~= false then
         for name, library in pairs(STANDARD) do
             local path = getenv(library.env)
             if path ~= nil and path ~= "" then
                 configured[name] = library
+            else
+                deferred[name] = true
             end
         end
     end
@@ -229,6 +278,42 @@ export function resolve(root: string, config: any, options: any?): Plan
         binding.error = dependencyProblem(name, {})
     end
 
+    -- A standard library the environment does not name is provisioned from
+    -- the checkout when a module first binds it.
+    for name in pairs(config.libraries or {}) do
+        deferred[name] = nil
+    end
+    if next(deferred) ~= nil and checkoutScript() ~= nil then
+        local pins = fs.readFile(fs.join(assert(checkoutScript()):match("^(.*)[/\\][^/\\]+$"), "toolchain.pins")) or ""
+        local inputs: {string} = {}
+        for line in pins:gmatch("[^\r\n]+") do
+            if line:match("^ZLIB_") or line:match("^ISAL_") then
+                inputs[#inputs + 1] = line
+            end
+        end
+        LAZY[bindings] = table.concat(inputs, "\0")
+        setmetatable(bindings as any, {
+            __index = function(table: any, name: string): Binding?
+                if not deferred[name] then
+                    return nil
+                end
+                deferred[name] = nil
+                local binding: Binding = {name = name, reference = name, dependencies = {}}
+                local path, problem = provision(assert(STANDARD[name]).env)
+                if path ~= nil and regularFile(path) then
+                    binding.path, binding.reference = path, reference(path)
+                else
+                    binding.error = (
+                        "cannot resolve native library %q: %s"
+                    ):format(name, problem or "no file at " .. tostring(path))
+                end
+                rawset(table, name, binding)
+
+                return binding
+            end,
+        })
+    end
+
     return {bindings = bindings}
 end
 
@@ -239,6 +324,11 @@ export function fingerprint(bindings: {[string]: Binding}): string
         parts[#parts + 1] = name .. "\0" .. binding.reference .. "\0" .. (binding.error or "")
     end
     table.sort(parts)
+    -- What a binding resolved on first use will depend on.
+    local lazy = LAZY[bindings]
+    if lazy ~= nil then
+        parts[#parts + 1] = "standard\0" .. lazy
+    end
 
     return table.concat(parts, "\0")
 end

@@ -353,7 +353,9 @@ local function emitFrom(
     end
     -- The compiler's image names the standard library's C libraries by their
     -- logical names rather than where this machine provisioned them.
-    config._standardLibraries = false
+    if entry == "nupp.tools.vm.root" or entry == "nupp.tools.vm.project" then
+        config._standardLibraries = false
+    end
     local carried = entry == "nupp.tools.vm.root"
         and {["nupp.vm.cliResources"] = require("nupp.compiler.vm.resources").prepare(root, config)}
         or nil

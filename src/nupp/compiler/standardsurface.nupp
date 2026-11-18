@@ -204,6 +204,7 @@ export function supports(moduleName: string, host: string?): boolean
         end
     end
     if moduleName:match("^nupp%.runtime%.provider%.native")
+        or moduleName:match("^nupp%.runtime%.core%.")
         or moduleName == "nupp.runtime.provider.workers"
         or moduleName == "nupp.runtime.provider.channels"
         or moduleName == "nupp.runtime.provider.suspension"
