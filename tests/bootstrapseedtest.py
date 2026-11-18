@@ -115,6 +115,14 @@ class Delivery(unittest.TestCase):
         self.assertEqual((env["NO_AOT"], env["NO_JIT"], env["SIMD_INTERPRET"]), ("1", "1", "1"))
 
 
+def emitted(command):
+    """Where an emit command writes: its `--output`, or the output the
+    bootstrap script's `emit ROOT OUTPUT` names on a seed emit."""
+    if "--output" in command:
+        return Path(command[command.index("--output") + 1])
+    return Path(command[command.index("emit") + 2])
+
+
 class Routing(unittest.TestCase):
     def test_no_cache_cannot_replay_an_inherited_emitter_cache(self):
         with patch.dict(os.environ, {"NUPP_VM_EMIT_CACHE": "older-compiler-cache"}):
@@ -151,7 +159,7 @@ class Routing(unittest.TestCase):
                 calls.append((command, env))
                 if len(calls) == 1:
                     raise ValueError("unknown type float32")
-                Path(command[-1]).write_bytes(b"alias-aware lowering")
+                emitted(command).write_bytes(b"alias-aware lowering")
             with patch.object(cli, "PACKAGES", packages), patch.object(cli, "selected", return_value=root / "old"), \
                     patch.object(cli, "execution_seed", return_value=root / "seed"), \
                     patch.object(cli, "run_step", side_effect=step), patch.object(cli, "cargo") as cargo:
@@ -182,7 +190,7 @@ class Routing(unittest.TestCase):
                 commands = []
                 def step(command, env=None, what=""):
                     commands.append((command, env))
-                    Path(command[-1]).write_bytes(b"emitted image")
+                    emitted(command).write_bytes(b"emitted image")
                 def emit(package, image, env):
                     self.assertEqual(package, root / "installed-aot")
                     image.write_bytes(b"warm image")
@@ -333,8 +341,8 @@ printf '%s\n' "$RUST_VM_AOT_TOOL_OUT"
             (root / "seed").mkdir()
             (root / "seed/runtime").write_bytes(b"seed runtime")
             def step(command, *args):
-                self.assertEqual(command[:3], [str(root / "seed/runtime"), "run", str(root / "seed/compiler.image")])
-                Path(command[-1]).write_bytes(b"new image")
+                self.assertEqual(command[:3], [str(root / "seed/runtime"), "exec", str(root / "seed/compiler.image")])
+                emitted(command).write_bytes(b"new image")
             with patch.object(cli, "PACKAGES", root / "absent"), patch.object(cli, "execution_seed", return_value=root / "seed"), \
                     patch.object(cli, "run_step", side_effect=step), patch.object(cli, "cargo") as cargo:
                 cli.lowering_image(root / "out", root / "target", None)
@@ -467,7 +475,7 @@ class ColdAcceptance(unittest.TestCase):
                     return "verified 2 functions\n"
                 elif name in ("emit-interpreted", "emit-aot"):
                     contents = b"different probe" if name == "emit-aot" and fault == "output" else b"compiled probe"
-                    Path(command[-1]).write_bytes(contents)
+                    emitted(command).write_bytes(contents)
                     if name == "emit-aot":
                         self.assertNotIn("NO_AOT", env)
                         self.assertEqual(env["NO_JIT"], "1")
