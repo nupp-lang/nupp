@@ -1,25 +1,38 @@
 /* Bounded allocation boundary for upstream C code which assumes allocation
  * succeeds. No longjmp crosses a guest frame or calls guest code. */
+
 #include "markdown.h"
 #include "definition-list.h"
+
 #include <cmark-gfm-core-extensions.h>
 #include <houdini.h>
 #include <node.h>
 #include <render.h>
+
 #include <setjmp.h>
 #include <stdint.h>
 #include <stdlib.h>
 #include <string.h>
+
+/* One lock around every call into cmark (see the comment on its use). */
 #ifdef _WIN32
+
 #include <windows.h>
+
 static SRWLOCK lock = SRWLOCK_INIT;
+
 #define LOCK() AcquireSRWLockExclusive(&lock)
 #define UNLOCK() ReleaseSRWLockExclusive(&lock)
+
 #else
+
 #include <pthread.h>
+
 static pthread_mutex_t lock = PTHREAD_MUTEX_INITIALIZER;
+
 #define LOCK() pthread_mutex_lock(&lock)
 #define UNLOCK() pthread_mutex_unlock(&lock)
+
 #endif
 
 typedef union allocation allocation;

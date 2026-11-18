@@ -1,5 +1,39 @@
-/* Colon definitions only. Block and inline parsing remain in upstream cmark. */
+/* A cmark-gfm block extension for definition lists, in the colon syntax of
+ * commonmark-hs's definition_lists extension (and Pandoc's). A term is a
+ * paragraph line of its own; each of its definitions starts with `:` and
+ * the definition's content:
+ *
+ *   apple
+ *   :   red fruit
+ *
+ *   orange
+ *   :   orange fruit
+ *   :   the color, too
+ *
+ * renders as
+ *
+ *   <dl>
+ *   <dt>apple</dt>
+ *   <dd>red fruit</dd>
+ *   <dt>orange</dt>
+ *   <dd>orange fruit</dd>
+ *   <dd>the color, too</dd>
+ *   </dl>
+ *
+ * Lines after the first continue the definition when indented to its content
+ * column (the column after `:` and its spaces), or as lazy paragraph lines.
+ * The list is tight, its definitions' paragraphs unwrapped, unless a blank
+ * line separates a term from its definition or a definition's blocks from one
+ * another; then every definition keeps its <p>. `~` is not a marker, since it
+ * already means strikethrough. A paragraph that is only link reference
+ * definitions is not a term.
+ *
+ * Only the block structure is decided here: the terms' inlines and the
+ * definitions' blocks are parsed by upstream cmark as usual. The cases it is
+ * held to are tests/fixtures/markdown/definition-lists.txt. */
+
 #include "definition-list.h"
+
 #include <stdlib.h>
 #include <string.h>
 
