@@ -48,7 +48,8 @@ while read -r _local localSha _remote remoteSha; do
         "$range" -- '*.nupp' '*.d.nupp' 2>/dev/null || true)
     changed=$(printf '%s\n%s' "$changed" "$found")
     cFound=$(git diff-tree -r --no-commit-id --name-only --diff-filter=ACMR \
-        "$range" -- '*.c' '*.h' 2>/dev/null || true)
+        "$range" -- '*.c' '*.h' 'CMakeLists.txt' '*/CMakeLists.txt' '*.cmake' \
+        2>/dev/null || true)
     cChanged="${cChanged-}$cFound"
 done
 

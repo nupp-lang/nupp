@@ -239,14 +239,14 @@ jobs:
           cat changed-paths.txt
 
       # C is checked only when something that decides its formatting changed:
-      # a C source or header, the formatters' configuration, their pins or the
+      # a C source or header, its CMake, the formatters' configuration, their pins or the
       # script that runs them. An empty list is "everything", as it is for the
       # classifier, so a run with no diff still checks.
       - name: Name the C changes
         id: c-changed
         run: |
           if [ ! -s changed-paths.txt ] || grep -Eq \
-              '\.(c|h)$|^\.clang-format$|^\.uncrustify\.cfg$|^scripts/format-c$|^scripts/toolchain(\.pins)?$' \
+              '\.(c|h|cmake)$|(^|/)CMakeLists\.txt$|^\.(clang-format|uncrustify\.cfg|gersemirc)$|^scripts/format-c$|^scripts/toolchain(\.pins)?$' \
               changed-paths.txt; then
             echo "check=true" >> "$GITHUB_OUTPUT"
           else

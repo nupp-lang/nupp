@@ -1,0 +1,3 @@
+# CMake is formatted by gersemi (scripts/format-c), indented as the C it builds.
+indent: 2
+line_length: 80

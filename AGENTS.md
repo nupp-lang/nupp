@@ -196,6 +196,7 @@ C or the formatting setup changed. No tool
 places the blank lines around a file's preprocessor groups, so write them as
 Lua does: a blank line before and after each run of `#define`s, `#include`s or
 conditionals, with a comment that documents a macro kept directly above it.
+The same script formats the CMake that builds the C (gersemi, `.gersemirc`).
 Write C as it reads there: one statement per line, named constants rather than
 bare numbers, and small functions over dense ones.
 

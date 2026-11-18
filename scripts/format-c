@@ -1,11 +1,13 @@
 #!/bin/sh
-# Formats the C the repository owns, or with --check says whether it is.
+# Formats the C the repository owns and the CMake that builds it, or with
+# --check says whether they are.
 #
 # clang-format lays the code out (.clang-format), Uncrustify adds the blank
 # lines clang-format cannot place (.uncrustify.cfg), and clang-format runs
-# again to restore whatever layout Uncrustify disturbed. Both tools are pinned:
-# clang-format through pipx and Uncrustify through scripts/toolchain, so every
-# machine writes the same bytes.
+# again to restore whatever layout Uncrustify disturbed. gersemi formats the
+# CMake (.gersemirc). Every tool is pinned -- clang-format and gersemi through
+# pipx, Uncrustify through scripts/toolchain -- so every machine writes the
+# same bytes.
 set -eu
 
 case "$#:${1-}" in
@@ -31,6 +33,31 @@ for file in $(git ls-files '*.c' '*.h'); do
     fi
 done
 
+# The CMake beside it, with the same exceptions.
+cmake=""
+for file in $(git ls-files 'CMakeLists.txt' '*/CMakeLists.txt' '*.cmake'); do
+    case "$file" in
+        native/crates/vm/*|tests/fixtures/libuv/*) continue ;;
+    esac
+    if [ -f "$file" ]; then
+        cmake="$cmake $file"
+    fi
+done
+
+gersemi() {
+    pipx run --spec gersemi==0.29.2 gersemi --config .gersemirc "$@"
+}
+
+# shellcheck disable=SC2086
+if [ -n "$cmake" ]; then
+    if [ "$mode" = --write ]; then
+        gersemi --in-place --quiet $cmake
+    elif ! gersemi --check --quiet $cmake; then
+        printf 'format-c: CMake gersemi would rewrite; run scripts/format-c --write\n' >&2
+        cmakeStatus=1
+    fi
+fi
+
 clang_format() {
     pipx run --spec clang-format==22.1.8 --pip-args=--only-binary=:all: \
         clang-format --style=file:.clang-format "$@"
@@ -38,7 +65,7 @@ clang_format() {
 
 if [ "$#" -eq 0 ]; then
     clang_format --assume-filename=rollout.c --dump-config >/dev/null
-    exit 0
+    exit "${cmakeStatus:-0}"
 fi
 
 uncrustify=$(sh scripts/toolchain uncrustify)
@@ -64,7 +91,7 @@ for file in "$@"; do
 done
 cp .clang-format .uncrustify.cfg "$scratch/"
 (cd "$scratch" && format "$@") >/dev/null
-status=0
+status=${cmakeStatus:-0}
 for file in "$@"; do
     if ! cmp -s "$file" "$scratch/$file"; then
         diff -u "$file" "$scratch/$file" || true
