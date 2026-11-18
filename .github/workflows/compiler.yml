@@ -310,6 +310,12 @@ jobs:
             || (github.event_name == 'workflow_dispatch' && inputs.macos)
             || contains(github.event.head_commit.message, '[ci macos]')
             || contains(github.event.pull_request.labels.*.name, 'ci:macos') }}
+          # The core's regression legs: a change the classifier gives the
+          # `core` surface, or one whose reach it cannot narrow.
+          SELECTED_CORE: >-
+            ${{ contains(steps.classify.outputs.selection, '"core"')
+            || contains(steps.classify.outputs.selection, '"everything"')
+            || contains(steps.classify.outputs.selection, '"unclassified"') }}
           SELECTED_LINUX_COMPILER: >-
             ${{ steps.classify.outputs.fast-checks == 'true'
             || steps.classify.outputs.docs-site == 'true'
@@ -682,6 +688,19 @@ jobs:
           .github/scripts/run-suite-shard.sh
           ${{ matrix.shard }} ${{ matrix.shards }} ${{ matrix.batch }} ${{ matrix.jobs }}
           ${{ matrix.select }}
+
+      # The native core's own guest programs and runtime units, run on the core
+      # through the C bridge in normal and spill mode, against the committed
+      # baseline in tests/core/guests/inventory.json: a new or changed failure,
+      # a missing result or a known failure that now passes fails the leg, and
+      # the known failures are reported as such. macOS ARM64 only until the
+      # core gains another target.
+      - name: Run the core guests and units
+        if: matrix.kind == 'core'
+        shell: bash
+        run: >-
+          ./bin/nupp run tests/core/guests/acceptance.nupp --ci --target aarch64-apple-darwin
+          --part ${{ matrix.shard }}/${{ matrix.shards }} --jobs ${{ matrix.jobs }}
 
       # One shard of one lane. `core_pattern` already pipes to systemd-coredump
       # on the Linux image, but the soft limit is zero, so the kernel writes

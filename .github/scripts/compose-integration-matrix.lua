@@ -75,6 +75,11 @@ composer.platforms = {
         legs = {
             {kind = "gates", title = "native gates"},
             {kind = "native-core", title = "native core", select = "--group=native-runtime", jobs = 1},
+            -- The core's own guests and units on the core, held to their
+            -- inventoried baseline (tests/core/guests/acceptance.nupp --ci),
+            -- in slices: run only when the selection names the `core` surface
+            -- (classify-changes.lua) or the run is a full one.
+            {kind = "core", title = "core guests", shards = 4, jobs = 2, timeout = 330, coreOnly = true},
             lane("shared", GROUPED, 1, 15, nil, true),
             lane("isolated", GROUPED, 1, nil, nil, true),
             lane("shell", GROUPED, 2, 0, 2, true),
@@ -97,11 +102,15 @@ composer.platforms = {
 }
 
 --- Every leg of one platform, one entry per job. A leg marked `fullOnly` is
---- left out unless `full` is true.
-function composer.compose(platform, full)
+--- left out unless `full` is true, and one marked `coreOnly` unless `full` or
+--- `core` is.
+function composer.compose(platform, full, core)
     local entries = {}
     for _, leg in ipairs(platform.legs) do
         if leg.fullOnly and not full then
+            goto continue
+        end
+        if leg.coreOnly and not (full or core) then
             goto continue
         end
         local shards = leg.shards or 1
@@ -114,7 +123,7 @@ function composer.compose(platform, full)
                 name = platform.name .. " / " .. title,
                 -- Names this leg in cache keys and artifacts.
                 id = ("%s-%s-%d"):format(platform.key, (leg.title:gsub(" ", "-")), shard),
-                timeout = platform.timeout,
+                timeout = leg.timeout or platform.timeout,
                 kind = leg.kind,
                 select = leg.select or "",
                 shard = shard,
@@ -169,7 +178,9 @@ if invokedDirectly then
     local output = os.getenv("GITHUB_OUTPUT")
     local handle = output and assert(io.open(output, "a"))
     for _, platform in ipairs(composer.platforms) do
-        local legs = selected[platform.key] and composer.compose(platform, os.getenv("MACOS_FULL") == "true") or {}
+        local legs = selected[platform.key]
+            and composer.compose(platform, os.getenv("MACOS_FULL") == "true", os.getenv("SELECTED_CORE") == "true")
+            or {}
         local lines = (
             "%s-legs=%s\nbuild-%s=%s\n"
         ):format(platform.key, composer.encode(legs), platform.key, builds[platform.key] and "true" or "false")

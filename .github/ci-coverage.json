@@ -150,6 +150,13 @@
           ]
         },
         {
+          "name": "Run the core guests and units",
+          "platforms": ["macos"],
+          "guarantees": [
+            "every core guest case and runtime unit runs on the core in normal and spill mode against its inventoried baseline"
+          ]
+        },
+        {
           "name": "Run the benchmark runner suite",
           "platforms": ["linux"],
           "groups": ["measurement"],

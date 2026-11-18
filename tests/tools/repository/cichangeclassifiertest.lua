@@ -275,6 +275,36 @@ function M.theCoreSurfaceNamesWhatTheCoreRegressionStepRuns()
     end
 end
 
+-- The macOS legs carry the core regression step only when the core surface
+-- is selected or the run is a full one; no other platform carries it.
+function M.theCoreLegsRunOnlyOnMacosWhenTheCoreIsSelected()
+    local composer = dofile(".github/scripts/compose-integration-matrix.lua")
+    local function coreLegs(platform, full, core)
+        local legs = {}
+        for _, entry in ipairs(composer.compose(platform, full, core)) do
+            if entry.kind == "core" then
+                legs[#legs + 1] = entry
+            end
+        end
+
+        return legs
+    end
+    for _, platform in ipairs(composer.platforms) do
+        if platform.key == "macos" then
+            test.eq(#coreLegs(platform, false, false), 0)
+            local legs = coreLegs(platform, false, true)
+            test(#legs > 0, "a core change should add the core legs")
+            test.eq(#coreLegs(platform, true, false), #legs)
+            for index, leg in ipairs(legs) do
+                test.eq(leg.shard, index)
+                test.eq(leg.shards, #legs)
+            end
+        else
+            test.eq(#coreLegs(platform, true, true), 0)
+        end
+    end
+end
+
 function M.packagingChangeSelectsEveryPlatform()
     selects("templates/library/nupp.lua", {"linux-integration", "macos-integration", "windows-integration"})
 end
