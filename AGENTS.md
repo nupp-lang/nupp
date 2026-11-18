@@ -240,6 +240,13 @@ reports it is usually already testing somebody else's commit. `git push
   changed" above is the part worth being strict about -- pushing a task branch
   and waiting on a remote run is the slow way to learn something a focused
   local run already knew.
+- A tool that works through pull requests follows the same rule. The PR's
+  author lands it, rebased onto the trunk and fast-forwarded, as soon as the
+  local run passes on the platforms the change can reach. Nobody else is
+  waiting to merge it, and a CI run on the branch is not a gate. A PR left
+  open for a run to turn green is how ten of them came to sit unmerged for a
+  day (17 November) while their runs queued and were cancelled. Open a PR only
+  when a person has asked to review the change.
 
 ## Speed
 
