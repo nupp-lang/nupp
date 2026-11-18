@@ -102,7 +102,6 @@ cargo_test() {
     fi
 }
 
-cargo_test --package nupp-native-abi
 cargo_test --package nupp-native-runtime --features async
 cargo_test --package nupp-native-files --features lane
 # ThreadSanitizer on macOS defers a signal until its thread next enters an

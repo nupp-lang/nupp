@@ -138,7 +138,7 @@ vm_sources_newer_than() {
         "$ROOT/native/crates/vm/csrc" "$ROOT/native/crates/vm/build.rs" "$ROOT/native/crates/vm/Cargo.toml" \
         "$ROOT/native/crates/files" "$ROOT/native/crc" \
         "$ROOT/native/crates/net" "$ROOT/native/crates/tls" \
-        "$ROOT/native/crates/http" "$ROOT/native/crates/abi" "$ROOT/native/crates/process" \
+        "$ROOT/native/crates/http" "$ROOT/native/crates/process" \
         "$ROOT/Cargo.toml" "$ROOT/Cargo.lock" "$ROOT/scripts/vm-cli" "$ROOT/tests/run.lua" \
         -type f ! -name '.DS_Store' -newer "$1" 2>/dev/null | head -n 1)" ]
 }

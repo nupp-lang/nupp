@@ -32,7 +32,20 @@ use tokio::task::AbortHandle;
 use tokio_stream::Stream;
 use tokio_util::io::ReaderStream;
 
-use nupp_native_abi::set_last_error as set_error;
+thread_local! {
+    /// The message of the last failed call on this thread.
+    static LAST_ERROR: std::cell::RefCell<String> = const { std::cell::RefCell::new(String::new()) };
+}
+
+fn set_error(message: impl std::fmt::Display) {
+    let text = message.to_string();
+    LAST_ERROR.with(|slot| *slot.borrow_mut() = text);
+}
+
+/// The message of the last failed call on this thread.
+pub fn last_error() -> String {
+    LAST_ERROR.with(|slot| slot.borrow().clone())
+}
 
 /// What kind of refusal the last failed call on this thread made, beside the
 /// text in the last-error slot, so a caller never sorts failures by message.

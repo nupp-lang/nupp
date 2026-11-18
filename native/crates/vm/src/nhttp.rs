@@ -75,7 +75,7 @@ fn int(v: Value) -> i64 { crate::numeric::integer(v).map_or_else(|| if v.is_floa
 fn bytes(it: &Interp, v: Value) -> Vec<u8> { if it.is_stringish(v) { it.bytes_of(v).to_vec() } else { Vec::new() } }
 fn slice(b: &[u8]) -> transport::NuppHttpSlice { transport::NuppHttpSlice { data: if b.is_empty() { ptr::null() } else { b.as_ptr() }, length: b.len() } }
 fn outs(values: &[Value]) -> Outs { values.iter().copied().collect() }
-fn last_error() -> String { nupp_native_abi::with_last_error(|text| text.to_string_lossy().into_owned()) }
+fn last_error() -> String { transport::last_error() }
 /// A `kind` tag, `nils` empty results and then a reason, rooted as they are built.
 fn tagged(it: &mut Interp, kind: &str, nils: usize, reason: &str) -> Outs {
     let scope = it.open_scope();

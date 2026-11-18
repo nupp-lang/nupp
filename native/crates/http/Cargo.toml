@@ -10,7 +10,6 @@ path = "src/lib.rs"
 
 [dependencies]
 bytes = "1"
-nupp-native-abi = { path = "../abi" }
 nupp-native-runtime = { path = "../runtime", features = ["async"] }
 reqwest = { version = "0.13.4", default-features = false, features = ["deflate", "gzip", "rustls-no-provider", "socks", "stream"] }
 rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12"] }
