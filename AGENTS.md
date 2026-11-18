@@ -183,6 +183,12 @@ catching here, because several worktrees push to one trunk and the run that
 reports it is usually already testing somebody else's commit. `git push
 --no-verify` skips it; CI still asks.
 
+C follows `.clang-format` (the LuaJIT layout). `scripts/format-c --write`
+formats every C file the repository owns, the hook refuses a push carrying C
+it would rewrite, and CI's first job checks the same. Write C as it reads
+there: one statement per line, named constants rather than bare numbers, and
+small functions over dense ones.
+
 - `./bin/nupp test [SUITE...]` runs the test suite, or only the named suites:
   `./bin/nupp test doctest` finishes in seconds where the whole suite takes
   about nine minutes. `--json` reports a record per test — name, status,
