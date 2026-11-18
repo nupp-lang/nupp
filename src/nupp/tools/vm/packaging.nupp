@@ -409,6 +409,138 @@ local function run(arg: {string}, private: any?): integer
     return 0
 end
 
+--- What a packaged core seed is.
+export type CoreSeed = {
+    --- The archive.
+    archive: string,
+
+    --- Its SHA-256 digest, which a pin names.
+    sha256: string,
+
+    --- The host it runs on.
+    host: string,
+
+    --- The digest of the runtime inside it.
+    runtimeSha256: string,
+
+    --- The digest of the compiler inside it.
+    compilerSha256: string
+}
+
+-- The manifest a core seed carries, one key to a line so scripts/toolchain
+-- reads it without a JSON parser (`core_seed_verify`).
+const CORE_SEED_FORMAT = "nupp-core-seed-1"
+
+local function coreSeedManifest(host: string, revision: string, files: {[string]: string}): string
+    local names: {string} = {}
+    for name in pairs(files) do
+        names[#names + 1] = name
+    end
+    table.sort(names)
+    local entries: {string} = {}
+    for index, name in ipairs(names) do
+        entries[#entries + 1] = ('    "%s": "%s"%s'):format(name, files[name], index < #names and "," or "")
+    end
+
+    return table.concat(
+        {
+            "{",
+            ('  "compilerSha256": "%s",'):format(files["compiler.bundle"]),
+            '  "execution": "core",',
+            '  "files": {',
+            table.concat(entries, "\n"),
+            "  },",
+            ('  "format": "%s",'):format(CORE_SEED_FORMAT),
+            ('  "host": "%s",'):format(host),
+            ('  "runtimeSha256": "%s",'):format(files.runtime),
+            ('  "sourceRevision": "%s"'):format(revision),
+            "}",
+            ""
+        },
+        "\n"
+    )
+end
+
+--- Packages a core compiler and the C bridge it runs on as a release-ready seed
+--- archive: `nupp-core-seed-HOST-REVISION.tar.gz` in `directory`, with the
+--- archive's digest beside it in `.sha256`. Nothing is published or pinned.
+---
+--- @param root the checkout, whose host/NOTICE.md travels with the pair
+--- @param runtime the core runtime, which must be the C bridge
+--- @param compiler the core compiler bundle
+--- @param revision the source revision the pair was built from
+--- @param directory where the archive is written; an archive already there is
+---     never replaced
+--- @return the seed, or nil and why it was not packaged
+export function coreSeed(
+    root: string,
+    runtime: string,
+    compiler: string,
+    revision: string,
+    directory: string
+): (CoreSeed?, string?)
+    local fixpoint = require("nupp.tools.vm.fixpoint")
+    if not revision:match("^[%w._-]+$") then
+        return nil, "the source revision must be a plain name: " .. revision
+    end
+    if not fixpoint.coreRuntime(runtime) then
+        return nil, runtime .. " is not the core's C bridge"
+    end
+    if not fixpoint.coreBundle(compiler) then
+        return nil, compiler .. " is not a core compiler"
+    end
+    local hostStatus, hostOutput = process.capture({"sh", fs.join(root, "scripts/stage0-runtime"), "--host"})
+    local host = hostStatus == 0 and tostring(hostOutput):match("^(%S+)") or nil
+    if host == nil or host == "unsupported" then
+        return nil, "the core runs on no host this machine is"
+    end
+    local archive = fs.join(fs.absolute(directory), ("nupp-core-seed-%s-%s.tar.gz"):format(host, revision))
+    if fs.exists(archive) then
+        return nil, "refusing to replace the seed archive " .. archive
+    end
+    fs.mkdir(fs.absolute(directory))
+    local staging = archive .. ".staging-" .. fs.stagingSuffix()
+    fs.mkdir(staging)
+
+    local function discard(): nil
+        process.run({"rm", "-rf", staging})
+    end
+
+    local copies: {
+        [string]: string
+    } = {runtime = runtime, ["compiler.bundle"] = compiler, ["NOTICE.md"] = fs.join(root, "host/NOTICE.md")}
+    local files: {[string]: string} = {}
+    for name, source in pairs(copies) do
+        local bytes = fs.readFile(source)
+        if bytes == nil or not fs.writeFile(fs.join(staging, name), bytes as string) then
+            discard()
+            return nil, "cannot stage " .. source
+        end
+        files[name] = hash.sha256(bytes as string)
+    end
+    process.run({"chmod", "755", fs.join(staging, "runtime")})
+    if not fs.writeFile(fs.join(staging, "manifest.json"), coreSeedManifest(host as string, revision, files)) then
+        discard()
+        return nil, "cannot write the seed manifest"
+    end
+    local status, output = process.capture({"sh", fs.join(root, "scripts/toolchain"), "archive", staging, archive})
+    discard()
+    if status ~= 0 then
+        os.remove(archive)
+        return nil, "cannot archive the seed: " .. tostring(output)
+    end
+    local digest = hash.sha256((assert(fs.readFile(archive))))
+    assert(fs.writeFile(archive .. ".sha256", ("%s  %s\n"):format(digest, fs.basename(archive))))
+
+    return {
+        archive = archive,
+        sha256 = digest,
+        host = host as string,
+        runtimeSha256 = files.runtime as string,
+        compilerSha256 = files["compiler.bundle"] as string
+    }, nil
+end
+
 -- Packages a development producer without changing the shipping selection.
 export function producer(root: string, settings: table): string
     local options: any = settings

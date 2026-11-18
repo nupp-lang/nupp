@@ -39,6 +39,23 @@ local function failed(reason: string): Result
     return {ok = false, reason = reason}
 end
 
+--- The seed formats, by the runtime each executes on.
+const SEED_FORMATS: {[string]: string} = {["nupp-bootstrap-seed-1"] = "vm", ["nupp-core-seed-1"] = "core"}
+
+--- Which runtime the seed pair at `pair` executes on, by its manifest.
+---
+--- @param pair the seed's directory
+--- @return "vm" or "core", or nil when the manifest names neither
+export function seedRuntime(pair: string): string?
+    local manifest = fs.readFile(fs.join(pair, "manifest.json"))
+    if manifest == nil then
+        return nil
+    end
+    local format = (manifest as string):match('"format"%s*:%s*"([^"]+)"')
+
+    return format and SEED_FORMATS[format] or nil
+end
+
 --- The runtime/image pair `bootstrap` prints the path of on its last line.
 ---
 --- @param root where the command runs
@@ -82,6 +99,11 @@ export function run(root: string, outDir: string, say: function(line: string): n
     local pair, problem = stageZero(root, bootstrap or "sh scripts/toolchain stage0-seed")
     if pair == nil then
         return failed(tostring(problem))
+    end
+    -- Once the pin selects a core seed there is no VM seed to start from, and
+    -- none is fetched in its place.
+    if seedRuntime(pair as string) == "core" then
+        return failed("the pinned stage zero is a core seed; run nupp fixpoint --runtime core")
     end
     local checked = process.capture({"python3", fs.join(root, "scripts/bootstrap-seed"), "verify", pair as string})
     if checked ~= 0 then
@@ -165,4 +187,407 @@ export function run(root: string, outDir: string, say: function(line: string): n
     end
 
     return {ok = true, image = image, digest = hash.digest(third as string)}
+end
+
+--[[
+The same claim on the native core, `nupp fixpoint --runtime core`: the compiler
+built from these sources, running on the core, emits itself byte for byte --
+its compiler and every runtime output the build writes beside it.
+
+Stage one is built by the pinned seed: the VM execution seed until the flip,
+the core seed after it. Stages two and three are each the previous stage's
+compiler running on the core runtime, never on the Rust VM. Each stage writes
+into a directory of its own, and two and three must agree over everything in
+it, not only the compiler: a runtime output that differs is a failed fixpoint
+named by its path.
+
+Rust VM refusal is by construction rather than by trust: a core stage runs
+with every variable a compiler or `bin/nupp` would start the VM by pointing at
+a shim that records the attempt and fails, so a stage that reached for the VM
+is refused after it, however it got there.
+]]
+
+--- The first bytes of every core bundle (native/core-bridge/main.c).
+const CORE_BUNDLE_MAGIC = "NUPPCORE"
+
+--- What the C bridge says when it is run with nothing to run, which is how a
+--- runtime is known to be the core's rather than the VM's.
+const CORE_USAGE = "usage: nupp-core BUNDLE INPUT OUTPUT"
+
+--- What the Rust VM shim exits with.
+const VM_REFUSED_STATUS = 97
+
+--- How a core fixpoint builds its stages.
+export type CoreRecipe = {
+    --- What stage one runs on: "core" for a core seed, "vm" for the pinned VM
+    --- execution seed, which only stage one may run on.
+    seedRuntime: string,
+
+    --- Builds stage one into `directory` with the pinned seed, with `env` added
+    --- to its environment.
+    seed: function(directory: string, env: {[string]: string}): string?,
+
+    --- Where a stage keeps its compiler, relative to the stage's directory.
+    compiler: string,
+
+    --- The core runtime stages two and three run on.
+    runtime: string,
+
+    --- The command that runs `compiler` on `runtime` to build the next stage
+    --- into `directory`.
+    command: function(runtime: string, compiler: string, directory: string): {string},
+
+    --- Why the recipe cannot build a stage yet, asked before stage one.
+    ready: (function(): string?)?
+}
+
+--- What a core stage was built on, as a run's receipt records it.
+export type Stage = {
+    --- 1, 2 or 3.
+    index: integer,
+
+    --- "core" or "vm".
+    runtime: string,
+
+    --- The runtime that executed it, where the driver chose one.
+    executorSha256: string?,
+
+    --- Its compiler's digest.
+    compilerSha256: string,
+
+    --- Every file it emitted, by its path within the stage, and its digest.
+    files: {[string]: string}
+}
+
+--- What a core run found.
+export type CoreResult = {
+    --- Whether stages two and three agree over everything they emitted.
+    ok: boolean,
+
+    --- Why not, in one phrase.
+    reason: string?,
+
+    --- Stage three's directory, kept when they agree.
+    directory: string?,
+
+    --- Stage three's compiler.
+    image: string?,
+
+    --- Its digest.
+    digest: string?,
+
+    --- The stages built, in order.
+    stages: {Stage}
+}
+
+local function coreFailed(reason: string, stages: {Stage}): CoreResult
+    return {ok = false, reason = reason, stages = stages}
+end
+
+local function removeTree(path: string): nil
+    process.run({"rm", "-rf", path})
+end
+
+--- Whether `path` is the core's C bridge: run with nothing to run, it says so
+--- in its own words, which no VM runtime does.
+export function coreRuntime(path: string): boolean
+    local status, output = process.capture({path})
+
+    return status ~= 0 and tostring(output):find(CORE_USAGE, 1, true) ~= nil
+end
+
+--- Whether `path` holds a core bundle.
+export function coreBundle(path: string): boolean
+    local file = io.open(path, "rb")
+    if file == nil then
+        return false
+    end
+    local head = file:read(#CORE_BUNDLE_MAGIC)
+    file:close()
+
+    return head == CORE_BUNDLE_MAGIC
+end
+
+--- Every file a stage emitted, by its path within `directory`, in order.
+export function stageFiles(directory: string): {string}
+    local prefix = fs.normalize(directory) .. "/"
+    local found: {string} = {}
+    if not fs.exists(directory) then
+        return found
+    end
+    for _, path in ipairs(fs.listFiles(directory)) do
+        if path:sub(1, #prefix) == prefix then
+            found[#found + 1] = path:sub(#prefix + 1)
+        end
+    end
+    table.sort(found)
+
+    return found
+end
+
+--- Compares two stages over everything they emitted: the compiler and every
+--- runtime output beside it.
+---
+--- @param second stage two's directory
+--- @param third stage three's directory
+--- @return nil when they are byte-identical, or why not, naming the first
+---     artifact that differs by its path within the stage
+export function compareStages(second: string, third: string): string?
+    local secondFiles, thirdFiles = stageFiles(second), stageFiles(third)
+    if #secondFiles == 0 and #thirdFiles == 0 then
+        return "stages two and three emitted nothing"
+    end
+    local inSecond: {[string]: boolean} = {}
+    local inThird: {[string]: boolean} = {}
+    for _, name in ipairs(secondFiles) do
+        inSecond[name] = true
+    end
+    for _, name in ipairs(thirdFiles) do
+        inThird[name] = true
+    end
+    for _, name in ipairs(secondFiles) do
+        if not inThird[name] then
+            return "stage three emitted no " .. name
+        end
+    end
+    for _, name in ipairs(thirdFiles) do
+        if not inSecond[name] then
+            return "stage two emitted no " .. name
+        end
+    end
+    for _, name in ipairs(secondFiles) do
+        if fs.readFile(fs.join(second, name)) ~= fs.readFile(fs.join(third, name)) then
+            return "stages two and three differ at " .. name
+        end
+    end
+
+    return nil
+end
+
+local function digestFile(path: string): string
+    return hash.sha256(fs.readFile(path) or "")
+end
+
+local function stageRecord(
+    index: integer,
+    runtime: string,
+    executor: string?,
+    directory: string,
+    compiler: string
+): Stage
+    local files: {[string]: string} = {}
+    for _, name in ipairs(stageFiles(directory)) do
+        files[name] = digestFile(fs.join(directory, name))
+    end
+
+    return {
+        index = index,
+        runtime = runtime,
+        executorSha256 = executor and digestFile(executor as string) or nil,
+        compilerSha256 = digestFile(fs.join(directory, compiler)),
+        files = files
+    }
+end
+
+--- The shim a core stage finds wherever it would start the Rust VM, and the
+--- log it leaves when one does.
+local function vmShim(outDir: string): ({[string]: string}, string)
+    local directory = fs.join(outDir, "vm-refused")
+    fs.mkdir(directory)
+    local log = fs.join(directory, "attempts.log")
+    os.remove(log)
+    local runtime = fs.join(directory, "nupp-vm")
+    local script = {
+        "#!/bin/sh",
+        "printf '%s\\n' \"$0 $*\" >> " .. process.quote(log),
+        "echo 'nupp: a core fixpoint stage may not run on the Rust VM' >&2",
+        "exit " .. VM_REFUSED_STATUS,
+        ""
+    }
+    assert(fs.writeFile(runtime, table.concat(script, "\n")))
+    process.run({"chmod", "755", runtime})
+    local image = fs.join(directory, "compiler.image")
+    assert(fs.writeFile(image, "not a compiler: the core fixpoint refuses the Rust VM\n"))
+
+    return {NUPP_VM_BINARY = runtime, NUPP_VM_CLI_IMAGE = image, NUPP_VM_AUTO_REBUILD = "0"}, log
+end
+
+local function ranOnVm(log: string): string?
+    local attempts = fs.readFile(log)
+    if attempts == nil or attempts == "" then
+        return nil
+    end
+
+    return (attempts as string):match("^([^\n]*)")
+end
+
+--- Verifies the compiler from `root`'s sources on the native core, keeping the
+--- stages under `outDir` (stage1, stage2, stage3).
+---
+--- @param root the checkout
+--- @param outDir where the stages are written
+--- @param say receives one line per stage
+--- @param recipe how the stages are built
+--- @return what the run found
+export function runCore(root: string, outDir: string, say: function(line: string): nil, recipe: CoreRecipe): CoreResult
+    local stages: {Stage} = {}
+    if recipe.ready then
+        local problem = (recipe.ready as function(): string?)()
+        if problem ~= nil then
+            return coreFailed(problem as string, stages)
+        end
+    end
+    if recipe.seedRuntime ~= "core" and recipe.seedRuntime ~= "vm" then
+        return coreFailed("the pinned seed runs on no runtime the fixpoint knows", stages)
+    end
+    if not coreRuntime(recipe.runtime) then
+        return coreFailed("stages two and three would not run on the core: " .. recipe.runtime, stages)
+    end
+    fs.mkdir(outDir)
+    local refused, log = vmShim(outDir)
+    local env: {[string]: string} = {NUPP_COMPILER_ROOT = root}
+    for name, value in pairs(refused) do
+        env[name] = value
+    end
+    -- Stage one runs on the pinned seed. A VM seed is the Rust VM by design,
+    -- and the only stage that may be; a core seed is held to the core like the
+    -- stages after it.
+    local first = fs.join(outDir, "stage1")
+    removeTree(first)
+    fs.mkdir(first)
+    say(("stage 1: the pinned %s seed builds %s"):format(recipe.seedRuntime, root))
+    local problem = recipe.seed(first, recipe.seedRuntime == "core" and env or {NUPP_COMPILER_ROOT = root})
+    if problem ~= nil then
+        return coreFailed(problem as string, stages)
+    end
+    local vm = ranOnVm(log)
+    if vm ~= nil then
+        return coreFailed("stage 1 ran on the Rust VM: " .. tostring(vm), stages)
+    end
+    local previous = fs.join(first, recipe.compiler)
+    if not coreBundle(previous) then
+        return coreFailed("stage 1 emitted no core compiler at " .. recipe.compiler, stages)
+    end
+    stages[1] = stageRecord(1, recipe.seedRuntime, nil, first, recipe.compiler)
+    for index = 2, 3 do
+        local directory = fs.join(outDir, "stage" .. index)
+        removeTree(directory)
+        fs.mkdir(directory)
+        say(("stage %d: stage %d's compiler builds %s on the core"):format(index, index - 1, root))
+        local status = process.run(recipe.command(recipe.runtime, previous, directory), {cwd = root, env = env})
+        vm = ranOnVm(log)
+        if vm ~= nil then
+            return coreFailed(("stage %d ran on the Rust VM: %s"):format(index, tostring(vm)), stages)
+        end
+        if status ~= 0 then
+            return coreFailed(("stage %d did not build (status %d)"):format(index, status), stages)
+        end
+        local compiler = fs.join(directory, recipe.compiler)
+        if not coreBundle(compiler) then
+            return coreFailed(("stage %d emitted no core compiler at %s"):format(index, recipe.compiler), stages)
+        end
+        stages[index] = stageRecord(index, "core", recipe.runtime, directory, recipe.compiler)
+        previous = compiler
+    end
+    local third = fs.join(outDir, "stage3")
+    local differs = compareStages(fs.join(outDir, "stage2"), third)
+    if differs ~= nil then
+        return coreFailed(differs as string, stages)
+    end
+
+    return {ok = true, directory = third, image = previous, digest = stages[3].compilerSha256, stages = stages}
+end
+
+--- The compiler's own recipe: its stages are built by scripts/core-self-build,
+--- which holds the one switch that turns them on.
+---
+--- @param root the checkout
+--- @param pair the pinned seed's directory
+--- @param runtime the core runtime stages two and three run on
+--- @return the recipe
+export function compilerRecipe(root: string, pair: string, runtime: string): CoreRecipe
+    local script = fs.join(root, "scripts/core-self-build")
+    local kind = seedRuntime(pair) or "unknown"
+
+    return {
+        seedRuntime = kind,
+        compiler = "compiler.bundle",
+        runtime = runtime,
+        ready = function(): string?
+            local status, output = process.capture({"sh", script, "--ready"}, {cwd = root})
+            if status ~= 0 then
+                return (tostring(output):gsub("%s+$", ""))
+            end
+
+            return nil
+        end,
+        seed = function(directory: string, env: {[string]: string}): string?
+            local command: {string} = {"sh", script, "vm-seed", pair, directory}
+            if kind == "core" then
+                command = {"sh", script, "core", fs.join(pair, "runtime"), fs.join(pair, "compiler.bundle"), directory}
+            end
+            if process.run(command, {cwd = root, env = env}) ~= 0 then
+                return "the pinned seed did not build stage 1"
+            end
+
+            return nil
+        end,
+        command = function(core: string, compiler: string, directory: string): {string}
+            return {"sh", script, "core", core, compiler, directory}
+        end
+    }
+end
+
+--- Bootstraps cold from a packaged core seed: installs `archive` into an empty
+--- toolchain cache as a pinned seed would be, builds three stages from it, and
+--- holds stage three to `reference` over everything it emitted.
+---
+--- @param root the checkout
+--- @param archive the core seed archive
+--- @param sha256 its digest
+--- @param outDir where the cache and the stages are written
+--- @param say receives one line per stage
+--- @param recipeFor the recipe that starts from the installed seed
+--- @param reference the stage three a run that packaged the seed reached
+--- @return what the run found
+export function coldBootstrap(
+    root: string,
+    archive: string,
+    sha256: string,
+    outDir: string,
+    say: function(line: string): nil,
+    recipeFor: function(pair: string): CoreRecipe,
+    reference: string
+): CoreResult
+    removeTree(outDir)
+    fs.mkdir(outDir)
+    local cache = fs.join(outDir, "toolchain")
+    local status, output = process.capture(
+        {"sh", fs.join(root, "scripts/toolchain"), "core-seed-install", archive, sha256},
+        {cwd = root, env = {NUPP_TOOLCHAIN_DIR = cache, NUPP_HOST_OFFLINE = "1"}}
+    )
+    if status ~= 0 then
+        return coreFailed("the core seed did not install: " .. tostring(output), {})
+    end
+    local pair: string? = nil
+    for line in tostring(output):gmatch("[^\r\n]+") do
+        pair = line
+    end
+    if pair == nil or seedRuntime(pair as string) ~= "core" then
+        return coreFailed("the installed seed is not a core seed", {})
+    end
+    say("cold bootstrap from " .. archive)
+    local found = runCore(root, fs.join(outDir, "stages"), say, recipeFor(pair as string))
+    if not found.ok then
+        return found
+    end
+    local differs = compareStages(reference, found.directory as string)
+    if differs ~= nil then
+        return coreFailed(
+            "the cold bootstrap's stage three differs from the reference: " .. tostring(differs),
+            found.stages
+        )
+    end
+
+    return found
 end

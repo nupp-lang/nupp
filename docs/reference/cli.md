@@ -1649,12 +1649,18 @@ Examples:
     nupp fixpoint
     nupp fixpoint --binary
     nupp fixpoint --emit-stage0 build/stage0/nupp.image
+    nupp fixpoint --runtime core --package-seed build/seed
 
 Usage:
   nupp fixpoint [options]
 
 Options:
   --emit-stage0 PATH  Write the verified stage-zero image here.
+  --runtime RUNTIME   The runtime stages two and three run on; the pinned stage
+                      zero's by default.
+  --package-seed DIR  Package the verified core compiler and runtime pair as a
+                      seed archive in this directory, then bootstrap from it
+                      cold.
   --binary            Verify the packaged binary instead of the compiler.
   --format FORMAT, --json, --text
                       Select the report representation.
@@ -1688,6 +1694,23 @@ configures.
 mismatch keeps both stages for inspection and exits 1. See
 [distribution.md](distribution.md) for the payload format whose determinism
 this verifies.
+
+`--runtime core` makes the same claim on the native core. Stage one is built
+by the pinned seed; stages two and three are each the stage before's compiler
+running on the C bridge built from these sources, and none of them may start
+the Rust VM: every variable a compiler or `bin/nupp` would start it by points
+at a stand-in that records the attempt, and a stage that made one is refused.
+Stages two and three are compared over everything they emitted, the compiler
+and every runtime output beside it, and a mismatch names the first file that
+differs. The stages stay under `build/core-fixpoint`, with a `receipt.json`
+of what each ran on and emitted. Without `--runtime`, the fixpoint runs on
+whichever runtime the host's pinned stage zero does (`scripts/stage0-runtime`).
+
+`--package-seed DIR` then packages stage three's compiler and runtime as a
+release-ready seed archive in `DIR`, with its SHA-256 digest beside it, and
+bootstraps from that archive cold -- installed into an empty toolchain cache,
+all three stages on the core -- which must reach the same stage three. It
+publishes and pins nothing.
 
 ### `run`
 

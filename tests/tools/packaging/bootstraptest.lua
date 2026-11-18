@@ -207,4 +207,148 @@ function M.theTestRunnerCarriesEverySourceButTheNativeCore()
     assert(#carried == 0, "the test runner carries the native core:\n  " .. table.concat(carried, "\n  "))
 end
 
+-- The core seed: the compiler and C bridge pair `nupp fixpoint --runtime core
+-- --package-seed` packages (`nupp.tools.vm.packaging.coreSeed`), and
+-- `scripts/toolchain core-seed-install` installs cold. The pair here is a
+-- stand-in: a runtime that answers as the C bridge does, and runs any bundle
+-- as a compiler that knows `--help`.
+local CORE_RUNTIME = [=[#!/bin/sh
+if [ "$#" -lt 3 ]; then
+    echo 'nupp-core: usage: nupp-core BUNDLE INPUT OUTPUT [ARGUMENT...]' >&2
+    exit 1
+fi
+[ "$4" = --help ] && echo 'Usage: nupp COMMAND'
+exit 0
+]=]
+
+local function coreHost()
+    local host = capture(("sh '%s/scripts/stage0-runtime' --host"):format(ROOT)):match("^(%S+)")
+    if host == "unsupported" then
+        require("assert").suite.skip("the native core runs on ARM64 macOS and Linux only")
+    end
+end
+
+-- A packaged stand-in seed, and a toolchain cache of its own to install it in.
+local function packagedSeed()
+    coreHost()
+    local dir = os.tmpname()
+    os.remove(dir)
+    assert(os.execute(("mkdir -p '%s/pair'"):format(dir)) == 0)
+
+    local function plant(path, text)
+        local file = assert(io.open(dir .. "/" .. path, "wb"))
+        file:write(text)
+        file:close()
+    end
+
+    plant("pair/runtime", CORE_RUNTIME)
+    assert(os.execute(("chmod 755 '%s/pair/runtime'"):format(dir)) == 0)
+    plant("pair/compiler.bundle", "NUPPCORE" .. string.rep("\0", 64) .. "a compiler")
+    local seed, problem = require(
+        "nupp.tools.vm.packaging"
+    ).coreSeed(ROOT, dir .. "/pair/runtime", dir .. "/pair/compiler.bundle", "test", dir .. "/seed")
+    assert(seed, problem)
+
+    local function install(archive, digest)
+        return capture(
+            (
+                "%s NUPP_TOOLCHAIN_DIR='%s/toolchain' NUPP_HOST_OFFLINE=1 sh '%s/scripts/toolchain' core-seed-install '%s' %s 2>&1"
+            ):format(NO_VM_CLI, dir, ROOT, archive, digest)
+        )
+    end
+
+    -- The seed's archive rebuilt with `change` applied to its files.
+    local function repacked(change)
+        local unpacked = dir .. "/unpacked"
+        assert(
+            os.execute(
+                (
+                    "rm -rf '%s' && mkdir -p '%s' && tar -xzf '%s' -C '%s'"
+                ):format(unpacked, unpacked, seed.archive, unpacked)
+            ) == 0
+        )
+        change(unpacked)
+        local archive = dir .. "/repacked.tar.gz"
+        os.remove(archive)
+        assert(
+            os.execute(("sh '%s/scripts/toolchain' archive '%s' '%s' > /dev/null"):format(ROOT, unpacked, archive)) == 0
+        )
+        local digest = capture(("shasum -a 256 '%s' 2>/dev/null || sha256sum '%s'"):format(archive, archive))
+            :match("^(%x+)")
+
+        return archive, digest
+    end
+
+    return dir, seed, install, repacked
+end
+
+function M.aPackagedCoreSeedInstallsColdAndRuns()
+    local dir, seed, install = packagedSeed()
+    local sum = assert(readFile(seed.archive .. ".sha256"))
+    assert(sum:match("^(%x+)") == seed.sha256, "the archive's digest is not beside it: " .. sum)
+    assert(seed.archive:match("/nupp%-core%-seed%-[%w_-]+%-test%.tar%.gz$"), seed.archive)
+    local listing = capture(("tar -tzf '%s'"):format(seed.archive))
+    assert(listing == "NOTICE.md\ncompiler.bundle\nmanifest.json\nruntime\n", listing)
+    local again = require(
+        "nupp.tools.vm.packaging"
+    ).coreSeed(ROOT, dir .. "/pair/runtime", dir .. "/pair/compiler.bundle", "test", dir .. "/seed")
+    assert(again == nil, "a packaged seed archive was replaced")
+
+    local out = install(seed.archive, seed.sha256)
+    local installed = out:match("([^\n]+)\n?$")
+    assert(installed == dir .. "/toolchain/core-seed/" .. seed.sha256, "the seed did not install: " .. out)
+    assert(readFile(installed .. "/compiler.bundle") == readFile(dir .. "/pair/compiler.bundle"))
+    assert(readFile(installed .. "/manifest.json"):find('"format": "nupp-core-seed-1"', 1, true))
+    assert(install("/nonexistent", seed.sha256) == out, "the installed seed is not reused from the cache")
+    os.execute("rm -rf '" .. dir .. "'")
+end
+
+function M.aCoreSeedArchiveWithAnotherDigestIsRefused()
+    local dir, seed, install = packagedSeed()
+    local out = install(seed.archive, string.rep("0", 64))
+    assert(out:find("refusing to unpack it", 1, true), out)
+    assert(readFile(dir .. "/toolchain/core-seed/" .. string.rep("0", 64) .. "/runtime") == nil)
+    os.execute("rm -rf '" .. dir .. "'")
+end
+
+function M.aCoreSeedArchiveWithAnUnnamedEntryIsRefused()
+    local dir, _, install, repacked = packagedSeed()
+    local archive, digest = repacked(function(unpacked)
+        local file = assert(io.open(unpacked .. "/extra", "wb"))
+        file:write("not in the seed\n")
+        file:close()
+    end)
+    local out = install(archive, digest)
+    assert(out:find("holds unexpected entries", 1, true), out)
+    os.execute("rm -rf '" .. dir .. "'")
+end
+
+function M.aCoreSeedItsManifestDoesNotDescribeIsRefused()
+    local dir, _, install, repacked = packagedSeed()
+    local archive, digest = repacked(function(unpacked)
+        local file = assert(io.open(unpacked .. "/compiler.bundle", "ab"))
+        file:write("changed after packaging")
+        file:close()
+    end)
+    local out = install(archive, digest)
+    assert(out:find("not the ones its manifest names", 1, true), out)
+    os.execute("rm -rf '" .. dir .. "'")
+end
+
+-- Once the pins list a host in STAGE0_CORE_HOSTS, its stage zero is the core
+-- seed, and the VM seed is not fetched in its place.
+function M.aFlippedHostsStageZeroIsNeverTheVmSeed()
+    coreHost()
+    local dir, plant, env = stageZeroTree()
+    local host = capture(("sh '%s/scripts/stage0-runtime' --host"):format(dir)):match("^(%S+)")
+    local pins = assert(readFile(dir .. "/scripts/toolchain.pins"))
+    plant("scripts/toolchain.pins", (pins:gsub("\nSTAGE0_CORE_HOSTS=[^\n]*", "\nSTAGE0_CORE_HOSTS=" .. host)))
+    plant("scripts/bootstrap-seed", "open('" .. dir .. "/vm-seed-fetched', 'w').close()\n")
+    local out, ok = capture(("%s '%s/scripts/toolchain' stage0-seed 2>&1"):format(env, dir))
+    assert(not ok, "a flipped host with no core seed pinned found a stage zero: " .. out)
+    assert(out:find("no core seed is pinned", 1, true), out)
+    assert(readFile(dir .. "/vm-seed-fetched") == nil, "a flipped host fetched the VM seed")
+    os.execute("rm -rf '" .. dir .. "'")
+end
+
 return M

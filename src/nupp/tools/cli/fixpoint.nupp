@@ -23,7 +23,12 @@ local REPORT_SCHEMA = {
             description = "Which claim was checked: the compiler compiling "
             .. "itself from stage zero, or the packaged binary stamping another."
         },
-        target = {type = "string", description = "The manifest target that was verified."},
+        target = {
+            type = "string",
+            description = "The runtime the compiler was verified on: vm, or core for the native core."
+        },
+        seedArchive = {type = "string", description = "The core seed archive --package-seed wrote, if any."},
+        seedSha256 = {type = "string", description = "That archive's SHA-256 digest."},
         emittedStage0 = {type = "string", description = "Where the stage-zero image was written, if anywhere."},
         bytes = {type = "integer", description = "The size of the verified binary, for --binary."},
         reason = {type = "string", description = "Why it failed, in one phrase. Absent when ok is true."},
@@ -40,6 +45,117 @@ local function report(asJson: boolean, code: string, message: string): any
     return require("nupp.tools.cli.report").runDiagnostic(code, message)
 end
 
+-- The runtime this host's pinned stage zero runs on (scripts/stage0-runtime),
+-- which is what a bare `nupp fixpoint` verifies: vm until the pins flip the
+-- host to the core.
+local function pinnedRuntime(root: string): string
+    local fs = require("nupp.compiler.fs")
+    local script = fs.join(root, "scripts/stage0-runtime")
+    if not fs.exists(script) then
+        return "vm"
+    end
+    local status, output = require("nupp.compiler.process").capture({"sh", script})
+
+    return status == 0 and tostring(output):match("^core") ~= nil and "core" or "vm"
+end
+
+-- `nupp fixpoint --runtime core`: three stages, the last two built by the
+-- compiler running on the core, and with --package-seed the stage-three pair
+-- packaged and bootstrapped cold.
+local function coreFixpoint(
+    values: any,
+    config: any,
+    asJson: boolean,
+    result: {[string]: any},
+    diagnostics: {any}
+): integer
+    local fs = require("nupp.compiler.fs")
+    local process = require("nupp.compiler.process")
+    local fixpoint = require("nupp.tools.vm.fixpoint")
+    local root = fs.absolute(".")
+    result.target = "core"
+
+    local function say(line: string): nil
+        if not asJson then
+            io.stderr:write(line, "\n")
+        end
+    end
+
+    local function fail(reason: string): integer
+        result.reason = reason
+        diagnostics[#diagnostics + 1] = report(asJson, "NUPP0004", "nupp: core fixpoint failed: " .. reason)
+
+        return 1
+    end
+
+    local pair, problem = fixpoint.stageZero(root, config.selfHost.bootstrap or "sh scripts/toolchain stage0-seed")
+    if pair == nil then
+        return fail(tostring(problem))
+    end
+    local out = fs.join(root, "build/core-fixpoint")
+    local bridge = fs.join(out, "bridge")
+    local status, built = process.capture({"sh", fs.join(root, "scripts/core-bridge")}, {
+        cwd = root,
+        env = {NUPP_CORE_BRIDGE_DIR = bridge}
+    })
+    if status ~= 0 then
+        return fail("the core bridge did not build: " .. tostring(built))
+    end
+    local runtime = fs.join(bridge, "nupp-core")
+    local found = fixpoint.runCore(root, out, say, fixpoint.compilerRecipe(root, pair as string, runtime))
+    if not found.ok then
+        return fail(tostring(found.reason))
+    end
+    -- What each stage ran on and emitted, for whoever reviews the run.
+    fs.writeFile(fs.join(out, "receipt.json"), require("serde.json").encodevalue({stages = found.stages}))
+    if values.packageSeed then
+        local revisionStatus, head = process.capture({"git", "rev-parse", "HEAD"}, {cwd = root})
+        if revisionStatus ~= 0 then
+            return fail("cannot name the source revision to package: " .. tostring(head))
+        end
+        -- The stage's own runtime when the build emitted one, and otherwise
+        -- the bridge stages two and three ran on.
+        local pairRuntime = fs.join(found.directory as string, "runtime")
+        if not fs.exists(pairRuntime) then
+            pairRuntime = runtime
+        end
+        local packaged, why = require(
+            "nupp.tools.vm.packaging"
+        ).coreSeed(root, pairRuntime, found.image as string, (tostring(head):gsub("%s+$", "")), values.packageSeed)
+        if packaged == nil then
+            return fail("the core seed did not package: " .. tostring(why))
+        end
+        result.seedArchive = packaged.archive
+        result.seedSha256 = packaged.sha256
+        local cold = fixpoint.coldBootstrap(
+            root,
+            packaged.archive,
+            packaged.sha256,
+            fs.join(root, "build/core-fixpoint-cold"),
+            say,
+            function(installed: string): fixpoint.CoreRecipe
+                return fixpoint.compilerRecipe(root, installed, runtime)
+            end,
+            found.directory as string
+        )
+        if not cold.ok then
+            return fail(tostring(cold.reason))
+        end
+        if not asJson then
+            io.write(("packaged the core seed %s (sha256 %s)\n"):format(packaged.archive, packaged.sha256))
+        end
+    end
+    if not asJson then
+        io.write(
+            (
+                "fixpoint ok: the core compiler emits itself and its runtime outputs byte-identically (%s, %s)\n"
+            ):format(tostring(found.image), tostring(found.digest))
+        )
+    end
+
+    return 0
+end
+
 local function run(options: any): integer
     local positional: {string} = {}
     if #positional > 0 then
@@ -48,6 +164,16 @@ local function run(options: any): integer
     local values = options
     if values.binary and values.emitStage0 then
         return usageError("--binary verifies the packaged binary and composes no stage zero")
+    end
+    local runtime = values.runtime or pinnedRuntime(".")
+    if values.runtime == "core" and values.binary then
+        return usageError("--binary verifies the packaged binary, on no particular runtime")
+    end
+    if runtime == "core" and not values.binary and values.emitStage0 then
+        return usageError("--emit-stage0 writes a VM image; --package-seed packages the core's stage zero")
+    end
+    if runtime ~= "core" and values.packageSeed then
+        return usageError("--package-seed packages a core seed, which --runtime core verifies")
     end
     local asJson = values.format == "json"
     local project = require("nupp.tools.build.project")
@@ -69,6 +195,8 @@ local function run(options: any): integer
     elseif config.selfHost == nil then
         diagnostics[#diagnostics + 1] = report(asJson, "NUPP0003", "nupp: this project declares no selfHost compiler")
         code = 1
+    elseif runtime == "core" then
+        code = coreFixpoint(values, config, asJson, result, diagnostics)
     elseif not rawget(_G, "__nupp_load_image") then
         diagnostics[#diagnostics + 1] = report(asJson, "NUPP0004", "nupp: the fixpoint runs on the VM compiler")
         code = 1
@@ -137,12 +265,22 @@ end
 ---     nupp fixpoint
 ---     nupp fixpoint --binary
 ---     nupp fixpoint --emit-stage0 build/stage0/nupp.image
+---     nupp fixpoint --runtime core --package-seed build/seed
 @cli("fixpoint")
 @derive(cliModule.command)
 local record Fixpoint
     --- Write the verified stage-zero image here.
     @cli(value = "PATH")
     emitStage0: string?
+
+    --- The runtime stages two and three run on; the pinned stage zero's by default.
+    @cli(value = "RUNTIME", choices = {"vm", "core"})
+    runtime: string?
+
+    --- Package the verified core compiler and runtime pair as a seed archive in
+    --- this directory, then bootstrap from it cold.
+    @cli(value = "DIR")
+    packageSeed: string?
 
     --- Verify the packaged binary instead of the compiler.
     binary: boolean = false
