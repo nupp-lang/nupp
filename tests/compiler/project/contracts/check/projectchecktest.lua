@@ -399,6 +399,57 @@ return {
     remove(dir)
 end
 
+-- Entered at `calls`, a cycle reaches `graph` while `calls` is unfinished, and
+-- that check of `graph` cannot see `calls`' constants. Named after `calls`, or
+-- invalidated by an edit to it, `graph` must be checked against the finished
+-- interface, and what the check cache keeps for it must be that answer.
+function M.checkOfACycleAnswersAlikeInEveryOrderAndFromTheCache()
+    local function files(limit)
+        return {
+            ["nupp.lua"] = 'return {include = {"src"}}\n',
+            [
+                "src/calls.nupp"
+            ] = "module calls\nconst native = require('native')\nexport const MAX: integer = "
+                .. limit
+                .. "\nexport function omits(given: integer): boolean\n"
+                .. "    return given > MAX and native.ready()\nend\n",
+            ["src/native.nupp"] = "module native\nconst graph = require('graph')\n"
+                .. "export function ready(): boolean\n    return graph.limit() > 0\nend\n",
+            ["src/graph.nupp"] = "module graph\nconst calls = require('calls')\nexport const MAX = calls.MAX\n"
+                .. "export function limit(): integer\n    return MAX\nend\n",
+        }
+    end
+
+    local function errors(dir, names)
+        local paths = {}
+        for _, name in ipairs(names) do
+            paths[#paths + 1] = dir .. "/src/" .. name .. ".nupp"
+        end
+        local diagnostics = {}
+        project.check(dir, {paths = paths, stats = {}, diagnostics = diagnostics})
+        local found = {}
+        for _, d in ipairs(diagnostics) do
+            if d.severity == "error" then
+                found[#found + 1] = tostring(d.code) .. " " .. tostring(d.msg)
+            end
+        end
+
+        return table.concat(found, "\n")
+    end
+
+    local dir = tempProject(files(16))
+    testAssert.eq(errors(dir, {"calls", "graph"}), "", "the member named after the root")
+    testAssert.eq(errors(dir, {"graph"}), "", "and the record that check kept")
+    remove(dir .. "/build")
+    testAssert.eq(errors(dir, {"graph"}), "", "a cold check of the member alone")
+
+    -- The state a restored cache leaves: `graph` recorded against an older `calls`.
+    write(dir .. "/src/calls.nupp", files(17)["src/calls.nupp"])
+    testAssert.eq(errors(dir, {"calls", "graph"}), "", "the member after the root changed")
+    testAssert.eq(errors(dir, {"graph"}), "", "and the record kept after it")
+    remove(dir)
+end
+
 -- A path the project does not reach is not an error, it is a different
 -- question: the caller gets it back to ask on its own terms.
 function M.checkOfNamedFilesHandsBackWhatTheProjectDoesNotReach()

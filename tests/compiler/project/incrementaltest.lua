@@ -1172,6 +1172,58 @@ function M.aRequireCycleEnteredByFileLeavesItsInterfaceForLaterDependents()
     os.execute("rm -rf '" .. dir .. "'")
 end
 
+--- Entered at `calls`, the cycle reaches `graph` while `calls` is still being
+--- checked, and `graph` sees only the functions the hoist registered, not the
+--- constants. That check was reused when `graph` was asked for itself, which
+--- reported `no field "MAX"` for a constant `calls` does export. Asked for itself,
+--- `graph` is checked again against the finished interface, and a dependent
+--- outside the cycle sees the type that check gives it.
+function M.aCycleMemberCheckedThroughAnUnfinishedInterfaceIsCheckedAgain()
+    local dir = os.tmpname()
+    os.remove(dir)
+    os.execute("mkdir -p '" .. dir .. "'")
+
+    local function write(path, text)
+        local file = assert(io.open(dir .. "/" .. path, "wb"))
+        file:write(text)
+        file:close()
+    end
+
+    write(
+        "calls.nupp",
+        "module calls\nconst native = require('native')\nexport const MAX: integer = 16\n"
+            .. "export function omits(given: integer): boolean\n    return given > MAX and native.ready()\nend\n"
+    )
+    write(
+        "native.nupp",
+        "module native\nconst graph = require('graph')\nexport function ready(): boolean\n"
+            .. "    return graph.limit() > 0\nend\n"
+    )
+    write(
+        "graph.nupp",
+        "module graph\nconst calls = require('calls')\nexport const MAX = calls.MAX\n"
+            .. "export function limit(): integer\n    return MAX\nend\n"
+    )
+    write("user.nupp", "const graph = require('graph')\nconst wrong: string = graph.MAX\nreturn wrong\n")
+
+    local inc = incremental.new(dir, {cache = false})
+    testAssert.eq(#inc.checkFile(dir .. "/calls.nupp").diags, 0, "the cycle's root checks clean")
+    local graph = inc.checkFile(dir .. "/graph.nupp").diags
+    testAssert.eq(#graph, 0, graph[1] and graph[1].msg or "the member reads the root's finished constants")
+    testAssert.eq(#inc.checkFile(dir .. "/native.nupp").diags, 0, "and so does the module between them")
+    local user = inc.checkFile(dir .. "/user.nupp").diags
+    testAssert.eq(user[1] and user[1].code, "NUPP2001", "a dependent sees the constant's real type")
+    testAssert.eq(#user, 1, "and nothing else")
+
+    local checks = inc.q.stats.checkModule
+    for _, name in ipairs({"calls", "graph", "native", "user"}) do
+        inc.checkFile(dir .. "/" .. name .. ".nupp")
+    end
+    testAssert.eq(inc.q.stats.checkModule, checks, "a settled cycle is not checked again")
+
+    os.execute("rm -rf '" .. dir .. "'")
+end
+
 --- Validating a memo brings each of its dependencies up to date, and a `require`
 --- cycle makes one of those lead back to the entry being validated. The re-entrant
 --- edge has to report what that entry last changed at rather than validating it

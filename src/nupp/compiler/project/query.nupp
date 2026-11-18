@@ -45,6 +45,10 @@ export record Memo
 
     --- Everything it read while computing, in order.
     deps: {Dep}
+
+    --- Set by `Q:recompute`: the next read computes again rather than trusting the
+    --- value, while a re-entrant edge still sees it.
+    stale: boolean?
 end
 
 --- A running computation, collecting what it reads.
@@ -191,7 +195,7 @@ function Q:get(name: string, key: any): any
         return entry and entry.value or nil
     end
 
-    if entry then
+    if entry and not entry.stale then
         -- Validation is an implementation detail of the query being read, not a set
         -- of dependencies its caller read directly. A discard frame keeps validation
         -- reads from leaking into an outer computation while preserving the real
@@ -275,4 +279,39 @@ depChangedAt = function(self: Q, name: string, key: any): integer
     local entry = m and m[key]
 
     return entry and entry.changedAt or self.revision
+end
+
+--- Computes a query again although its memo is current, and returns the new value.
+---
+--- For a value worked out against an answer that was still being computed: the
+--- re-entrant edge of a cycle. Validation cannot see that, because the edge's answer
+--- has since settled under the same revision. Reads made while recomputing are
+--- stamped one revision, and the result is published at the next, so anything that
+--- read the old value -- before or during the recomputation -- is validated against
+--- it rather than keeping what it saw. The re-entrant edge of the recomputation
+--- itself still sees the old value, as a cycle's edge always does.
+---
+--- @param name which query
+--- @param key what to compute it for
+--- @raises any whatever the definition raised
+function Q:recompute(name: string, key: any): any
+    assert(#self.stack == 0, "recompute runs outside any computation")
+    self.revision = self.revision + 1
+    local m = self.memo[name]
+    local entry = m and m[key]
+    if entry then
+        entry.stale = true
+    end
+    local value = self:get(name, key)
+    self.revision = self.revision + 1
+    local after = self.memo[name]
+    local fresh = after and after[key]
+    if fresh then
+        if fresh.changedAt == self.revision - 1 then
+            fresh.changedAt = self.revision
+        end
+        fresh.verifiedAt = self.revision
+    end
+
+    return value
 end

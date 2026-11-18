@@ -89,8 +89,11 @@ export type CheckResult = {
     missing: boolean?,
 
     --- The parse this was checked from, kept so callers need not reparse.
-    result: any
+    result: any,
 
+    --- The cycle roots whose unfinished interface this check read, directly or
+    --- through another module that did, by path. Absent when it read none.
+    partial: {[string]: boolean}?
 }
 
 --- The compiler's query graph, with the editor and build entry points that read it.
@@ -226,6 +229,42 @@ export function new(rootDir: string, opts: table?): Inc
     local functionInspection = opts.functionInspection == true
     local q = query.new()
     local activeModules = {}
+    -- The innermost running module check; each links to the check that reached it.
+    local innermostCheck: any = nil
+    -- A module being checked again after its cycle closed, and the cycle roots it
+    -- first saw unfinished. It reads their finished interfaces, but they are still
+    -- initializing as far as its own initialization is concerned: the cycle was
+    -- entered at them.
+    local settling: any = nil
+
+    -- A read of a module still being checked sees an interface that can still grow:
+    -- the re-entrant edge of a `require` cycle. Every check between the reader and
+    -- that module read through it, and so did a check that later reads a module
+    -- which did, while the cycle is still open. The cycle's root is not among them:
+    -- it keeps the export graph it completed. An explicit check of a module marked
+    -- this way checks it again once the cycle has closed.
+    local function observeModule(target: string?): nil
+        if target == nil or innermostCheck == nil then
+            return
+        end
+        local roots: {[string]: boolean}? = nil
+        if activeModules[target] then
+            roots = {[target] = true}
+        else
+            local memo = q.memo.checkModule and q.memo.checkModule[target]
+            roots = memo and memo.value and memo.value.partial or nil
+        end
+        for root in pairs(roots or {}) do
+            if activeModules[root] then
+                local frame = innermostCheck
+                while frame and frame.path ~= root do
+                    frame.partial = frame.partial or {}
+                    frame.partial[root] = true
+                    frame = frame.parent
+                end
+            end
+        end
+    end
 
     -- A module another session checked, installed by `importModules` as an input
     -- under this name. Nil until then. Every query that would otherwise reach the
@@ -693,9 +732,14 @@ export function new(rootDir: string, opts: table?): Inc
             end
         end
         local sourceDeclaredModule = cst.declaredModule(result.root)
-        activeModules[
-            path
-        ] = {exports = seeded, declared = sourceDeclaredModule ~= nil and cst.exportAssignment(result.root) == nil,}
+        local frame: any = {
+            path = path,
+            parent = innermostCheck,
+            exports = seeded,
+            declared = sourceDeclaredModule ~= nil and cst.exportAssignment(result.root) == nil,
+        }
+        activeModules[path] = frame
+        innermostCheck = frame
 
         -- route require() through the query graph so dependencies record
         result.externalInputs = {}
@@ -704,6 +748,7 @@ export function new(rootDir: string, opts: table?): Inc
                 resolveModule = function(_, name)
                     local interface = self:get("moduleInterface", name)
                     local target = modulePath(self, name)
+                    observeModule(target)
                     local active = target and activeModules[target]
                     if not interface and active then
                         return active.declared and interfaceType(active.exports) or T.any
@@ -714,11 +759,17 @@ export function new(rootDir: string, opts: table?): Inc
                 resolveModuleExports = function(_, name)
                     local exports = self:get("moduleExports", name)
                     local target = modulePath(self, name)
+                    observeModule(target)
                     local active = target and activeModules[target]
+
                     return exports or active and active.declared and active.exports or nil
                 end,
                 moduleInitializing = function(_, name)
                     local target = modulePath(self, name)
+                    if target ~= nil and settling ~= nil and settling.path == path and settling.roots[target] then
+                        return true
+                    end
+
                     return target ~= nil and activeModules[target] ~= nil
                 end,
                 observeCallGuarantee = function(_, module, member, identity, guarantee)
@@ -774,7 +825,7 @@ export function new(rootDir: string, opts: table?): Inc
         if envMod.isDependencyTypePath(env, path) or envMod.isRuntimeSourcePath(env, path) then
             fileStrict = false
         end
-        local diags, moduleType, exports = check.check(result, path, qenv, {
+        local checked, diags, moduleType, exports = pcall(check.check, result, path, qenv, {
             moduleName = checkedModuleName(path),
             strict = fileStrict,
             functionInspection = functionInspection,
@@ -783,6 +834,10 @@ export function new(rootDir: string, opts: table?): Inc
         })
 
         activeModules[path] = nil
+        innermostCheck = frame.parent
+        if not checked then
+            error(diags, 0)
+        end
 
         -- Not only for a file with a `module` line: two files providing one module
         -- are refused whether or not either spells the name, and the refusal has to
@@ -804,7 +859,7 @@ export function new(rootDir: string, opts: table?): Inc
             }
         end
 
-        return {diags = diags, moduleType = moduleType, exports = exports, result = result,}
+        return {diags = diags, moduleType = moduleType, exports = exports, result = result, partial = frame.partial,}
     end
 
     -- The announcement wraps the definition rather than living inside it, so every way
@@ -928,6 +983,7 @@ export function new(rootDir: string, opts: table?): Inc
                     return projected
                 end
                 local path = modulePath(self, implementation)
+                observeModule(path)
                 local active = path and activeModules[path]
                 return active and active.declared and active.exports or nil
             end
@@ -1009,6 +1065,7 @@ export function new(rootDir: string, opts: table?): Inc
     env.resolveModule = function(_, name)
         local resolved = q:get("moduleInterface", name)
         local path = modulePath(q, name)
+        observeModule(path)
         local active = path and activeModules[path]
         if not resolved and active then
             return active.declared and interfaceType(active.exports) or T.any
@@ -1019,7 +1076,9 @@ export function new(rootDir: string, opts: table?): Inc
     env.resolveModuleExports = function(_, name)
         local exports = q:get("moduleExports", name)
         local path = modulePath(q, name)
+        observeModule(path)
         local active = path and activeModules[path]
+
         return exports or active and active.declared and active.exports or nil
     end
 
@@ -1199,6 +1258,17 @@ export function new(rootDir: string, opts: table?): Inc
         end
     end
 
+    -- Whether a check's diagnostics refuse the module.
+    local function refuses(diags: {any}?): boolean
+        for _, diagnostic in ipairs(diags or {}) do
+            if diagnostic.severity == "error" or diagnostic.severity == nil then
+                return true
+            end
+        end
+
+        return false
+    end
+
     -- Checks a file the way a `require` of it would: through its module's interface.
     --
     -- Entered through `checkModule` directly, a file in a require cycle is the one
@@ -1213,8 +1283,24 @@ export function new(rootDir: string, opts: table?): Inc
         if name ~= nil and modulePath(q, name as string) == path then
             q:get("moduleInterface", name as string)
         end
+        local result = q:get("checkModule", path)
+        -- Checked inside a cycle entered elsewhere, the module read an interface that
+        -- was still growing. Asked for itself, it is checked again against the
+        -- finished one when that check refused something, since a missing member
+        -- is what an unfinished interface gets wrong; its dependents are then
+        -- validated against the new answer. A check that refused nothing stands:
+        -- checking every such module twice slowed a whole-project check by 40%.
+        if result and result.partial and #q.stack == 0 and refuses(result.diags) then
+            settling = {path = path, roots = result.partial}
+            local rechecked, again = pcall(q.recompute, q, "checkModule", path)
+            settling = nil
+            if not rechecked then
+                error(again, 0)
+            end
+            result = again
+        end
 
-        return q:get("checkModule", path)
+        return result
     end
 
     -- Full result for a file: parse + check diagnostics, parse result.
