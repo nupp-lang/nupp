@@ -902,24 +902,16 @@ function selector.run(f: ir.Function, a: allocate.Allocation): selector.Code
     end
     transport(#incoming)
 
-    -- Keep operation IDs and immutable columns local to the selection loop.
+    -- Keep operation IDs and the columns the selection loop reads most local
+    -- to it. The rest are read from `f`: every local is a slot of the frame,
+    -- and the native core holds a function to fewer than 250.
     local colArgs = f.args
     local colAux = f.aux
-    local colBlockEnd = f.blockEnd
-    local colBlockStart = f.blockStart
     local colDefinitions = f.definitions
     local colFirstArg = f.firstArg
-    local colFirstEdge = f.firstEdge
     local colImm = f.imm
-    local colImportNames = f.importNames
-    local colImportSignatures = f.importSignatures
     local colKind = f.kind
-    local colKind2 = f.kind2
-    local colNargs = f.nargs
     local colOp = f.op
-    local colResult = f.result
-    local colResult2 = f.result2
-    local colSignatures = f.signatures
     local colValueKinds = f.valueKinds
     local allocationLocation = a.location
 
@@ -980,8 +972,8 @@ function selector.run(f: ir.Function, a: allocate.Allocation): selector.Code
     -- Recipes contain producer opcode, encoding fields, then expanded operands.
     -- Only adjacency (or an omitted literal gap) preserves allocated lifetimes.
     local recipes: {[integer]: {integer}} = {}
-    for block, start in ipairs(colBlockStart) do
-        for at = start + 1, colBlockEnd[block] do
+    for block, start in ipairs(f.blockStart) do
+        for at = start + 1, f.blockEnd[block] do
             local op, first = colOp[at], colFirstArg[at]
             local memory = op == LOAD or op == SLOAD or op == STORE
             local arithmetic = op == IADD or op == ISUB
@@ -990,7 +982,7 @@ function selector.run(f: ir.Function, a: allocate.Allocation): selector.Code
                 previous = previous - 1
             end
             if previous >= start and (memory or (arithmetic or op == BAND) and not recipes[previous]) then
-                local value, producer = colResult[previous], colOp[previous]
+                local value, producer = f.result[previous], colOp[previous]
                 local position = (op == STORE or op == ISUB) and 2 or 1
                 if op == IADD and colArgs[first] ~= value then
                     position = 2
@@ -1056,18 +1048,18 @@ function selector.run(f: ir.Function, a: allocate.Allocation): selector.Code
         local nextBlock = a.blockOrder[order + 1] or 0
         local fusedCondition: integer = -1
         code.blockWord[block] = #code.words + 1
-        for at = colBlockStart[block], colBlockEnd[block] do
+        for at = f.blockStart[block], f.blockEnd[block] do
             local before = #code.words
-            local op, result, kind = colOp[at], colResult[at], colKind[at]
+            local op, result, kind = colOp[at], f.result[at], colKind[at]
             local recipe = recipes[at]
             local args = recipe or colArgs
-            local firstArg, nargs = recipe and 4 or colFirstArg[at], recipe and #recipe - 3 or colNargs[at]
+            local firstArg, nargs = recipe and 4 or colFirstArg[at], recipe and #recipe - 3 or f.nargs[at]
             if omitted[at] then
                 op, nargs = ICONST, 0
             end
             local immediate, immediateArg = immediates[at], immediateArgs[at] or 0
             local fused = op == ICMP
-                and at < colBlockEnd[block]
+                and at < f.blockEnd[block]
                 and colOp[at + 1] == BRIF
                 and colArgs[colFirstArg[at + 1]] == result
                 and uses[result] == 1
@@ -1081,13 +1073,13 @@ function selector.run(f: ir.Function, a: allocate.Allocation): selector.Code
             if result ~= 0 and allocationLocation[result] > 0 then
                 occupied[allocationLocation[result]] = occupiedStamp
             end
-            local second = colResult2[at]
+            local second = f.result2[at]
             if second ~= 0 and allocationLocation[second] > 0 then
                 occupied[allocationLocation[second]] = occupiedStamp
             end
             local rd: integer = 0
             local _ = switch op do
-                case JUMP -> edge(colFirstEdge[at], nextBlock)
+                case JUMP -> edge(f.firstEdge[at], nextBlock)
                 case BRIF -> do
                     local condition = fusedCondition
                     if condition < 0 then
@@ -1098,7 +1090,7 @@ function selector.run(f: ir.Function, a: allocate.Allocation): selector.Code
                     end
                     -- Only loads restore borrowed scratch after CMP; flags survive.
                     -- The final edge can fall through, after its own parallel moves.
-                    local first, last = colFirstEdge[at], colFirstEdge[at] + 1
+                    local first, last = f.firstEdge[at], f.firstEdge[at] + 1
                     local skip = condition ~ 1
                     if f.edgeTarget[first] == nextBlock and f.edgeTarget[last] ~= nextBlock then
                         first, last, skip = last, first, condition
@@ -1135,8 +1127,8 @@ function selector.run(f: ir.Function, a: allocate.Allocation): selector.Code
                 case CALL, CALL_INDIRECT, RETURN_CALL, RETURN_CALL_INDIRECT -> do
                     local indirect = op == CALL_INDIRECT or op == RETURN_CALL_INDIRECT
                     local tail = op == RETURN_CALL or op == RETURN_CALL_INDIRECT
-                    local signature = colSignatures[indirect and colAux[at] or colImportSignatures[colAux[at]]]
-                    local name = not indirect and colImportNames[colAux[at]] or ""
+                    local signature = f.signatures[indirect and colAux[at] or f.importSignatures[colAux[at]]]
+                    local name = not indirect and f.importNames[colAux[at]] or ""
                     -- The fast path's first operand is the function, which goes
                     -- where an indirect call's target does.
                     local registered = name:sub(1, #ROUTINE_REGISTERS) == ROUTINE_REGISTERS
@@ -1285,7 +1277,7 @@ function selector.run(f: ir.Function, a: allocate.Allocation): selector.Code
                     popStack(stackBytes)
                     if not tail and second ~= 0 then
                         assert(
-                            result ~= 0 and not ir.isFloat(kind) and not ir.isFloat(colKind2[at]),
+                            result ~= 0 and not ir.isFloat(kind) and not ir.isFloat(f.kind2[at]),
                             "S0 select: paired call requires integers"
                         )
                         save(1, stageBase);
@@ -1611,9 +1603,9 @@ function selector.run(f: ir.Function, a: allocate.Allocation): selector.Code
     local redirects: {[integer]: integer} = {}
     for order = #a.blockOrder, 1, -1 do
         local block = a.blockOrder[order]
-        local at = colBlockStart[block]
-        local edge = colFirstEdge[at]
-        if at == colBlockEnd[block] and colOp[at] == JUMP and a.nmoves[edge] == 0 then
+        local at = f.blockStart[block]
+        local edge = f.firstEdge[at]
+        if at == f.blockEnd[block] and colOp[at] == JUMP and a.nmoves[edge] == 0 then
             local targetBlock = f.edgeTarget[edge]
             redirects[block] = redirects[targetBlock] or targetBlock
         end
