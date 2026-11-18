@@ -66,15 +66,13 @@ before reuse. Each build's artifact
 digests are recorded; they are not a cross-toolchain binary reproducibility claim.
 
 Supported native SDK targets are macOS ARM64/x64, Linux ARM64/x64 and Windows
-x64 MSVC. Windows checkout docs can also use the MinGW shared library. Stage
-the verified library for checkout documentation and its tests:
-
-```sh
-library=$(sh scripts/markdown-library)
-export NUPP_MARKDOWN_LIBRARY="$library"
-./bin/nupp build --target docs
-node scripts/build-pages.mjs
-```
+x64 MSVC. Windows checkout docs use the MinGW shared library. A checkout builds
+the library on first use, as it does its other pinned C libraries: the first
+`nupp doc` that writes HTML runs `scripts/markdown-library`, which builds or
+verifies the cached build and prints its path. Without a C compiler or CMake
+that command fails, and so does the HTML, naming what is missing.
+`NUPP_MARKDOWN_LIBRARY` names a library explicitly; set but empty, it says
+there is none.
 
 The single-file VM ships without a Markdown library. It supports Markdown
 and JSON exports and reports that HTML site generation is unavailable.

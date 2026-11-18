@@ -2212,8 +2212,9 @@ function doc.build(root: string?, config: Config2, settings: Target?, opts: tabl
     local written = opts.written or {}
     filesMod.collect(written)
     local code: integer, message: string? = 0, nil
-    if (format == "site" or format == "both") and not markdownhost.available() then
-        code, message = 1, markdownhost.unavailable
+    local unrenderable = (format == "site" or format == "both") and markdownhost.unavailable() or nil
+    if unrenderable ~= nil then
+        code, message = 1, unrenderable
     elseif format == "markdown" then
         local ok, err = writeFile(
             output,

@@ -5,7 +5,10 @@ ROOT=$(CDPATH= cd -- "$(dirname "$0")/.." && pwd)
 case "$(uname -s)" in
     MINGW*|MSYS*)
         prefix=$(NUPP_NATIVE_TARGET="${NUPP_NATIVE_TARGET:-x86_64-pc-windows-gnu}" "$ROOT/scripts/toolchain" cmark)
-        library=$(cygpath -m "$prefix/bin/nupp_markdown.dll")
+        # MinGW gives a shared library the lib prefix; MSVC does not.
+        library="$prefix/bin/libnupp_markdown.dll"
+        [ -f "$library" ] || library="$prefix/bin/nupp_markdown.dll"
+        library=$(cygpath -m "$library")
         ;;
     Darwin)
         prefix=$("$ROOT/scripts/toolchain" cmark)
@@ -16,5 +19,8 @@ case "$(uname -s)" in
         library="$prefix/lib/libnupp_markdown.so"
         ;;
 esac
-test -f "$library"
+if [ ! -f "$library" ]; then
+    printf 'markdown-library: the Markdown build has no %s\n' "$library" >&2
+    exit 1
+fi
 printf '%s\n' "$library"

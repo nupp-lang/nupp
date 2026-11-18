@@ -92,11 +92,6 @@ jobs:
       - name: Build pinned host dependencies
         run: ./scripts/toolchain --all
 
-      - name: Stage the Markdown renderer
-        run: |
-          library=$(sh scripts/markdown-library)
-          printf 'NUPP_MARKDOWN_LIBRARY=%s\n' "$library" >> "$GITHUB_ENV"
-
       - name: Build the documentation
         run: ./bin/nupp build --target docs
 

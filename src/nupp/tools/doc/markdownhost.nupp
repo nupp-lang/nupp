@@ -1,17 +1,69 @@
 @!internal
 module nupp.tools.doc.markdownhost
 
--- The Markdown renderer `nupp doc` writes HTML with. The library itself is a
--- runtime provider, so the core can substitute its own without the compiler
--- naming a tools module.
-const library = require("nupp.runtime.provider.markdownlibrary")
+--[[
+The Markdown renderer `nupp doc` writes HTML with: the pinned C library the
+checkout builds on first use, the way it builds its other pinned C libraries.
 
-export function available(): boolean
-    return library.available()
+`NUPP_MARKDOWN_LIBRARY` names one explicitly; set but empty, it says there is
+none. Otherwise a source checkout runs `scripts/markdown-library`, which builds
+the library once per machine and prints its path. A compiler with no checkout
+behind it has no library, and says so rather than writing a site without one.
+]]
+const library = require("nupp.runtime.provider.markdownlibrary")
+const envMod = require("nupp.compiler.project.env")
+const fs = require("nupp.compiler.fs")
+const process = require("nupp.compiler.process")
+
+const windows = package.config:sub(1, 1) == "\\"
+
+local settled = false
+local problem: string? = nil
+
+local function provision(): string?
+    if os.getenv("NUPP_MARKDOWN_LIBRARY") ~= nil then
+        return library.unavailable
+    end
+    local root = envMod.compilerRoot()
+    if root == nil then
+        return library.unavailable
+    end
+    local script = fs.join(root, "scripts/markdown-library")
+    local code, text = process.capture({windows and "sh.exe" or "sh", script})
+    -- Progress goes to standard error and the path to standard output; the
+    -- capture merges them, so the path is the last line that says anything.
+    local answer: string? = nil
+    for line in text:gmatch("[^\r\n]+") do
+        if line:match("%S") then
+            answer = line
+        end
+    end
+    if code ~= 0 or answer == nil then
+        return "cannot build the Markdown library HTML site generation needs:\n" .. text
+    end
+    library.open(answer)
+
+    return nil
 end
 
-export const unavailable = library.unavailable
+--- Why HTML cannot be rendered, or nil when it can.
+export function unavailable(): string?
+    if library.available() then
+        return nil
+    end
+    if not settled then
+        settled = true
+        problem = provision()
+    end
+
+    return problem
+end
 
 export function render(text: string): (string?, string?)
+    local reason = unavailable()
+    if reason ~= nil then
+        return nil, reason
+    end
+
     return library.render(text)
 end
