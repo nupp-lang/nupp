@@ -351,9 +351,10 @@ local function emitFrom(
         config = chunk()
         assert(type(config) == "table", "manifest must return a table")
     end
-    -- The compiler's image names the standard library's C libraries by their
-    -- logical names rather than where this machine provisioned them.
-    if entry == "nupp.tools.vm.root" or entry == "nupp.tools.vm.project" then
+    -- Compiler and lowering-tool images keep logical library names, so no
+    -- provisioned path from this machine is part of them. Other images resolve
+    -- their project's standard bindings the way a program does.
+    if entry == "nupp.tools.vm.root" or entry == "nupp.tools.vm.project" or entry == "nupp.compiler.clif.lower" then
         config._standardLibraries = false
     end
     local carried = entry == "nupp.tools.vm.root"

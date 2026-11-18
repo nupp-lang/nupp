@@ -196,6 +196,14 @@ export function supports(moduleName: string, host: string?): boolean
     end
     if selectedHost == "browser" then
         local native = require("nupp.compiler.native")
+        -- Implementation aliases belong to the same host as their feature's
+        -- primary runtime module.
+        local classification = MODULES[moduleName]
+        local effect = classification and classification.effect
+        local feature = effect and native.feature(effect)
+        if feature and feature.runtimeModule ~= nil and not feature.portableRuntime then
+            return false
+        end
         for _, effect in ipairs(native.effectNames()) do
             local feature = native.feature(effect) as any
             if feature.runtimeModule == moduleName and not feature.portableRuntime then
