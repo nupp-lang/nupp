@@ -185,6 +185,9 @@ local function matchClass(c: uint64, cl: uint64): boolean
         result = isAlpha(c) or isDigit(c)
     elseif lower == 120ULL then
         result = isHex(c)
+    elseif lower == 122ULL then
+        -- %z, the NUL byte: deprecated since Lua 5.2 and still matched by 5.5.
+        result = c == 0ULL
     else
         return cl == c
     end

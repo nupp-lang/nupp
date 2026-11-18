@@ -103,6 +103,8 @@ local CASES = {
     {"stringdynamic", 0x7FFF000000000001},
     -- Concatenation of floats and integers through dynamic values.
     {"concatnumbers", 0x7FFF000000000007},
+    -- NUL bytes in strings: the %z pattern class.
+    {"stringsnul", 0x7FFF000000000003},
     -- Results led by nils, directly, through tail calls and function values.
     {"callsleadingnils", 0x7FFF00000000000F},
     -- A record with an array part: iteration and absent fields.

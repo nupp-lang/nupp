@@ -145,6 +145,7 @@ local CASES: {[string]: {
     numericsteps = {fixture = "catalog-numeric-steps", version = 8},
     stringdynamic = {fixture = "catalog-string-dynamic", version = 8},
     concatnumbers = {fixture = "catalog-concat-numbers", version = 8},
+    stringsnul = {fixture = "catalog-strings-nul", version = 8},
     callsleadingnils = {fixture = "catalog-calls-leading-nils", version = 8},
     recordsarraypart = {fixture = "catalog-records-array-part", version = 8},
     tablesmixedconstructor = {fixture = "catalog-tables-mixed-constructor", version = 8},

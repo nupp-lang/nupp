@@ -1,0 +1,14 @@
+module nupp.core.catalogstringsnul
+
+-- NUL bytes inside strings, as the compiler's fact keys carry them: Lua's
+-- deprecated %z class still matches one. Each check is a bit.
+
+local score = 0
+local key: string = "family\0callableEffects"
+if key:match("[^%z]+$") == "callableEffects" and key:find("%z") == 7 then
+    score = score | 1
+end
+if ("a\0b\0c"):gsub("%z", "-") == "a-b-c" then
+    score = score | 2
+end
+export const result = score
