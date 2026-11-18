@@ -91,7 +91,35 @@ local function quote(arg)
     return "'" .. arg:gsub("'", "'\\''") .. "'"
 end
 
+-- A compiler on the native core was started by scripts/core-cli, which names
+-- the C bridge and the compiler bundle it runs it on. A child compiler, a
+-- checkout's `bin/nupp` and its arguments, starts on that same pair rather
+-- than through the launcher, which would choose a generation of its own and,
+-- on a host the pins have not flipped, the Rust VM: one command would mix
+-- compilers. Nil when this compiler is not on the core.
+local function coreArgs(argv: {string}): {string}?
+    local runtime, compiler = os.getenv("NUPP_CORE_RUNTIME"), os.getenv("NUPP_CORE_COMPILER")
+    if runtime == nil or runtime == "" or compiler == nil or compiler == "" then
+        return nil
+    end
+    if not tostring(argv[1]):gsub("\\", "/"):match("/bin/nupp$") then
+        return nil
+    end
+    -- The bridge reads no input and keeps the entry's answer nowhere; the
+    -- command's arguments follow.
+    local launched = {runtime as string, compiler as string, "/dev/null", "/dev/null"}
+    for index = 2, #argv do
+        launched[#launched + 1] = argv[index]
+    end
+
+    return launched
+end
+
 local function launchArgs(argv: {string}): {string}
+    local core = coreArgs(argv)
+    if core ~= nil then
+        return core
+    end
     local testBash = windows and (rawget(_G, "__NUPP_TEST_BASH") or os.getenv("NUPP_TEST_BASH")) or nil
     if not testBash or not tostring(argv[1]):gsub("\\", "/"):match("/bin/nupp$") then
         return argv

@@ -201,6 +201,55 @@ function M.compilerRecipeWaitsForTheSelfBuildSwitch()
     assert(tostring(found.reason):find("SELF_BUILD", 1, true), tostring(found.reason))
 end
 
+-- A compiler on the core starts a child compiler, a checkout's bin/nupp, on
+-- the pair scripts/core-cli named rather than through the launcher, which
+-- would choose the Rust VM; a compiler off the core still goes through it.
+function M.childCompilersRunOnTheCorePair()
+    if package.config:sub(1, 1) == "\\" then
+        return
+    end
+    local childProcess = require("nupp.compiler.process")
+    local values = {
+        NUPP_CORE_RUNTIME = "/core/runtime",
+        NUPP_CORE_COMPILER = "/core/compiler.bundle",
+        NUPP_VM_BINARY = "/vm/runtime",
+        NUPP_VM_CLI_IMAGE = "/vm/compiler.image",
+        NUPP_VM_CLI_ENTRY = "nupp.tools.vm.root",
+    }
+    local getenv = os.getenv
+    os.getenv = function(name)
+        if values[name] ~= nil then
+            return values[name]
+        end
+        return getenv(name)
+    end
+    local ok, problem = pcall(function()
+        testAssert.eq(
+            table.concat(childProcess.isolatedArguments({"/checkout/bin/nupp", "__parallel-check-service"}), " "),
+            "/core/runtime /core/compiler.bundle /dev/null /dev/null __parallel-check-service",
+            "an isolated child compiler runs on the core pair"
+        )
+        testAssert.eq(
+            childProcess.command({"/checkout/bin/nupp", "check", "a b.nupp"}),
+            "'/core/runtime' '/core/compiler.bundle' '/dev/null' '/dev/null' 'check' 'a b.nupp'",
+            "a child compiler's command line runs on the core pair"
+        )
+        testAssert.eq(
+            table.concat(childProcess.isolatedArguments({"/usr/bin/env", "true"}), " "),
+            "/usr/bin/env true",
+            "a program other than the compiler is started as it is named"
+        )
+        values.NUPP_CORE_COMPILER = ""
+        testAssert.eq(
+            table.concat(childProcess.isolatedArguments({"/checkout/bin/nupp", "check"}), " "),
+            "/checkout/bin/nupp check",
+            "off the core a child compiler goes through the launcher"
+        )
+    end)
+    os.getenv = getenv
+    assert(ok, problem)
+end
+
 -- Once a host's pin names a core seed, the VM fixpoint has nothing to start
 -- from, and no VM seed is fetched in its place.
 function M.vmFixpointRefusesACoreSeed()
