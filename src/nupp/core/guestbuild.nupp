@@ -144,6 +144,7 @@ local CASES: {[string]: {
     optionalmethodcleanups = {fixture = "catalog-optional-method-cleanups", version = 8},
     numericsteps = {fixture = "catalog-numeric-steps", version = 8},
     stringdynamic = {fixture = "catalog-string-dynamic", version = 8},
+    concatnumbers = {fixture = "catalog-concat-numbers", version = 8},
     stringmetaonly = {fixture = "catalog-string-metatable-only", version = 8},
     stringmetatable = {fixture = "catalog-string-metatable", version = 8},
     stringmethods = {fixture = "catalog-string-methods", version = 8},

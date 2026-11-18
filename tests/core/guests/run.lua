@@ -94,6 +94,8 @@ local CASES = {
     {"optionalmethodcleanups", 0x7FFF000000000001},
     {"numericsteps", 0x7FFF000000000001},
     {"stringdynamic", 0x7FFF000000000001},
+    -- Concatenation of floats and integers through dynamic values.
+    {"concatnumbers", 0x7FFF000000000007},
     {"stringmetaonly", 0x7FFF000000000001},
     {"stringmetatable", 0x7FFF000000000001},
     {"stringmethods", 0x7FFF000000000001},

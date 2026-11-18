@@ -537,6 +537,37 @@ export function gmatchvalues(ctx: voidptr, state: uint64): uint64
     end
 end
 
+-- Whether `..` converts a value: a string, or a number of either subtype,
+-- which it writes as tostring does.
+local function concatenable(value: uint64): boolean
+    return strings.header(value) ~= 0ULL
+        or ints.isInteger(value)
+        or value & values.QNAN ~= values.QNAN
+        or value == values.QNAN
+end
+
+-- Lua's refusal of an operand `..` cannot convert, by its type.
+local function refuseConcat(value: uint64): nil
+    if value == values.NIL then
+        error("attempt to concatenate a nil value")
+    elseif value == values.TRUE or value == values.FALSE then
+        error("attempt to concatenate a boolean value")
+    end
+    @unsafe do
+        local kind = native.word(
+            native.load8(native.pointer(value & values.PAYLOAD), native.fieldOffset<heap.Header>("kind"))
+        )
+        if kind == heap.KIND_TABLE then
+            error("attempt to concatenate a table value")
+        elseif kind == heap.KIND_CLOSURE then
+            error("attempt to concatenate a function value")
+        elseif kind == heap.KIND_THREAD then
+            error("attempt to concatenate a thread value")
+        end
+    end
+    error("attempt to concatenate a userdata value")
+end
+
 -- a .. b over strings and numbers.
 export function concat2(ctx: voidptr, a: uint64, b: uint64): uint64
     local state = strings.Builder(0ULL, 0ULL)
@@ -544,10 +575,11 @@ export function concat2(ctx: voidptr, a: uint64, b: uint64): uint64
         local h = guestvalues.guestheap(ctx)
         local builderLifetime = strings.open(h, state as strings.Builder*)
         local builder = state as strings.Builder*
-        if strings.header(a) == 0ULL and not ints.isInteger(a)
-            or strings.header(b) == 0ULL and not ints.isInteger(b)
-        then
-            error("attempt to concatenate a value the core cannot yet convert")
+        if not concatenable(a) then
+            refuseConcat(a)
+        end
+        if not concatenable(b) then
+            refuseConcat(b)
         end
         guestvalues.appendtext(h, builder, a)
         guestvalues.appendtext(h, builder, b)
