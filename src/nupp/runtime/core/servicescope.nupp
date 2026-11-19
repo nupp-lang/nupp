@@ -15,6 +15,7 @@ const uv = require("nupp.runtime.core.hostuv")
 
 cdef function nupp_http_scope_attach(scope: voidptr): int32
 cdef function nupp_http_scope_detach(scope: voidptr): int32
+cdef function nupp_core_retain_guest_backing()
 
 const RESOURCE_REFUSAL: int64 = 24
 const INVALID: int64 = 22
@@ -376,25 +377,37 @@ end
 export function retain(scope: voidptr): nil
     native.store64(scope, native.fieldOffset<ServiceScope>("retainBacking"), 1ULL)
     fail(scope, 3ULL, 0ULL, 0ULL)
+    @unsafe do
+        nupp_core_retain_guest_backing()
+    end
+end
+
+export function beforeBackingClose(scope: voidptr): boolean
+    if native.load64(scope, native.fieldOffset<ServiceScope>("retainBacking")) ~= 0ULL then
+        return false
+    end
+    if @unsafe nupp_http_scope_detach(scope) ~= 0 then
+        retain(scope)
+        return false
+    end
+
+    return true
 end
 
 -- Called only after lexical owners and registered-root borrowers retire. A
 -- nonzero retained-backing flag is a refusal, not permission to retry cleanup.
 export function close(scope: voidptr): uint64
-    if native.load64(scope, native.fieldOffset<ServiceScope>("retainBacking")) ~= 0ULL then
+    if not beforeBackingClose(scope) then
         return 0ULL
     end
-    -- Detach clears the native context before draining the ledger. Failure
-    -- keeps the backing alive for the bridge's final shutdown.
-    local detached = @unsafe nupp_http_scope_detach(scope)
-    if detached ~= 0 or not drain(scope) then
-        native.store64(scope, native.fieldOffset<ServiceScope>("retainBacking"), 1ULL)
+    if not drain(scope) then
+        retain(scope)
         return 0ULL
     end
     local status = pages.close(native.loadPointer(scope, native.fieldOffset<ServiceScope>("pages")))
     if status ~= 1ULL then
-        native.store64(scope, native.fieldOffset<ServiceScope>("retainBacking"), 1ULL)
         fail(scope, 2ULL, 0ULL, 0ULL)
+        retain(scope)
         return 0ULL
     end
 

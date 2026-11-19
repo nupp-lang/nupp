@@ -438,6 +438,9 @@ end
 -- Destroys the heap and unmaps its arena, then the frame stacks, pool and
 -- storage; nothing when open never ran.
 export function close(services: voidptr): nil
+    if not servicescope.beforeBackingClose(services) then
+        return
+    end
     foreignabi.close(native.load64(services, native.fieldOffset<Services>("foreignClosures")))
     native.store64(services, native.fieldOffset<Services>("foreignClosures"), 0ULL)
     local address = native.load64(services, native.fieldOffset<Services>("heap"))

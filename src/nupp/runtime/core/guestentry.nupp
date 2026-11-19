@@ -6,6 +6,7 @@ const frames = require("nupp.runtime.core.frames")
 const instances = require("nupp.runtime.core.instances")
 const catalog = require("nupp.runtime.core.guestcatalog")
 const context = require("nupp.runtime.core.context")
+const servicescope = require("nupp.runtime.core.servicescope")
 const values = require("nupp.runtime.vm.values")
 
 -- The closed entry transports actual mappings in this checked layout. This is
@@ -249,6 +250,15 @@ export function start(binding: voidptr, ordinal: uint64): uint64
     return frame
 end
 
+local function retainAfterRefusal(ctx: voidptr): uint64
+    local scope = native.loadPointer(ctx, context.SERVICE_SCOPE)
+    if native.address(scope) ~= 0ULL then
+        servicescope.retain(scope)
+    end
+
+    return 0ULL
+end
+
 -- Original root/serial are also saved by the mechanical entry outside active
 -- frame caches. A failed cleanup leaves storage retained, never reset. No
 -- cancellation or work checks can interrupt deepest-first retirement.
@@ -256,7 +266,7 @@ export function complete(ctx: voidptr, original: voidptr, serial: uint64): uint6
     if native.load64(ctx, context.ORIGINAL_ROOT) ~= native.address(original)
         or native.load64(ctx, context.ROOT_SERIAL) ~= serial
     then
-        return 0ULL
+        return retainAfterRefusal(ctx)
     end
     -- An error that ended the entry in a coroutine leaves the context on
     -- that thread's state: the root's own frames are what unwind.
@@ -268,7 +278,7 @@ export function complete(ctx: voidptr, original: voidptr, serial: uint64): uint6
         or native.load64(root, native.fieldOffset<frames.RootControl>("frame")) ~= native.address(original)
         or native.load64(mark, native.fieldOffset<arena.Mark>("serial")) ~= serial
     then
-        return 0ULL
+        return retainAfterRefusal(ctx)
     end
     local registry = native.loadPointer(ctx, context.REGISTRY)
     local descriptor = native.loadPointer(ctx, context.CATALOG)
@@ -286,10 +296,10 @@ export function complete(ctx: voidptr, original: voidptr, serial: uint64): uint6
         local publishable = resultCount == 1ULL
             and (result == values.TRUE or result == values.FALSE or result == values.NIL)
         if frames.retireRoot(state, root, original, serial) == 0ULL then
-            return 0ULL
+            return retainAfterRefusal(ctx)
         end
         if instances.retire(registry, targets) == 0ULL then
-            return 0ULL
+            return retainAfterRefusal(ctx)
         end
         if nonfinal then
             if not publishable then
@@ -307,36 +317,38 @@ export function complete(ctx: voidptr, original: voidptr, serial: uint64): uint6
     local depth = native.load64(state, native.fieldOffset<frames.State>("depth"))
     local limit = native.load64(state, native.fieldOffset<frames.State>("limit"))
     if depth == 0ULL or depth > limit then
-        return 0ULL
+        return retainAfterRefusal(ctx)
     end
     local active = native.loadPointer(state, native.fieldOffset<frames.State>("active"))
     if native.address(active) == 0ULL then
-        return 0ULL
+        return retainAfterRefusal(ctx)
     end
     local prepared = native.load64(active, native.fieldOffset<frames.Frame>("child"))
     if prepared ~= 0ULL then
         if frames.abortPrepared(state, active, native.pointer(prepared)) == 0ULL then
-            return 0ULL
+            return retainAfterRefusal(ctx)
         end
     end
     while depth > 1ULL do
         active = native.loadPointer(state, native.fieldOffset<frames.State>("active"))
         if frames.abortActive(state, active) == 0ULL then
-            return 0ULL
+            return retainAfterRefusal(ctx)
         end
         local nextDepth = native.load64(state, native.fieldOffset<frames.State>("depth"))
         if nextDepth ~= depth - 1ULL then
-            return 0ULL
+            return retainAfterRefusal(ctx)
         end
         depth = nextDepth
     end
     if native.load64(state, native.fieldOffset<frames.State>("active")) ~= native.address(original) then
-        return 0ULL
+        return retainAfterRefusal(ctx)
     end
     if frames.abortRoot(state, root, original, serial) == 0ULL then
-        return 0ULL
+        return retainAfterRefusal(ctx)
     end
-    local _ = instances.retire(registry, targets)
+    if instances.retire(registry, targets) == 0ULL then
+        return retainAfterRefusal(ctx)
+    end
 
     return 0ULL
 end

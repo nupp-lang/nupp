@@ -128,6 +128,11 @@ static uint64_t symboltable[SYMBOL_TABLE_WORDS];
 /* The directory the bundle was loaded from. The Nupp loader finds it by name
  * with dlsym and resolves artifact-relative library paths against it. */
 const char *nupp_core_artifact_directory;
+static _Thread_local int retain_guest_backing;
+
+void nupp_core_retain_guest_backing (void) {
+  retain_guest_backing = 1;
+}
 
 #ifdef NUPP_CORE_HTTP
 static _Thread_local void *http_scope;
@@ -658,6 +663,11 @@ out:
   }
 
 #endif
+
+  if (retain_guest_backing) {
+    error("guest backing retained after cleanup refusal");
+    _exit(1);
+  }
 
   fclose(file);
 
