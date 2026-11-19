@@ -21,6 +21,7 @@ export const RESOURCE: uint64 = 5ULL
 -- An instruction is sixteen bytes: a pc's index is its offset from the
 -- code shifted down by this.
 export const INSTRUCTION_SHIFT: uint64 = 4ULL
+export const INSTRUCTION_BYTES: uint64 = 16ULL
 
 -- Lua 5.5 calls a table through its __call with the table as an extra first
 -- argument, and follows a __call that is a table in turn this many deep; the
@@ -87,7 +88,8 @@ end
 -- not the active frame. Nothing else is checked again per instruction:
 -- frames are made from admitted catalog rows (frames.prepareFixed), which
 -- set bodyOwner to the record, and every pc comes from a checked branch or
--- a frame's resume point.
+-- a frame's resume point. The handlers make this check inline
+-- (guesthandlers).
 export function current(ctx: voidptr, frame: voidptr, pc: voidptr): uint64
     local s = native.loadPointer(ctx, context.STATE)
     if native.load64(s, native.fieldOffset<frames.State>("active")) ~= native.address(frame) then
@@ -397,7 +399,8 @@ export function prepare(
         if at < nargs then
             value = native.load64(window, native.index((base + 1ULL + at) * 8ULL))
         end
-        if catalog.scalar(kind, value) == 0ULL then
+        -- A VALUE parameter takes any value, so it needs no check.
+        if kind ~= catalog.VALUE and catalog.scalar(kind, value) == 0ULL then
             guesterrors.fault(ctx, guestscope.FAULT_ARGUMENT, value, (kind << ARGUMENT_KIND_SHIFT) | (at + 1ULL))
             return 0ULL
         end
@@ -505,7 +508,8 @@ export function finish(ctx: voidptr, frame: voidptr, value: uint64): uint64
     )
 end
 
--- The handler at `pc` has already checked its frame (current).
+-- The handler at `pc` has already checked its frame (current). The handlers
+-- make this check inline (guesthandlers); it stays as the rule they follow.
 export function branch(ctx: voidptr, frame: voidptr, pc: voidptr, displacement: int64): uint64
     local code = native.load64(frame, native.fieldOffset<frames.Frame>("code"))
     local count = native.load64(frame, native.fieldOffset<frames.Frame>("instructionCount"))

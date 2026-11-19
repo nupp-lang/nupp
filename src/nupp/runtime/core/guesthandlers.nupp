@@ -44,9 +44,17 @@ const guestgc = require("nupp.runtime.core.guestgc")
 -- canonical opcode recipes and its retained complete graph-derived byte stream.
 -- Dispatch begins only with real entry-owned State/Frame/window/code facts.
 -- RetNil, callbacks and escaping closure handles are refused.
+--
+-- Each handler checks inline that its frame is the active one, that the
+-- instruction it goes on to is in the frame's code and, where it charges,
+-- the budget, rather than calling guestops.current, branch and charge: the
+-- backend inlines no call and preserves no register across one, so each such
+-- call cost the spills around it for a few loads and compares. Only a
+-- failure calls guestops, to record it.
 
 export function K(pc: voidptr, regs: voidptr, ints: voidptr, floats: voidptr, ctx: voidptr, frame: voidptr): uint64
-    if ops.current(ctx, frame, pc) == 0ULL then
+    local running = native.load64(native.loadPointer(ctx, context.STATE), native.fieldOffset<frames.State>("active"))
+    if running ~= native.address(frame) then
         ops.fail(ctx, frame, pc, ops.INVALID)
         return native.fail()
     end
@@ -60,7 +68,18 @@ export function K(pc: voidptr, regs: voidptr, ints: voidptr, floats: voidptr, ct
         ops.fail(ctx, frame, pc, ops.INVALID)
         return native.fail()
     end
-    local value = ops.constant(ctx, frame, pc, native.word(index))
+    -- The constant inline, as guestops.constant reads it.
+    local fn = native.pointer(native.load64(frame, native.fieldOffset<frames.Frame>("bodyOwner")))
+    if native.word(index) >= native.load64(fn, native.fieldOffset<catalog.Function>("constantCount")) then
+        ops.fail(ctx, frame, pc, ops.INVALID)
+        return native.fail()
+    end
+    local data = native.loadPointer(
+        native.loadPointer(ctx, context.CATALOG),
+        native.fieldOffset<catalog.Catalog>("data")
+    )
+    local offset = native.load64(fn, native.fieldOffset<catalog.Function>("constants"))
+    local value = native.load64(data, native.index(offset + native.word(index) * 8ULL))
     local owner = native.load64(frame, native.fieldOffset<frames.Frame>("functionId"))
     if value & 0xffff000000000000ULL == catalog.STRING_CONSTANT then
         value = values.TAG_OBJ | guestscope.stringConstant(ctx, owner, value)
@@ -68,15 +87,13 @@ export function K(pc: voidptr, regs: voidptr, ints: voidptr, floats: voidptr, ct
     if value & 0xffff000000000000ULL == catalog.INTEGER_CONSTANT then
         value = guestscope.integerConstant(ctx, owner, value)
     end
-    if value == 0ULL then
-        if ops.constantPresent(ctx, frame, pc, native.word(index)) == 0ULL then
-            ops.fail(ctx, frame, pc, ops.INVALID)
-            return native.fail()
-        end
-    end
     slots.writeValue(frame, regs, dst, value)
-    local nextPC = ops.branch(ctx, frame, pc, 0)
-    if nextPC == 0ULL then
+    local nextPC = native.address(pc) + ops.INSTRUCTION_BYTES
+    local codeBytes = native.load64(
+        frame,
+        native.fieldOffset<frames.Frame>("instructionCount")
+    ) << ops.INSTRUCTION_SHIFT
+    if nextPC >= native.load64(frame, native.fieldOffset<frames.Frame>("code")) + codeBytes then
         ops.fail(ctx, frame, pc, ops.INVALID)
         return native.fail()
     end
@@ -92,10 +109,20 @@ export function Require(
     ctx: voidptr,
     frame: voidptr
 ): uint64
-    if ops.charge(ctx, frame, pc) ~= 1ULL then
-        return native.fail()
+    local remaining = native.load64(ctx, context.REMAINING)
+    if native.load64(ctx, context.STATUS) ~= 0ULL
+        or native.load64(ctx, context.CANCELLED) ~= 0ULL
+        or remaining == 0ULL
+    then
+        -- guestops.charge records why.
+        if ops.charge(ctx, frame, pc) ~= 1ULL then
+            return native.fail()
+        end
+    elseif remaining ~= context.UNLIMITED then
+        native.store64(ctx, context.REMAINING, remaining - 1ULL)
     end
-    if ops.current(ctx, frame, pc) == 0ULL then
+    local running = native.load64(native.loadPointer(ctx, context.STATE), native.fieldOffset<frames.State>("active"))
+    if running ~= native.address(frame) then
         ops.fail(ctx, frame, pc, ops.INVALID)
         return native.fail()
     end
@@ -134,8 +161,12 @@ export function Require(
             return native.dispatch(currentPC, currentValues, currentIntegers, currentFloats, ctx, current)
         end
         slots.writeValue(frame, regs, dst, loaded)
-        local after = ops.branch(ctx, frame, pc, 0)
-        if after == 0ULL then
+        local after = native.address(pc) + ops.INSTRUCTION_BYTES
+        local codeBytes = native.load64(
+            frame,
+            native.fieldOffset<frames.Frame>("instructionCount")
+        ) << ops.INSTRUCTION_SHIFT
+        if after >= native.load64(frame, native.fieldOffset<frames.Frame>("code")) + codeBytes then
             ops.fail(ctx, frame, pc, ops.INVALID)
             return native.fail()
         end
@@ -147,8 +178,12 @@ export function Require(
         return native.fail()
     end
     slots.writeValue(frame, regs, dst, value)
-    local nextPC = ops.branch(ctx, frame, pc, 0)
-    if nextPC == 0ULL then
+    local nextPC = native.address(pc) + ops.INSTRUCTION_BYTES
+    local codeBytes = native.load64(
+        frame,
+        native.fieldOffset<frames.Frame>("instructionCount")
+    ) << ops.INSTRUCTION_SHIFT
+    if nextPC >= native.load64(frame, native.fieldOffset<frames.Frame>("code")) + codeBytes then
         ops.fail(ctx, frame, pc, ops.INVALID)
         return native.fail()
     end
@@ -170,7 +205,8 @@ local function tableHeader(value: uint64): uint64
 end
 
 export function Add(pc: voidptr, regs: voidptr, ints: voidptr, floats: voidptr, ctx: voidptr, frame: voidptr): uint64
-    if ops.current(ctx, frame, pc) == 0ULL then
+    local running = native.load64(native.loadPointer(ctx, context.STATE), native.fieldOffset<frames.State>("active"))
+    if running ~= native.address(frame) then
         ops.fail(ctx, frame, pc, ops.INVALID)
         return native.fail()
     end
@@ -201,8 +237,12 @@ export function Add(pc: voidptr, regs: voidptr, ints: voidptr, floats: voidptr, 
             return native.fail()
         end
         slots.writeValue(frame, regs, dst, view)
-        local after = ops.branch(ctx, frame, pc, 0)
-        if after == 0ULL then
+        local after = native.address(pc) + ops.INSTRUCTION_BYTES
+        local codeBytes = native.load64(
+            frame,
+            native.fieldOffset<frames.Frame>("instructionCount")
+        ) << ops.INSTRUCTION_SHIFT
+        if after >= native.load64(frame, native.fieldOffset<frames.Frame>("code")) + codeBytes then
             ops.fail(ctx, frame, pc, ops.INVALID)
             return native.fail()
         end
@@ -243,8 +283,12 @@ export function Add(pc: voidptr, regs: voidptr, ints: voidptr, floats: voidptr, 
         return native.fail()
     end
     slots.writeValue(frame, regs, dst, result)
-    local nextPC = ops.branch(ctx, frame, pc, 0)
-    if nextPC == 0ULL then
+    local nextPC = native.address(pc) + ops.INSTRUCTION_BYTES
+    local codeBytes = native.load64(
+        frame,
+        native.fieldOffset<frames.Frame>("instructionCount")
+    ) << ops.INSTRUCTION_SHIFT
+    if nextPC >= native.load64(frame, native.fieldOffset<frames.Frame>("code")) + codeBytes then
         ops.fail(ctx, frame, pc, ops.INVALID)
         return native.fail()
     end
@@ -253,7 +297,8 @@ export function Add(pc: voidptr, regs: voidptr, ints: voidptr, floats: voidptr, 
 end
 
 export function Sub(pc: voidptr, regs: voidptr, ints: voidptr, floats: voidptr, ctx: voidptr, frame: voidptr): uint64
-    if ops.current(ctx, frame, pc) == 0ULL then
+    local running = native.load64(native.loadPointer(ctx, context.STATE), native.fieldOffset<frames.State>("active"))
+    if running ~= native.address(frame) then
         ops.fail(ctx, frame, pc, ops.INVALID)
         return native.fail()
     end
@@ -311,8 +356,12 @@ export function Sub(pc: voidptr, regs: voidptr, ints: voidptr, floats: voidptr, 
         return native.fail()
     end
     slots.writeValue(frame, regs, dst, result)
-    local nextPC = ops.branch(ctx, frame, pc, 0)
-    if nextPC == 0ULL then
+    local nextPC = native.address(pc) + ops.INSTRUCTION_BYTES
+    local codeBytes = native.load64(
+        frame,
+        native.fieldOffset<frames.Frame>("instructionCount")
+    ) << ops.INSTRUCTION_SHIFT
+    if nextPC >= native.load64(frame, native.fieldOffset<frames.Frame>("code")) + codeBytes then
         ops.fail(ctx, frame, pc, ops.INVALID)
         return native.fail()
     end
@@ -321,7 +370,8 @@ export function Sub(pc: voidptr, regs: voidptr, ints: voidptr, floats: voidptr, 
 end
 
 export function Mul(pc: voidptr, regs: voidptr, ints: voidptr, floats: voidptr, ctx: voidptr, frame: voidptr): uint64
-    if ops.current(ctx, frame, pc) == 0ULL then
+    local running = native.load64(native.loadPointer(ctx, context.STATE), native.fieldOffset<frames.State>("active"))
+    if running ~= native.address(frame) then
         ops.fail(ctx, frame, pc, ops.INVALID)
         return native.fail()
     end
@@ -379,8 +429,12 @@ export function Mul(pc: voidptr, regs: voidptr, ints: voidptr, floats: voidptr, 
         return native.fail()
     end
     slots.writeValue(frame, regs, dst, result)
-    local nextPC = ops.branch(ctx, frame, pc, 0)
-    if nextPC == 0ULL then
+    local nextPC = native.address(pc) + ops.INSTRUCTION_BYTES
+    local codeBytes = native.load64(
+        frame,
+        native.fieldOffset<frames.Frame>("instructionCount")
+    ) << ops.INSTRUCTION_SHIFT
+    if nextPC >= native.load64(frame, native.fieldOffset<frames.Frame>("code")) + codeBytes then
         ops.fail(ctx, frame, pc, ops.INVALID)
         return native.fail()
     end
@@ -389,7 +443,8 @@ export function Mul(pc: voidptr, regs: voidptr, ints: voidptr, floats: voidptr, 
 end
 
 export function Mod(pc: voidptr, regs: voidptr, ints: voidptr, floats: voidptr, ctx: voidptr, frame: voidptr): uint64
-    if ops.current(ctx, frame, pc) == 0ULL then
+    local running = native.load64(native.loadPointer(ctx, context.STATE), native.fieldOffset<frames.State>("active"))
+    if running ~= native.address(frame) then
         ops.fail(ctx, frame, pc, ops.INVALID)
         return native.fail()
     end
@@ -447,8 +502,12 @@ export function Mod(pc: voidptr, regs: voidptr, ints: voidptr, floats: voidptr, 
         return native.fail()
     end
     slots.writeValue(frame, regs, dst, result)
-    local nextPC = ops.branch(ctx, frame, pc, 0)
-    if nextPC == 0ULL then
+    local nextPC = native.address(pc) + ops.INSTRUCTION_BYTES
+    local codeBytes = native.load64(
+        frame,
+        native.fieldOffset<frames.Frame>("instructionCount")
+    ) << ops.INSTRUCTION_SHIFT
+    if nextPC >= native.load64(frame, native.fieldOffset<frames.Frame>("code")) + codeBytes then
         ops.fail(ctx, frame, pc, ops.INVALID)
         return native.fail()
     end
@@ -457,7 +516,8 @@ export function Mod(pc: voidptr, regs: voidptr, ints: voidptr, floats: voidptr, 
 end
 
 export function Lt(pc: voidptr, regs: voidptr, ints: voidptr, floats: voidptr, ctx: voidptr, frame: voidptr): uint64
-    if ops.current(ctx, frame, pc) == 0ULL then
+    local running = native.load64(native.loadPointer(ctx, context.STATE), native.fieldOffset<frames.State>("active"))
+    if running ~= native.address(frame) then
         ops.fail(ctx, frame, pc, ops.INVALID)
         return native.fail()
     end
@@ -508,8 +568,12 @@ export function Lt(pc: voidptr, regs: voidptr, ints: voidptr, floats: voidptr, c
         return native.fail()
     end
     slots.writeValue(frame, regs, dst, native.chooseWord(result == 1ULL, values.TRUE, values.FALSE))
-    local nextPC = ops.branch(ctx, frame, pc, 0)
-    if nextPC == 0ULL then
+    local nextPC = native.address(pc) + ops.INSTRUCTION_BYTES
+    local codeBytes = native.load64(
+        frame,
+        native.fieldOffset<frames.Frame>("instructionCount")
+    ) << ops.INSTRUCTION_SHIFT
+    if nextPC >= native.load64(frame, native.fieldOffset<frames.Frame>("code")) + codeBytes then
         ops.fail(ctx, frame, pc, ops.INVALID)
         return native.fail()
     end
@@ -518,7 +582,8 @@ export function Lt(pc: voidptr, regs: voidptr, ints: voidptr, floats: voidptr, c
 end
 
 export function Le(pc: voidptr, regs: voidptr, ints: voidptr, floats: voidptr, ctx: voidptr, frame: voidptr): uint64
-    if ops.current(ctx, frame, pc) == 0ULL then
+    local running = native.load64(native.loadPointer(ctx, context.STATE), native.fieldOffset<frames.State>("active"))
+    if running ~= native.address(frame) then
         ops.fail(ctx, frame, pc, ops.INVALID)
         return native.fail()
     end
@@ -569,8 +634,12 @@ export function Le(pc: voidptr, regs: voidptr, ints: voidptr, floats: voidptr, c
         return native.fail()
     end
     slots.writeValue(frame, regs, dst, native.chooseWord(result == 1ULL, values.TRUE, values.FALSE))
-    local nextPC = ops.branch(ctx, frame, pc, 0)
-    if nextPC == 0ULL then
+    local nextPC = native.address(pc) + ops.INSTRUCTION_BYTES
+    local codeBytes = native.load64(
+        frame,
+        native.fieldOffset<frames.Frame>("instructionCount")
+    ) << ops.INSTRUCTION_SHIFT
+    if nextPC >= native.load64(frame, native.fieldOffset<frames.Frame>("code")) + codeBytes then
         ops.fail(ctx, frame, pc, ops.INVALID)
         return native.fail()
     end
@@ -579,7 +648,8 @@ export function Le(pc: voidptr, regs: voidptr, ints: voidptr, floats: voidptr, c
 end
 
 export function Eq(pc: voidptr, regs: voidptr, ints: voidptr, floats: voidptr, ctx: voidptr, frame: voidptr): uint64
-    if ops.current(ctx, frame, pc) == 0ULL then
+    local running = native.load64(native.loadPointer(ctx, context.STATE), native.fieldOffset<frames.State>("active"))
+    if running ~= native.address(frame) then
         ops.fail(ctx, frame, pc, ops.INVALID)
         return native.fail()
     end
@@ -621,8 +691,12 @@ export function Eq(pc: voidptr, regs: voidptr, ints: voidptr, floats: voidptr, c
         end
     end
     slots.writeValue(frame, regs, dst, native.chooseWord(result == 1ULL, values.TRUE, values.FALSE))
-    local nextPC = ops.branch(ctx, frame, pc, 0)
-    if nextPC == 0ULL then
+    local nextPC = native.address(pc) + ops.INSTRUCTION_BYTES
+    local codeBytes = native.load64(
+        frame,
+        native.fieldOffset<frames.Frame>("instructionCount")
+    ) << ops.INSTRUCTION_SHIFT
+    if nextPC >= native.load64(frame, native.fieldOffset<frames.Frame>("code")) + codeBytes then
         ops.fail(ctx, frame, pc, ops.INVALID)
         return native.fail()
     end
@@ -631,7 +705,8 @@ export function Eq(pc: voidptr, regs: voidptr, ints: voidptr, floats: voidptr, c
 end
 
 export function Nil(pc: voidptr, regs: voidptr, ints: voidptr, floats: voidptr, ctx: voidptr, frame: voidptr): uint64
-    if ops.current(ctx, frame, pc) == 0ULL then
+    local running = native.load64(native.loadPointer(ctx, context.STATE), native.fieldOffset<frames.State>("active"))
+    if running ~= native.address(frame) then
         ops.fail(ctx, frame, pc, ops.INVALID)
         return native.fail()
     end
@@ -641,8 +716,12 @@ export function Nil(pc: voidptr, regs: voidptr, ints: voidptr, floats: voidptr, 
         return native.fail()
     end
     slots.writeValue(frame, regs, dst, values.NIL)
-    local nextPC = ops.branch(ctx, frame, pc, 0)
-    if nextPC == 0ULL then
+    local nextPC = native.address(pc) + ops.INSTRUCTION_BYTES
+    local codeBytes = native.load64(
+        frame,
+        native.fieldOffset<frames.Frame>("instructionCount")
+    ) << ops.INSTRUCTION_SHIFT
+    if nextPC >= native.load64(frame, native.fieldOffset<frames.Frame>("code")) + codeBytes then
         ops.fail(ctx, frame, pc, ops.INVALID)
         return native.fail()
     end
@@ -651,7 +730,8 @@ export function Nil(pc: voidptr, regs: voidptr, ints: voidptr, floats: voidptr, 
 end
 
 export function Move(pc: voidptr, regs: voidptr, ints: voidptr, floats: voidptr, ctx: voidptr, frame: voidptr): uint64
-    if ops.current(ctx, frame, pc) == 0ULL then
+    local running = native.load64(native.loadPointer(ctx, context.STATE), native.fieldOffset<frames.State>("active"))
+    if running ~= native.address(frame) then
         ops.fail(ctx, frame, pc, ops.INVALID)
         return native.fail()
     end
@@ -666,8 +746,12 @@ export function Move(pc: voidptr, regs: voidptr, ints: voidptr, floats: voidptr,
         return native.fail()
     end
     slots.writeValue(frame, regs, dst, slots.readValue(frame, regs, src))
-    local nextPC = ops.branch(ctx, frame, pc, 0)
-    if nextPC == 0ULL then
+    local nextPC = native.address(pc) + ops.INSTRUCTION_BYTES
+    local codeBytes = native.load64(
+        frame,
+        native.fieldOffset<frames.Frame>("instructionCount")
+    ) << ops.INSTRUCTION_SHIFT
+    if nextPC >= native.load64(frame, native.fieldOffset<frames.Frame>("code")) + codeBytes then
         ops.fail(ctx, frame, pc, ops.INVALID)
         return native.fail()
     end
@@ -683,10 +767,20 @@ export function NewClosure(
     ctx: voidptr,
     frame: voidptr
 ): uint64
-    if ops.charge(ctx, frame, pc) ~= 1ULL then
-        return native.fail()
+    local remaining = native.load64(ctx, context.REMAINING)
+    if native.load64(ctx, context.STATUS) ~= 0ULL
+        or native.load64(ctx, context.CANCELLED) ~= 0ULL
+        or remaining == 0ULL
+    then
+        -- guestops.charge records why.
+        if ops.charge(ctx, frame, pc) ~= 1ULL then
+            return native.fail()
+        end
+    elseif remaining ~= context.UNLIMITED then
+        native.store64(ctx, context.REMAINING, remaining - 1ULL)
     end
-    if ops.current(ctx, frame, pc) == 0ULL then
+    local running = native.load64(native.loadPointer(ctx, context.STATE), native.fieldOffset<frames.State>("active"))
+    if running ~= native.address(frame) then
         ops.fail(ctx, frame, pc, ops.INVALID)
         return native.fail()
     end
@@ -722,8 +816,12 @@ export function NewClosure(
         end
         guestscope.initialized(ctx, header)
         slots.writeValue(frame, regs, dst, values.TAG_OBJ | header)
-        local next = ops.branch(ctx, frame, pc, 0)
-        if next == 0ULL then
+        local next = native.address(pc) + ops.INSTRUCTION_BYTES
+        local codeBytes = native.load64(
+            frame,
+            native.fieldOffset<frames.Frame>("instructionCount")
+        ) << ops.INSTRUCTION_SHIFT
+        if next >= native.load64(frame, native.fieldOffset<frames.Frame>("code")) + codeBytes then
             ops.fail(ctx, frame, pc, ops.INVALID)
             return native.fail()
         end
@@ -740,8 +838,12 @@ export function NewClosure(
         return native.fail()
     end
     slots.writeValue(frame, regs, dst, handle)
-    local nextPC = ops.branch(ctx, frame, pc, 0)
-    if nextPC == 0ULL then
+    local nextPC = native.address(pc) + ops.INSTRUCTION_BYTES
+    local codeBytes = native.load64(
+        frame,
+        native.fieldOffset<frames.Frame>("instructionCount")
+    ) << ops.INSTRUCTION_SHIFT
+    if nextPC >= native.load64(frame, native.fieldOffset<frames.Frame>("code")) + codeBytes then
         ops.fail(ctx, frame, pc, ops.INVALID)
         return native.fail()
     end
@@ -760,10 +862,20 @@ export function NewCell(
     ctx: voidptr,
     frame: voidptr
 ): uint64
-    if ops.charge(ctx, frame, pc) ~= 1ULL then
-        return native.fail()
+    local remaining = native.load64(ctx, context.REMAINING)
+    if native.load64(ctx, context.STATUS) ~= 0ULL
+        or native.load64(ctx, context.CANCELLED) ~= 0ULL
+        or remaining == 0ULL
+    then
+        -- guestops.charge records why.
+        if ops.charge(ctx, frame, pc) ~= 1ULL then
+            return native.fail()
+        end
+    elseif remaining ~= context.UNLIMITED then
+        native.store64(ctx, context.REMAINING, remaining - 1ULL)
     end
-    if ops.current(ctx, frame, pc) == 0ULL then
+    local running = native.load64(native.loadPointer(ctx, context.STATE), native.fieldOffset<frames.State>("active"))
+    if running ~= native.address(frame) then
         ops.fail(ctx, frame, pc, ops.INVALID)
         return native.fail()
     end
@@ -779,8 +891,12 @@ export function NewCell(
     native.store64(native.pointer(body), 0, slots.readValue(frame, regs, src))
     guestscope.initialized(ctx, header)
     slots.writeValue(frame, regs, dst, values.TAG_OBJ | header)
-    local nextPC = ops.branch(ctx, frame, pc, 0)
-    if nextPC == 0ULL then
+    local nextPC = native.address(pc) + ops.INSTRUCTION_BYTES
+    local codeBytes = native.load64(
+        frame,
+        native.fieldOffset<frames.Frame>("instructionCount")
+    ) << ops.INSTRUCTION_SHIFT
+    if nextPC >= native.load64(frame, native.fieldOffset<frames.Frame>("code")) + codeBytes then
         ops.fail(ctx, frame, pc, ops.INVALID)
         return native.fail()
     end
@@ -809,7 +925,8 @@ export function GetCell(
     ctx: voidptr,
     frame: voidptr
 ): uint64
-    if ops.current(ctx, frame, pc) == 0ULL then
+    local running = native.load64(native.loadPointer(ctx, context.STATE), native.fieldOffset<frames.State>("active"))
+    if running ~= native.address(frame) then
         ops.fail(ctx, frame, pc, ops.INVALID)
         return native.fail()
     end
@@ -827,8 +944,12 @@ export function GetCell(
     end
     local body = native.load64(native.pointer(header), native.fieldOffset<heap.Header>("auxPtr"))
     slots.writeValue(frame, regs, dst, native.load64(native.pointer(body), 0))
-    local nextPC = ops.branch(ctx, frame, pc, 0)
-    if nextPC == 0ULL then
+    local nextPC = native.address(pc) + ops.INSTRUCTION_BYTES
+    local codeBytes = native.load64(
+        frame,
+        native.fieldOffset<frames.Frame>("instructionCount")
+    ) << ops.INSTRUCTION_SHIFT
+    if nextPC >= native.load64(frame, native.fieldOffset<frames.Frame>("code")) + codeBytes then
         ops.fail(ctx, frame, pc, ops.INVALID)
         return native.fail()
     end
@@ -844,7 +965,8 @@ export function SetCell(
     ctx: voidptr,
     frame: voidptr
 ): uint64
-    if ops.current(ctx, frame, pc) == 0ULL then
+    local running = native.load64(native.loadPointer(ctx, context.STATE), native.fieldOffset<frames.State>("active"))
+    if running ~= native.address(frame) then
         ops.fail(ctx, frame, pc, ops.INVALID)
         return native.fail()
     end
@@ -861,8 +983,12 @@ export function SetCell(
         return native.fail()
     end
     guestscope.store(ctx, header, 0ULL, slots.readValue(frame, regs, src))
-    local nextPC = ops.branch(ctx, frame, pc, 0)
-    if nextPC == 0ULL then
+    local nextPC = native.address(pc) + ops.INSTRUCTION_BYTES
+    local codeBytes = native.load64(
+        frame,
+        native.fieldOffset<frames.Frame>("instructionCount")
+    ) << ops.INSTRUCTION_SHIFT
+    if nextPC >= native.load64(frame, native.fieldOffset<frames.Frame>("code")) + codeBytes then
         ops.fail(ctx, frame, pc, ops.INVALID)
         return native.fail()
     end
@@ -880,7 +1006,8 @@ export function GetUpval(
     ctx: voidptr,
     frame: voidptr
 ): uint64
-    if ops.current(ctx, frame, pc) == 0ULL then
+    local running = native.load64(native.loadPointer(ctx, context.STATE), native.fieldOffset<frames.State>("active"))
+    if running ~= native.address(frame) then
         ops.fail(ctx, frame, pc, ops.INVALID)
         return native.fail()
     end
@@ -910,8 +1037,12 @@ export function GetUpval(
         dst,
         native.load64(native.pointer(body), native.index((native.word(index) + 1ULL) * 8ULL))
     )
-    local nextPC = ops.branch(ctx, frame, pc, 0)
-    if nextPC == 0ULL then
+    local nextPC = native.address(pc) + ops.INSTRUCTION_BYTES
+    local codeBytes = native.load64(
+        frame,
+        native.fieldOffset<frames.Frame>("instructionCount")
+    ) << ops.INSTRUCTION_SHIFT
+    if nextPC >= native.load64(frame, native.fieldOffset<frames.Frame>("code")) + codeBytes then
         ops.fail(ctx, frame, pc, ops.INVALID)
         return native.fail()
     end
@@ -927,10 +1058,20 @@ export function NewTable(
     ctx: voidptr,
     frame: voidptr
 ): uint64
-    if ops.charge(ctx, frame, pc) ~= 1ULL then
-        return native.fail()
+    local remaining = native.load64(ctx, context.REMAINING)
+    if native.load64(ctx, context.STATUS) ~= 0ULL
+        or native.load64(ctx, context.CANCELLED) ~= 0ULL
+        or remaining == 0ULL
+    then
+        -- guestops.charge records why.
+        if ops.charge(ctx, frame, pc) ~= 1ULL then
+            return native.fail()
+        end
+    elseif remaining ~= context.UNLIMITED then
+        native.store64(ctx, context.REMAINING, remaining - 1ULL)
     end
-    if ops.current(ctx, frame, pc) == 0ULL then
+    local running = native.load64(native.loadPointer(ctx, context.STATE), native.fieldOffset<frames.State>("active"))
+    if running ~= native.address(frame) then
         ops.fail(ctx, frame, pc, ops.INVALID)
         return native.fail()
     end
@@ -940,8 +1081,12 @@ export function NewTable(
         return native.fail()
     end
     slots.writeValue(frame, regs, dst, values.TAG_OBJ | guestscope.newTable(ctx))
-    local nextPC = ops.branch(ctx, frame, pc, 0)
-    if nextPC == 0ULL then
+    local nextPC = native.address(pc) + ops.INSTRUCTION_BYTES
+    local codeBytes = native.load64(
+        frame,
+        native.fieldOffset<frames.Frame>("instructionCount")
+    ) << ops.INSTRUCTION_SHIFT
+    if nextPC >= native.load64(frame, native.fieldOffset<frames.Frame>("code")) + codeBytes then
         ops.fail(ctx, frame, pc, ops.INVALID)
         return native.fail()
     end
@@ -951,10 +1096,20 @@ end
 
 -- Indexing anything but a table raises, as Lua does without a metatable.
 export function GetIdx(pc: voidptr, regs: voidptr, ints: voidptr, floats: voidptr, ctx: voidptr, frame: voidptr): uint64
-    if ops.charge(ctx, frame, pc) ~= 1ULL then
-        return native.fail()
+    local remaining = native.load64(ctx, context.REMAINING)
+    if native.load64(ctx, context.STATUS) ~= 0ULL
+        or native.load64(ctx, context.CANCELLED) ~= 0ULL
+        or remaining == 0ULL
+    then
+        -- guestops.charge records why.
+        if ops.charge(ctx, frame, pc) ~= 1ULL then
+            return native.fail()
+        end
+    elseif remaining ~= context.UNLIMITED then
+        native.store64(ctx, context.REMAINING, remaining - 1ULL)
     end
-    if ops.current(ctx, frame, pc) == 0ULL then
+    local running = native.load64(native.loadPointer(ctx, context.STATE), native.fieldOffset<frames.State>("active"))
+    if running ~= native.address(frame) then
         ops.fail(ctx, frame, pc, ops.INVALID)
         return native.fail()
     end
@@ -979,8 +1134,12 @@ export function GetIdx(pc: voidptr, regs: voidptr, ints: voidptr, floats: voidpt
             return native.fail()
         end
         slots.writeValue(frame, regs, dst, element)
-        local after = ops.branch(ctx, frame, pc, 0)
-        if after == 0ULL then
+        local after = native.address(pc) + ops.INSTRUCTION_BYTES
+        local codeBytes = native.load64(
+            frame,
+            native.fieldOffset<frames.Frame>("instructionCount")
+        ) << ops.INSTRUCTION_SHIFT
+        if after >= native.load64(frame, native.fieldOffset<frames.Frame>("code")) + codeBytes then
             ops.fail(ctx, frame, pc, ops.INVALID)
             return native.fail()
         end
@@ -1027,8 +1186,12 @@ export function GetIdx(pc: voidptr, regs: voidptr, ints: voidptr, floats: voidpt
         return native.dispatch(currentPC, currentValues, currentIntegers, currentFloats, ctx, current)
     end
     slots.writeValue(frame, regs, dst, value)
-    local nextPC = ops.branch(ctx, frame, pc, 0)
-    if nextPC == 0ULL then
+    local nextPC = native.address(pc) + ops.INSTRUCTION_BYTES
+    local codeBytes = native.load64(
+        frame,
+        native.fieldOffset<frames.Frame>("instructionCount")
+    ) << ops.INSTRUCTION_SHIFT
+    if nextPC >= native.load64(frame, native.fieldOffset<frames.Frame>("code")) + codeBytes then
         ops.fail(ctx, frame, pc, ops.INVALID)
         return native.fail()
     end
@@ -1037,10 +1200,20 @@ export function GetIdx(pc: voidptr, regs: voidptr, ints: voidptr, floats: voidpt
 end
 
 export function SetIdx(pc: voidptr, regs: voidptr, ints: voidptr, floats: voidptr, ctx: voidptr, frame: voidptr): uint64
-    if ops.charge(ctx, frame, pc) ~= 1ULL then
-        return native.fail()
+    local remaining = native.load64(ctx, context.REMAINING)
+    if native.load64(ctx, context.STATUS) ~= 0ULL
+        or native.load64(ctx, context.CANCELLED) ~= 0ULL
+        or remaining == 0ULL
+    then
+        -- guestops.charge records why.
+        if ops.charge(ctx, frame, pc) ~= 1ULL then
+            return native.fail()
+        end
+    elseif remaining ~= context.UNLIMITED then
+        native.store64(ctx, context.REMAINING, remaining - 1ULL)
     end
-    if ops.current(ctx, frame, pc) == 0ULL then
+    local running = native.load64(native.loadPointer(ctx, context.STATE), native.fieldOffset<frames.State>("active"))
+    if running ~= native.address(frame) then
         ops.fail(ctx, frame, pc, ops.INVALID)
         return native.fail()
     end
@@ -1063,8 +1236,12 @@ export function SetIdx(pc: voidptr, regs: voidptr, ints: voidptr, floats: voidpt
             ops.fail(ctx, frame, pc, context.GUEST_ERROR_STATUS)
             return native.fail()
         end
-        local after = ops.branch(ctx, frame, pc, 0)
-        if after == 0ULL then
+        local after = native.address(pc) + ops.INSTRUCTION_BYTES
+        local codeBytes = native.load64(
+            frame,
+            native.fieldOffset<frames.Frame>("instructionCount")
+        ) << ops.INSTRUCTION_SHIFT
+        if after >= native.load64(frame, native.fieldOffset<frames.Frame>("code")) + codeBytes then
             ops.fail(ctx, frame, pc, ops.INVALID)
             return native.fail()
         end
@@ -1112,8 +1289,12 @@ export function SetIdx(pc: voidptr, regs: voidptr, ints: voidptr, floats: voidpt
         ops.fail(ctx, frame, pc, ops.RESOURCE)
         return native.fail()
     end
-    local nextPC = ops.branch(ctx, frame, pc, 0)
-    if nextPC == 0ULL then
+    local nextPC = native.address(pc) + ops.INSTRUCTION_BYTES
+    local codeBytes = native.load64(
+        frame,
+        native.fieldOffset<frames.Frame>("instructionCount")
+    ) << ops.INSTRUCTION_SHIFT
+    if nextPC >= native.load64(frame, native.fieldOffset<frames.Frame>("code")) + codeBytes then
         ops.fail(ctx, frame, pc, ops.INVALID)
         return native.fail()
     end
@@ -1122,7 +1303,8 @@ export function SetIdx(pc: voidptr, regs: voidptr, ints: voidptr, floats: voidpt
 end
 
 export function Len(pc: voidptr, regs: voidptr, ints: voidptr, floats: voidptr, ctx: voidptr, frame: voidptr): uint64
-    if ops.current(ctx, frame, pc) == 0ULL then
+    local running = native.load64(native.loadPointer(ctx, context.STATE), native.fieldOffset<frames.State>("active"))
+    if running ~= native.address(frame) then
         ops.fail(ctx, frame, pc, ops.INVALID)
         return native.fail()
     end
@@ -1167,8 +1349,12 @@ export function Len(pc: voidptr, regs: voidptr, ints: voidptr, floats: voidptr, 
         size = strings.length(text)
     end
     slots.writeValue(frame, regs, dst, values.TAG_INTEGER | size)
-    local nextPC = ops.branch(ctx, frame, pc, 0)
-    if nextPC == 0ULL then
+    local nextPC = native.address(pc) + ops.INSTRUCTION_BYTES
+    local codeBytes = native.load64(
+        frame,
+        native.fieldOffset<frames.Frame>("instructionCount")
+    ) << ops.INSTRUCTION_SHIFT
+    if nextPC >= native.load64(frame, native.fieldOffset<frames.Frame>("code")) + codeBytes then
         ops.fail(ctx, frame, pc, ops.INVALID)
         return native.fail()
     end
@@ -1196,7 +1382,8 @@ export function MathFloor(
     ctx: voidptr,
     frame: voidptr
 ): uint64
-    if ops.current(ctx, frame, pc) == 0ULL then
+    local running = native.load64(native.loadPointer(ctx, context.STATE), native.fieldOffset<frames.State>("active"))
+    if running ~= native.address(frame) then
         ops.fail(ctx, frame, pc, ops.INVALID)
         return native.fail()
     end
@@ -1217,8 +1404,12 @@ export function MathFloor(
         result = floorBits(value)
     end
     slots.writeValue(frame, regs, dst, result)
-    local nextPC = ops.branch(ctx, frame, pc, 0)
-    if nextPC == 0ULL then
+    local nextPC = native.address(pc) + ops.INSTRUCTION_BYTES
+    local codeBytes = native.load64(
+        frame,
+        native.fieldOffset<frames.Frame>("instructionCount")
+    ) << ops.INSTRUCTION_SHIFT
+    if nextPC >= native.load64(frame, native.fieldOffset<frames.Frame>("code")) + codeBytes then
         ops.fail(ctx, frame, pc, ops.INVALID)
         return native.fail()
     end
@@ -1238,10 +1429,20 @@ export function LibCall(
     ctx: voidptr,
     frame: voidptr
 ): uint64
-    if ops.charge(ctx, frame, pc) ~= 1ULL then
-        return native.fail()
+    local remaining = native.load64(ctx, context.REMAINING)
+    if native.load64(ctx, context.STATUS) ~= 0ULL
+        or native.load64(ctx, context.CANCELLED) ~= 0ULL
+        or remaining == 0ULL
+    then
+        -- guestops.charge records why.
+        if ops.charge(ctx, frame, pc) ~= 1ULL then
+            return native.fail()
+        end
+    elseif remaining ~= context.UNLIMITED then
+        native.store64(ctx, context.REMAINING, remaining - 1ULL)
     end
-    if ops.current(ctx, frame, pc) == 0ULL then
+    local running = native.load64(native.loadPointer(ctx, context.STATE), native.fieldOffset<frames.State>("active"))
+    if running ~= native.address(frame) then
         ops.fail(ctx, frame, pc, ops.INVALID)
         return native.fail()
     end
@@ -1367,8 +1568,12 @@ export function LibCall(
         else
             slots.writeValue(frame, regs, dst, values.FALSE)
         end
-        local after = ops.branch(ctx, frame, pc, 0)
-        if after == 0ULL then
+        local after = native.address(pc) + ops.INSTRUCTION_BYTES
+        local codeBytes = native.load64(
+            frame,
+            native.fieldOffset<frames.Frame>("instructionCount")
+        ) << ops.INSTRUCTION_SHIFT
+        if after >= native.load64(frame, native.fieldOffset<frames.Frame>("code")) + codeBytes then
             ops.fail(ctx, frame, pc, ops.INVALID)
             return native.fail()
         end
@@ -1388,8 +1593,12 @@ export function LibCall(
             return native.fail()
         end
         slots.writeValue(frame, regs, dst, a)
-        local after = ops.branch(ctx, frame, pc, 0)
-        if after == 0ULL then
+        local after = native.address(pc) + ops.INSTRUCTION_BYTES
+        local codeBytes = native.load64(
+            frame,
+            native.fieldOffset<frames.Frame>("instructionCount")
+        ) << ops.INSTRUCTION_SHIFT
+        if after >= native.load64(frame, native.fieldOffset<frames.Frame>("code")) + codeBytes then
             ops.fail(ctx, frame, pc, ops.INVALID)
             return native.fail()
         end
@@ -1470,8 +1679,12 @@ export function LibCall(
             return native.dispatch(currentPC, currentValues, currentIntegers, currentFloats, ctx, current)
         end
         -- Otherwise dst has the answer: a refused resume's false and reason.
-        local after = ops.branch(ctx, frame, pc, 0)
-        if after == 0ULL then
+        local after = native.address(pc) + ops.INSTRUCTION_BYTES
+        local codeBytes = native.load64(
+            frame,
+            native.fieldOffset<frames.Frame>("instructionCount")
+        ) << ops.INSTRUCTION_SHIFT
+        if after >= native.load64(frame, native.fieldOffset<frames.Frame>("code")) + codeBytes then
             ops.fail(ctx, frame, pc, ops.INVALID)
             return native.fail()
         end
@@ -1521,8 +1734,12 @@ export function LibCall(
             return native.dispatch(currentPC, currentValues, currentIntegers, currentFloats, ctx, current)
         end
         slots.writeValue(frame, regs, dst, loaded)
-        local after = ops.branch(ctx, frame, pc, 0)
-        if after == 0ULL then
+        local after = native.address(pc) + ops.INSTRUCTION_BYTES
+        local codeBytes = native.load64(
+            frame,
+            native.fieldOffset<frames.Frame>("instructionCount")
+        ) << ops.INSTRUCTION_SHIFT
+        if after >= native.load64(frame, native.fieldOffset<frames.Frame>("code")) + codeBytes then
             ops.fail(ctx, frame, pc, ops.INVALID)
             return native.fail()
         end
@@ -1704,8 +1921,12 @@ export function LibCall(
         slots.writeValue(frame, regs, dst, result)
     end
     guestscope.libraryReturned(ctx)
-    local nextPC = ops.branch(ctx, frame, pc, 0)
-    if nextPC == 0ULL then
+    local nextPC = native.address(pc) + ops.INSTRUCTION_BYTES
+    local codeBytes = native.load64(
+        frame,
+        native.fieldOffset<frames.Frame>("instructionCount")
+    ) << ops.INSTRUCTION_SHIFT
+    if nextPC >= native.load64(frame, native.fieldOffset<frames.Frame>("code")) + codeBytes then
         ops.fail(ctx, frame, pc, ops.INVALID)
         return native.fail()
     end
@@ -1715,7 +1936,8 @@ end
 
 -- Lua's not: true for false and nil, false for anything else.
 export function Not(pc: voidptr, regs: voidptr, ints: voidptr, floats: voidptr, ctx: voidptr, frame: voidptr): uint64
-    if ops.current(ctx, frame, pc) == 0ULL then
+    local running = native.load64(native.loadPointer(ctx, context.STATE), native.fieldOffset<frames.State>("active"))
+    if running ~= native.address(frame) then
         ops.fail(ctx, frame, pc, ops.INVALID)
         return native.fail()
     end
@@ -1733,8 +1955,12 @@ export function Not(pc: voidptr, regs: voidptr, ints: voidptr, floats: voidptr, 
         dst,
         native.chooseWord(value == values.FALSE or value == values.NIL, values.TRUE, values.FALSE)
     )
-    local nextPC = ops.branch(ctx, frame, pc, 0)
-    if nextPC == 0ULL then
+    local nextPC = native.address(pc) + ops.INSTRUCTION_BYTES
+    local codeBytes = native.load64(
+        frame,
+        native.fieldOffset<frames.Frame>("instructionCount")
+    ) << ops.INSTRUCTION_SHIFT
+    if nextPC >= native.load64(frame, native.fieldOffset<frames.Frame>("code")) + codeBytes then
         ops.fail(ctx, frame, pc, ops.INVALID)
         return native.fail()
     end
@@ -1743,10 +1969,20 @@ export function Not(pc: voidptr, regs: voidptr, ints: voidptr, floats: voidptr, 
 end
 
 export function CallK(pc: voidptr, regs: voidptr, ints: voidptr, floats: voidptr, ctx: voidptr, frame: voidptr): uint64
-    if ops.charge(ctx, frame, pc) ~= 1ULL then
-        return native.fail()
+    local remaining = native.load64(ctx, context.REMAINING)
+    if native.load64(ctx, context.STATUS) ~= 0ULL
+        or native.load64(ctx, context.CANCELLED) ~= 0ULL
+        or remaining == 0ULL
+    then
+        -- guestops.charge records why.
+        if ops.charge(ctx, frame, pc) ~= 1ULL then
+            return native.fail()
+        end
+    elseif remaining ~= context.UNLIMITED then
+        native.store64(ctx, context.REMAINING, remaining - 1ULL)
     end
-    if ops.current(ctx, frame, pc) == 0ULL then
+    local running = native.load64(native.loadPointer(ctx, context.STATE), native.fieldOffset<frames.State>("active"))
+    if running ~= native.address(frame) then
         ops.fail(ctx, frame, pc, ops.INVALID)
         return native.fail()
     end
@@ -1878,7 +2114,8 @@ export function CallK(pc: voidptr, regs: voidptr, ints: voidptr, floats: voidptr
 end
 
 export function Ret(pc: voidptr, regs: voidptr, ints: voidptr, floats: voidptr, ctx: voidptr, frame: voidptr): uint64
-    if ops.current(ctx, frame, pc) == 0ULL then
+    local running = native.load64(native.loadPointer(ctx, context.STATE), native.fieldOffset<frames.State>("active"))
+    if running ~= native.address(frame) then
         ops.fail(ctx, frame, pc, ops.INVALID)
         return native.fail()
     end
@@ -2012,7 +2249,8 @@ end
 -- Return `count` results from consecutive slots starting at `src` (core-only).
 -- The caller keeps as many as it wanted, nil-filled; a root keeps the first.
 export function RetN(pc: voidptr, regs: voidptr, ints: voidptr, floats: voidptr, ctx: voidptr, frame: voidptr): uint64
-    if ops.current(ctx, frame, pc) == 0ULL then
+    local running = native.load64(native.loadPointer(ctx, context.STATE), native.fieldOffset<frames.State>("active"))
+    if running ~= native.address(frame) then
         ops.fail(ctx, frame, pc, ops.INVALID)
         return native.fail()
     end
@@ -2159,10 +2397,20 @@ end
 -- CallK with a variadic pack spread after the fixed arguments (core-only):
 -- its values are staged after them, within a window of 63 arguments.
 export function CallV(pc: voidptr, regs: voidptr, ints: voidptr, floats: voidptr, ctx: voidptr, frame: voidptr): uint64
-    if ops.charge(ctx, frame, pc) ~= 1ULL then
-        return native.fail()
+    local remaining = native.load64(ctx, context.REMAINING)
+    if native.load64(ctx, context.STATUS) ~= 0ULL
+        or native.load64(ctx, context.CANCELLED) ~= 0ULL
+        or remaining == 0ULL
+    then
+        -- guestops.charge records why.
+        if ops.charge(ctx, frame, pc) ~= 1ULL then
+            return native.fail()
+        end
+    elseif remaining ~= context.UNLIMITED then
+        native.store64(ctx, context.REMAINING, remaining - 1ULL)
     end
-    if ops.current(ctx, frame, pc) == 0ULL then
+    local running = native.load64(native.loadPointer(ctx, context.STATE), native.fieldOffset<frames.State>("active"))
+    if running ~= native.address(frame) then
         ops.fail(ctx, frame, pc, ops.INVALID)
         return native.fail()
     end
@@ -2312,7 +2560,8 @@ end
 -- RetN with a variadic pack after the `count` staged results (core-only): the
 -- pack's values are staged after them, up to sixteen results in all.
 export function RetV(pc: voidptr, regs: voidptr, ints: voidptr, floats: voidptr, ctx: voidptr, frame: voidptr): uint64
-    if ops.current(ctx, frame, pc) == 0ULL then
+    local running = native.load64(native.loadPointer(ctx, context.STATE), native.fieldOffset<frames.State>("active"))
+    if running ~= native.address(frame) then
         ops.fail(ctx, frame, pc, ops.INVALID)
         return native.fail()
     end
@@ -2481,10 +2730,20 @@ end
 -- gets true before its results, or false and the error when an error unwinds
 -- to it (guestlanding.recoverEntry).
 export function PCall(pc: voidptr, regs: voidptr, ints: voidptr, floats: voidptr, ctx: voidptr, frame: voidptr): uint64
-    if ops.charge(ctx, frame, pc) ~= 1ULL then
-        return native.fail()
+    local remaining = native.load64(ctx, context.REMAINING)
+    if native.load64(ctx, context.STATUS) ~= 0ULL
+        or native.load64(ctx, context.CANCELLED) ~= 0ULL
+        or remaining == 0ULL
+    then
+        -- guestops.charge records why.
+        if ops.charge(ctx, frame, pc) ~= 1ULL then
+            return native.fail()
+        end
+    elseif remaining ~= context.UNLIMITED then
+        native.store64(ctx, context.REMAINING, remaining - 1ULL)
     end
-    if ops.current(ctx, frame, pc) == 0ULL then
+    local running = native.load64(native.loadPointer(ctx, context.STATE), native.fieldOffset<frames.State>("active"))
+    if running ~= native.address(frame) then
         ops.fail(ctx, frame, pc, ops.INVALID)
         return native.fail()
     end
@@ -2553,8 +2812,12 @@ export function PCall(pc: voidptr, regs: voidptr, ints: voidptr, floats: voidptr
             (native.word(base) + 1ULL) | (native.word(wanted) << 32ULL)
         )
         if answer == threads.REFUSED then
-            local after = ops.branch(ctx, frame, pc, 0)
-            if after == 0ULL then
+            local after = native.address(pc) + ops.INSTRUCTION_BYTES
+            local codeBytes = native.load64(
+                frame,
+                native.fieldOffset<frames.Frame>("instructionCount")
+            ) << ops.INSTRUCTION_SHIFT
+            if after >= native.load64(frame, native.fieldOffset<frames.Frame>("code")) + codeBytes then
                 ops.fail(ctx, frame, pc, ops.INVALID)
                 return native.fail()
             end
@@ -2577,8 +2840,12 @@ export function PCall(pc: voidptr, regs: voidptr, ints: voidptr, floats: voidptr
     if ops.uncallable(ctx, callee) == 1ULL then
         local called = ops.callTable(ctx, frame, pc, native.word(base), native.word(nargs), native.word(wanted), 1ULL)
         if called == ops.CALL_ANSWERED then
-            local after = ops.branch(ctx, frame, pc, 0)
-            if after == 0ULL then
+            local after = native.address(pc) + ops.INSTRUCTION_BYTES
+            local codeBytes = native.load64(
+                frame,
+                native.fieldOffset<frames.Frame>("instructionCount")
+            ) << ops.INSTRUCTION_SHIFT
+            if after >= native.load64(frame, native.fieldOffset<frames.Frame>("code")) + codeBytes then
                 ops.fail(ctx, frame, pc, ops.INVALID)
                 return native.fail()
             end
@@ -2611,8 +2878,12 @@ export function PCall(pc: voidptr, regs: voidptr, ints: voidptr, floats: voidptr
         if ops.prepareRefused(ctx, frame, pc, native.word(base), native.word(wanted), 1ULL) ~= ops.CALL_ANSWERED then
             return native.fail()
         end
-        local after = ops.branch(ctx, frame, pc, 0)
-        if after == 0ULL then
+        local after = native.address(pc) + ops.INSTRUCTION_BYTES
+        local codeBytes = native.load64(
+            frame,
+            native.fieldOffset<frames.Frame>("instructionCount")
+        ) << ops.INSTRUCTION_SHIFT
+        if after >= native.load64(frame, native.fieldOffset<frames.Frame>("code")) + codeBytes then
             ops.fail(ctx, frame, pc, ops.INVALID)
             return native.fail()
         end
@@ -2667,7 +2938,8 @@ export function XPHandle(
     ctx: voidptr,
     frame: voidptr
 ): uint64
-    if ops.current(ctx, frame, pc) == 0ULL then
+    local running = native.load64(native.loadPointer(ctx, context.STATE), native.fieldOffset<frames.State>("active"))
+    if running ~= native.address(frame) then
         ops.fail(ctx, frame, pc, ops.INVALID)
         return native.fail()
     end
@@ -2705,8 +2977,12 @@ export function XPHandle(
         access.refresh(s, current, ctx)
         return native.dispatch(currentPC, currentValues, currentIntegers, currentFloats, ctx, current)
     end
-    local nextPC = ops.branch(ctx, frame, pc, 0)
-    if nextPC == 0ULL then
+    local nextPC = native.address(pc) + ops.INSTRUCTION_BYTES
+    local codeBytes = native.load64(
+        frame,
+        native.fieldOffset<frames.Frame>("instructionCount")
+    ) << ops.INSTRUCTION_SHIFT
+    if nextPC >= native.load64(frame, native.fieldOffset<frames.Frame>("code")) + codeBytes then
         ops.fail(ctx, frame, pc, ops.INVALID)
         return native.fail()
     end
@@ -2725,7 +3001,8 @@ export function Destroy(
     ctx: voidptr,
     frame: voidptr
 ): uint64
-    if ops.current(ctx, frame, pc) == 0ULL then
+    local running = native.load64(native.loadPointer(ctx, context.STATE), native.fieldOffset<frames.State>("active"))
+    if running ~= native.address(frame) then
         ops.fail(ctx, frame, pc, ops.INVALID)
         return native.fail()
     end
@@ -2738,8 +3015,12 @@ export function Destroy(
     local owned = slots.readValue(frame, regs, value)
     -- An optional owner holding nil has nothing to destroy.
     if owned == values.NIL then
-        local after = ops.branch(ctx, frame, pc, 0)
-        if after == 0ULL then
+        local after = native.address(pc) + ops.INSTRUCTION_BYTES
+        local codeBytes = native.load64(
+            frame,
+            native.fieldOffset<frames.Frame>("instructionCount")
+        ) << ops.INSTRUCTION_SHIFT
+        if after >= native.load64(frame, native.fieldOffset<frames.Frame>("code")) + codeBytes then
             ops.fail(ctx, frame, pc, ops.INVALID)
             return native.fail()
         end
@@ -2764,14 +3045,24 @@ export function Destroy(
 end
 
 export function Jmp(pc: voidptr, regs: voidptr, ints: voidptr, floats: voidptr, ctx: voidptr, frame: voidptr): uint64
-    if ops.current(ctx, frame, pc) == 0ULL then
+    local running = native.load64(native.loadPointer(ctx, context.STATE), native.fieldOffset<frames.State>("active"))
+    if running ~= native.address(frame) then
         ops.fail(ctx, frame, pc, ops.INVALID)
         return native.fail()
     end
     local displacement = program.readSigned32(pc, 4)
     if displacement < 0 then
-        if ops.charge(ctx, frame, pc) ~= 1ULL then
-            return native.fail()
+        local remaining = native.load64(ctx, context.REMAINING)
+        if native.load64(ctx, context.STATUS) ~= 0ULL
+            or native.load64(ctx, context.CANCELLED) ~= 0ULL
+            or remaining == 0ULL
+        then
+            -- guestops.charge records why.
+            if ops.charge(ctx, frame, pc) ~= 1ULL then
+                return native.fail()
+            end
+        elseif remaining ~= context.UNLIMITED then
+            native.store64(ctx, context.REMAINING, remaining - 1ULL)
         end
         -- A loop's back edge runs the finalizers pending, one at a time,
         -- running again as each returns (guestfinalizers).
@@ -2791,8 +3082,15 @@ export function Jmp(pc: voidptr, regs: voidptr, ints: voidptr, floats: voidptr, 
             end
         end
     end
-    local target = ops.branch(ctx, frame, pc, displacement)
-    if target == 0ULL then
+    -- The branch inline, as guestops.branch makes it: the displacement is a
+    -- signed word, so the sum wraps to the target as it would in int64.
+    local target = native.address(pc) + ops.INSTRUCTION_BYTES + (native.word(displacement) << ops.INSTRUCTION_SHIFT)
+    local code = native.load64(frame, native.fieldOffset<frames.Frame>("code"))
+    local codeBytes = native.load64(
+        frame,
+        native.fieldOffset<frames.Frame>("instructionCount")
+    ) << ops.INSTRUCTION_SHIFT
+    if target < code or target >= code + codeBytes then
         ops.fail(ctx, frame, pc, ops.INVALID)
         return native.fail()
     end
@@ -2801,7 +3099,8 @@ export function Jmp(pc: voidptr, regs: voidptr, ints: voidptr, floats: voidptr, 
 end
 
 export function JmpIf(pc: voidptr, regs: voidptr, ints: voidptr, floats: voidptr, ctx: voidptr, frame: voidptr): uint64
-    if ops.current(ctx, frame, pc) == 0ULL then
+    local running = native.load64(native.loadPointer(ctx, context.STATE), native.fieldOffset<frames.State>("active"))
+    if running ~= native.address(frame) then
         ops.fail(ctx, frame, pc, ops.INVALID)
         return native.fail()
     end
@@ -2814,8 +3113,12 @@ export function JmpIf(pc: voidptr, regs: voidptr, ints: voidptr, floats: voidptr
     -- Booleans and nil reach a branch.
     local value = slots.readValue(frame, regs, src)
     if value == values.FALSE or value == values.NIL then
-        local target = ops.branch(ctx, frame, pc, 0)
-        if target == 0ULL then
+        local target = native.address(pc) + ops.INSTRUCTION_BYTES
+        local codeBytes = native.load64(
+            frame,
+            native.fieldOffset<frames.Frame>("instructionCount")
+        ) << ops.INSTRUCTION_SHIFT
+        if target >= native.load64(frame, native.fieldOffset<frames.Frame>("code")) + codeBytes then
             ops.fail(ctx, frame, pc, ops.INVALID)
             return native.fail()
         end
@@ -2823,12 +3126,28 @@ export function JmpIf(pc: voidptr, regs: voidptr, ints: voidptr, floats: voidptr
     end
     local displacement = program.readSigned32(pc, 4)
     if displacement < 0 then
-        if ops.charge(ctx, frame, pc) ~= 1ULL then
-            return native.fail()
+        local remaining = native.load64(ctx, context.REMAINING)
+        if native.load64(ctx, context.STATUS) ~= 0ULL
+            or native.load64(ctx, context.CANCELLED) ~= 0ULL
+            or remaining == 0ULL
+        then
+            -- guestops.charge records why.
+            if ops.charge(ctx, frame, pc) ~= 1ULL then
+                return native.fail()
+            end
+        elseif remaining ~= context.UNLIMITED then
+            native.store64(ctx, context.REMAINING, remaining - 1ULL)
         end
     end
-    local target = ops.branch(ctx, frame, pc, displacement)
-    if target == 0ULL then
+    -- The branch inline, as guestops.branch makes it: the displacement is a
+    -- signed word, so the sum wraps to the target as it would in int64.
+    local target = native.address(pc) + ops.INSTRUCTION_BYTES + (native.word(displacement) << ops.INSTRUCTION_SHIFT)
+    local code = native.load64(frame, native.fieldOffset<frames.Frame>("code"))
+    local codeBytes = native.load64(
+        frame,
+        native.fieldOffset<frames.Frame>("instructionCount")
+    ) << ops.INSTRUCTION_SHIFT
+    if target < code or target >= code + codeBytes then
         ops.fail(ctx, frame, pc, ops.INVALID)
         return native.fail()
     end
