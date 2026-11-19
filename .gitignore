@@ -2,6 +2,8 @@
 /build/
 # A project's build cache, wherever the project sits.
 **/build/cache/
+# Benchmark build output.
+/bench/*/build/
 /.rocks
 /.nupp-cache/
 .claude/
