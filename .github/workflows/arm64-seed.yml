@@ -41,8 +41,8 @@ jobs:
           test "$(sha256sum build/seed/compiler.image | cut -d' ' -f1)" = "$IMAGE_SHA256"
           vm=build/seed-target/release/nupp-vm
           set +e
-          "$vm" verify build/seed/compiler.image; echo "verify: $?"
-          env NO_JIT=1 NO_AOT=1 SIMD_INTERPRET=1 NUPP_COMPILER_ROOT="$PWD" NUPP_VM_BINARY="$PWD/$vm" \
+          RUST_BACKTRACE=1 "$vm" verify build/seed/compiler.image 2>&1 | head -60; echo "verify: ${PIPESTATUS[0]}"
+          env RUST_BACKTRACE=1 NO_JIT=1 NO_AOT=1 SIMD_INTERPRET=1 NUPP_COMPILER_ROOT="$PWD" NUPP_VM_BINARY="$PWD/$vm" \
             NUPP_VM_CLI_IMAGE="$PWD/build/seed/compiler.image" \
             "$vm" exec build/seed/compiler.image nupp.tools.vm.root --help 2>&1 | head -40; echo "exec: ${PIPESTATUS[0]}"
           set -e
