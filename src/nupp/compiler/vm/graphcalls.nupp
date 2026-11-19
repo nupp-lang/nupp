@@ -1568,6 +1568,11 @@ export function expandsResults(expr: any): boolean
         return false
     end
     local called = expr.calleeType or expr.signatureType
+    -- A callable object's type describes the receiver. Its checked call
+    -- signature describes the results of invoking it through __call.
+    if called and called.tag ~= "func" and expr.signatureType and expr.signatureType.tag == "func" then
+        called = expr.signatureType
+    end
     if called ~= nil and alternativeresults(called) then
         return true
     end
