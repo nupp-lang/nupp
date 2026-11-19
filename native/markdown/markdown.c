@@ -56,8 +56,8 @@ static pthread_mutex_t lock = PTHREAD_MUTEX_INITIALIZER;
 #define REVISION "27d942c8b0a62d192f616e5bf3578f4b6a89e180/definition-list-1"
 
 /* The largest input and budget nuppmarkdownrender accepts. */
-#define MAX_INPUT_BYTES (8 * 1024 * 1024)
-#define MAX_BUDGET_BYTES (256 * 1024 * 1024)
+#define MAX_INPUT_BYTES ((size_t)8 * 1024 * 1024)
+#define MAX_BUDGET_BYTES ((size_t)256 * 1024 * 1024)
 
 /* The UTF-8 byte order mark, which cmark skips at the start of its input. */
 #define UTF8_BOM "\xef\xbb\xbf"
@@ -175,6 +175,8 @@ static void *allocate (size_t count, size_t width) {
   item->h.next = active->allocations;
 
   if (item->h.next) {
+    /* The analyzer loses the header behind the pointer release is given.
+     * NOLINTNEXTLINE(clang-analyzer-unix.Malloc) */
     item->h.next->h.prev = item;
   }
 
@@ -296,7 +298,7 @@ static void tablehtml (cmark_node *root) {
     cmark_node *table = cmark_iter_get_node(iter);
 
     if (event != CMARK_EVENT_EXIT ||
-        strcmp(cmark_node_get_type_string(table), "table")) {
+        strcmp(cmark_node_get_type_string(table), "table") != 0) {
       continue;
     }
 
@@ -759,7 +761,7 @@ static void findhtmllines (const char *input, size_t bytes, cmark_node *node,
       }
     }
 
-    if (!next || !*end) {
+    if (!next || end == input + bytes) {
       break;
     }
 
@@ -935,7 +937,7 @@ static void chooseurl (markers *m, const char *source, size_t bytes,
                        const char *html) {
   for (;;) {
     size_t ones = m->ones;
-    m->urlsize = ones * (2 * ESCAPE_BYTES) + ESCAPED_MIDDLE_BYTES;
+    m->urlsize = ones * 2 * ESCAPE_BYTES + ESCAPED_MIDDLE_BYTES;
     m->url = allocate(1, m->urlsize + 1);
 
     for (size_t i = 0; i < ones; i++) {
