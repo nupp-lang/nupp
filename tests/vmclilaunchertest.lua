@@ -132,7 +132,8 @@ end
 
 -- Run without a selected image, as a person at a terminal would, and without the
 -- background link, which would outlive the case.
-local ENV = "NUPP_VM_CLI_IMAGE= NUPP_VM_BINARY= NUPP_VM_AUTO_LINK= NUPP_VM_AUTO_REBUILD=" .. " NUPP_VM_AUTO_LINK=0"
+local ENV = "NUPP_VM_CLI_IMAGE= NUPP_VM_BINARY= NUPP_VM_AUTO_LINK= NUPP_VM_AUTO_REBUILD="
+    .. " NUPP_VM_AUTO_LINK=0"
     .. " NUPP_RUNTIME= NUPP_CORE_AUTO_REBUILD="
 
 local function ran(dir, command, env)
@@ -793,6 +794,9 @@ local function flippedTree()
     local host = capture(("sh '%s/scripts/stage0-runtime' --host"):format(dir)):match("^(%S+)")
     local pins = assert(readFile(dir .. "/scripts/toolchain.pins"))
     pins = pins:gsub("\nSTAGE0_CORE_HOSTS=[^\n]*", "\nSTAGE0_CORE_HOSTS=" .. host)
+
+    -- The planted checkout must not download the real host's seed.
+    pins = pins:gsub("\nSTAGE0_CORE_URL_[%w_]+=[^\n]*", ""):gsub("\nSTAGE0_CORE_SHA256_[%w_]+=[^\n]*", "")
     plant("scripts/toolchain.pins", pins)
     assert(os.execute(("touch -t 202001010000 '%s/scripts/toolchain.pins'"):format(dir)) == 0)
     assert(os.execute(("mkdir -p '%s/core'"):format(dir)) == 0)
@@ -896,6 +900,19 @@ local function optedTree()
     local dir, plant = plantedTree()
     plant("scripts/generation.py", OPTED_GENERATION)
     plant("scripts/vm-runtime.sh", OPTED_VM_RUNTIME)
+    -- The fixture provides its own core runtime, so it can exercise opt-in
+    -- even when the machine running the shell test has no ARM64 core.
+    plant(
+        "scripts/stage0-runtime",
+        [=[
+#!/bin/sh
+if [ "${1:-}" = --host ]; then
+    echo aarch64-apple-darwin
+else
+    echo vm
+fi
+]=]
+    )
     assert(
         os.execute(
             (
@@ -940,7 +957,9 @@ end
 
 function M.anOptedInEditRebuildsByContentWithACurrentVm()
     local dir = optedTree()
-    assert(os.execute(("cd '%s' && " .. GIT_ISOLATED .. "git init -q && git add src templates scripts"):format(dir)) == 0)
+    assert(
+        os.execute(("cd '%s' && " .. GIT_ISOLATED .. "git init -q && git add src templates scripts"):format(dir)) == 0
+    )
     assert(ran(dir, "check", "NUPP_RUNTIME=core"):find("CORE cg01 check", 1, true))
     -- Newer by time and the same by content: the generation is current.
     assert(os.execute(("touch '%s/src/compiler.nupp'"):format(dir)) == 0)
