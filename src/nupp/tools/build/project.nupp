@@ -312,6 +312,9 @@ local function buildOne(root: string?, opts: project.BuildOptions?): integer
     -- Coverage affects emitted Lua, therefore belongs in the configuration before the
     -- build key is calculated. A normal cache entry can never satisfy a coverage run.
     config._coverage = opts.coverage == true
+    local coreBinary = target.kind == "binary"
+        and rawget(_G, "__nupp_load_image") == nil
+        and os.getenv("NUPP_CORE_RUNTIME") ~= nil
     if target.kind == "docs" then
         -- A documentation target declares dependencies like any other. They are
         -- installed before the build rather than discovered missing halfway through
@@ -360,7 +363,9 @@ local function buildOne(root: string?, opts: project.BuildOptions?): integer
         if target.stub ~= "nupp" then
             refusal = "a binary target's stub must be \"nupp\": binaries are VM programs on the Nupp runtime"
         elseif selectedPlatform ~= nil then
-            refusal = "a binary builds for the machine building it; VM programs for another platform are not available"
+            refusal = "a binary builds for the machine building it"
+        elseif coreBinary and (target.standalone or target.reload or (target.aot ~= nil and target.aot ~= "off")) then
+            refusal = "core binary targets require a launcher with sidecars and do not support reload or AOT options"
         end
         if refusal ~= nil then
             say(opts, "NUPP0002", "nupp: " .. refusal .. "\n")
@@ -586,7 +591,42 @@ local function buildOne(root: string?, opts: project.BuildOptions?): integer
     local testHostHash: string? = nil
     local testRuntime: any = nil
     local primaryArtifact: string? = nil
-    if target.kind == "binary" then
+    if coreBinary then
+        report:at("bundle")
+        report:step("bundling " .. (target.name or "binary"))
+        local package = loadBuildTool("nupp.tools.build.package")
+        local name = target.name or opts.target or "binary"
+        local output = package.binaryOutput(root, target, name, outDir, nil, opts.outDir ~= nil)
+        local ok, outputs, bundle, host, unreachable, usedLibraries = pcall(
+            package.coreBinary,
+            root,
+            config,
+            target,
+            outDir,
+            output,
+            session.inc,
+            contentDigest
+        )
+        if not ok then
+            say(opts, "NUPP0004", "nupp: " .. tostring(outputs) .. "\n")
+            return 1
+        end
+        for path in pairs(outputs) do
+            newState.outputs[path] = true
+        end
+        primaryArtifact = output
+        testRuntime = {core = true, payload = bundle, vector = false, facilities = {}}
+        newState.nativeLibraries = cache.jsonArray(usedLibraries)
+        testHost = host
+        if testInput ~= nil then
+            local hostBytes = assert(readFile(host))
+            testHostHash = contentDigest(hostBytes)
+        end
+        if #unreachable > 0 then
+            say(opts, "NUPP0002", "nupp: resource could not be bundled: " .. tostring(unreachable[1]) .. "\n")
+        end
+        report:clear()
+    elseif target.kind == "binary" then
         report:at("bundle")
         report:step("bundling " .. (target.name or target.kind))
         local package = loadBuildTool("nupp.tools.build.package")
@@ -814,6 +854,7 @@ local function buildOne(root: string?, opts: project.BuildOptions?): integer
                 facilities = testRuntime.facilities,
                 vector = testRuntime.vector,
                 payload = testRuntime.payload,
+                core = testRuntime.core,
                 host = testHost,
                 hostHash = testHostHash,
                 modules = count,

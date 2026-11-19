@@ -953,11 +953,10 @@ local function portable(root: string, library: string, seen: {[string]: boolean}
 end
 
 local function modulePath(root: string, name: string): string
-    if name:sub(-4) == ".lua" then
-        return root .. "/" .. name
-    end
     if name:sub(1, 1) == "/" then
-        return name .. ".nupp"
+        return (name:sub(-4) == ".lua" or name:sub(-5) == ".nupp") and name or name .. ".nupp"
+    elseif name:sub(-4) == ".lua" then
+        return root .. "/" .. name
     elseif name:sub(1, 4) == "src/" then
         return root .. "/" .. name .. ".nupp"
     end
@@ -1107,12 +1106,13 @@ end
 --- The native libraries `bundle` loads relative to itself, by the path under
 --- its directory each is staged at, with the file it is copied from: those
 --- the packaged bindings resolved and the bundle names.
-export function packagedLibraryFiles(bundle: string): {[string]: string}
+export function packagedLibraryFiles(bundle: string, projectBindings: table?): {[string]: string}
     local files: {[string]: string} = {}
-    if packagedBindings == nil then
+    local source = projectBindings or packagedBindings
+    if source == nil then
         return files
     end
-    local bindings: any = packagedBindings
+    local bindings: any = source
 
     local function take(binding: any): nil
         if binding == nil or type(binding.reference) ~= "string" or binding.path == nil then
@@ -1135,8 +1135,20 @@ export function packagedLibraryFiles(bundle: string): {[string]: string}
     return files
 end
 
+local type ProjectEntry = {
+    module: string,
+    inc: any,
+    embedded: string?
+}
+
 -- The checked program catalog for a case: its entry after every module it carries.
-local function programCatalog(caseName: string, fixture: string, version: integer, fresh: boolean?): any
+local function programCatalog(
+    caseName: string,
+    fixture: string,
+    version: integer,
+    fresh: boolean?,
+    projectEntry: ProjectEntry?
+): any
     local root = assert(os.getenv("NUPP_COMPILER_ROOT"))
     local names = {fixture}
     -- A case's other modules come first, so the modules it requires precede it.
@@ -1218,10 +1230,18 @@ local function programCatalog(caseName: string, fixture: string, version: intege
     end
     local staged = root .. "/build/core-guest-programs/source"
     local project: any = nil
-    if #names > 1 or declared ~= nil and declared.follow == true then
+    local follow = projectEntry ~= nil or declared ~= nil and declared.follow == true
+    if #names > 1 or follow then
         project = checkedProject(root)
     end
-    local follow = declared ~= nil and declared.follow == true
+    local projectNames: {[string]: string} = {}
+    if projectEntry ~= nil then
+        projectNames[fixture] = projectEntry.module
+        if projectEntry.embedded ~= nil then
+            projectNames[projectEntry.embedded] = "nupp.embedded"
+            table.insert(names, 1, projectEntry.embedded)
+        end
+    end
 
     -- The module request `name` names, checked: its catalog input, and the
     -- requests for the modules it carries, in the order it names them.
@@ -1237,7 +1257,7 @@ local function programCatalog(caseName: string, fixture: string, version: intege
         local parsed = parser.parse(source, path)
         assert(#parsed.errors == 0, "guest source parse failed: " .. name)
         -- A library module may be named by its path alone.
-        local named = cst.declaredModule(parsed.root)
+        local named = cst.declaredModule(parsed.root) or projectNames[name]
         local rooted = name == fixture and declared ~= nil and declared.rooted == true
         if named == nil and rooted then
             named = assert(declared).module
@@ -1250,13 +1270,16 @@ local function programCatalog(caseName: string, fixture: string, version: intege
         -- program of one fixture, which reaches it only now: an environment
         -- that indexes no project types its own requires as any.
         local checkingProject: any = project
+        if projectEntry ~= nil and projectNames[name] ~= nil then
+            checkingProject = projectEntry.inc
+        end
         if checkingProject == nil and libraryModule(name) then
             checkingProject = checkedProject(root)
         end
         if checkingProject then
             -- A fixture is checked as its staged copy; a library module
             -- the program carries, where it lives.
-            if not libraryModule(name) and not rooted then
+            if projectNames[name] == nil and not libraryModule(name) and not rooted then
                 path = staged .. "/" .. declared:gsub("%.", "/") .. ".nupp"
                 assert(read(path) == source, "staged guest source differs: " .. name)
             end
@@ -1286,18 +1309,31 @@ local function programCatalog(caseName: string, fixture: string, version: intege
             -- Checked value dependencies are mandatory in every profile. Only
             -- Carried libraries retain their declared and literal dynamic
             -- dependencies. The case flag controls discovery in fixture code.
+            local graph: any = require("nupp.compiler.vm.graph")
             local required, dynamic = requiredmodules(parsed.root or parsed, source, follow or libraryModule(name))
             for _, name in ipairs(required) do
-                local library = librarypath(root, name)
-                if library and (not dynamic[name] or portable(root, library)) then
-                    reach(library)
+                local sourcePath: string? = nil
+                if projectEntry ~= nil and graph.coremodule(name) == name then
+                    sourcePath = projectEntry.inc.modulePath(name)
+                    if sourcePath ~= nil and (sourcePath as string):match("%.d%.nupp$") then
+                        sourcePath = nil
+                    end
+                end
+                if sourcePath ~= nil then
+                    local path = require("nupp.compiler.fs").absolute(sourcePath as string)
+                    projectNames[path] = name
+                    reach(path)
+                else
+                    local library = librarypath(root, name)
+                    if library and (not dynamic[name] or portable(root, library)) then
+                        reach(library)
+                    end
                 end
             end
             -- What it carries may take a library function as a value, read
             -- from one unchecked tree.
             unchecked = parser.parse(source, path).root
             local values = root .. "/src/nupp/runtime/libraryvalues"
-            local graph: any = require("nupp.compiler.vm.graph")
             if graph.mayTakeLibraryValue(unchecked, version >= 8) then
                 reach(values)
             end
@@ -1377,7 +1413,7 @@ local function programCatalog(caseName: string, fixture: string, version: intege
 
     local describing = os.clock()
     local catalog: any = nil
-    if project ~= nil and version >= 8 and not fresh then
+    if projectEntry == nil and project ~= nil and version >= 8 and not fresh then
         catalog = keptcatalog.reuse(root, caseName, version, project, names, step)
     end
     if catalog == nil then
@@ -1496,13 +1532,22 @@ end
 -- program is compiled a module at a time, reusing kept pieces, and linked;
 -- NUPP_GUEST_PIECES=compare also compiles it whole and requires the two to be
 -- the same.
-local function compileProgram(caseName: string, fixture: string, version: integer, fresh: boolean?): any
+local function compileProgram(
+    caseName: string,
+    fixture: string,
+    version: integer,
+    fresh: boolean?,
+    projectEntry: ProjectEntry?
+): any
     local began = os.clock()
-    local catalog = programCatalog(caseName, fixture, version, fresh)
+    local catalog = programCatalog(caseName, fixture, version, fresh, projectEntry)
     local described = os.clock()
     timings["compile catalog"] = (timings["compile catalog"] or 0) + described - began
     local profile = profileFor(version)
     if version ~= corepiece.VERSION then
+        return executable.fromChecked(programgraph.compile(catalog, profile), version)
+    end
+    if projectEntry ~= nil then
         return executable.fromChecked(programgraph.compile(catalog, profile), version)
     end
     local store, keys = pieceKeys(catalog)
@@ -1514,7 +1559,7 @@ local function compileProgram(caseName: string, fixture: string, version: intege
         -- What the kept catalog stands for changed, or a piece it needs is
         -- gone: the whole program is checked and described again.
         io.stderr:write("guest pieces: checking ", caseName, " afresh\n")
-        return compileProgram(caseName, fixture, version, true)
+        return compileProgram(caseName, fixture, version, true, projectEntry)
     end
     io.stderr:write(("guest pieces: %s reused %d of %d\n"):format(caseName, reused, #pieces))
     local built = os.clock()
@@ -1522,7 +1567,7 @@ local function compileProgram(caseName: string, fixture: string, version: intege
     local ok, result = pcall(corelink.link, pieces, entry)
     if not ok and catalog.kept then
         io.stderr:write("guest pieces: checking ", caseName, " afresh: ", tostring(result), "\n")
-        return compileProgram(caseName, fixture, version, true)
+        return compileProgram(caseName, fixture, version, true, projectEntry)
     elseif not ok and reused > 0 then
         -- A kept piece no longer links: what it read of another module, a
         -- callee's signature or an initializer's result, has changed. Every
@@ -1669,6 +1714,31 @@ export function version(caseName: string): integer
     end
 
     return assert(case, "unknown guest case: " .. caseName).version
+end
+
+-- The project's checked entry and module index are supplied by the build
+-- session. Runtime sources are checked in the compiler's own project.
+export function projectGuest(name: string, path: string, inc: any, embedded: string?): any
+    local fixture = require("nupp.compiler.fs").absolute(path)
+    local caseName = "project:" .. fixture
+    local compiled = compileProgram(caseName, fixture, 8, nil, {module = name, inc = inc, embedded = embedded,})
+    local cache = require("nupp.core.sharedcache").directory("kernels")
+    local held = runtime("normal", cache, false)
+
+    local resolved = {}
+    for qualified, owner in pairs(held.owners) do
+        resolved[qualified] = {owner = owner}
+    end
+
+    return {
+        executable = compiled,
+        handlers = handlerNames(caseName, 8),
+        resolved = resolved,
+        selected = held.codes,
+        scopes = held.scopes,
+        raises = held.raises,
+        chunks = {},
+    }
 end
 
 -- A guest build in the shape guestshim takes: the program executable, the
