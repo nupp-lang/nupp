@@ -60,6 +60,12 @@ STAGE0_IMAGE_URL='https://github.com/nupp-lang/nupp/releases/download/${STAGE0_I
 # build and `nupp fixpoint` run on the core through scripts/core-cli, with no
 # fallback to the Rust VM. Hosts not listed keep the VM seed until their
 # target's bring-up moves them (`scripts/stage0-runtime` reads this).
+#
+# A host is listed once three things hold for it: its core seed below is
+# published and pinned; core compiler generations are shared across worktrees
+# by their sources (scripts/core-cli), so a fresh worktree or a rebase that
+# changes no compiler source builds nothing; and `nupp test` and `nupp run`
+# work on the core. Until then NUPP_RUNTIME=core opts a command in.
 STAGE0_CORE_HOSTS=
 
 # The core seed for each host: the compiler and C bridge pair `nupp fixpoint
