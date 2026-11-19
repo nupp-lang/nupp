@@ -196,7 +196,8 @@ function M.unverifiablePrivateInputsDisableKernelReuse()
                 },
             },
             nil,
-            {os = environment}
+            -- This fixture exercises VM producer keys inside a synthetic _G.
+            {os = environment, __nupp_load_image = true}
         )("nupp.core.kernelcompiler")
         local narrow, broad = kernel.keyed(root, function()
             return "checked-data"
