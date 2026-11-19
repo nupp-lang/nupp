@@ -817,8 +817,12 @@ local function buildOne(root: string?, opts: project.BuildOptions?): integer
             caseOwnedOutputs[fs.absolute(output):lower()] = true
         end
     end
+    -- A launcher or a running program can still be opening an older core
+    -- generation's sidecars. Keep them until the output directory is cleaned.
+    local coreSidecars = coreBinary and primaryArtifact and primaryArtifact .. ".core/" or nil
     for _, output in ipairs(oldState.targets[targetKey] or {}) do
-        if not newState.outputs[output] and not caseOwnedOutputs[fs.absolute(output):lower()] then
+        local retained = coreSidecars ~= nil and output:sub(1, #coreSidecars) == coreSidecars
+        if not retained and not newState.outputs[output] and not caseOwnedOutputs[fs.absolute(output):lower()] then
             os.remove(output)
         end
     end

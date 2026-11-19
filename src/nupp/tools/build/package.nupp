@@ -621,6 +621,22 @@ end
 
 package_.entryModule = entryModule
 package_.carriedResources = carriedResources
+
+local function publishExecutable(path: string, bytes: string): nil
+    local pending = path .. "." .. fs.stagingSuffix()
+    assert(fs.writeFile(pending, bytes))
+    local status, problem = process.capture({"chmod", "755", pending})
+    if status ~= 0 then
+        os.remove(pending)
+        error(problem, 0)
+    end
+    local published, problem = os.rename(pending, path)
+    if not published then
+        os.remove(pending)
+        error(problem, 0)
+    end
+end
+
 -- A core binary consists of the launcher, a program bundle and the bridge
 -- with its libraries beside that bundle.
 function package_.coreBinary(
@@ -677,11 +693,13 @@ function package_.coreBinary(
         end
     end
     libraries.runtime = host
+    local contentByPath: {[string]: string} = {}
     local layout: {string} = {}
     for relative, source in pairs(libraries) do
-        local content, problem = fs.readFile(source)
-        assert(content ~= nil, problem)
-        layout[#layout + 1] = relative .. "\0" .. digest(content as string)
+        local bytes, problem = fs.readFile(source)
+        local content = assert(bytes, problem)
+        contentByPath[relative] = content
+        layout[#layout + 1] = relative .. "\0" .. digest(content)
     end
     table.sort(layout)
     layout[#layout + 1] = digest(bytes)
@@ -690,16 +708,17 @@ function package_.coreBinary(
     local directory = join(packageDir, generation)
     local bundleName = basename(output) .. ".bundle"
     local bundle = join(directory, bundleName)
-    local runtime = join(directory, "runtime")
     local outputs: {[string]: boolean} = {}
-    for relative, source in pairs(libraries) do
+    for relative, content in pairs(contentByPath) do
         local destination = join(directory, relative)
-        assert(fs.copyFile(source, destination))
+        if relative == "runtime" then
+            publishExecutable(destination, content)
+        else
+            assert(fs.writeFileIfChanged(destination, content))
+        end
         outputs[destination] = true
     end
-    local status, problem = process.capture({"chmod", "755", runtime})
-    assert(status == 0, problem)
-    assert(fs.writeFile(bundle, bytes))
+    assert(fs.writeFileIfChanged(bundle, bytes))
     outputs[bundle] = true
     if target.payloadOutput ~= nil then
         local payload = join(root, target.payloadOutput as string)
@@ -720,18 +739,7 @@ function package_.coreBinary(
         },
         "\n"
     )
-    local pending = output .. "." .. fs.stagingSuffix()
-    assert(fs.writeFile(pending, launcher))
-    status, problem = process.capture({"chmod", "755", pending})
-    if status ~= 0 then
-        os.remove(pending)
-        error(problem, 0)
-    end
-    local published, problem = os.rename(pending, output)
-    if not published then
-        os.remove(pending)
-        error(problem, 0)
-    end
+    publishExecutable(output, launcher)
     outputs[output] = true
 
     return outputs, bundle, host, unreachable or {}, used
