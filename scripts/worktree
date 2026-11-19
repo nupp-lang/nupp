@@ -110,6 +110,12 @@ if [ -n "$VM_ORIGIN" ] && [ "$VM_ORIGIN" != "$TASK_ROOT" ]; then
     "$ROOT/scripts/shared-cache" publish "$VM_ORIGIN" all || true
 fi
 
+# The core compiler. Every generation built is also kept in a store the
+# repository's worktrees share, by the compiler sources it was built from
+# (scripts/core-cli), so a worktree whose sources one was built from selects it
+# here and never builds.
+sh "$TASK_ROOT/scripts/core-cli" select > /dev/null 2>&1 || true
+
 # Runtime kernels are read from the shared store directly. A checkout that kept
 # them under build/core-unit-cache, before there was one, adds what it has.
 # Each entry is named by its content, so one already there is the same entry.
@@ -136,6 +142,6 @@ if [ "$(git -C "$TASK_ROOT" config core.hooksPath || true)" != ".githooks" ]; th
 fi
 
 echo "created $TASK_ROOT"
-echo "seeded compiler, VM CLI, test scheduling, and native build caches where available"
+echo "seeded compiler, VM CLI, core CLI, test scheduling, and native build caches where available"
 echo "shared store: $("$ROOT/scripts/shared-cache" home)"
 echo "hooks: .githooks (pre-push checks formatting; --no-verify skips it)"

@@ -320,6 +320,82 @@ function M.aCoreSeedCarriesTheLibrariesBesideItsCompiler()
     os.execute("rm -rf '" .. dir .. "'")
 end
 
+-- scripts/core-cli keeps its generations in a store worktrees share, by the
+-- compiler sources each was built from: a checkout with the same sources
+-- selects one with no build, and only sources no generation was built from
+-- build. The build here is a stand-in that counts itself.
+function M.coreCompilerGenerationsAreSharedBySources()
+    coreHost()
+    local dir = os.tmpname()
+    os.remove(dir)
+
+    local function plant(path, text, mode)
+        assert(os.execute(("mkdir -p \"$(dirname '%s/%s')\""):format(dir, path)) == 0)
+        local file = assert(io.open(dir .. "/" .. path, "wb"))
+        file:write(text)
+        file:close()
+        if mode then
+            assert(os.execute(("chmod %s '%s/%s'"):format(mode, dir, path)) == 0)
+        end
+    end
+
+    local selfBuild = table.concat({
+        "#!/bin/sh",
+        "set -eu",
+        'out=$4; mkdir -p "$out"',
+        ("count=$(cat '%s/builds' 2>/dev/null || echo 0); echo $((count + 1)) > '%s/builds'"):format(dir, dir),
+        'printf "NUPPCORE%s" "$(cat "$(dirname "$0")/../src/a.nupp")" > "$out/compiler.bundle"',
+        ("cp '%s/runtime' \"$out/runtime\""):format(dir),
+        "",
+    }, "\n")
+    plant("runtime", CORE_RUNTIME, "755")
+    plant("seed.bundle", "NUPPCORE seed")
+    for _, checkout in ipairs({"a", "b"}) do
+        plant(checkout .. "/scripts/core-cli", assert(readFile(ROOT .. "/scripts/core-cli")), "755")
+        plant(checkout .. "/scripts/lock-owner", assert(readFile(ROOT .. "/scripts/lock-owner")), "755")
+        -- A host the pins flip, so the compiler it has rebuilds it.
+        plant(checkout .. "/scripts/stage0-runtime", "#!/bin/sh\necho core\n", "755")
+        plant(checkout .. "/scripts/core-self-build", selfBuild, "755")
+        plant(checkout .. "/src/a.nupp", "one\n")
+        -- Its sources are what git would track.
+        assert(os.execute(("git -C '%s/%s' init -q"):format(dir, checkout)) == 0)
+    end
+
+    local function cli(checkout, arguments)
+        return capture(
+            ("NUPP_CORE_CLI_STORE='%s/store' sh '%s/%s/scripts/core-cli' %s 2>&1"):format(dir, dir, checkout, arguments)
+        )
+    end
+
+    local function builds()
+        return tonumber(readFile(dir .. "/builds") or "0")
+    end
+
+    local ok, problem = pcall(function()
+        cli("a", ("install '%s/runtime' '%s/seed.bundle'"):format(dir, dir))
+        cli("a", "build")
+        assert(builds() == 1, "checkout a built once")
+        local built = readFile(dir .. "/a/.nupp/core-cli/current")
+        assert(readFile(dir .. "/store/" .. built:gsub("%s+$", "") .. "/format"), "the generation is in the shared store")
+        cli("b", "select")
+        assert(readFile(dir .. "/b/.nupp/core-cli/current") == built, "checkout b selects a's generation")
+        assert(builds() == 1, "with no build")
+        cli("b", "run version")
+        assert(builds() == 1, "running it builds nothing")
+        os.execute("sleep 1")
+        plant("b/src/a.nupp", "two\n")
+        cli("b", "run version")
+        assert(builds() == 2, "an edit no generation was built from builds one")
+        os.execute("sleep 1")
+        plant("b/src/a.nupp", "one\n")
+        cli("b", "run version")
+        assert(builds() == 2, "sources a generation was built from build nothing again")
+        assert(readFile(dir .. "/b/.nupp/core-cli/current") == readFile(dir .. "/a/.nupp/core-cli/current"))
+    end)
+    os.execute("rm -rf '" .. dir .. "'")
+    assert(ok, problem)
+end
+
 function M.aCoreSeedArchiveWithAnotherDigestIsRefused()
     local dir, seed, install = packagedSeed()
     local out = install(seed.archive, string.rep("0", 64))

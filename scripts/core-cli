@@ -7,6 +7,8 @@
 #   scripts/core-cli build                     rebuild it from these sources
 #   scripts/core-cli install RUNTIME COMPILER  install a pair and select it
 #   scripts/core-cli current                   exit 0 when it is current
+#   scripts/core-cli select                    select a stored generation built
+#                                              from these sources, if any
 #
 # The installed compiler is `.nupp/core-cli/current`, which names a generation
 # directory by its digest: the bridge (`runtime`), the compiler
@@ -23,6 +25,12 @@
 # Either way the build goes through scripts/core-self-build or that command.
 # A rebuild that fails leaves the previous generation selected and says so;
 # with no generation at all, the command fails.
+#
+# Every generation built from recorded sources is also kept in a store all the
+# repository's worktrees share (STORE), by the digest of the sources it was
+# built from. A checkout with no generation, or whose sources changed, first
+# takes one from there that was built from the sources as they are now: a
+# fresh worktree, or a rebase that changed no compiler source, builds nothing.
 set -eu
 ROOT=$(CDPATH= cd -- "$(dirname "$0")/.." && pwd)
 CLI="$ROOT/.nupp/core-cli"
@@ -30,6 +38,17 @@ FORMAT=nupp-core-cli-1
 LOCK="$CLI/build.lock"
 # What a core compiler is built from, beside the compiler that builds it.
 SOURCES='src templates native/core-bridge nupp.lua scripts/core-self-build'
+# The shared store: beside the repository's other machine caches, or where
+# NUPP_CORE_CLI_STORE names. `GENERATION/` is a generation as a checkout keeps
+# it, and `sources/DIGEST` names the one built from the sources DIGEST names.
+# It keeps the STORE_KEEP generations published last.
+if [ -n "${NUPP_CORE_CLI_STORE:-}" ]; then
+    STORE=$NUPP_CORE_CLI_STORE
+else
+    COMMON=$(git -C "$ROOT" rev-parse --path-format=absolute --git-common-dir 2>/dev/null || true)
+    if [ -n "$COMMON" ]; then STORE="$(dirname "$COMMON")/.nupp-cache/core-cli"; else STORE="$CLI/store"; fi
+fi
+STORE_KEEP=8
 
 note() { printf 'nupp: %s\n' "$*" >&2; }
 die() {
@@ -163,6 +182,64 @@ install_built() {
     previous=$(cat "$CLI/current" 2>/dev/null || true)
     install_pair "$built" "$1/compiler.bundle" "$2" "$3" > /dev/null
     prune "$(cat "$CLI/current")" "$previous"
+    publish
+}
+
+# A copy of the generation directory `$1` at `$2`: a clone where the file
+# system can make one, which costs no space.
+copy_generation() {
+    rm -rf "$2.$$"
+    if [ "$(uname)" = Darwin ]; then
+        cp -cRp "$1" "$2.$$" 2>/dev/null || { rm -rf "$2.$$"; cp -Rp "$1" "$2.$$"; }
+    else
+        cp -Rp --reflink=auto "$1" "$2.$$" 2>/dev/null || { rm -rf "$2.$$"; cp -Rp "$1" "$2.$$"; }
+    fi
+    mv "$2.$$" "$2" 2>/dev/null || rm -rf "$2.$$"
+}
+
+# Keeps the selected generation in the store, under the sources it was built
+# from, when it records them; and the store to its last STORE_KEEP.
+publish() {
+    key=$(cat "$CLI/current")
+    recorded=$(cat "$CLI/$key/source" 2>/dev/null || true)
+    [ -n "$recorded" ] || return 0
+    mkdir -p "$STORE/sources"
+    [ -d "$STORE/$key" ] || copy_generation "$CLI/$key" "$STORE/$key"
+    [ -d "$STORE/$key" ] || return 0
+    printf '%s\n' "$key" > "$STORE/sources/$recorded.$$"
+    mv -f "$STORE/sources/$recorded.$$" "$STORE/sources/$recorded"
+    touch "$STORE/$key"
+    # shellcheck disable=SC2012 # the names are digests
+    ls -td "$STORE"/* 2>/dev/null | while IFS= read -r directory; do
+        name=$(basename "$directory")
+        case "$name" in *[!0-9a-f]*) continue ;; esac
+        [ "${#name}" -eq 64 ] && printf '%s\n' "$directory"
+    done | tail -n +$((STORE_KEEP + 1)) | while IFS= read -r directory; do
+        rm -rf "$directory"
+    done
+}
+
+# Selects the stored generation built from the sources as they are now, with
+# no build; fails when the store has none.
+reuse() {
+    mkdir -p "$CLI"
+    : > "$CLI/.stamp.$$"
+    fingerprint=$(source_fingerprint)
+    key=$(cat "$STORE/sources/$fingerprint" 2>/dev/null) || key=
+    case "$key" in "" | *[!0-9a-f]*) rm -f "$CLI/.stamp.$$"; return 1 ;; esac
+    if [ "$(cat "$STORE/$key/format" 2>/dev/null)" != "$FORMAT" ] \
+        || [ "$(cat "$STORE/$key/source" 2>/dev/null)" != "$fingerprint" ]; then
+        rm -f "$CLI/.stamp.$$"
+        return 1
+    fi
+    [ -d "$CLI/$key" ] || copy_generation "$STORE/$key" "$CLI/$key"
+    previous=$(cat "$CLI/current" 2>/dev/null || true)
+    printf '%s\n' "$key" > "$CLI/current.$$"
+    mv -f "$CLI/current.$$" "$CLI/current"
+    mv -f "$CLI/.stamp.$$" "$CLI/stamp"
+    rm -f "$CLI/failed"
+    touch "$STORE/$key"
+    prune "$key" "$previous"
 }
 
 # Removes every generation but `$1` and `$2`, with the chunks each kept: the
@@ -287,7 +364,7 @@ current() {
         lock
         package=$(selected) || package=
         if [ -z "$package" ]; then
-            bootstrap
+            reuse || bootstrap
             package=$(selected)
         fi
         unlock
@@ -295,7 +372,7 @@ current() {
         lock
         # The build this command waited for may have been of these same sources.
         package=$(selected)
-        if ! generation_current "$package"; then
+        if ! generation_current "$package" && ! reuse; then
             note "compiler sources changed, rebuilding the core compiler"
             if ! rebuild "$package"; then
                 note "the core compiler did not build; running the last one that did (see $CLI/build.log)"
@@ -352,5 +429,11 @@ case "${1:-}" in
         [ "$#" -eq 3 ] || die "usage: scripts/core-cli install RUNTIME COMPILER"
         install_pair "$2" "$3"
         ;;
-    *) die "usage: scripts/core-cli run ARGUMENT... | build | current | install RUNTIME COMPILER" ;;
+    select)
+        lock
+        reuse || exit 1
+        unlock
+        selected
+        ;;
+    *) die "usage: scripts/core-cli run ARGUMENT... | build | current | install RUNTIME COMPILER | select" ;;
 esac
