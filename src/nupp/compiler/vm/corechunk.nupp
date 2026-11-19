@@ -16,6 +16,7 @@ local checker: any = require("nupp.compiler.check")
 local environment: any = require("nupp.compiler.project.env")
 local bundled = require("nupp.compiler.bundled")
 local program = require("nupp.compiler.vm.programgraph")
+local graphcalls = require("nupp.compiler.vm.graphcalls")
 local tagged = require("nupp.compiler.vm.taggedprofile")
 local executable = require("nupp.compiler.vm.coregraphexecutable")
 local writer = require("nupp.compiler.vm.coreartifact")
@@ -355,6 +356,9 @@ local function requiresThroughEnvironment(root: any, path: string): nil
         end
         -- So do the opening's require and a require of types alone, which
         -- loads nothing.
+        if node.kind == "call" and not node.chunkOpening and graphcalls.dynamicRequire(node) then
+            node.environmentRequire = true
+        end
         if node.kind == "call" and node.runtimeLoader == "require" then
             if node.chunkOpening or node.typeOnlyRequire then
                 return
