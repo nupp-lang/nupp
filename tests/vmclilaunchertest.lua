@@ -900,6 +900,10 @@ local function optedTree()
     local dir, plant = plantedTree()
     plant("scripts/generation.py", OPTED_GENERATION)
     plant("scripts/vm-runtime.sh", OPTED_VM_RUNTIME)
+    -- Without a core seed, the VM bootstraps and rebuilds the core compiler.
+    local pins = assert(readFile(dir .. "/scripts/toolchain.pins"))
+    pins = pins:gsub("\nSTAGE0_CORE_URL_[%w_]+=[^\n]*", ""):gsub("\nSTAGE0_CORE_SHA256_[%w_]+=[^\n]*", "")
+    plant("scripts/toolchain.pins", pins)
     -- The fixture provides its own core runtime, so it can exercise opt-in
     -- even when the machine running the shell test has no ARM64 core.
     plant(
@@ -925,6 +929,9 @@ fi
     plant("core/runtime", CORE_RUNTIME)
     assert(os.execute(("chmod 755 '%s/core/runtime'"):format(dir)) == 0)
     assert(os.execute(("touch -t 202001010000 '%s'/scripts/*"):format(dir)) == 0)
+    assert(
+        os.execute(("cd '%s' && " .. GIT_ISOLATED .. "git init -q && git add src templates scripts"):format(dir)) == 0
+    )
 
     return dir
 end
@@ -957,9 +964,6 @@ end
 
 function M.anOptedInEditRebuildsByContentWithACurrentVm()
     local dir = optedTree()
-    assert(
-        os.execute(("cd '%s' && " .. GIT_ISOLATED .. "git init -q && git add src templates scripts"):format(dir)) == 0
-    )
     assert(ran(dir, "check", "NUPP_RUNTIME=core"):find("CORE cg01 check", 1, true))
     -- Newer by time and the same by content: the generation is current.
     assert(os.execute(("touch '%s/src/compiler.nupp'"):format(dir)) == 0)
