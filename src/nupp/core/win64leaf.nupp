@@ -3,7 +3,7 @@ module nupp.core.win64leaf
 local unit = require("nupp.compiler.vm.nativeunit")
 local sink = require("nupp.compiler.s0.nativegraph")
 local finalframe = require("nupp.compiler.vm.nativeframecontract")
-local artifact = require("nupp.core.guestartifact")
+local bundle = require("nupp.core.transportbundle")
 
 const TARGET = "x86_64-pc-windows-msvc"
 
@@ -14,7 +14,7 @@ export function build(root: string, include: {string}, moduleName: string, path:
     local owner = assert(checked.module(moduleName).exports[name], "Win64 leaf: expected an exported function")
     local code = sink.win64Leaf(owner)
 
-    return artifact.transportBundle(TARGET, 0, code, "", 0, 1)
+    return bundle.encode(TARGET, 0, code, "", 0, 1)
 end
 
 -- The object writer binds this entry extent and unwind to the same code.

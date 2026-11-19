@@ -1410,9 +1410,9 @@ local function bundleOf(selected, scratch)
     local data = fromHex(selected.dataHex)
     assert(#data == selected.dataBytes, "data extent")
 
-    local artifact = require("nupp.core.guestartifact")
+    local bundle = require("nupp.core.transportbundle")
 
-    return artifact.transportBundle("aarch64", selected.entry, code, data, scratch, 1), #code, data
+    return bundle.encode("aarch64", selected.entry, code, data, scratch, 1), #code, data
 end
 
 -- The generated case: six blocks of a hundred local functions, each
