@@ -30,6 +30,39 @@ local function configureGpuCosts(path: string?): (boolean, string?)
     return ok, not ok and tostring(problem) or nil
 end
 
+-- The module a program that declares none runs as on the core.
+const CORE_PROGRAM_MODULE = "main"
+
+-- The program at `path` as the native core runs it, which has no VM image to
+-- load: the compiler it carries (`nupp.compiler.vm.corechunk`) compiles it to
+-- a module instance chunk, and loading that chunk runs the program. Answers a
+-- function that does, or nil and why it cannot. It is checked in the
+-- project's environment `projectEnv`, as the VM checks what it lowers.
+local function coreProgram(path: string, projectEnv: any): (any, string?)
+    local carried, corechunk = pcall(require, "nupp.compiler.vm.corechunk")
+    if not carried then
+        return nil, "running a .nupp program needs the VM or the native core's chunk compiler"
+    end
+    (corechunk as any).useEnvironment(projectEnv)
+    local text, readErr = require("nupp.compiler.fs").readFile(path)
+    if text == nil then
+        return nil, "cannot read " .. path .. ": " .. tostring(readErr)
+    end
+    local bytes, problem = (corechunk as any).compileProgram(text, path, "@" .. path, CORE_PROGRAM_MODULE)
+    if bytes == nil then
+        return nil, problem
+    end
+
+    return function(): any
+        local value, failure = load(bytes as string, "@" .. path, "b")
+        if failure ~= nil then
+            error(failure, 0)
+        end
+
+        return value
+    end, nil
+end
+
 local function run(options: any): integer
     local positional: {string} = {options.file}
     for _, value in ipairs(options.arguments) do
@@ -77,7 +110,7 @@ local function run(options: any): integer
         end
         chunk, err = loadImage(image)
     elseif path:find("%.nupp$") then
-        return usageError("running a .nupp program needs the VM; install a VM CLI with scripts/vm-cli")
+        chunk, err = coreProgram(path, projectEnv)
     else
         chunk, err = loadfile(path)
     end
@@ -177,7 +210,12 @@ local function run(options: any): integer
     local loadCompiled = loadImage and function(code: string, _: string): (any, string?)
         return (loadImage as function(image: string): (any, string?))(code)
     end or nil
-    local removeLoader = runtime.install(projectEnv, compileWithSource, loaded, checkPlain, loadCompiled)
+    -- The core's own `require` compiles a module the program carries no chunk
+    -- for (nupp.runtime.luaload), and it exposes no loaders to install into.
+    local removeLoader = (loadImage or package.loaders ~= nil)
+        and runtime.install(projectEnv, compileWithSource, loaded, checkPlain, loadCompiled)
+        or function(): nil
+    end
     -- Which compiler is running the program, for a library that records it beside
     -- what it measured: a benchmark record says what compiled it, so a reader seeing a
     -- number move knows whether the compiler moved under it. Its release, and a digest

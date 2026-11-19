@@ -144,6 +144,13 @@ local function checkingEnvironment(moduleInstance: boolean?): any
     return found
 end
 
+--- Checks module instance chunks in `env`, a project's environment, in place
+--- of one made for them: what `nupp run` compiles on the core is checked where
+--- the program lives, with the prelude that project already keeps.
+export function useEnvironment(env: any): nil
+    held.source = env
+end
+
 --- Checks chunk sources against the modules under `path` too, beside the
 --- checkout's: a guest build's staged fixtures, which its module instance
 --- fixtures require.
@@ -358,8 +365,9 @@ end
 -- types honored, or nil and a message where it does not parse or check:
 -- its value is the module's, and its requires and globals go through its
 -- environment. `display` names it in errors and `source` is its Lua source,
--- "@" and `display` without it.
-export function describeModule(text: string, display: string, source: string?): (any, string?)
+-- "@" and `display` without it. A source with no module statement outside a
+-- checkout's src/ is module `named`, where it is given: a program run as one.
+export function describeModule(text: string, display: string, source: string?, named: string?): (any, string?)
     local path = string.sub(display, -#NUPP_SUFFIX) == NUPP_SUFFIX and display or display .. NUPP_SUFFIX
     -- The environment is declared where the module statement ends, on its
     -- line, so every line keeps its number.
@@ -395,6 +403,10 @@ export function describeModule(text: string, display: string, source: string?): 
         local token = first and cst.firstToken(first)
         if relative ~= nil and token ~= nil then
             name = (string.gsub(string.gsub(relative as string, "/init$", ""), "/", "."))
+        elseif token ~= nil then
+            name = named
+        end
+        if name ~= nil and token ~= nil then
             openingAt = token.offset
             wrapped = string.sub(text, 1, token.offset - 1) .. opening .. string.sub(text, token.offset)
         end
@@ -486,6 +498,20 @@ end
 --- chunk, or nil and a message.
 export function compileModule(text: string, display: string, source: string?): (string?, string?)
     return compiled(describeModule, text, display, source)
+end
+
+--- Compile the Nupp program `text` as compileModule does, as module `name`
+--- where it declares none: what `nupp run` runs on the core. Answers the
+--- chunk, or nil and a message.
+export function compileProgram(text: string, display: string, source: string?, name: string): (string?, string?)
+    return compiled(
+        function(programText: string, programDisplay: string, programSource: string?): (any, string?)
+            return describeModule(programText, programDisplay, programSource, name)
+        end,
+        text,
+        display,
+        source
+    )
 end
 
 --- Everything that keeps Lua source `text` from compiling as a chunk, across
