@@ -6,6 +6,27 @@ The last blockers before `STAGE0_CORE_HOSTS` in `scripts/toolchain.pins` lists m
 `nupp test` has to work on the core (`NUPP_RUNTIME=core`) for every lane, starting with
 `--lane=shared`, plus binary targets on the core.
 
+## November 19 resumption
+
+- A lowering callback returned nil through an integer-only signature when
+  a call ended its block. The worker case
+  `graphguestbranchtest/scalarVectorSpecializationKeepsSourceTerminalRefusals`
+  passed after the fix. The current 12-worker shared run includes it and
+  the module import fix. Log: `/Volumes/bigbertha/workspaces/core-shared-after/build/core-flip-shared-after.log`.
+- Module instances now resolve `_G.require` through their environment.
+  `processtest` reached 53 of 58 passes. The remaining five all call the
+  missing `scope` member on the table returned by `require("coroutine")`.
+- `wip/core-flip-validation` at `510360247` built the `nupp init app`
+  template with its project compiler. The package printed `Hello, world!`
+  after relocation, using just `PATH=/usr/bin:/bin`. Its launcher selects a
+  content-addressed generation inside the adjacent `<name>.core` directory.
+- The same core CLI passed a direct three-argument `...` probe, including
+  a word with a space and an empty argument. The `io.cli.args` namespace
+  correction checks successfully and still needs a runtime replay.
+- [Issue #136](https://github.com/nupp-lang/nupp/issues/136) tracks shared
+  validation. Leave `STAGE0_CORE_HOSTS` empty until the validation lanes
+  and configured binary test target work.
+
 ## What landed (core-dev, pushed at aa02f754a)
 
 - 72db17025 Fail a test suite that does not load on its own (tests/run.lua: `<load>` record, runnertest)
@@ -19,7 +40,7 @@ The last blockers before `STAGE0_CORE_HOSTS` in `scripts/toolchain.pins` lists m
 
 Verified: the touched suites on the VM (156 tests, 155 passed, 1 skipped as core-only), and on the core the probes and suites listed below.
 
-## In flight
+## Original checkpoint
 
 - Nothing is uncommitted. `wip/core-test-path` on origin is identical to core-dev at aa02f754a.
 - The worktree is at /Volumes/bigbertha/workspaces/core-test-path, on branch core-dev, clean, with
@@ -28,7 +49,7 @@ Verified: the touched suites on the VM (156 tests, 155 passed, 1 skipped as core
   (shared1.log = baseline, shared2.log = after the fixes, t4.log = final focused core run,
   issue.md = drafted issue for the remaining failure families. It has not been filed.)
 
-## Items
+## Original findings
 
 1. Shared-lane worker deaths:
    - **"core resource limit" in a worker**: there were two causes, and neither was a leak.

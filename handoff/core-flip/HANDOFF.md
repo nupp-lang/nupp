@@ -13,23 +13,29 @@ branch avoozl-plans). Follow AGENTS.md in each repo.
   core. The focused process test also passed after module instances began
   resolving `_G.require` through their own environment. [Issue #136](https://github.com/nupp-lang/nupp/issues/136)
   tracks the remaining shared-lane work.
-- [wip/core-flip-validation](https://github.com/nupp-lang/nupp/tree/wip/core-flip-validation)
-  at `510360247` carries the native binary target candidate, top-level
-  script arguments, checked module ownership, and the two targeted fixes.
-  The app and shared-lane checks still gate the macOS ARM64 flip.
+- A fresh app from `nupp init app` built on the native core and printed
+  `Hello, world!` after moving the launcher and its `.core` directory to a
+  new location and running with an empty environment apart from `PATH`.
+  Candidate `510360247` produced this package. The configured test target,
+  `io.cli.args` follow-up, and full shared lane still need verification.
 - The core incremental fixture passed. The unchanged build reused 20/20
   pieces, the body edit reused 19/20, and the interface edit reused 17/20.
   Every artifact matched its cold counterpart. The full core fixpoint is
   running in the incremental worktree. The stable builder shell fixture
   passed on [wip/core-cli-builder-anchor](https://github.com/nupp-lang/nupp/tree/wip/core-cli-builder-anchor).
-- The W1 retirement branch passed the VM fixpoint. Its six-case guest run
-  and its base each recorded the same 28 failed checks. A debugger probe
-  confirmed the audit import and synthetic-root fixes. The checked-fragment
+- The W1 retirement landed at `f09743b9f` after the VM fixpoint and a
+  four-row guest replay. Its six-case run and its base each recorded the
+  same 28 failed checks. A debugger probe confirmed the audit import and
+  synthetic-root fixes, now on `wip/core-audit-imports`. The checked-fragment
   branch's five core suites returned 37 passes and nine failures.
 - GitHub superseded runs `44540110785` and `44543722316`.
   [Run 44544039175](https://github.com/nupp-lang/nupp/actions/runs/44544039175)
-  built the compiler on Linux ARM64. Its remaining jobs and the first
-  nightly macOS core-guest legs are pending.
+  built the compiler and test runner on Linux ARM64 and passed the Linux
+  native gates. Its isolated shard failed
+  `stdlibtest/anHttpClientPumpsItsTransfersOnRequest`: a zero-timeout
+  call polled its fake transport twice. See the
+  [failed job](https://github.com/nupp-lang/nupp/actions/runs/44544039175/job/135671760312).
+  The first nightly macOS core-guest legs still need results.
 
 ## Where things stand
 
@@ -57,13 +63,11 @@ branch avoozl-plans). Follow AGENTS.md in each repo.
 List `aarch64-apple-darwin` in `STAGE0_CORE_HOSTS` as soon as both hold:
 1. shared core-cli generations (done), and
 2. `nupp test` (including `--lane=shared`) and `nupp run` work on the core.
-The core does not need to beat the VM. Remaining blockers are in
-core-test-path.md. As of aa02f754a the shared lane on the core runs 2690
-tests: 2181 pass, 509 fail, 2 of 18 workers die (graphguestbranchtest's
-monkeypatched `profile.call` is refused, status 4). Binary targets on the core
-are not started. Decide how much of the 509 must pass before flipping: the
-owner's bar is "every lane can validate on the core". After the flip: per-module rebuilds and streaming emit
-(incremental-emit.md), so a compiler edit stops costing ~78 min and 4–10 GB.
+The core does not need to beat the VM. Remaining work is in
+core-test-path.md. The prior shared run recorded 2181 of 2690 tests passing
+and two worker exits. The current run includes the worker and module import
+fixes. The owner's bar is "every lane can validate on the core".
+Per-module rebuilds and streaming emit are in incremental-emit.md.
 
 After macOS ARM64: Linux ARM64 and Windows ARM64 as fast follows; x64 only
 after an x86 encoder (x64 users stay on the last pre-flip release). Deleting
@@ -75,19 +79,18 @@ libuv/curl work.
 
 | Lane | File | State |
 |---|---|---|
-| Core test path (flip blockers) | core-test-path.md | stopped; landed to aa02f754a |
-| Per-module rebuilds + streaming | incremental-emit.md | stopped; WIP on `wip/core-incremental-emit` |
-| W1 core inventory and failures | w1.md | stopped; WIP on `wip/w1-frozen-retire`, `wip/w1-fragments-on-core` |
-| CI to ARM64 | below | landed; verify first run |
+| Core test path (flip blockers) | core-test-path.md | app verified; shared lane and configured test target pending |
+| Per-module rebuilds + streaming | incremental-emit.md | core reuse verified; cold fixpoint underway |
+| W1 core inventory and failures | w1.md | frozen retirement landed; checked fragments and nightly pending |
+| CI to ARM64 | below | compiler, runner, and native gates passed; HTTP fixture failed |
 
 ## WIP branches and kept worktrees
 
 | Branch (origin) | Worktree | Lane |
 |---|---|---|
 | `wip/core-test-path` (= aa02f754a, landed) | /Volumes/bigbertha/workspaces/core-test-path | core-test-path.md |
-| `wip/core-incremental-emit` (9a724ccb7) | /Volumes/bigbertha/workspaces/core-incremental-emit | incremental-emit.md |
-| `wip/w1-frozen-retire` (54bcf8a35) | see w1.md | w1.md |
-| `wip/w1-fragments-on-core` (cc1ea7084) | see w1.md | w1.md |
+| `wip/core-incremental-validation` (fcb7a5c31) | /Volumes/bigbertha/workspaces/core-incremental-emit | incremental-emit.md |
+| `wip/w1-fragments-rebased` (888f9ba58) | see w1.md | w1.md |
 | `core-self-emit` (579e7f582, seed tag source; keep) | /Volumes/bigbertha/workspaces/core-self-emit | fixpoint evidence |
 
 A worktree on another machine: create it with `./scripts/worktree <name>

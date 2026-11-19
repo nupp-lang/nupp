@@ -6,7 +6,22 @@ Per-module piece reuse and streaming emit for `nupp __core-compiler`, so a
 compiler edit costs minutes on the core instead of ~50-78 min, and peak memory
 drops below the 4-15 GB a self-emit takes now.
 
-## What landed
+## November 19 resumption
+
+- The incremental guest fixture passed on the core. Reused pieces were
+  20/20 unchanged, 19/20 after a body edit, and 17/20 after an interface
+  edit. The output of each incremental build matched its cold build byte
+  for byte. Log: `/Volumes/bigbertha/workspaces/core-incremental-emit/build/cie/incremental-core.log`.
+- The cold fixpoint checks the three formatted commits through `fcb7a5c31`
+  on `wip/core-incremental-validation`. Stage one completed and the
+  core-built stage two is underway. Log:
+  `/Volumes/bigbertha/workspaces/core-incremental-emit/build/cie/core-flip-fixpoint.log`.
+- `wip/core-cli-builder-anchor` at `10ea4ebc5` records an installed builder
+  for the lifetime of a pinned seed digest. The published seed predates
+  piece reuse. Its descendant can keep the store stable across edits. The
+  launcher fixture passed. Replay developer edits after incremental emit lands.
+
+## Original checkpoint
 
 Nothing on core-dev. Every step is WIP: no core fixpoint has been run on it and
 the incremental test has passed on the VM only, not on the core.
