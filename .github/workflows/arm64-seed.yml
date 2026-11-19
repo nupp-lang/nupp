@@ -1,0 +1,47 @@
+name: Linux ARM64 execution seed
+
+on:
+  push:
+    branches:
+      - ci-arm64-seed
+
+permissions:
+  contents: read
+
+jobs:
+  seed:
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 60
+    env:
+      SEED_TAG: v0.0.15-native-api-seed.6
+      SOURCE_REVISION: 526727cfe2b76713a5430b5d02150f553f3fa355
+      IMAGE_SHA256: ab1b144840350699ef459b9b4db218834ffcec94a0f9d1c9597f335370cfc665
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v5
+      - name: Build the runtime at the seed revision
+        run: |
+          set -euo pipefail
+          uname -a
+          channel=$(sed -n 's/^channel = "\([^"]*\)"$/\1/p' rust-toolchain.toml)
+          rustup toolchain install "$channel" --profile minimal
+          git diff --quiet "$SOURCE_REVISION" HEAD -- . ':!.github'
+          CARGO_TARGET_DIR=build/seed-target cargo +"$channel" build --locked --release -p nupp-vm
+          ls -l build/seed-target/release/nupp-vm
+      - name: Pack the seed
+        run: |
+          set -euo pipefail
+          mkdir -p build/seed
+          gh release download "$SEED_TAG" --repo "$GITHUB_REPOSITORY" \
+            --pattern "nupp-stage0-$SEED_TAG.image.gz" --dir build/seed
+          gzip -dc "build/seed/nupp-stage0-$SEED_TAG.image.gz" > build/seed/compiler.image
+          test "$(sha256sum build/seed/compiler.image | cut -d' ' -f1)" = "$IMAGE_SHA256"
+          python3 scripts/bootstrap-seed pack \
+            --runtime build/seed-target/release/nupp-vm --image build/seed/compiler.image \
+            --source-revision "$SOURCE_REVISION" \
+            --output "build/seed-out/nupp-seed-aarch64-unknown-linux-gnu-$SOURCE_REVISION.tar.gz"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: arm64-linux-seed
+          path: build/seed-out/
+          if-no-files-found: error
