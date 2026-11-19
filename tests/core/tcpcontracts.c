@@ -68,6 +68,7 @@ static void transfer (uv_loop_t *loop, NuppTcp *sender, NuppTcp *receiver) {
   assert(submitted == sizeof(source));
   assert(memcmp(source, output, sizeof(output)) == 0);
   assert(nupptcpshutdown(sender) == 0);
+  assert(nupptcpshutting(sender));
   assert(nupptcpshutdown(sender) == 0);
   assert(nupptcpsend(sender, source, 1) == UV_EPIPE);
 
@@ -82,6 +83,9 @@ static void transfer (uv_loop_t *loop, NuppTcp *sender, NuppTcp *receiver) {
   }
 
   assert(nupptcpwriteclosed(sender) == 0);
+  assert(!nupptcpshutting(sender));
+  assert(nupptcppending(sender) == 0);
+  assert(nupptcpsend(sender, source, 1) == UV_EPIPE);
   assert(nupptcpreceive(receiver, output, 1) == 0);
   assert(nupptcpsend(receiver, "ok", 2) == 2);
 

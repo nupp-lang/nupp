@@ -20,6 +20,8 @@
 #include <unistd.h>
 #endif
 
+enum { WRITE_OPEN, WRITE_ENDING, WRITE_ENDED };
+
 struct NuppTcp {
   NuppStreamIO io;
 
@@ -31,7 +33,7 @@ struct NuppTcp {
   uv_connect_t connection;
   uv_shutdown_t shutdown;
   int connecting, connectstatus, listenerror, listenready;
-  int shuttingdown, shutdownstatus;
+  int writestate, shutdownstatus;
   int closing, closed, local;
 };
 
@@ -264,7 +266,7 @@ int nupptcpsend (NuppTcp *tcp, const void *bytes, size_t size) {
     return UV_EBADF;
   }
 
-  if (tcp->shuttingdown) {
+  if (tcp->writestate != WRITE_OPEN) {
     return UV_EPIPE;
   }
 
@@ -272,6 +274,10 @@ int nupptcpsend (NuppTcp *tcp, const void *bytes, size_t size) {
 }
 
 int nupptcppending (const NuppTcp *tcp) {
+  if (tcp->writestate == WRITE_ENDED && tcp->shutdownstatus < 0) {
+    return tcp->shutdownstatus;
+  }
+
   return nuppstreampending(&tcp->io);
 }
 
@@ -290,12 +296,13 @@ int nupptcpkeepalive (NuppTcp *tcp, int enable, unsigned int seconds) {
 }
 
 int nupptcpshutting (const NuppTcp *tcp) {
-  return tcp->shuttingdown;
+  return tcp->writestate == WRITE_ENDING;
 }
 
 static void halfclosed (uv_shutdown_t *request, int status) {
   NuppTcp *tcp = request->data;
   tcp->shutdownstatus = status;
+  tcp->writestate = WRITE_ENDED;
 }
 
 int nupptcpshutdown (NuppTcp *tcp) {
@@ -303,15 +310,15 @@ int nupptcpshutdown (NuppTcp *tcp) {
     return UV_EBADF;
   }
 
-  if (tcp->shuttingdown) {
-    return tcp->shutdownstatus == UV_EAGAIN ? 0 : tcp->shutdownstatus;
+  if (tcp->writestate != WRITE_OPEN) {
+    return tcp->writestate == WRITE_ENDING ? 0 : tcp->shutdownstatus;
   }
 
   tcp->shutdown.data = tcp;
   int status = uv_shutdown(&tcp->shutdown, handle(tcp), halfclosed);
 
   if (status == 0) {
-    tcp->shuttingdown = 1;
+    tcp->writestate = WRITE_ENDING;
     tcp->shutdownstatus = UV_EAGAIN;
   }
 

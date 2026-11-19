@@ -74,6 +74,18 @@ local function datagram(): nil
     left:close()
 end
 
+local function halfClose(): nil
+    const listener = assert(public.listen({host = "127.0.0.1", port = 0}))
+    const client = assert(public.connect({host = "127.0.0.1", port = listener:port()}))
+    const server = assert(listener:accept())
+    assert(client:write("x"))
+    assert(client:shutdownwrite())
+    assert(server:read(1) == "x")
+    assert(server:read(1) == "" and server:isended())
+    assert(server:write("y"))
+    assert(client:read(1) == "y")
+end
+
 local function run(): integer
     const listener = assert(net.listen("127.0.0.1", 0, 4, false))
     const port = net.listenerPort(listener)
@@ -82,6 +94,7 @@ local function run(): integer
     exchange(listener, request)
     localSocket()
     datagram()
+    halfClose()
     -- The entry retires the remaining listener before releasing backing.
 
     return 7
