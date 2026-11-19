@@ -380,6 +380,19 @@ local function requiresThroughEnvironment(root: any, path: string): nil
                 untyped(node.args)
             end
         end
+        if node.kind == "dotIndex" and node.qualifiedModule ~= nil and node.immutablePath then
+            local root = node.obj
+            while root and root.kind == "dotIndex" do
+                root = root.obj
+            end
+            local definition = root and root.kind == "name" and root.token and root.token.definition
+            if not definition or definition.filename ~= path or definition.kind == "module" then
+                -- An authored module path is an implicit require in this instance.
+                node.environmentRequire = true
+                node.requiredModule = nil
+                return
+            end
+        end
         node.qualifiedModule = nil
         node.requiredModule = nil
         for _, child in ipairs(node) do

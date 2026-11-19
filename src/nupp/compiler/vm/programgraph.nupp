@@ -1346,6 +1346,15 @@ export function describe(modules: {any}, entryModule: string, options: any?): an
         -- Checked builtin projections take precedence over legacy library
         -- tables. Ordinary qualified paths keep their unbound/module roots.
         local projection = builtinprojection(node)
+        if p.chunkModule and node.kind == "dotIndex" and node.environmentRequire and node.qualifiedModule then
+            local module = graph.coremodule(node.qualifiedModule)
+            local anchor = need(cst.firstToken(node), "a qualified chunk read needs a source anchor")
+            local requireCall = chunkRequire(module, anchor)
+            requireCall.environmentRequire = true
+            collect(requireCall, owner)
+            qualifiedSite(owner, node, module, {absent = true, environmentCall = requireCall})
+            return
+        end
         local qualified = (projection or node.kind == "dotIndex")
             and node.qualifiedModule
             and moduleNames[node.qualifiedModule]
@@ -2217,6 +2226,22 @@ export function verify(p: any): boolean
         local node = item.node
         need(item.id == index - 1 and p.owners[item.owner + 1], "invalid require callsite owner")
         if item.qualified then
+            if item.environmentCall then
+                local call = item.environmentCall
+                local issued = p.callByNode[call]
+                need(
+                    p.chunkModule
+                    and node.environmentRequire
+                    and item.absent
+                    and issued
+                    and issued.owner == item.owner
+                    and issued.field
+                    and call.obj.token.text == "require"
+                    and #call.args.exprs == 1
+                    and call.args.exprs[1].token.text == string.format("%q", item.module),
+                    "qualified chunk read lacks its environment call"
+                )
+            end
             if item.callable then
                 ownedcallables.verify(p, item.callable)
             end

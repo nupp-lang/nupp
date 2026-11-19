@@ -188,6 +188,10 @@ export function qualifiedvalue(ctx: any, node: any): integer?
         or site.builtin and site.builtin.members
         or node.qualifiedMembers
         or {}
+    if site.environmentCall then
+        local value = ctx.expression(site.environmentCall, "tagged")
+        return value ~= nil and fieldPath(ctx, node, value, members) or nil
+    end
     -- A module the program does not hold is the running program's, by name.
     local value = site.absent and requireByName(ctx, node, site.module)
         or ctx.emit(node, "Require", {pool(ctx, "str", site.module)}, "tagged")
