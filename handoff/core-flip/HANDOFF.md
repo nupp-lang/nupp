@@ -29,20 +29,24 @@ branch avoozl-plans). Follow AGENTS.md in each repo.
   A separate project built and executed its configured core binary with
   `nupp test` and received the forwarded argument. The build did not
   record a completed test-build cache entry.
-  `wip/core-flip-followups` at `60a03b594` also carries the safe sidecar
-  publication and callable result pack fixes.
+  The project binary and script argument changes landed at `464a5a56f`
+  and `b777eda50`. Repeating publication selected the same generation and
+  the app still ran from a launcher path containing spaces.
 - `ed3b79f46` landed the fragment return pack fix. `nativetablestest`
   passed 17/17 on both runtimes.
 - The core incremental fixture passed. The unchanged build reused 20/20
   pieces, the body edit reused 19/20, and the interface edit reused 17/20.
-  Every artifact matched its cold counterpart. The full core fixpoint is
-  running in the incremental worktree. The stable builder shell fixture
-  passed on [wip/core-cli-builder-anchor](https://github.com/nupp-lang/nupp/tree/wip/core-cli-builder-anchor).
+  Every artifact matched its cold counterpart. The cold fixpoint passed
+  on `fcb7a5c31`. Incremental emit, streaming, cleanup, and the stable
+  builder landed in four commits from `34ad73dc9` through `070b3463e`.
+  The integration stack passed the VM fixpoint and reproduced an
+  unchanged bundle with 20/20 pieces reused.
 - The W1 retirement landed at `f09743b9f` after the VM fixpoint and a
   four-row guest replay. Its six-case run and its base each recorded the
-  same 28 failed checks. A debugger probe confirmed the audit import and
-  synthetic-root fixes, now on `wip/core-audit-imports`. The checked-fragment
-  branch's five core suites returned 37 passes and nine failures.
+  same 28 failed checks. The audit import and synthetic-root fixes landed
+  at `8d64249f` after a six-row replay with 4016 checks and zero failures.
+  The checked-fragment branch's five core suites returned 37 passes and
+  nine failures.
 - GitHub superseded runs `44540110785` and `44543722316`.
   [Run 44544039175](https://github.com/nupp-lang/nupp/actions/runs/44544039175)
   built the compiler and test runner on Linux ARM64 and passed the Linux
@@ -60,7 +64,9 @@ branch avoozl-plans). Follow AGENTS.md in each repo.
   missing pthread declarations in the TCP lint entries. `035917468`
   fixes those compile flags and passes the full Linux C lint locally.
   [Run 44567504364](https://github.com/nupp-lang/nupp/actions/runs/44567504364)
-  retries the macOS core guests at that commit.
+  retries the macOS core guests at that commit. Preflight and the macOS
+  compiler build passed. The macOS test runner was still building when
+  this handoff was updated.
 
 ## Where things stand
 
@@ -105,8 +111,8 @@ libuv/curl work.
 | Lane | File | State |
 |---|---|---|
 | Core test path (flip blockers) | core-test-path.md | app and test binaries verified; 506 shared failures |
-| Per-module rebuilds + streaming | incremental-emit.md | core reuse verified; cold fixpoint underway |
-| W1 core inventory and failures | w1.md | frozen retirement landed; checked fragments and nightly pending |
+| Per-module rebuilds + streaming | incremental-emit.md | landed; verify warm rebuilds through the installed CLI |
+| W1 core inventory and failures | w1.md | frozen retirement and audit fixes landed; fragments and hosted guest results pending |
 | CI to ARM64 | below | compiler, runner, and native gates passed; HTTP fixture failed |
 
 ## WIP branches and kept worktrees
@@ -116,7 +122,7 @@ libuv/curl work.
 | `wip/core-test-path` (= aa02f754a, landed) | /Volumes/bigbertha/workspaces/core-test-path | core-test-path.md |
 | `wip/core-flip-next` (344a9f5cd) | /Volumes/bigbertha/workspaces/core-flip-next | core-test-path.md |
 | `wip/core-incremental-validation` (fcb7a5c31) | /Volumes/bigbertha/workspaces/core-incremental-emit | incremental-emit.md |
-| `wip/w1-fragments-rebased` (888f9ba58) | see w1.md | w1.md |
+| `wip/w1-fragments-validation` (35a33064d) | see w1.md | w1.md |
 | `core-self-emit` (579e7f582, seed tag source; keep) | /Volumes/bigbertha/workspaces/core-self-emit | fixpoint evidence |
 
 A worktree on another machine: create it with `./scripts/worktree <name>
@@ -136,7 +142,8 @@ A worktree on another machine: create it with `./scripts/worktree <name>
   environments with one lent prelude; −20% case time on heavy suites (−36%
   excluding nativejittest).
 - C follows Lua's layout and uses lowercase joined words for `.c` and `.h`
-  filenames. The pre-push hook and CI run the formatter and linter.
+  filenames in new Nupp-owned C code (`58ad035d5`). The pre-push hook and
+  CI run the formatter and linter.
 - W1: 566-row core inventory (554 pass), four macOS ARM64 core-guest CI legs.
 - Avoozl: legacy epics migrated (avoozl #738), planning DB moved to
   .avoozl/local/workspace.sqlite, draft specs lint clean (nupp-planning #43–#46).
@@ -149,7 +156,9 @@ Landed on core-dev (87f9139ff..7f65b64c4): Linux compiler legs run on
 `ubuntu-24.04-arm` (free; public repo; 130 vs 192 job-minutes on a warm cache;
 first cold ARM64 build ~19 min). Linux x64 legs are off. The Linux ARM64 VM
 seed is its own prerelease, v0.0.15-native-api-seed.6-linux-arm64 (seed.6
-untouched). Its first core-dev run (44540110785) was superseded; check the first completed run at or after 7f65b64c4 went green.
+untouched). GitHub superseded its first two runs. The first completed
+run passed the compiler build, test runner build, and native gates. An
+isolated HTTP fixture failed, and its fix landed at `83ec023a3`.
 Linux ARM64 core-guest legs are wired but off (they don't pass yet; one line in
 compose-integration-matrix.lua). Other workflows (pages, measurements,
 sanitizers, release, numeric-bootstrap-seed) still use x64 Linux. Windows ARM64
@@ -184,10 +193,20 @@ Windows C libraries or wgpu-native).
 
 ## Prompt for the next session
 
-Continue the nupp core flip. Read /Volumes/bigbertha/handoff/core-flip/HANDOFF.md
-and the lane files beside it, and follow AGENTS.md. Priorities, in order:
-(1) core-test-path.md until `NUPP_RUNTIME=core ./bin/nupp test --lane=shared`
-and binary targets work, then list aarch64-apple-darwin in STAGE0_CORE_HOSTS;
-(2) incremental-emit.md: verify `wip/core-incremental-emit` on the core and land it, then give scripts/core-cli's rebuild a stable builder (e.g. the pinned core seed) so edits through bin/nupp reuse pieces; (3) w1.md's open failures and the paused runner sweep;
-(4) confirm the first completed core-dev CI run at or after 7f65b64c4 (first Linux ARM64 run) is green and fix it if not. Resume WIP from the `wip/*`
-branches and worktrees each lane file names. Keep core-dev green.
+Continue the Nupp core flip on `core-dev`. Read this file and the lane
+files beside it, and follow AGENTS.md.
+
+1. Rebuild the native CLI at current `core-dev` and run
+   `NUPP_RUNTIME=core ./bin/nupp test --lane=shared --fresh`. Compare it
+   with the complete 2816-test run and work the remaining failures in
+   [issue #136](https://github.com/nupp-lang/nupp/issues/136). Enable
+   `aarch64-apple-darwin` in `STAGE0_CORE_HOSTS` once every validation lane
+   is usable on the core.
+2. Check how the installed core compiler reuses pieces through ordinary
+   `bin/nupp` rebuilds once the pinned seed can select the core by default.
+3. Continue the checked-fragment work on `wip/w1-fragments-validation`.
+   Read the macOS core-guest legs of
+   [run 44567504364](https://github.com/nupp-lang/nupp/actions/runs/44567504364)
+   when they report. The first scheduled run failed at Linux C lint.
+4. Confirm the HTTP pump fix on the Linux ARM64 and Windows CI shards.
+   The first completed Linux ARM64 run failed that fixture on both hosts.

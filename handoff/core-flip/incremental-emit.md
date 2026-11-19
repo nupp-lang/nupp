@@ -13,31 +13,21 @@ drops below the 4-15 GB a self-emit takes now.
   edit. The output of each incremental build matched its cold build byte
   for byte. Log: `/Volumes/bigbertha/workspaces/core-incremental-emit/build/cie/incremental-core.log`.
 - The cold fixpoint checks the three formatted commits through `fcb7a5c31`
-  on `wip/core-incremental-validation`. Stage one completed and the
-  core-built stage two is underway. Log:
+  on `wip/core-incremental-validation`. Peak RSS was 11.1 GB.
+  Stage two reproduced stage one's
+  compiler bundle and runtime outputs byte for byte. Bundle SHA-256:
+  `56ca74d711364d20542a512dd8325ac6c557763a44991cfc794a6630aa8a498f`.
+  Log:
   `/Volumes/bigbertha/workspaces/core-incremental-emit/build/cie/core-flip-fixpoint.log`.
-- `wip/core-cli-builder-anchor` at `10ea4ebc5` records an installed builder
-  for the lifetime of a pinned seed digest. The published seed predates
-  piece reuse. Its descendant can keep the store stable across edits. The
-  launcher fixture passed. Replay developer edits after incremental emit lands.
-
-## Original checkpoint
-
-Nothing on core-dev. Every step is WIP: no core fixpoint has been run on it and
-the incremental test has passed on the VM only, not on the core.
-
-## In flight
-
-- Branch: `wip/core-incremental-emit` on origin (tip 9a724ccb7), rebased on
-  core-dev dd33e6eec. Commits are WIP; squash into 3-4 real commits before landing.
-- Worktree: /Volumes/bigbertha/workspaces/core-incremental-emit (branch
-  core-incremental-emit, clean). Left in place.
-- Core generation with the change (minus the last WIP commit, sweep + comments):
-  `.nupp/core-cli/34fba1aabe1b9cf69ee079b4387559e4d09e3a56dcdd7ac9d1821ef28b03b2ca`
-  in that worktree.
-- The "after cold" core run was killed for the handoff in its last phase
-  (runtime selection). Its piece store is complete and usable:
-  `build/cie/store` (566 pieces + catalog record, 502 kernels, maybe partial).
+- Incremental emit, streaming, cleanup, and the stable builder landed on
+  `core-dev` from `34ad73dc9` through `070b3463e`. The published seed
+  predates piece reuse, so the launcher installs one builder per pinned
+  seed digest. Its shell fixture passed. The rebased compiler passed the
+  VM fixpoint and a replay built with that image reused 20/20 pieces
+  and reproduced the cold bundle byte for byte.
+- The original `wip/core-incremental-emit` and validated
+  `wip/core-incremental-validation` branches are preserved. Their worktree
+  and test logs are under `/Volumes/bigbertha/workspaces/core-incremental-emit`.
 
 ## Design
 
@@ -97,19 +87,13 @@ Changes (src/nupp/core/*, src/nupp/compiler/vm/corepiece.nupp):
 
 ## What's left
 
-1. Body/interface edit timings on the core, and the incremental test on the core
-   (proves the kernel cache JSON round trip gives identical bytes on the core).
-2. Core peak RSS after the change (cold run not finished).
-3. `nupp fixpoint --runtime core` byte-for-byte on the branch, then land.
-4. Dev loop: core-cli rebuilds with the *installed* generation, which has never
-   emitted anything, so every edit through bin/nupp is still cold. Needs a
-   stable builder (pinned core seed or a lineage anchor) in scripts/core-cli
-   `rebuild()`; trade-off: installed compilers become stage-1 builds of the
-   anchor. Not done; scripts/core-cli belongs to another lane.
-5. Check phase is 900 s cold on the core and an interface edit re-checks
-   everything (keptcatalog falls back). Runtime session (170 s) is not cached.
-6. plaincodec writes pieces at Nupp speed (byte-wise CRC32); measure its share
-   of the 1585 s piece phase and of decoding 565 pieces on a rebuild.
+1. Measure ordinary body and interface edits through `bin/nupp` once the
+   core is the default on macOS ARM64. Check that the seed-derived builder
+   stays fixed, that the store is reused, and that the build agrees with a
+   cold build.
+2. Cold checking took 900 s on the measured build. An interface edit can
+   require a full check, and the runtime session took 170 s without a cache.
+   Measure these phases and piece encoding and decoding separately.
 
 ## Gotchas
 
@@ -123,16 +107,3 @@ Changes (src/nupp/core/*, src/nupp/compiler/vm/corepiece.nupp):
   is shared with other lanes.
 - Waiting with `pgrep -f <worktree name>` matches your own waiter shell.
 - Swap was full (24 GB) during runs; timings are noisy.
-
-## Next 3 steps
-
-1. Resume from the populated store: in the worktree, edit a body in
-   src/nupp/compiler/vm/corelink.nupp (e.g. the "core link: " message, line 31),
-   then `build/cie/emit.sh after-body $PWD/.nupp/core-cli/34fba1aa... $PWD/build/cie/out-body $PWD/build/cie/store`.
-   Expect "reused 564 of 565". Then add an exported const to corelink and run
-   `after-interface` the same way. Revert the edits afterwards.
-2. Rebuild the generation from the branch tip (`sh scripts/core-cli build`) and run
-   `NUPP_RUNTIME=core bin/nupp run tests/core/guests/incremental.lua` on the core;
-   then one clean cold `after-cold` run for time and RSS.
-3. When the machine is quiet, `nupp fixpoint --runtime core` on the branch; if
-   byte-identical, squash the WIP commits, rebase on origin/core-dev and push.

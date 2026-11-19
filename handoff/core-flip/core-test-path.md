@@ -15,11 +15,16 @@ The last blockers before `STAGE0_CORE_HOSTS` in `scripts/toolchain.pins` lists m
   2816 tests, 2310 passes, 506 failures, and zero worker exits. It includes
   the worker and import fixes, from before the table-fragment and coroutine
   fixes. Log: `/Volumes/bigbertha/workspaces/core-shared-after/build/core-flip-shared-after.log`.
+  The largest failing suites were `taskstest` (54),
+  `automaticdestructiontest` (37), `nettest` (34), `soatest` (24), and
+  `switchtest` (23).
 - Module instances now resolve `_G.require` through their environment.
   `processtest` reached 53 of 58 passes. The remaining five all call the
   missing `scope` member on the table returned by `require("coroutine")`.
-  `36795addb` publishes the core scheduler on that table. Replay the five
-  cases using a native CLI built from that commit or later.
+  `36795addb` publishes the core scheduler on that table. A replay using
+  the new scheduler module as a core chunk passed the queued read case.
+  The other four reached the task scope and failed because the fake
+  transport's wait was never entered between quiet passes.
 - The checked-ownership candidate passed the explicit-drop case. A
   separate test-helper change preserves all returns from unnamed fragments.
   `nativetablestest` passed 17/17 under that change using the core CLI.
@@ -129,10 +134,12 @@ Verified: the touched suites on the VM (156 tests, 155 passed, 1 skipped as core
 - `prepareRefused` reports contract refusals as "core resource limit". Read it as "call refused".
 - The pre-push hook flags others' unformatted files on a new branch. `--no-verify` is fine for a WIP branch identical to core-dev.
 
-## Next 3 steps
+## Next steps
 
-1. Fix the remaining worker death: make a core call refusal (`prepare` returning 0 for a contract mismatch) a catchable guest error, or bind
-   calls through mutable table fields dynamically. Then rerun `--lane=shared` and confirm no `<shard>` records.
-2. Binary targets: a project-root-aware core program producer, the launcher-plus-bundle layout, and testbuild.refresh on the core.
-   Verify with projecttestcommandtest and the app template (`nupp init`, then `nupp build`).
-3. File issue.md, and work the biggest shared-lane families in order: processtest spawn, "drop of an owner", orExit/safeCall lowering.
+1. Rerun the shared lane on a CLI built from current `core-dev`. It will
+   include the landed scheduler, ownership, and result-pack fixes.
+2. Follow [issue #136](https://github.com/nupp-lang/nupp/issues/136) for
+   the remaining shared failures. The M1 and libuv owners keep their
+   existing lanes.
+3. Verify warm test-build reuse on the core. The external binary test
+   built and ran. Its completed state contained no reuse entry.
