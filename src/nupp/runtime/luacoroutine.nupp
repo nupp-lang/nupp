@@ -5,6 +5,7 @@ local constructors = require("nupp.runtime.coroutineconstructors")
 local suspension = require("nupp.suspension")
 local cancellation = require("nupp.suspension.cancellation")
 local libraries = require("nupp.runtime.libraryvalues")
+local scheduler = require("nupp.runtime.scheduler")
 
 export const create = constructors.create
 export const wrap = constructors.wrap
@@ -17,8 +18,6 @@ export const newcancellation = cancellation.create
 export const iscancellation = cancellation.is
 
 export function race(takes bodies: {function(): any}): (any, integer?)
-    local scheduler = require("nupp.runtime.scheduler")
-
     return scheduler.race(bodies)
 end
 
@@ -36,5 +35,9 @@ export const value: table = do
     original.newcancellation = newcancellation
     original.iscancellation = iscancellation
     original.race = race
+    for name, member in pairs(scheduler.functions) do
+        original[name:sub(#"coroutine." + 1)] = member
+    end
+    libraries.publish("coroutine", original)
     yield original
 end
