@@ -8,7 +8,16 @@ local count = 0
 for _ in pairs(generated.entries) do
     count = count + 1
 end
-assert(count == 12 and #generated.imports == 19)
+assert(count == 12, "Win64 startup entry count changed")
+assert(#generated.imports == 20, "Win64 startup import count changed")
+local detach = {nupp_http_scope_detach = false, nuppnetdetach = false}
+for _, import in ipairs(generated.imports) do
+    local name = import.name:match("[^%z]+$")
+    if detach[name] ~= nil then
+        detach[name] = true
+    end
+end
+assert(detach.nupp_http_scope_detach and detach.nuppnetdetach, "Win64 startup is missing a scope detach import")
 
 local function write(file, text)
     local output = assert(io.open(out .. "/" .. file, "wb"))
