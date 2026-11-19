@@ -95,7 +95,7 @@ Landed on core-dev (87f9139ff..7f65b64c4): Linux compiler legs run on
 `ubuntu-24.04-arm` (free; public repo; 130 vs 192 job-minutes on a warm cache;
 first cold ARM64 build ~19 min). Linux x64 legs are off. The Linux ARM64 VM
 seed is its own prerelease, v0.0.15-native-api-seed.6-linux-arm64 (seed.6
-untouched). The first core-dev run with it is 44540110785: check it went green.
+untouched). Its first core-dev run (44540110785) was superseded; check the first completed run at or after 7f65b64c4 went green.
 Linux ARM64 core-guest legs are wired but off (they don't pass yet; one line in
 compose-integration-matrix.lua). Other workflows (pages, measurements,
 sanitizers, release, numeric-bootstrap-seed) still use x64 Linux. Windows ARM64
@@ -135,5 +135,5 @@ and the lane files beside it, and follow AGENTS.md. Priorities, in order:
 (1) core-test-path.md until `NUPP_RUNTIME=core ./bin/nupp test --lane=shared`
 and binary targets work, then list aarch64-apple-darwin in STAGE0_CORE_HOSTS;
 (2) incremental-emit.md: verify `wip/core-incremental-emit` on the core and land it, then give scripts/core-cli's rebuild a stable builder (e.g. the pinned core seed) so edits through bin/nupp reuse pieces; (3) w1.md's open failures and the paused runner sweep;
-(4) confirm core-dev CI run 44540110785 (first Linux ARM64 run) is green and fix it if not. Resume WIP from the `wip/*`
+(4) confirm the first completed core-dev CI run at or after 7f65b64c4 (first Linux ARM64 run) is green and fix it if not. Resume WIP from the `wip/*`
 branches and worktrees each lane file names. Keep core-dev green.
