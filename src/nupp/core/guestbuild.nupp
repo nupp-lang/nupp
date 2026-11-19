@@ -61,6 +61,10 @@ end
 const VM_HOST_PREFIX = "nupp.vm."
 -- The suffix a Nupp source file has.
 const NUPP_SUFFIX = ".nupp"
+-- Where the program a declared case names is staged, under the checkout: a
+-- source declaring its module is checked as that module, where the project
+-- finds it by its name.
+const PROGRAM_STAGE = "build/core-guest-programs/source"
 
 -- Whether `name` is a VM host module the core does not answer.
 local function unansweredhost(name: string): boolean
@@ -145,6 +149,9 @@ local CASES: {[string]: {
     -- The fixture is a source under the checkout root, checked where it
     -- lives and named `module` (a benchmark program declares no module).
     rooted: boolean?,
+    -- A declared program (`declareProgram`): the modules it requires that
+    -- no library answers are found staged beside it.
+    staged: boolean?,
     module: string?,
     -- Fixtures compiled as binary chunks beside the program, which the
     -- runner writes where NUPP_GUEST_TEMP names, as `<fixture>.chunk`.
@@ -1223,6 +1230,7 @@ local function programCatalog(caseName: string, fixture: string, version: intege
         project = checkedProject(root)
     end
     local follow = declared ~= nil and declared.follow == true
+    local staging = declared ~= nil and declared.staged == true
 
     -- The module request `name` names, checked: its catalog input, and the
     -- requests for the modules it carries, in the order it names them.
@@ -1292,6 +1300,12 @@ local function programCatalog(caseName: string, fixture: string, version: intege
                 local library = librarypath(root, name)
                 if library and (not dynamic[name] or portable(root, library)) then
                     reach(library)
+                elseif library == nil and staging and not dynamic[name] then
+                    -- A declared program's own modules are staged beside it.
+                    local staged = root .. "/" .. PROGRAM_STAGE .. "/" .. name:gsub("%.", "/")
+                    if contents(staged .. NUPP_SUFFIX) ~= nil then
+                        reach(staged)
+                    end
                 end
             end
             -- What it carries may take a library function as a value, read
@@ -1633,10 +1647,6 @@ export function sourceChunk(path: string, display: string?): (string?, string?)
     return bytes and chunkfiles.contents(text, bytes as string), problem
 end
 
--- Where the program a declared case names is staged, under the checkout: a
--- source declaring its module is checked as that module, where the project
--- finds it by its name.
-const PROGRAM_STAGE = "build/core-guest-programs/source"
 
 --- Declares a case for the program whose entry is the source at `fixture`, a
 --- path under the checkout without its `.nupp`, and returns the case's name. A
@@ -1665,7 +1675,7 @@ export function declareProgram(fixture: string): string
         module = (fixture:gsub("/", "."))
     end
     local caseName = "program:" .. fixture
-    CASES[caseName] = {fixture = staged, version = 8, follow = true, rooted = true, module = module}
+    CASES[caseName] = {fixture = staged, version = 8, follow = true, rooted = true, module = module, staged = true}
 
     return caseName
 end
