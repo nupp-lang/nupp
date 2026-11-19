@@ -18,8 +18,9 @@
 # files themselves, so one compiler's work is never taken for another's.
 #
 # A checkout with none builds one from these sources. On a flipped host the
-# pinned core seed builds it (`scripts/toolchain stage0-seed`), and the
-# installed core compiler rebuilds it when the sources change. Before the pin,
+# pinned core seed builds it (`scripts/toolchain stage0-seed`). An installed
+# generation is kept as the builder until the seed pin changes, so edits keep
+# the same compiler's piece store. Before the pin,
 # under NUPP_RUNTIME=core, the VM compiler bin/nupp runs builds it and rebuilds
 # it (`nupp __core-compiler`): the VM is the bootstrap step and nothing else.
 # Either way the build goes through scripts/core-self-build or that command.
@@ -266,10 +267,14 @@ reuse() {
 # one selected now, and the one a command started before it may still be
 # running on.
 prune() {
+    kept_builder=
+    if [ -r "$CLI/builder" ]; then
+        read -r ignored_pin kept_builder < "$CLI/builder" || kept_builder=
+    fi
     for directory in "$CLI"/* "$CLI"/chunks/*; do
         name=$(basename "$directory")
         case "$name" in *[!0-9a-f]*) continue ;; esac
-        [ "${#name}" -eq 64 ] && [ "$name" != "$1" ] && [ "$name" != "$2" ] || continue
+        [ "${#name}" -eq 64 ] && [ "$name" != "$1" ] && [ "$name" != "$2" ] && [ "$name" != "$kept_builder" ] || continue
         rm -rf "$directory"
     done
 }
@@ -325,14 +330,45 @@ build_with_vm() {
     rm -rf "$output"
 }
 
-# Rebuilds with what this host builds with: the selected core compiler `$1`
-# on a flipped host, and the VM before the pin.
+# Name the host's pinned seed by its digest, without fetching it on an edit.
+seed_pin() {
+    host_key=$(sh "$ROOT/scripts/stage0-runtime" --host | tr '[:lower:]-' '[:upper:]_')
+    sed -n "s/^STAGE0_CORE_SHA256_${host_key}=//p" "$ROOT/scripts/toolchain.pins" 2>/dev/null | digest_stdin
+}
+
+remember_builder() {
+    printf '%s %s\n' "$1" "${2##*/}" > "$CLI/.builder.$$"
+    mv -f "$CLI/.builder.$$" "$CLI/builder"
+}
+
+# Keep an immutable builder so the code that owns a piece key stays the same
+# over multiple edits. A new seed pin bootstraps a new builder on its first edit.
 rebuild() {
-    if flipped; then
-        build_with "$1/runtime" "$1/compiler.bundle"
-    else
+    if ! flipped; then
         build_with_vm
+        return
     fi
+    anchor_pin=$(seed_pin)
+    anchor_generation=
+    previous_pin=
+    if [ -r "$CLI/builder" ]; then
+        read -r previous_pin anchor_generation < "$CLI/builder" || anchor_generation=
+    fi
+    if [ -n "$previous_pin" ] && [ "$previous_pin" != "$anchor_pin" ]; then
+        anchor_seed=$(sh "$ROOT/scripts/toolchain" stage0-seed) || return 1
+        build_with "$anchor_seed/runtime" "$anchor_seed/compiler.bundle" || return 1
+        remember_builder "$anchor_pin" "$(selected)"
+        return
+    fi
+    case "$anchor_generation" in "" | *[!0-9a-f]*) anchor_generation= ;; esac
+    anchor_package="$CLI/$anchor_generation"
+    if [ "${#anchor_generation}" -ne 64 ] \
+        || [ "$(cat "$anchor_package/format" 2>/dev/null)" != "$FORMAT" ] \
+        || [ ! -x "$anchor_package/runtime" ] || [ ! -f "$anchor_package/compiler.bundle" ]; then
+        anchor_package=$1
+        remember_builder "$anchor_pin" "$anchor_package"
+    fi
+    build_with "$anchor_package/runtime" "$anchor_package/compiler.bundle"
 }
 
 # One build at a time per checkout, under a lock directory its builder claims
@@ -447,7 +483,10 @@ case "${1:-}" in
         ;;
     install)
         [ "$#" -eq 3 ] || die "usage: scripts/core-cli install RUNTIME COMPILER"
+        lock
         install_pair "$2" "$3"
+        rm -f "$CLI/builder"
+        unlock
         ;;
     select)
         lock
