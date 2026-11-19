@@ -30,6 +30,7 @@ local pollcalls = require("nupp.runtime.pollcalls")
 local reactor = require("nupp.runtime.reactor")
 local suspension = require("nupp.suspension")
 local taskCancellation = require("nupp.suspension.cancellation")
+local coroutines = require("nupp.suspension.internal.coroutines")
 local suspensionHost = require("nupp.suspension.host")
 local taskownership = require("nupp.runtime.taskownership")
 
@@ -290,11 +291,30 @@ local function current(): any
     return calls.data(thread)
 end
 
--- The scopes the main thread's stack opened, innermost last.
+-- The scopes each root or task opened, innermost last.
 local rootscopes: {any} = {}
+local coroutinescopes = coroutines.localMap("core task scopes")
+local running = coroutine.running
+
+local function openedScopes(record: any): {any}
+    if record ~= nil then
+        return record.opened
+    end
+    local thread, main = running()
+    if thread == nil or main then
+        return rootscopes
+    end
+    local opened = coroutinescopes[thread]
+    if opened == nil then
+        opened = {}
+        coroutinescopes[thread] = opened
+    end
+
+    return opened
+end
 
 local function bodyScope(record: any): any
-    local opened = record ~= nil and record.opened or rootscopes
+    local opened = openedScopes(record)
     for index = #opened, 1, -1 do
         if opened[index].bodyActive then
             return opened[index]
@@ -625,12 +645,8 @@ local function open(limit: integer?, timeoutms: number?): any
         deadline = (calls.now() as number) + timeoutms
     end
     -- A scope inside another takes the earlier deadline.
-    local outer: any = nil
-    if owner ~= nil then
-        outer = owner.scope
-    elseif #rootscopes > 0 then
-        outer = rootscopes[#rootscopes]
-    end
+    local opened = openedScopes(owner)
+    local outer = opened[#opened] or (owner ~= nil and owner.scope or nil)
     if outer ~= nil and outer.deadline ~= nil and (deadline == nil or outer.deadline < deadline) then
         deadline = outer.deadline
     end
@@ -651,13 +667,9 @@ local function open(limit: integer?, timeoutms: number?): any
         },
         ScopeMT
     )
-    if owner ~= nil then
-        owner.opened[#owner.opened + 1] = scope
-        if owner.requested then
-            cancelscope(scope, owner.cancelled.reason, false)
-        end
-    else
-        rootscopes[#rootscopes + 1] = scope
+    opened[#opened + 1] = scope
+    if owner ~= nil and owner.requested then
+        cancelscope(scope, owner.cancelled.reason, false)
     end
     if deadline ~= nil then
         addtimer({at = deadline, scope = scope})
@@ -746,7 +758,7 @@ ScopeMethods.close = function(scope: any): nil
         )
     end
     scope.closed = true
-    local opened = record ~= nil and record.opened or rootscopes
+    local opened = openedScopes(record)
     for index = #opened, 1, -1 do
         if opened[index] == scope then
             table.remove(opened, index)
@@ -1028,14 +1040,10 @@ end
 
 local function deadline(): number?
     local record = current()
-    if record ~= nil then
-        return record.scope.deadline
-    end
-    if #rootscopes > 0 then
-        return rootscopes[#rootscopes].deadline
-    end
+    local opened = openedScopes(record)
+    local scope = opened[#opened] or (record ~= nil and record.scope or nil)
 
-    return nil
+    return scope ~= nil and scope.deadline or nil
 end
 
 calls.install({__index = methods}, closetask)
