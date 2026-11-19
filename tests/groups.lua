@@ -458,7 +458,6 @@ local repositoryInputs = {
     "templates",
     "native",
     "runtime",
-    "host",
     "Cargo.toml",
     "Cargo.lock",
     "rust-toolchain.toml",
