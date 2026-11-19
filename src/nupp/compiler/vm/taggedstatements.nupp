@@ -24,7 +24,7 @@ local typeKind = taggedvalues.typeKind
 const DIRECTION: integer = 4
 
 -- Typed scalar operators use exactly the library operation public calls use.
-export function scalar(ctx: any, node: any, identity: string, arguments: any, signed: boolean?): integer
+export function scalar(ctx: any, node: any, identity: string, arguments: any, signed: boolean?): integer?
     local entry = need(corelibrary.scalar(identity), "unsupported checked scalar operator")
     local result = libraryCall(ctx, node, entry.id, arguments)
     if result == nil or not signed then
@@ -39,7 +39,7 @@ end
 -- Before v6 only float addition and less-than are admitted. v6 admits the
 -- dynamic numeric operators over checked integer, float or number operands;
 -- `a > b` evaluates both operands in order and then compares as `b < a`.
-export function binary(ctx: any, node: any, expected: string?, version: integer): integer
+export function binary(ctx: any, node: any, expected: string?, version: integer): integer?
     local operation = node.op.text
     need(expected == nil or expected == "tagged", "tagged result required")
     if version >= 8 then
@@ -84,7 +84,7 @@ export function binary(ctx: any, node: any, expected: string?, version: integer)
     if operation == "~=" and version >= 8 then
         local operands = ctx.operands({node.lhs, node.rhs}, {"tagged", "tagged"})
         if operands == nil then
-            return nil as any
+            return nil
         end
         local equal = ctx.emit(node, "Eq", operands, "tagged")
         return ctx.emit(node, "Not", {equal}, "tagged")
@@ -114,7 +114,7 @@ export function binary(ctx: any, node: any, expected: string?, version: integer)
     end
     local operands = ctx.operands({node.lhs, node.rhs}, {"tagged", "tagged"})
     if operands == nil then
-        return nil as any
+        return nil
     end
     if operation == ">" or operation == ">=" then
         operands = {operands[2], operands[1]}
