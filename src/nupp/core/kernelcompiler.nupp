@@ -10,6 +10,11 @@ module nupp.core.kernelcompiler
 -- the unit runner does not (the tagged profile, the core executable). An edit
 -- there reuses every kernel; an edit to any other input invalidates them all.
 -- The units harness holds a kernel selection to never loading one of them.
+--
+-- On the core the compiler is the bundle running, which carries every one of
+-- those sources, so its identity stands for them; the declarations it reads
+-- from the checkout are still inputs. A compiler edit there leaves every
+-- kernel standing until a new bundle runs.
 local fs = require("nupp.compiler.fs")
 local fingerprint = require("nupp.compiler.project.fingerprint")
 local imagemodules = require("nupp.compiler.imagemodules")

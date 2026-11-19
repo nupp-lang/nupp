@@ -189,7 +189,7 @@ end
 
 -- The store of checked catalog `p`'s pieces, made by `made`, checked in
 -- `project` or on their own.
-local function storeOf(made: string, p: any, project: any?): any
+local function storeOf(root: string, made: string, p: any, project: any?): any
     local program = programOf(made, p)
     local closure, interfaceOf = nil, nil
     if project ~= nil then
@@ -247,11 +247,12 @@ local function storeOf(made: string, p: any, project: any?): any
         return piece
     end
 
-    -- Marks every entry this build reused as used, at once: the store sweeps
-    -- the least recently used first.
+    -- Marks every entry this build reused as used, at once, and starts a
+    -- sweep when one is due: the store sweeps the least recently used first.
     function store.close(): nil
         sharedcache.touch(sharedcache.directory(KIND), used)
         used = {}
+        sharedcache.sweep(root)
     end
 
     -- Keeps `piece` under `key`, sealed by its digest.
@@ -270,5 +271,5 @@ end
 export function open(root: string, p: any, project: any?): any
     local made = producerOf(root)
 
-    return made and storeOf(made as string, p, project) or nil
+    return made and storeOf(root, made as string, p, project) or nil
 end
