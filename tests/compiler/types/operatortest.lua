@@ -42,6 +42,24 @@ end
 
 local M = {}
 
+function M.bareLiteralBitOperationsUseLuaIntegers()
+    for _, case in ipairs({
+        {"1 << 64", 0},
+        {"1 << 32", 4294967296},
+        {"1 << -1", 0},
+        {"8 << -2", 2},
+        {"8 >> -2", 32},
+        {"-1 >> 63", 1},
+        {"~0", -1},
+        {"~1 >> 32", 4294967295},
+        {"(1 << 40) | 3", 1099511627779},
+        {"(1 << 40) & -1", 1099511627776},
+        {"(1 << 40) ~ 3", 1099511627779},
+    }) do
+        testAssert.eq(run("return " .. case[1]), case[2], case[1])
+    end
+end
+
 -- Integer remainder and floor division keep their subtype and reject zero
 -- divisors. Floating-point remainder retains its NaN result at zero.
 function M.integralRemainderAndFloorQuotientStayIntegral()

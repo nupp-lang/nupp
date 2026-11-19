@@ -15,12 +15,14 @@ if (12 & 10) == 8 and (12 | 3) == 15 and (5 ~ 1) == 4 and (1 << 4) == 16 and (25
     score = score + 1
 end
 local wide: any = 3.0
--- Integer shifts past the word. Exact literals establish int32 (the
--- reference's fixed-width arithmetic), whose counts are masked by 31, so the
--- operands are integers.
-local one: integer = 1
-local minus: integer = -1
-if (one << 64) == 0 and (one << -1) == 0 and (minus >> 63) == 1 and (wide & 1) == 1 then
+if (1 << 64) == 0
+    and (1 << -1) == 0
+    and (-1 >> 63) == 1
+    and (8 >> -2) == 32
+    and (1 << 32) == 4294967296
+    and (~1 >> 32) == 4294967295
+    and (wide & 1) == 1
+then
     score = score + 2
 end
 if tonumber("ff", 16) == 255

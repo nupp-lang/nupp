@@ -176,7 +176,7 @@ cdef function clang_getEnumConstantDeclValue(cursor: Cursor): int64
 
 -- dlopen's RTLD_NOW | RTLD_GLOBAL, and where the VM's service looks for
 -- libclang when NUPP_LIBCLANG names none.
-const OPEN_GLOBAL: int32 = 0x2 | 0x8
+const OPEN_GLOBAL: int32 = 0xa
 const CANDIDATES = {
     "/Library/Developer/CommandLineTools/usr/lib/libclang.dylib",
     "/Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/lib/libclang.dylib",

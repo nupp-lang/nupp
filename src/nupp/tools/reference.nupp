@@ -2049,7 +2049,7 @@ return m
 
     reference.Section(
         title = "Fixed-width scalar arithmetic",
-        codes = {"NUPP2001", "NUPP2004", "NUPP2011", "NUPP2012"},
+        codes = {"NUPP2001", "NUPP2003", "NUPP2004", "NUPP2011", "NUPP2012"},
         body = [=[
 `float`, `int32`, and `uint32` are unboxed refinements of Lua numbers. They
 widen to `number` without code, while entering one requires evidence: an exact
@@ -2067,8 +2067,16 @@ established `uint32` values, or between an established `uint32` and an exact
 literal, wrap modulo 2^32 and produce an established `uint32`; the same holds
 for `int32`. `&`, `|`, `~`, `<<`, `>>`, and unary `~` over established operands
 produce the operand width: a `uint32` beside a `uint32` or a literal is a
-`uint32`, and anything else established is an `int32`. Shift counts are masked
-by 31, `>>` shifts in zeros, and `~>>` copies the sign. Mixing the two widths,
+`uint32`, and established signed operands produce an `int32`. At least one
+operand must already have that width. Two bare literals use ordinary
+`integer` arithmetic: `1 << 64` is zero, `1 << 32` is 4294967296, and a
+negative shift count shifts the other way. `int64` is an alias of `integer`
+and keeps these Lua 5.5 semantics.
+
+A constant shift count at or beyond an explicit fixed width is a compile
+error: `value << 32` fails when `value` is an established `int32` or
+`uint32`. Dynamic fixed-width shift counts are masked by 31, `>>` shifts in
+zeros, and `~>>` copies the sign. Mixing the two widths,
 or either with a `number`, is ordinary arithmetic, and `/`, `//`, `%`, and `^`
 leave the width.
 
@@ -2092,9 +2100,9 @@ makes it an ordinary call.
 
 The native profile keeps the same semantics in a machine word: an `int32` or
 `uint32` is the low thirty-two bits sign- or zero-extended, every operator ends
-by wrapping to the width, a shift count is masked by 31, comparisons are signed
-or unsigned by the width, and widening to `number` is one conversion. The
-`wrap`, `rotateLeft`, `rotateRight`, `popcount`, `trailingZeros`,
+by wrapping to the width. Dynamic shift counts are masked by 31, comparisons
+are signed or unsigned by the width, and widening to `number` is one conversion.
+The `wrap`, `rotateLeft`, `rotateRight`, `popcount`, `trailingZeros`,
 `leadingZeros`, `div` and `mod` identities lower to the corresponding
 instructions, `div` and `mod` answering zero for a zero divisor. A narrow struct
 field loads as the width its signedness says, `int8` and `int16` as `int32`,
@@ -2110,6 +2118,10 @@ conversion; a table-backed record write may not.
 ]=],
         example = [=[
 local m = {}
+
+function m.literalShifts(): (integer, integer)
+    return 1 << 64, 8 >> -2
+end
 
 function m.step(flags: uint32, distance: number, inverseTime: number): (uint32, float)
     local rotated = math.u32.rotateleft(flags, 7) ~ ((flags >> 3) & 0xff)

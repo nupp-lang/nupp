@@ -2523,6 +2523,8 @@ function lower.emit(
         local int32Bits = (k == "binop" or k == "unop")
             and node.inferredType
             and node.inferredType.tag == "int32"
+            and node.fixedWidthEstablished
+            and node.fixedWidthEstablished.int32
             and (k == "unop" and INT32_UNARY_BITS or INT32_BITS)[tokText(node.op)]
         if int32Bits then
             local a = exprAs(f, k == "unop" and node.operand or node.lhs, "v")
@@ -4654,6 +4656,7 @@ function lower.emit(
                 op = {text = opText},
                 inferredType = node.inferredType or node.target.inferredType,
                 fixedArithmetic = node.fixedArithmetic,
+                fixedWidthEstablished = node.fixedWidthEstablished,
                 wideArithmetic = node.wideArithmetic
             }
             if target.kind == "name" then

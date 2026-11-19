@@ -1971,7 +1971,12 @@ export function forVersion(version: integer): any
         profile.unary = function(ctx: any, node: any, expected: string?): integer
             if node.fixedArithmetic then
                 return taggedstatements.scalar(ctx, node, node.fixedArithmetic, {node.operand})
-            elseif node.op and node.op.text == "~" and typeKind(node.inferredType) == "int32" then
+            elseif node.op
+                and node.op.text == "~"
+                and typeKind(node.inferredType) == "int32"
+                and node.fixedWidthEstablished
+                and node.fixedWidthEstablished.int32
+            then
                 return taggedstatements.scalar(ctx, node, "i32.notBits", {node.operand})
             end
             if node.op and node.op.text == "not" then

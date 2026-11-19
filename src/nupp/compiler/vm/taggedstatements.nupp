@@ -46,7 +46,10 @@ export function binary(ctx: any, node: any, expected: string?, version: integer)
         if node.fixedArithmetic then
             return scalar(ctx, node, node.fixedArithmetic, {node.lhs, node.rhs})
         end
-        if typeKind(node.inferredType) == "int32" then
+        if typeKind(node.inferredType) == "int32"
+            and node.fixedWidthEstablished
+            and node.fixedWidthEstablished.int32
+        then
             local operation = ({
                 ["&"] = "andBits",
                 ["|"] = "orBits",

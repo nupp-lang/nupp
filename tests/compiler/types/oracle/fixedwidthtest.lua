@@ -1104,6 +1104,48 @@ return bits
     testAssert.eq(f, 0x7ffffffe)
 end
 
+function M.constantShiftsMustFitAnExplicitWidth()
+    for _, kind in ipairs({"int32", "uint32", "uint64"}) do
+        local width = (kind == "int32" or kind == "uint32") and 32 or 64
+        for _, operator in ipairs({"<<", ">>"}) do
+            for _, count in ipairs({
+                tostring(width),
+                tostring(-width),
+                "(" .. width .. " + 1)",
+                tostring(width) .. "ULL",
+                "(1 << " .. (width == 32 and 5 or 6) .. ")",
+                "(31.5 + " .. (width - 31.5) .. ")"
+            }) do
+                testAssert.eq(
+                    errorCodes("local x: " .. kind .. " = 1\nlocal y = x " .. operator .. " " .. count),
+                    "NUPP2003",
+                    kind .. operator .. count
+                )
+            end
+            testAssert.eq(
+                errorCodes("local x: " .. kind .. " = 1\nlocal y = x " .. operator .. " " .. (width - 1)),
+                "",
+                "the final bit is in range"
+            )
+        end
+    end
+    testAssert.eq(errorCodes("const count = 32\nlocal x: uint32 = 1\nlocal y = x << count"), "NUPP2003")
+    testAssert.eq(errorCodes("local x: uint64 = 1\nlocal y = x << 0xffffffffffffffffULL"), "NUPP2003")
+    testAssert.eq(errorCodes("local x: uint32 = 1\nlocal y = x << (8 >> -2)"), "NUPP2003")
+    testAssert.eq(errorCodes("local x: uint32 = 1\nlocal y = x << (1 << 64)"), "")
+    for _, count in ipairs({
+        "(18446744073709551615ULL + 1ULL)",
+        "(100ULL // 0xffffffffffffffffULL)",
+        "(0xffffffffffffffffULL // 0xffffffffffffffffULL)",
+        "(0xffffffffffffffffULL % 0xffffffffffffffffULL)"
+    }) do
+        testAssert.eq(errorCodes("local x: uint32 = 1\nlocal y = x << " .. count), "", count)
+    end
+    testAssert.eq(errorCodes("local x: integer = 1\nlocal y = x << 64"), "")
+    testAssert.eq(errorCodes("local x: int64 = 1\nlocal y = x << 64"), "", "int64 is an alias of integer")
+    testAssert.eq(errorCodes("local x = 1 << 64\nlocal y = ~1"), "")
+end
+
 -- A byte read is typed `uint32` but holds an `int32` as surely, so inside an
 -- `@aot` body an `int32` accumulator takes it as the wrapping signed add of
 -- two `int32` values. Outside one the mixed widths still

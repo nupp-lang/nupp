@@ -9,6 +9,7 @@ it binds.
 module nupp.compiler.check.operators
 
 local apiidentity = require("nupp.compiler.apiidentity")
+local consteval = require("nupp.compiler.types.consteval")
 
 --- A set of operator tokens.
 local type Set = {[string]: boolean}
@@ -326,14 +327,157 @@ export function install(c: state.Checker): state.ExprHandlers
         return nil
     end
 
-    --- Whether a
-    ---
-    --- The same condition the retired structured lowering put on them, spelled here
-    --- against the checker's establishment facts rather than against lowered IR.
-    --- An exact literal in range carries both integer facts from `markLiteral`,
-    --- so it satisfies this without a special case.
-    local function fixedBitOperand(operand: any): boolean
-        return c.fixedWidth.established(operand, T.int32) or c.fixedWidth.established(operand, T.uint32)
+    -- Unsigned division on signed words, without converting through a float.
+    local function unsignedQuotient(a: integer, b: integer): integer?
+        if b == 0 then
+            return nil
+        elseif b < 0 then
+            return a < 0 and a >= b and 1 or 0
+        elseif a >= 0 then
+            return a // b
+        end
+        local quotient = ((a >> 1) // b) << 1
+        local remainder = a - quotient * b
+        if remainder < 0 or remainder >= b then
+            quotient = quotient + 1
+        end
+
+        return quotient
+    end
+
+    local function constantNumber(node: any): number?
+        if node == nil then
+            return nil
+        end
+        local term = node.inferredType and consteval.fromType(node.inferredType)
+        if term then
+            local value, problem = consteval.reduce(term)
+            if problem == nil and value.tag == "constLiteral" and value.domain == "integer" then
+                return value.value as integer
+            end
+        end
+        if node.kind == "number" and node.token then
+            local text = node.token.text:gsub("_", ""):gsub("[uUlL]+$", "")
+            local wide = node.inferredType and (node.inferredType.tag == "int64" or node.inferredType.tag == "uint64")
+            if wide and text:match("^%d+$") then
+                local word: integer = 0
+                for index = 1, #text do
+                    word = word * 10 + (text:byte(index) as integer) - 48
+                end
+                return word
+            end
+            return tonumber(text)
+        elseif node.kind == "paren" then
+            return constantNumber(node.expr)
+        elseif node.kind == "unop" and node.op then
+            local value = constantNumber(node.operand)
+            if value == nil then
+                return nil
+            end
+            if node.op.kind == "-" then
+                return math.type(value) == "integer" and -(value as integer) or -value
+            elseif node.op.kind == "+" then
+                return value
+            elseif node.op.kind == "~" then
+                local ok, result = pcall(function(): integer
+                    return ~(value as integer)
+                end)
+                return ok and result or nil
+            end
+        elseif node.kind == "binop" and node.op then
+            local left, right = constantNumber(node.lhs), constantNumber(node.rhs)
+            if left == nil or right == nil then
+                return nil
+            end
+            local op = node.op.kind
+            local leftType, rightType = (node.lhs as any).inferredType, (node.rhs as any).inferredType
+            local ok, value = pcall(function(): number?
+                local integers = math.type(left) == "integer" and math.type(right) == "integer"
+                local floatLeft, floatRight = left, right
+                if not integers or op == "/" or op == "^" then
+                    if leftType and leftType.tag == "uint64" and left < 0 then
+                        floatLeft = left + 2 ^ 64
+                    end
+                    if rightType and rightType.tag == "uint64" and right < 0 then
+                        floatRight = right + 2 ^ 64
+                    end
+                end
+                if op == "+" then
+                    return integers and (left as integer) + (right as integer) or floatLeft + floatRight
+                elseif op == "-" then
+                    return integers and (left as integer) - (right as integer) or floatLeft - floatRight
+                elseif op == "*" then
+                    return integers and (left as integer) * (right as integer) or floatLeft * floatRight
+                elseif op == "//" then
+                    if node.inferredType and node.inferredType.tag == "uint64" then
+                        return unsignedQuotient(left as integer, right as integer)
+                    end
+                    return integers and (left as integer) // (right as integer) or floatLeft // floatRight
+                elseif op == "%" then
+                    if node.inferredType and node.inferredType.tag == "uint64" then
+                        local a, b = left as integer, right as integer
+                        local quotient = unsignedQuotient(a, b)
+                        return quotient and a - quotient * b or nil
+                    end
+                    return integers and (left as integer) % (right as integer) or floatLeft % floatRight
+                elseif op == "/" then
+                    return floatLeft / floatRight
+                elseif op == "^" then
+                    return floatLeft ^ floatRight
+                elseif op == "&" then
+                    return (left as integer) & (right as integer)
+                elseif op == "|" then
+                    return (left as integer) | (right as integer)
+                elseif op == "~" then
+                    return (left as integer) ~ (right as integer)
+                elseif op == "<<" then
+                    return (left as integer) << (right as integer)
+                elseif op == ">>" then
+                    return (left as integer) >> (right as integer)
+                end
+
+                return nil
+            end)
+            return ok and value or nil
+        end
+
+        return nil
+    end
+
+    --- A constant shift must fit the explicit operand width. Literal range
+    --- evidence alone never chooses a width: `1 << 64` is integer arithmetic.
+    local function checkShiftCount(node: cst.Binop, left: Type, right: Type): nil
+        local op = node.op and node.op.kind
+        if op ~= "<<" and op ~= ">>" and op ~= "~>>" then
+            return
+        end
+        local width = 0
+        for _, pair in ipairs({{left, node.lhs}, {right, node.rhs}}) do
+            local t = T.unwrapOwnership(pair[1] as Type)
+            if (t.tag == "int32" or t.tag == "uint32") and c.fixedWidth.established(pair[2], t) then
+                width = 32
+                break
+            elseif t.tag == "uint64" then
+                width = 64
+            end
+        end
+        if width == 0 then
+            return
+        end
+        local value = constantNumber(node.rhs)
+        if value == nil then
+            return
+        end
+        local unsigned = T.unwrapOwnership(right).tag == "uint64"
+        if value >= width or value <= -width or (unsigned and value < 0) then
+            c.diag(
+                "NUPP2003",
+                node.rhs,
+                (
+                    "constant shift count must be between %d and %d for a %d-bit operand"
+                ):format(1 - width, width - 1, width)
+            )
+        end
     end
 
     handlers.unop = function(node: cst.Unop): Type
@@ -387,8 +531,8 @@ export function install(c: state.Checker): state.ExprHandlers
                 node.wideArithmetic = true
             end
             c.numericOperand(t, node, op)
-            if not wide and fixedBitOperand(operand) then
-                local target = t.tag == "uint32" and T.uint32 or T.int32
+            if not wide and (t.tag == "int32" or t.tag == "uint32") and c.fixedWidth.established(operand, t) then
+                local target = t
                 if target == T.uint32 then
                     node.fixedArithmetic = "u32.notBits"
                 end
@@ -633,8 +777,9 @@ export function install(c: state.Checker): state.ExprHandlers
             end
             c.numericOperand(lt, lhs, op)
             c.numericOperand(rt, rhs, op)
-            if not wide and fixedBitOperand(lhs) and fixedBitOperand(rhs) then
-                local target = fixedArithmeticTarget(lt, rt, lhs, rhs)
+            checkShiftCount(node, lt, rt)
+            local target = not wide and fixedArithmeticTarget(lt, rt, lhs, rhs) or nil
+            if target ~= nil then
                 local intrinsic = ({
                     ['&'] = "andBits",
                     ['|'] = "orBits",
@@ -647,8 +792,8 @@ export function install(c: state.Checker): state.ExprHandlers
                     c.fixedWidth.mark(node, T.uint32)
                     return T.uint32
                 end
-                c.fixedWidth.mark(node, T.int32)
-                return T.int32
+                c.fixedWidth.mark(node, target as Type)
+                return target as Type
             end
 
             return wide or T.integer
