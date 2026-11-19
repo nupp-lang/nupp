@@ -517,73 +517,32 @@ local private = {}
 local function equal(actual: any, expected: any, message: string?): any
     return actual
 end
---- Requires different values.
---- @export
-local function notEqual(actual: any, unwanted: any, message: string?): any end
---- Requires structurally equal values.
---- @export
-local function deepEqual(actual: any, expected: any, message: string?): any end
---- Requires a matching string.
---- @export
-local function matches(value: any, pattern: string, message: string?): string end
 --- Requires an error.
 --- @export
 local function raises(fn: function(...: any): any, pattern: string?): any end
 
 --- Skips the current case.
 function suite.skip(reason: string): never end
---- Recognizes a skipped case.
-function suite.isSkip(value: any): boolean end
---- Returns the skip reason.
-function suite.skipReason(value: any): string? end
 --- Builds named cases.
 function suite.cases(rows: {any}, name: function(any, integer): string, run: function(any, integer): any): any end
---- Records an unexecuted case.
-function suite.notExecuted(reason: string): never end
---- Recognizes an unexecuted case.
-function suite.isNotExecuted(value: any): boolean end
---- Returns the unexecuted reason.
-function suite.notExecutedReason(value: any): string? end
---- Requires a capability.
-function suite.requireCapability(name: string, available: boolean, evidence: any?): nil end
---- Records a fact.
-function suite.fact(name: string, value: any): nil end
---- Records a metric.
-function suite.metric(name: string, value: number, unit: string?): nil end
---- Records completed work.
-function suite.work(name: string, count: integer): nil end
 --- Resolves a fixture.
 function suite.fixture(key: string, produce: function(string): any): (string, any, boolean) end
 
 function private.hidden(): nil end
-local callable = {eq = equal, ne = notEqual, deepeq = deepEqual, matches = matches, raises = raises}
+local callable = {eq = equal, raises = raises}
 callable.suite = suite
 export = setmetatable(callable, {__call = original})
 ]]
     local module, errors = doc.extract(source, "src/assert.nupp", "assert")
     assert(module, errors and errors[1] and errors[1].msg)
-    assert(#module.items == 17, "a callable module lost helpers or exposed private declarations")
+    assert(#module.items == 5, "a callable module lost helpers or exposed private declarations")
     local expected = {
         eq = "local function eq(actual: any, expected: any, message: string?): any",
-        ne = "local function ne(actual: any, unwanted: any, message: string?): any",
-        deepeq = "local function deepeq(actual: any, expected: any, message: string?): any",
-        matches = "local function matches(value: any, pattern: string, message: string?): string",
         raises = "local function raises(fn: function(...: any): any, pattern: string?): any",
         ["suite.skip"] = "function suite.skip(reason: string): never",
-        ["suite.isSkip"] = "function suite.isSkip(value: any): boolean",
-        ["suite.skipReason"] = "function suite.skipReason(value: any): string?",
         [
             "suite.cases"
         ] = "function suite.cases(rows: {any}, name: function(any, integer): string, run: function(any, integer): any): any",
-        ["suite.notExecuted"] = "function suite.notExecuted(reason: string): never",
-        ["suite.isNotExecuted"] = "function suite.isNotExecuted(value: any): boolean",
-        ["suite.notExecutedReason"] = "function suite.notExecutedReason(value: any): string?",
-        [
-            "suite.requireCapability"
-        ] = "function suite.requireCapability(name: string, available: boolean, evidence: any?): nil",
-        ["suite.fact"] = "function suite.fact(name: string, value: any): nil",
-        ["suite.metric"] = "function suite.metric(name: string, value: number, unit: string?): nil",
-        ["suite.work"] = "function suite.work(name: string, count: integer): nil",
         [
             "suite.fixture"
         ] = "function suite.fixture(key: string, produce: function(string): any): (string, any, boolean)",
@@ -913,7 +872,7 @@ export const open = implementation as function(path: string | Path): File
 export const popen = (implementation as (function(options: Process.Options): (Process?, Error?)
     & function(cmd: string, mode: string?): (File?, string?)))
 export const erased = (implementation as function(): string) as any
-export const annotated: function(value: integer): integer = implementation as any
+export const annotated: function<F is string>(value: F): integer = implementation as any
 export const anonymous = implementation as ((function(string): integer) & (function(string, boolean): boolean))
 ]],
             "src/io.nupp",
@@ -1385,7 +1344,7 @@ function M.rendersFunctionArgumentsAndReturnsAsDescriptionLists()
         doc.extract(
             [[
 --- Describes a value.
---- @param value The supplied value.
+--- @param value The supplied `value`.
 --- @return The value again.
 export function identity(value: string): string return value end
 ]],
@@ -1400,10 +1359,10 @@ export function identity(value: string): string return value end
     assert(html:find('>Returns<a', 1, true), html)
     assert(html:find('<dt><code>value</code> - <code class="nuppdoc-token-type">string</code></dt>', 1, true), html)
     assert(html:find('<dt><code class="nuppdoc-token-type">string</code></dt>', 1, true), html)
-    assert(html:find("The supplied value.", 1, true), html)
+    assert(html:find("The supplied <code>value</code>.", 1, true), html)
     assert(html:find("The value again.", 1, true), html)
     local markdown = doc.markdown({module})
-    assert(markdown:find("`value` - `string`\n:   The supplied value.", 1, true), markdown)
+    assert(markdown:find("`value` - `string`\n:   The supplied `value`.", 1, true), markdown)
     assert(markdown:find("`string`\n:   The value again.", 1, true), markdown)
 end
 
@@ -1713,8 +1672,9 @@ local ANNOTATED_DECLARATIONS = table.concat(
 -- An annotation is parsed before the entry it modifies, so the `---` run written above
 -- it attaches to the `@` rather than to the declaration underneath. Reading the entry
 -- alone answered nothing, and the member silently lost its prose and every `@param` and
--- `@return` description while its unannotated siblings kept theirs.
-function M.anAnnotatedMemberKeepsItsDocumentation()
+-- `@return` description while its unannotated siblings kept theirs. Annotations and
+-- parameter modes are both public declaration metadata as well.
+function M.documentsAnnotationsAndParameterModes()
     local module = assert(doc.extract(ANNOTATED_DECLARATIONS, "src/handle.d.nupp", "handle"))
     local handle
     for _, item in ipairs(module.items) do
@@ -1740,27 +1700,6 @@ function M.anAnnotatedMemberKeepsItsDocumentation()
         close.returns[1] and close.returns[1].text == "whether the close succeeded",
         close.returns[1] and close.returns[1].text
     )
-end
-
--- Annotations and parameter modes are both public declaration metadata.
-function M.documentsAnnotationsAndParameterModes()
-    local module = assert(doc.extract(ANNOTATED_DECLARATIONS, "src/handle.d.nupp", "handle"))
-    local handle
-    for _, item in ipairs(module.items) do
-        if item.name == "Handle" then
-            handle = item
-        end
-    end
-    assert(handle, "record missing")
-    local close, isReleased
-    for _, member in ipairs(handle.members) do
-        if member.name == "close" then
-            close = member
-        end
-        if member.name == "isReleased" then
-            isReleased = member
-        end
-    end
     assert(
         close.annotations and close.annotations[1]:find("@deprecated", 1, true) == 1,
         close.annotations and close.annotations[1]
@@ -2266,6 +2205,11 @@ function M.namespaceTagSynthesizesModulesFromAShapesFields()
             "      --- Should not appear in public documentation.",
             "      hidden: function(): nil",
             "   },",
+            "   --- Hidden by its name rather than a tag.",
+            "   internal: {",
+            "      --- Caches a result.",
+            "      cache: function(): boolean",
+            "   },",
             "   math: lib.MathLibrary",
             "}",
             "",
@@ -2301,6 +2245,7 @@ function M.namespaceTagSynthesizesModulesFromAShapesFields()
     assert(byName["lib.data"].items[1].kind == "function")
     assert(byName["lib.data"].items[1].doc.text == "Encodes a value.")
     assert(not byName["lib.test"], "an internal namespace field leaked into public docs")
+    assert(not byName["lib.internal"], "a namespace named internal leaked into public docs")
     assert(byName["lib.math"], "a field spelled by name follows it to the same file's record")
     assert(byName["lib.math"].items[1].name == "add")
     assert(byName["lib.math"].items[1].params[1].name == "a")
@@ -2316,6 +2261,7 @@ function M.namespaceTagSynthesizesModulesFromAShapesFields()
         privateByName[mod.name] = mod
     end
     assert(privateByName["lib.test"], "private docs must retain internal namespace fields")
+    assert(privateByName["lib.internal"], "private docs must retain a namespace named internal")
 end
 
 function M.namespaceTagsIgnoreWindowsLineEndings()
@@ -2442,6 +2388,21 @@ function M.standardTypesPageCombinesBuildersAndRuntimeExports()
     os.execute("rm -rf '" .. dir .. "'")
 end
 
+-- Every item of a public module, with each of its arguments and results, says what
+-- it is.
+local function assertItemsDocumented(module, name)
+    for _, item in ipairs(module.items) do
+        local prefix = name .. "." .. item.name
+        assert(item.doc.text ~= "", prefix .. " has no documentation")
+        for _, param in ipairs(item.params) do
+            assert(param.text ~= "", prefix .. " parameter " .. param.name .. " has no documentation")
+        end
+        for index, result in ipairs(item.returns) do
+            assert(result.text ~= "", prefix .. " return " .. index .. " has no documentation")
+        end
+    end
+end
+
 -- The public JSON module documents its own complete surface; the host declaration is
 -- only an implementation boundary.
 function M.standardJsonApiHasCompleteDocumentation()
@@ -2535,32 +2496,12 @@ function M.standardTaskApiHasModuleExamples()
     assert(examples >= 2, "nupp.tasks needs structured-work and deadline examples")
 end
 
--- Public UTF-8 and digest modules document their complete declared surface.
-function M.standardDataApiHasCompleteDocumentation()
-    local modules = {"src/utf8.nupp", "src/nupp/digest/digest.nupp",}
-    for _, relative in ipairs(modules) do
-        local source = assert(readFile(HERE .. "/../" .. relative), "no module at " .. relative)
-        local name = relative:match("^src/(.+)%.nupp$"):gsub("/", "."):gsub("%.init$", "")
-        local module, errors = doc.extract(source, relative, name)
-        assert(module, errors and errors[1] and errors[1].msg)
-        assert(module.text ~= "", name .. " has no module documentation")
-        for _, item in ipairs(module.items) do
-            local prefix = name .. "." .. item.name
-            assert(item.doc.text ~= "", prefix .. " has no documentation")
-            for _, param in ipairs(item.params) do
-                assert(param.text ~= "", prefix .. " parameter " .. param.name .. " has no documentation")
-            end
-            for index, result in ipairs(item.returns) do
-                assert(result.text ~= "", prefix .. " return " .. index .. " has no documentation")
-            end
-        end
-    end
-end
-
--- Public I/O overviews and their implementation declarations document the same
--- API even when the implementation module is private.
+-- Public I/O, UTF-8 and digest overviews and their implementation declarations
+-- document the same API even when the implementation module is private.
 function M.standardIOApiHasCompleteDocumentation()
     local modules = {
+        ["src/utf8.nupp"] = {types = {}, functions = {}},
+        ["src/nupp/digest/digest.nupp"] = {types = {}, functions = {}},
         [
             "src/nupp/io.nupp"
         ] = {types = {Reader = true, Writer = true, ScalarReader = true, ScalarWriter = true,}, functions = {},},
@@ -2589,21 +2530,14 @@ function M.standardIOApiHasCompleteDocumentation()
             )
         end
         assert(overview.text ~= "", name .. " has no public overview documentation")
+        assertItemsDocumented(module, name)
         local foundTypes, foundFunctions = {}, {}
         for _, item in ipairs(module.items) do
-            local prefix = name .. "." .. item.name
-            assert(item.doc.text ~= "", prefix .. " has no documentation")
             if expected.types[item.name] then
                 foundTypes[item.name] = true
             end
             if expected.functions[item.name] then
                 foundFunctions[item.name] = true
-            end
-            for _, param in ipairs(item.params) do
-                assert(param.text ~= "", prefix .. " parameter " .. param.name .. " has no documentation")
-            end
-            for index, result in ipairs(item.returns) do
-                assert(result.text ~= "", prefix .. " return " .. index .. " has no documentation")
             end
         end
         for member in pairs(expected.types) do
@@ -3029,27 +2963,9 @@ function M.standardMathApiHasCompleteDocumentation()
     assert(quatModule, "the prelude did not synthesize math.quat")
     assert(#quatModule.items > 0, "math.quat has no operations")
 
-    local function assertDocumented(documentedModule)
-        for _, item in ipairs(documentedModule.items) do
-            assert(item.doc.text ~= "", documentedModule.name .. "." .. item.name .. " has no documentation")
-            for _, param in ipairs(item.params) do
-                assert(
-                    param.text ~= "",
-                    documentedModule.name .. "." .. item.name .. " parameter " .. param.name .. " has no documentation"
-                )
-            end
-            for index, result in ipairs(item.returns) do
-                assert(
-                    result.text ~= "",
-                    documentedModule.name .. "." .. item.name .. " return " .. index .. " has no documentation"
-                )
-            end
-        end
+    for _, documented in ipairs({mathModule, vec2Module, quatModule}) do
+        assertItemsDocumented(documented, documented.name)
     end
-
-    assertDocumented(mathModule)
-    assertDocumented(vec2Module)
-    assertDocumented(quatModule)
     for _, item in ipairs(mathModule.items) do
         assert(item.name ~= "vec2", "vec2 must be a nested module, not a value")
         assert(item.name ~= "quat", "quat must be a nested module, not a value")
@@ -3171,38 +3087,6 @@ function M.documentsACdefOnlyWhereItReachesAReader()
     assert(stated["malloc"] and stated["Header"], "a declaration file publishes its cdefs")
 end
 
-function M.hidesPrivateMembersUnlessExplicitlyIncluded()
-    local source = table.concat(
-        {
-            "record Public",
-            "   visible: number",
-            "   _secret: number",
-            "   function _calculate(): number",
-            "      return 1",
-            "   end",
-            "end",
-        },
-        "\n"
-    )
-    local public = assert(doc.extract(source, "src/public.nupp", "public"))
-    local publicRecord
-    for _, item in ipairs(public.items) do
-        if item.name == "Public" then
-            publicRecord = item
-        end
-    end
-    assert(#publicRecord.members == 1, "private record members leaked")
-    assert(publicRecord.members[1].name == "visible")
-    local complete = assert(doc.extract(source, "src/public.nupp", "public", {includePrivate = true}))
-    local completeRecord
-    for _, item in ipairs(complete.items) do
-        if item.name == "Public" then
-            completeRecord = item
-        end
-    end
-    assert(#completeRecord.members == 3, "private record members were not included")
-end
-
 function M.hidesPrivateMembersFromTheRenderedDeclaration()
     local source = table.concat(
         {
@@ -3284,18 +3168,25 @@ function M.documentsMetamethodsDespiteTheirUnderscoredNames()
     assert(record.signature == "record Point", record.signature)
 end
 
-function M.hidesModulesNamedInternal()
+-- A module is private by its path: a file or directory named `internal` or led by
+-- `_`, or anything beneath an `@!internal` init. Each is documented only on request.
+function M.hidesPrivateModulesUnlessExplicitlyIncluded()
     local dir = tempProject({
         ["src/visible.nupp"] = "function visible(): number return 1 end\n",
         ["src/internal.nupp"] = "function secret(): number return 2 end\n",
         ["src/lib/internal/cache.nupp"] = "function cache(): number return 3 end\n",
+        ["src/_hidden.nupp"] = "function hidden(): number return 2 end\n",
+        ["src/nupp/compiler/init.nupp"] = "@!internal\nreturn {}\n",
+        ["src/nupp/compiler/syntax/parser.nupp"] = "function parse(): number return 1 end\n",
     })
+    local private = {"internal", "lib.internal.cache", "_hidden", "nupp.compiler", "nupp.compiler.syntax.parser"}
     local config = {include = {"src"}}
     assert(doc.build(dir, config, {sources = {"src"}}, {format = "markdown", output = "public.md"}) == 0)
     local public = readFile(dir .. "/public.md")
     assert(public:find("# `visible`", 1, true), public)
-    assert(not public:find("# `internal`", 1, true), public)
-    assert(not public:find("# `lib.internal.cache`", 1, true), public)
+    for _, name in ipairs(private) do
+        assert(not public:find("# `" .. name .. "`", 1, true), name .. "\n" .. public)
+    end
 
     assert(
         doc.build(dir, config, {sources = {"src"}, includePrivate = true}, {
@@ -3304,65 +3195,10 @@ function M.hidesModulesNamedInternal()
         }) == 0
     )
     local complete = readFile(dir .. "/complete.md")
-    assert(complete:find("# `internal`", 1, true), complete)
-    assert(complete:find("# `lib.internal.cache`", 1, true), complete)
+    for _, name in ipairs(private) do
+        assert(complete:find("# `" .. name .. "`", 1, true), name .. "\n" .. complete)
+    end
     os.execute("rm -rf '" .. dir .. "'")
-end
-
-function M.hidesNamespacesNamedInternal()
-    local source = table.concat(
-        {
-            "--- @namespace lib",
-            "local lib: {",
-            "   --- Rendering.",
-            "   graphics: {",
-            "      --- Draws a frame.",
-            "      draw: function(): boolean",
-            "   },",
-            "   --- Implementation detail.",
-            "   internal: {",
-            "      --- Caches a result.",
-            "      cache: function(): boolean",
-            "   },",
-            "}",
-        },
-        "\n"
-    )
-    local module, errors, extra = doc.extract(source, "src/lib.d.nupp", "lib")
-    assert(module, errors and errors[1] and errors[1].msg)
-    local byName = {}
-    for _, mod in ipairs(extra or {}) do
-        byName[mod.name] = mod
-    end
-    assert(byName["lib.graphics"], "a public namespace was dropped")
-    assert(not byName["lib.internal"], "a namespace named internal leaked into public docs")
-
-    local private, privateErrors, privateExtra = doc.extract(source, "src/lib.d.nupp", "lib", {includePrivate = true,})
-    assert(private, privateErrors and privateErrors[1] and privateErrors[1].msg)
-    local privateByName = {}
-    for _, mod in ipairs(privateExtra or {}) do
-        privateByName[mod.name] = mod
-    end
-    assert(privateByName["lib.internal"], "private docs must retain a namespace named internal")
-end
-
-function M.keepsMarkdownInsideDescriptionCells()
-    local module = assert(
-        doc.extract(
-            table.concat(
-                {
-                    "--- Adds.",
-                    "--- @param left The `left` value.",
-                    "function add(left: number): number return left end",
-                },
-                "\n"
-            ),
-            "src/math.nupp",
-            "math"
-        )
-    )
-    local markdown = doc.markdown({module})
-    assert(markdown:find(":   The `left` value.", 1, true), markdown)
 end
 
 function M.markdownMatchesTheNuppdocShape()
@@ -3441,17 +3277,6 @@ function M.highlightsCurrentNuppSyntaxWithTheParser()
     assert(html:find("keyword-resumes", 1, true), html)
     assert(not html:find("keyword-new", 1, true), html)
     assert(html:find("nuppdoc-token-type", 1, true), html)
-end
-
-function M.routedLinksLeaveCodeExamplesUntouched()
-    local page = {source = "docs/start.md", path = "start", title = "Start"}
-    local pages = {page, {source = "docs/guide.md", path = "guide", title = "Guide"},}
-    local markdown = "[Guide](guide.md)\n[`Guide`](guide.md)\n`[Guide](guide.md)`\n```md\n[Guide](guide.md)\n```\n"
-    local rewritten = urls.rewriteConfiguredPageLinks(markdown, page, pages, "start/index.html")
-    assert(rewritten:find("[Guide](../guide/index.html)", 1, true), rewritten)
-    assert(rewritten:find("[`Guide`](../guide/index.html)", 1, true), rewritten)
-    assert(rewritten:find("`[Guide](guide.md)`", 1, true), rewritten)
-    assert(rewritten:find("```md\n[Guide](guide.md)\n```", 1, true), rewritten)
 end
 
 function M.generatedApiPointersResolveWithoutInventingASourceFile()
@@ -3789,31 +3614,6 @@ function M.aManifestThatDoesNotLoadStopsTheRun()
     end
 end
 
-function M.hidesPrivateSourcePathsUnlessExplicitlyIncluded()
-    local dir = tempProject({
-        ["src/visible.nupp"] = "function visible(): number return 1 end\n",
-        ["src/_hidden.nupp"] = "function hidden(): number return 2 end\n",
-        ["src/internal/secret.nupp"] = "function secret(): number return 3 end\n",
-    })
-    local config = {include = {"src"}}
-    assert(doc.build(dir, config, {sources = {"src"}}, {format = "markdown", output = "public.md"}) == 0)
-    local public = readFile(dir .. "/public.md")
-    assert(public:find("# `visible`", 1, true), public)
-    assert(not public:find("# `_hidden`", 1, true), public)
-    assert(not public:find("# `internal.secret`", 1, true), public)
-
-    assert(
-        doc.build(dir, config, {sources = {"src"}, includePrivate = true}, {
-            format = "markdown",
-            output = "complete.md"
-        }) == 0
-    )
-    local complete = readFile(dir .. "/complete.md")
-    assert(complete:find("# `_hidden`", 1, true), complete)
-    assert(complete:find("# `internal.secret`", 1, true), complete)
-    os.execute("rm -rf '" .. dir .. "'")
-end
-
 -- `doc --all` selected unexported declarations while the manifest's
 -- `includePrivate` selected internal modules, and neither reached the other.
 -- One flag now covers both.
@@ -3837,31 +3637,6 @@ function M.includePrivateCoversUnexportedDeclarationsAndInternalModules()
     local completeText = readFile(dir .. "/complete.md")
     assert(completeText:find("unexported", 1, true), complete .. completeText)
     assert(completeText:find("internal.secret", 1, true), completeText)
-    os.execute("rm -rf '" .. dir .. "'")
-end
-
-function M.internalInitHidesItsDocumentationTree()
-    local dir = tempProject({
-        ["src/nupp/compiler/init.nupp"] = "@!internal\nreturn {}\n",
-        ["src/nupp/compiler/syntax/parser.nupp"] = "function parse(): number return 1 end\n",
-        ["src/public.nupp"] = "function visible(): number return 2 end\n",
-    })
-    local config = {include = {"src"}}
-    assert(doc.build(dir, config, {sources = {"src"}}, {format = "markdown", output = "public.md"}) == 0)
-    local public = readFile(dir .. "/public.md")
-    assert(public:find("# `public`", 1, true), public)
-    assert(not public:find("# `nupp.compiler`", 1, true), public)
-    assert(not public:find("# `nupp.compiler.syntax.parser`", 1, true), public)
-
-    assert(
-        doc.build(dir, config, {sources = {"src"}, includePrivate = true}, {
-            format = "markdown",
-            output = "complete.md"
-        }) == 0
-    )
-    local complete = readFile(dir .. "/complete.md")
-    assert(complete:find("# `nupp.compiler`", 1, true), complete)
-    assert(complete:find("# `nupp.compiler.syntax.parser`", 1, true), complete)
     os.execute("rm -rf '" .. dir .. "'")
 end
 
@@ -4201,7 +3976,7 @@ export type Writable<T> = affine(Span<T>)
     end
     assert(writable and writable.signature:find("affine(Span<T>)", 1, true), writable and writable.signature)
     local rendered = doc.markdown({module})
-    assert(rendered:find("[`Span`](#bytes.span.Span)", 1, true), rendered)
+    assert(rendered:find("See [`Span`](#bytes.span.Span) for the wrapped type's operations.", 1, true), rendered)
 end
 
 function M.directRequireMemberAliasesKeepFunctionContracts()
@@ -5332,6 +5107,10 @@ function M.fencedBlocksKeepTheirOptions()
                 "echo",
                 "```",
                 "",
+                "```text",
+                "uncaptioned",
+                "```",
+                "",
                 ":::",
                 "",
                 "after",
@@ -5343,6 +5122,11 @@ function M.fencedBlocksKeepTheirOptions()
     assert(group:find("nuppdoc-code-group", 1, true), group)
     assert(group:find(">one</label>", 1, true), group)
     assert(group:find(">two</label>", 1, true), group)
+    -- a fence without a caption still tabs, under its language
+    assert(group:find(">text</label>", 1, true), group)
+    assert(group:find("uncaptioned", 1, true), group)
+    local _, panels = group:gsub("nuppdoc%-code%-panel", "")
+    assert(panels == 3, "every fence in the group renders: " .. group)
     -- and the prose on the far side of the block is still prose
     assert(group:find("<p>after</p>", 1, true), group)
 
@@ -5359,24 +5143,6 @@ function M.fencedBlocksKeepTheirOptions()
     local laterOption = html.markdownHtml("```lua [] [good.lua] :line-numbers-extra :line-numbers=9\nprint(1)\n```", {})
     assert(laterOption:find("<figcaption>good.lua</figcaption>", 1, true), laterOption)
     assert(laterOption:find("<span>9</span>", 1, true), laterOption)
-end
-
--- A group where only some fences carry captions still shows every fence: the
--- uncaptioned ones tab under their language rather than silently vanishing.
-function M.aCodeGroupKeepsItsUncaptionedFences()
-    local html = require("nupp.tools.doc.html")
-    local group = html.markdownHtml(
-        table.concat(
-            {"::: code-group", "", "```lua [one]", "print(1)", "```", "", "```sh", "echo hi", "```", "", ":::",},
-            "\n"
-        ),
-        {}
-    )
-    assert(group:find(">one</label>", 1, true), group)
-    assert(group:find(">sh</label>", 1, true), group)
-    assert(group:find("echo", 1, true), group)
-    local _, panels = group:gsub("nuppdoc%-code%-panel", "")
-    assert(panels == 2, "expected both fences to render: " .. group)
 end
 
 -- The tab inputs live in their own row, so the panel is no longer its input's
@@ -5411,19 +5177,28 @@ function M.frontmatterSurvivesWindowsLineEndings()
     assert(body == "Body\n", ("%q"):format(body))
 end
 
--- The same endings must not cost a collection's document its title and status.
-function M.collectionFrontmatterSurvivesWindowsLineEndings()
-    local collection = require("nupp.tools.doc.collection")
-    local dir = tempProject({
-        ["docs/adrs/0001-example.md"] = "---\r\ntitle: Example\r\nstatus: Draft\r\n" .. "---\r\n\r\n## Why\r\n",
-    })
-    local pages = assert(collection.expand(dir, {directory = "docs/adrs", path = "adrs", title = "ADRs",}))
-    local page = pages[2]
-    assert(page, "the collection published no document")
-    assert(page.name == "Example", page.name)
-    assert(page.status == "Draft", tostring(page.status))
-    assert(page.title == "ADR 1: Example", page.title)
-    os.execute("rm -rf '" .. dir .. "'")
+-- The home page's feature cards come through the same endings and keep their fence
+-- language.
+function M.homeFeatureFencesSurviveWindowsLineEndings()
+    local parsed = require(
+        "nupp.tools.doc.home"
+    ).features(
+        table.concat(
+            {
+                "## Portable",
+                "",
+                "The checkout decides its line endings.",
+                "",
+                "```nupp",
+                "local answer: number = 42",
+                "```",
+            },
+            "\r\n"
+        )
+    )
+    assert(#parsed == 1)
+    assert(parsed[1].codeLanguage == "nupp", parsed[1].codeLanguage)
+    assert(parsed[1].code == "local answer: number = 42", parsed[1].code)
 end
 
 -- CommonMark has no `:::` containers. The container is lifted out, while its body
@@ -5810,6 +5585,16 @@ function M.stdlibIndexHoldsTheLibrariesTheCompilerDeclares()
     assert(api.displaySignature(globals.ipairs):find("@nosuspend function", 1, true))
     assert(page.markdown:find("**Read-only binding.**", 1, true), "the Markdown reference lost the const restriction")
     assert(not page.markdown:find("### `io.File`", 1, true), "file type leaked into the root index")
+    -- A global's anchor is the name a program writes, never the file declaring it.
+    assert(page.markdown:find('<a id="print"></a>', 1, true), "print anchored as a member")
+    assert(not page.markdown:find('<a id="globals.', 1, true), "anchored a global to its file")
+    -- What the prelude declares for the compiler rather than a program stays off the
+    -- page: `nupp` has module pages of its own, and the aliases behind
+    -- `string.format`'s parameter pack are private vocabulary.
+    assert(not page.markdown:find("### `__Nupp", 1, true), "documented private vocabulary")
+    assert(not page.markdown:find('<a id="__Nupp', 1, true), "anchored private vocabulary")
+    assert(not page.markdown:find("\n## `nupp`", 1, true), "documented the nupp namespace")
+    assert(not page.markdown:find("### `nupp.", 1, true), "documented a nupp declaration")
 end
 
 function M.callableTypesExposeCallsWithoutTheReceiver()
@@ -6049,62 +5834,6 @@ function M.stdlibTypesBelongToTheirNamespaces()
     for _, name in ipairs({"Layout", "LayoutField", "LuaFile", "Assertion", "DateFields"}) do
         assert(not page.symbols[name], "retired global type " .. name)
     end
-end
-
-function M.logSeverityCallsRenderAsFunctions()
-    local source = readFile(HERE .. "/../src/debug/log.nupp")
-    local module = assert(doc.extract(source, "src/debug/log.nupp", "debug.log"))
-    local found = {}
-    for _, item in ipairs(module.items) do
-        found[item.name] = item.kind
-    end
-    for _, name in ipairs({"debug", "info", "warn", "error"}) do
-        assert(found[name] == "function", name .. " must render as a function")
-    end
-end
-
-function M.affineAliasesLinkToTheirWrappedType()
-    local module = assert(
-        doc.extract(
-            [[
-module example
-export interface Handle<T>
-    close: function(takes self: Handle<T>): nil
-end
-export type Owned<T> = affine(Handle<T>, close)
-]],
-            "src/example.nupp",
-            "example"
-        )
-    )
-    local rendered = doc.markdown({module})
-    assert(rendered:find("See [`Handle`](#example.Handle) for the wrapped type's operations.", 1, true), rendered)
-end
-
--- A global's anchor is the name a program writes. `print` is not a member of the file
--- that declares it, and `string.format` is not a member of the page's own name.
-function M.stdlibIndexAnchorsEveryNameTheWayItIsWritten()
-    local stdlib = require("nupp.tools.doc.stdlib")
-    local page = assert(stdlib.page({path = "luajit"}))
-
-    assert(page.markdown:find('<a id="print"></a>', 1, true), "print anchored as a member")
-    assert(page.markdown:find("[`string`](../modules/string/index.html)", 1, true), "string lost its module link")
-    assert(not page.markdown:find('<a id="globals.', 1, true), "anchored a global to its file")
-end
-
--- What the prelude declares for the compiler rather than for a program stays off the
--- page: `nupp` has module pages of its own, and the aliases behind `string.format`'s
--- parameter pack are private vocabulary with no section to land on. The pack still
--- names one in the signature, because that is what the declaration says and a signature
--- the checker does not enforce would be worse than an unfamiliar name.
-function M.stdlibIndexLeavesTheCompilersOwnDeclarationsOut()
-    local stdlib = require("nupp.tools.doc.stdlib")
-    local page = assert(stdlib.page({path = "luajit"}))
-
-    assert(not page.markdown:find("### `__Nupp", 1, true), "documented private vocabulary")
-    assert(not page.markdown:find('<a id="__Nupp', 1, true), "anchored private vocabulary")
-    assert(not page.markdown:find("\n## `nupp`", 1, true), "documented the nupp namespace")
-    assert(not page.markdown:find("### `nupp.", 1, true), "documented a nupp declaration")
 end
 
 -- A manifest that asks for the page gets it at the route it named.
@@ -7004,34 +6733,6 @@ end
     os.execute("rm -rf '" .. dir .. "'")
 end
 
-function M.gpuDocumentsApplicationOperationsAndHidesGeneratedBindings()
-    local source = readFile(HERE .. "/../src/io/gpu/init.nupp")
-    local module = assert(doc.extract(source, "src/io/gpu/init.nupp", "io.gpu"))
-    local foundOpen, foundContext = false, false
-    for _, item in ipairs(module.items) do
-        if item.name == "io.gpu.open" or item.name == "open" then
-            foundOpen = true
-        end
-        assert(
-            item.name ~= "Kernel" and item.name ~= "ArtifactSet" and item.name ~= "Binding",
-            "generated GPU bindings are implementation details"
-        )
-        if item.name == "Context" then
-            foundContext = true
-            for _, member in ipairs(item.members) do
-                assert(
-                    member.name ~= "compileGenerated"
-                    and member.name ~= "bindKernel"
-                    and member.name ~= "compilegenerated"
-                    and member.name ~= "bindkernel",
-                    "generated binding hooks are private Context fields"
-                )
-            end
-        end
-    end
-    assert(foundOpen and foundContext, "GPU documentation must contain callable application declarations")
-end
-
 function M.gpuPublicPageExpandsItsExplicitAliases()
     local files = {}
     for _, path in ipairs({
@@ -7095,6 +6796,7 @@ function M.gpuPublicPageExpandsItsExplicitAliases()
                 assert(item.kind == "interface", "a private implementation replaced the exported Buffer contract")
             end
             assert(item.path ~= "io.gpu.Binding", "a private provider record leaked onto the application API")
+            assert(item.path ~= "io.gpu.Kernel", "a generated kernel binding leaked onto the application API")
             assert(item.path ~= "nupp.gpu.contracts.Binding", "a private contract leaked onto the application API")
         end
     end

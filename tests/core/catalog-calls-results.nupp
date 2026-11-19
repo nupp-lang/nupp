@@ -1,34 +1,244 @@
 module nupp.core.catalogcallsresults
 
--- Multiple results: locals and assignments filled from one call, a return
--- of several values, a return passing every result of a call on, a call
--- through a function value, and one result kept from two.
-local function pair(n: integer): (integer, integer)
-    return n * 2, n + 1
+-- Multiple results and varargs. Each block computes what its own program once
+-- answered, and a block whose answer holds is a bit of the result.
+local score: integer = 0
+local bit: integer = 1
+
+local function check(ok: boolean): nil
+    if ok then
+        score = score | bit
+    end
+    bit = bit << 1
 end
 
-local function triple(n: integer): (integer, integer, integer)
-    local a, b = pair(n)
-    return a, b, a * b
+-- Locals and assignments filled from one call, a return of several values, a
+-- return passing every result of a call on, a call through a function value,
+-- and one result kept from two.
+do
+    local function pair(n: integer): (integer, integer)
+        return n * 2, n + 1
+    end
+
+    local function triple(n: integer): (integer, integer, integer)
+        local a, b = pair(n)
+        return a, b, a * b
+    end
+
+    local function passOn(n: integer): (integer, integer)
+        return pair(n)
+    end
+
+    local x, y = pair(5)
+    local p, q, r = triple(3)
+    local u, v = passOn(7)
+    local only = pair(9)
+    local s, t = 0, 0
+    s, t = pair(4)
+    local f = pair
+    local d1, d2 = f(11)
+    local acc = 0
+    for i = 1, 5 do
+        local a, b = pair(i)
+        acc = acc + a * b
+    end
+    check(
+        (
+            x + y * 3 + p * 5 + q * 7 + r * 11 + u * 13 + v * 17 + only * 19 + s * 23 + t * 29 + d1 * 31 + d2 * 37
+        ) * 1000 + acc == 0x259D74
+    )
 end
 
-local function passOn(n: integer): (integer, integer)
-    return pair(n)
+-- A call last among a call's arguments or a table's entries gives every
+-- result, a fixed count or an open one.
+do
+    local function two(): (integer, integer)
+        return 1, 2
+    end
+
+    local function sum3(a: integer, b: integer, c: integer): integer
+        return a + b * 10 + c * 100
+    end
+
+    local function count(...: any): integer
+        return select("#", ...)
+    end
+
+    local function pass<R...>(f: function(): R...): R...
+        return f()
+    end
+
+    local s = sum3(5, two())
+    local n = count(two())
+    local t = {two()}
+    local u = {0, two()}
+    local v = {pass(two)}
+    local m = count(9, pass(two))
+    local k = select("#", two()) * 10 + (select(2, two()) as integer)
+    print(two())
+    print("x", pass(two))
+    check(s * 100000 + n * 10000 + #t * 1000 + #u * 100 + #v * 10 + m + k * 10000000 == 0xE655693)
 end
 
-local x, y = pair(5)
-local p, q, r = triple(3)
-local u, v = passOn(7)
-local only = pair(9)
-local s, t = 0, 0
-s, t = pair(4)
-local f = pair
-local d1, d2 = f(11)
-local acc = 0
-for i = 1, 5 do
-    local a, b = pair(i)
-    acc = acc + a * b
+-- Spreading a variadic pack: into a call after fixed arguments or alone, and
+-- into a return after fixed values or alone, with fewer values than the
+-- caller wants.
+do
+    local function sum(...: integer): integer
+        local total: integer = 0
+        for _, v in ipairs({...}) do
+            total = total + v
+        end
+
+        return total + select("#", ...) * 1000
+    end
+
+    local function forward(...: integer): integer
+        return sum(...)
+    end
+
+    local function prefix(first: integer, ...: integer): integer
+        return sum(first * 10, ...)
+    end
+
+    local function all(...: integer): (integer, integer, integer)
+        return ...
+    end
+
+    local function firstTwo(a: integer, ...: integer): (integer, integer)
+        return a, ...
+    end
+
+    local x, y, z = all(4, 5, 6)
+    local p, q = firstTwo(7)
+    local r, s = firstTwo(8, 9, 10)
+    local u, v, w = all(1)
+    check(
+        forward(
+            1,
+            2,
+            3
+        ) + prefix(
+            1,
+            2
+        ) * 100000 + (
+            x + y * 10 + z * 100
+        ) * 10000000 + (
+            p + (q or 0) * 10 + r * 100 + s * 1000
+        ) + (u + (v or 50) + (w or 60)) * 1000000000 == 0x1B69EC548D
+    )
 end
-export const result = (
-    x + y * 3 + p * 5 + q * 7 + r * 11 + u * 13 + v * 17 + only * 19 + s * 23 + t * 29 + d1 * 31 + d2 * 37
-) * 1000 + acc
+
+-- Extra arguments arrive in a pack read by `...`, select, {...} and
+-- multi-name locals, through direct calls, calls with no extras, and calls
+-- through a function value.
+do
+    local function sum(first: integer, ...: integer): integer
+        local t = {...}
+        local total = first + select("#", ...) * 1000
+        for _, v in ipairs(t) do
+            total = total + v
+        end
+        local a, b = ...
+
+        return total + (a or 0) * 100 + (b or 0) * 10
+    end
+
+    local function last(...: integer): integer
+        if select("#", ...) == 0 then
+            return -1
+        end
+        return select(-1, ...) + (select(2, ...) or 0) * 10 + ... * 100
+    end
+
+    local apply: function(integer, ...: integer): integer = sum
+    check(
+        sum(
+            1,
+            2,
+            3,
+            4
+        ) + sum(5) * 100000 + last(7, 8, 9) * 10000000 + last() + apply(1, 1) * 1000000000 == 0x1026AA11247
+    )
+end
+
+-- A checked function given another call's results last takes as many
+-- arguments as those results run to: past them its parameters are nil, and
+-- results past its parameters are dropped.
+do
+    local function absent(c: integer?): boolean
+        return c == nil
+    end
+
+    local function pair(a: integer?, b: integer?): integer
+        return (a or 0) + (b or 0) * 1000
+    end
+
+    local function values(...: integer): ...integer
+        return ...
+    end
+
+    local function counted(a: integer?, ...: integer): integer
+        return select("#", ...) + (a ~= nil and 100 or 0)
+    end
+
+    -- string.byte past the end of its subject answers no values.
+    check(absent(string.byte("a", 2)))
+    check(pair(string.byte("ab", 1, 2)) == 97 + 98 * 1000)
+    check(pair(values(1, 2, 3)) == 2001)
+    check(absent(values()))
+    check(counted(values()) == 0 and counted(values(5, 6, 7)) == 102)
+end
+
+-- Results led by nils keep their positions: a fourth result after three nils
+-- is still the fourth, called directly, through a tail call and through a
+-- checked function value.
+local record Failure
+    code: string
+end
+
+do
+    local function envelope(made: boolean): (string?, integer?, Failure?, any)
+        if made then
+            return nil, nil, nil, {kind = "envelope"}
+        end
+
+        return "quoted", 1, nil, nil
+    end
+
+    local function forward(made: boolean): (string?, integer?, Failure?, any)
+        return envelope(made)
+    end
+
+    local quoted, kind, failure, carried = envelope(true)
+    check(quoted == nil and kind == nil and failure == nil and type(carried) == "table" and carried.kind == "envelope")
+    quoted, kind, failure, carried = forward(true)
+    check(quoted == nil and kind == nil and failure == nil and type(carried) == "table" and carried.kind == "envelope")
+    local through: any = forward
+    quoted, kind, failure, carried = through(true)
+    check(quoted == nil and kind == nil and failure == nil and type(carried) == "table" and carried.kind == "envelope")
+    quoted, kind, failure, carried = forward(false)
+    check(quoted == "quoted" and kind == 1 and failure == nil and carried == nil)
+end
+
+-- select over values written out, not only over `...` or a call's results: a
+-- call giving one value, several values, none, and a negative index.
+do
+    local function one(): integer
+        return 7
+    end
+
+    local function count(...: any): integer
+        return select("#", ...)
+    end
+
+    check(select("#", one()) == 1)
+    check(select("#", 1, 2, 3) == 3)
+    check(select(2, "a", "b", "c") == "b")
+    check(select("#") == 0)
+    check(count(nil, nil) == 2)
+    check(select(-1, 4, 5, 6) == 6)
+    check(select(2, one(), one() + 1) == 8)
+end
+
+export const result = score

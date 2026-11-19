@@ -78,6 +78,7 @@ function M.importEmitsTypedDeclarations()
     assertContains(text, "mini_fill(p: miniPoint*?, n: uint32)")
     assertContains(text, "mini_len(s: cstring?): uint64")
     assertContains(text, "mini_printf(fmt: cstring?, ...): int32", "C varargs")
+    assertContains(text, "mini_each(fn: function(int32)?, n: int32)", "callbacks come from LuaJIT's parsed model")
     assertContains(
         text,
         "mini_translate(p: miniPoint, dx: float, dy: float): miniPoint",
@@ -109,14 +110,6 @@ function M.inspectingAHeaderOutsideEveryRootNeedsNoModuleName()
     assert(not written, "a written import still needs a module beneath a root")
     assertContains(refused, "beneath the project root")
     os.execute("rm -rf '" .. dir .. "'")
-end
-
-function M.functionPointerParamsComeFromLuaJITsModel()
-    assertContains(
-        imported(),
-        "mini_each(fn: function(int32)?, n: int32)",
-        "callbacks use the same parsed declaration model as cheader"
-    )
 end
 
 function M.completeDirectDeclaratorsArePreserved()
@@ -353,12 +346,6 @@ function M.theBridgeWrapsOnlyWhatThisPlatformCompiles()
     assert(compiled, "the generated bridge compiles:\n" .. details.bridgeSource)
 end
 
-function M.typedefsResolveThroughTheTranslationUnit()
-    -- mini.h has no typedefs of its own; this exercises the resolver on a
-    -- header whose vocabulary comes from elsewhere (size_t via stddef.h)
-    assertContains(imported(), "mini_len(s: cstring?): uint64", "size_t resolved to a base type")
-end
-
 function M.anIncludedHeaderWithTheSameBasenameStaysOut()
     local text, warnings = importc.import(HERE .. "/fixtures/target.h", {module = "target"})
     assert(text, "same-name import failed: " .. table.concat(warnings or {}, "; "))
@@ -367,12 +354,6 @@ function M.anIncludedHeaderWithTheSameBasenameStaysOut()
         not text:find("included_same_name", 1, true),
         "an included file with the target's basename leaked into the import:\n" .. text
     )
-end
-
-function M.constBytePointersBecomeCstring()
-    -- const char*/unsigned char* take a Lua string directly in LuaJIT
-    assertContains(imported(), "mini_len(s: cstring?)")
-    assertContains(imported(), "mini_name(): cstring?")
 end
 
 function M.libraryClauseIsEmitted()
@@ -401,16 +382,9 @@ function M.enumMembersBecomeNamedConstants()
     assertContains(text, "local MINI_BUSY: int32 = 1")
     assertContains(text, "local MINI_GONE: int32 = 7")
     assertContains(text, "MINI_GONE = MINI_GONE", "and are exported")
-end
-
-function M.anonymousEnumsCarryTheirMembers()
-    local text = enumsImported()
-    assertContains(text, "local MINI_READ: int32 = 1")
-    assertContains(text, "local MINI_WRITE: int32 = 2")
-end
-
-function M.negativeEnumMembersSurvive()
-    assertContains(enumsImported(), "local MINI_ERROR: int32 = -1")
+    assertContains(text, "local MINI_READ: int32 = 1", "an anonymous enum carries its members")
+    assertContains(text, "local MINI_WRITE: int32 = 2", "an anonymous enum carries its members")
+    assertContains(text, "local MINI_ERROR: int32 = -1", "a negative member survives")
 end
 
 function M.aConstantKeepsItsFirstMeaning()
@@ -467,47 +441,28 @@ function M.skippedDeclarationsAreCountedOnTheWayOut()
     assertContains(warnings[1], "1 of 4 declarations skipped")
 end
 
-function M.theOutputFlagIsSpelledLikeEveryOtherCommands()
+local function scratchProject()
     local dir = os.tmpname()
     os.remove(dir)
     assert(os.execute("mkdir -p '" .. dir .. "/src'") == 0)
     local manifest = assert(io.open(dir .. "/nupp.lua", "wb"))
     manifest:write('return {include = {"src"}}\n')
     manifest:close()
-    local output, ok = runCli(dir, ("--output src/mini.nupp %q"):format(HERE .. "/fixtures/mini.h"))
-    assert(ok, "import-c --output writes the module: " .. output)
-    assertContains(readFile(dir .. "/src/mini.nupp"), "module mini")
-    os.execute("rm -rf '" .. dir .. "'")
+
+    return dir
 end
 
--- The module is named from the output path, so a `..` inside it that stays in the
--- project names the module the folded path names, not `src....src.mini`.
-function M.aDotDotInsideTheOutputPathIsFolded()
-    local dir = os.tmpname()
-    os.remove(dir)
-    assert(os.execute("mkdir -p '" .. dir .. "/src'") == 0)
-    local manifest = assert(io.open(dir .. "/nupp.lua", "wb"))
-    manifest:write('return {include = {"src"}}\n')
-    manifest:close()
-    local output, ok = runCli(dir, ("-o src/../src/mini.nupp %q"):format(HERE .. "/fixtures/mini.h"))
-    assert(ok, "import-c writes the module: " .. output)
+-- The output flag is spelled like every other command's, and the module is named
+-- from the output path, so a `..` inside it that stays in the project names the
+-- module the folded path names, not `src....src.mini`. A generated module is
+-- committed and hand-edited, so it lands in the one spelling `nupp fmt` produces
+-- rather than failing the project's format check.
+function M.theOutputPathNamesAFormattedModule()
+    local dir = scratchProject()
+    local output, ok = runCli(dir, ("-l mini --output src/../src/mini.nupp %q"):format(HERE .. "/fixtures/mini.h"))
+    assert(ok, "import-c --output writes the module: " .. output)
     local text = readFile(dir .. "/src/mini.nupp")
     assertContains(text, "\nmodule mini\n")
-    os.execute("rm -rf '" .. dir .. "'")
-end
-
--- A generated module is committed and hand-edited, so it lands in the one spelling
--- `nupp fmt` produces rather than failing the project's format check.
-function M.theWrittenModuleIsAlreadyFormatted()
-    local dir = os.tmpname()
-    os.remove(dir)
-    assert(os.execute("mkdir -p '" .. dir .. "/src'") == 0)
-    local manifest = assert(io.open(dir .. "/nupp.lua", "wb"))
-    manifest:write('return {include = {"src"}}\n')
-    manifest:close()
-    local output, ok = runCli(dir, ("-l mini -o src/mini.nupp %q"):format(HERE .. "/fixtures/mini.h"))
-    assert(ok, "import-c writes the module: " .. output)
-    local text = readFile(dir .. "/src/mini.nupp")
     assert(not text:find("\n   [^ ]"), "the module is indented as fmt indents it:\n" .. text)
     for line in text:gmatch("[^\n]+") do
         assert(#line <= 120, "a line runs past fmt's width: " .. line:sub(1, 80))
@@ -520,12 +475,7 @@ end
 -- The output path names the module, so a path whose name is not luacase would write a
 -- module that no build accepts.
 function M.anOutputPathThatIsNotLuacaseIsRefused()
-    local dir = os.tmpname()
-    os.remove(dir)
-    assert(os.execute("mkdir -p '" .. dir .. "/src'") == 0)
-    local manifest = assert(io.open(dir .. "/nupp.lua", "wb"))
-    manifest:write('return {include = {"src"}}\n')
-    manifest:close()
+    local dir = scratchProject()
     local status = os.execute(
         (
             "cd %q && %q import-c -o src/My_Header.nupp %q > %q 2>&1"

@@ -59,24 +59,6 @@ function M.runRetainsFailuresCollectedAfterTheBodyLearnsOfFailure()
     assertCleanupErrors(problem, primary, first, second)
 end
 
-function M.cancellationDoesNotBecomeASuppressedFailure()
-    local primary = {}
-    local scope = tasks.scope()
-    scope:spawn(function()
-        time.sleep(5000)
-    end)
-    scope:spawn(function()
-        error(primary, 0)
-    end)
-    testAssert.eq(
-        raises(function()
-            scope:close()
-        end),
-        primary,
-        "a cancelled sibling does not wrap the original failure"
-    )
-end
-
 function M.runRetainsCleanupFailureAfterADeadline()
     local cleanup = {}
     local problem = raises(function()

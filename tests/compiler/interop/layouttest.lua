@@ -187,31 +187,23 @@ function M.layoutQueryRequiresExactlyOneArgument()
     end
 end
 
-function M.reportsFieldsInDeclarationOrder()
-    local l = runs([[
+function M.reportsFieldsInDeclarationOrderWithTheTargetsNumbers()
+    local l = runs(
+        [[
 local struct Vec3
     x: float32
     y: float32
     z: float32
 end
 return types.layoutof(Vec3)
-]], "Vec3")
+]],
+        "Vec3"
+    )
     testAssert.eq(l.name, "Vec3", "the declaration's name")
     testAssert.eq(#l.fields, 3, "three fields")
     testAssert.eq(l.fields[1].name, "x", "in order")
     testAssert.eq(l.fields[2].name, "y", "in order")
     testAssert.eq(l.fields[3].name, "z", "in order")
-end
-
-function M.everyNumberIsTheTargets()
-    local l = runs([[
-local struct Vec3
-    x: float32
-    y: float32
-    z: float32
-end
-return types.layoutof(Vec3)
-]], "Vec3")
     testAssert.eq(l.size, 12, "the struct's size")
     for index, f in ipairs(l.fields) do
         testAssert.eq(f.offset, (index - 1) * 4, "offset of " .. f.name)
@@ -272,6 +264,7 @@ end
 
 local struct Pointy
     p: Inner*
+    q: Inner*?
     n: int32
 end
 return types.layoutof(Pointy)
@@ -280,24 +273,7 @@ return types.layoutof(Pointy)
     )
     testAssert.eq(l.fields[1].ctype, "Inner *", "the pointee survives")
     testAssert.eq(l.fields[1].size, 8, "sized as a pointer")
-end
-
-function M.aNullablePointerIsStillAPointer()
-    local l = runs(
-        [[
-local struct Inner
-    a: float32
-end
-
-local struct Maybe
-    p: Inner*?
-    n: int32
-end
-return types.layoutof(Maybe)
-]],
-        "Maybe"
-    )
-    testAssert.eq(l.fields[1].size, 8, "NULL is one of its values")
+    testAssert.eq(l.fields[2].size, 8, "a nullable pointer is still a pointer: NULL is one of its values")
 end
 
 function M.theFingerprintDistinguishesLayouts()
@@ -336,13 +312,15 @@ end
 
 function M.aRecordHasNoLayout()
     local found = nil
-    for _, d in ipairs(diagnostics([[
+    for _, d in ipairs(
+        diagnostics([[
 local record Point
     x: float32
     y: float32
 end
 return types.layoutof(Point)
-]])) do
+]])
+    ) do
         if d.code == "NUPP2402" then
             found = d
         end

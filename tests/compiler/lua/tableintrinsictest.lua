@@ -129,17 +129,21 @@ function M.sourceNamesLikeTheIntrinsicsSurvive()
         {
             "local __nuppNew = 'new'",
             "local __nuppClear = 'clear'",
+            "local __nuppClone = 'clone'",
             "local value = table.new(0, 1)",
             "value.key = true",
+            "local copy = table.clone(value)",
             "table.clear(value)",
-            "return __nuppNew, __nuppClear, next(value)",
+            "return __nuppNew, __nuppClear, __nuppClone, next(value), copy.key",
         },
         "\n"
     )
-    local first, second, remaining = run(src)
+    local first, second, third, remaining, copied = run(src)
     testAssert.eq(first, "new", "source new name survives")
     testAssert.eq(second, "clear", "source clear name survives")
+    testAssert.eq(third, "clone", "source clone name survives")
     testAssert.eq(remaining, nil, "table.clear still clears")
+    testAssert.eq(copied, true, "table.clone still copies")
 end
 
 function M.clonesOneLevelDeep()
@@ -149,11 +153,13 @@ function M.clonesOneLevelDeep()
             "local source = {kind = 'point', inner = inner}",
             "local copy = table.clone(source)",
             "copy.kind = 'moved'",
-            "return source, copy",
+            "local other = table.clone({b = 2})",
+            "return source, copy, other.b",
         },
         "\n"
     )
-    local source, copy = run(src)
+    local source, copy, other = run(src)
+    testAssert.eq(other, 2, "every clone call runs")
     testAssert.eq(source.kind, "point", "the original keeps its own keys")
     testAssert.eq(copy.kind, "moved", "the copy takes its own keys")
     assert(rawequal(source.inner, copy.inner), "a nested table stays shared")
@@ -171,26 +177,6 @@ function M.cloneCarriesTheMetatableAcross()
     local absent, shared = run(src)
     testAssert.eq(absent, "from base", "__index still answers for the copy")
     testAssert.eq(shared, true, "the copy shares the metatable it was cloned from")
-end
-
-function M.everyCloneCallRuns()
-    local src = table.concat(
-        {"local first = table.clone({a = 1})", "local second = table.clone({b = 2})", "return first.a, second.b",},
-        "\n"
-    )
-    local a, b = run(src)
-    testAssert.eq(a, 1, "first clone")
-    testAssert.eq(b, 2, "second clone")
-end
-
-function M.aSourceNameLikeCloneSurvives()
-    local src = table.concat(
-        {"local __nuppClone = 'clone'", "local copy = table.clone({a = 1})", "return __nuppClone, copy.a",},
-        "\n"
-    )
-    local name, value = run(src)
-    testAssert.eq(name, "clone", "source clone name survives")
-    testAssert.eq(value, 1, "table.clone still copies")
 end
 
 return M

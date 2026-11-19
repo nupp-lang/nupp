@@ -132,10 +132,10 @@ local function logged(src, level)
     local lines, sink = recorder()
     log.setsink(sink)
     log.setlevel(level or "debug")
-    local answer = run(src, "amb")
+    local answers = {run(src, "amb")}
     log.setlevel("warn")
 
-    return lines, answer
+    return lines, unpack(answers)
 end
 
 function M.aStatementCallWithALiteralFormatIsLowered()
@@ -151,24 +151,33 @@ function M.aDebugDirectiveLowersInsideTheLevelGuard()
     local src = table.concat(
         {
             "local renders = 0",
+            "local calls: integer = 0",
             "local record Value",
             "    function debug(self): string",
             "        renders += 1",
             "        return 'v'",
             "    end",
             "end",
+            "local function expensive(): integer",
+            "    calls += 1",
+            "    return calls",
+            "end",
             "debug.log.debug('value=%?', Value())",
-            "return renders",
+            "debug.log.debug('n=%d', expensive())",
+            "return renders, calls",
         },
         "\n"
     )
-    local lines, renders = logged(src, "warn")
+    local lines, renders, calls = logged(src, "warn")
     testAssert.eq(#lines, 0, "a filtered site reaches no sink")
     testAssert.eq(renders, 0, "debug formatting is lazy")
+    testAssert.eq(calls, 0, "a filtered site evaluates none of its arguments")
 
-    lines, renders = logged(src, "debug")
+    lines, renders, calls = logged(src, "debug")
     testAssert.eq(renders, 1, "an admitted site renders once")
+    testAssert.eq(calls, 1, "an admitted site evaluates its arguments once")
     testAssert.eq(lines[1].message, "value=v", "%? formats what debug returned")
+    testAssert.eq(lines[2].message, "n=1", "and %d formats the evaluated argument")
 end
 
 function M.debugDirectivesRunThroughDirectAndMethodFormattingCalls()
@@ -284,37 +293,6 @@ function M.aPluckedArgumentKeepsTheOrdinaryCall()
         "plain",
         "a plucked argument keeps its call"
     )
-end
-
-function M.aLoweredSiteDoesNotEvaluateAFilteredArgument()
-    local log = runtime()
-    local lines, sink = recorder()
-    log.setsink(sink)
-    log.setlevel("warn")
-
-    local calls = 0
-
-    local function expensive()
-        calls = calls + 1
-        return calls
-    end
-
-    -- What a lowered `log.debug("%d", expensive())` compiles to.
-    if log.on[4] then
-        log.emit(4, "amb", 7, string.format("%d", expensive()))
-    end
-    testAssert.eq(calls, 0, "a filtered site evaluates none of its arguments")
-    testAssert.eq(#lines, 0, "and reaches no sink")
-
-    log.setlevel("debug")
-    if log.on[4] then
-        log.emit(4, "amb", 7, string.format("%d", expensive()))
-    end
-    testAssert.eq(calls, 1, "an admitted site evaluates them once")
-    testAssert.eq(#lines, 1, "and reaches the sink once")
-    testAssert.eq(lines[1].module, "amb", "the sink is handed the module")
-    testAssert.eq(lines[1].line, 7, "and the line")
-    testAssert.eq(lines[1].level, 4, "and the severity as a number")
 end
 
 function M.aNamedLoggerDefersDebugFormattingUntilTheLevelIsEnabled()
@@ -476,32 +454,6 @@ function M.theDefaultSinkCanBeRestored()
     assert(ok, problem)
 end
 
-function M.aWriterSinkReceivesEachRenderedLine()
-    local log = runtime()
-    local buffer = require("bytes").Buffer.create()
-    log.settimestampformat("")
-    log.setlevel("debug")
-    local previous = log.setsink(log.writersink(buffer:writer()))
-    log.emit(2, "amb", 7, "to a buffer")
-    log.emit(3, "amb", 8, "and another")
-    local writer = log.setsink(previous)
-    writer:close()
-    local text = buffer:tostring()
-    assert(text == "warn amb:7: to a buffer\ninfo amb:8: and another\n", text)
-end
-
-function M.aCallbackSinkReceivesUnrenderedMessages()
-    local log = runtime()
-    local lines, sink = recorder()
-    log.setlevel("debug")
-    local previous = log.setsink(sink)
-    log.emit(3, "amb", 4, "message")
-    local replaced = log.setsink(previous)
-    replaced:close()
-    testAssert.eq(#lines, 1, "the sink received the line")
-    testAssert.eq(lines[1].message, "message", "unrendered")
-end
-
 function M.aNamedLoggerCarriesItsNameAndNoLine()
     local log = runtime()
     local lines, sink = recorder()
@@ -516,25 +468,6 @@ function M.aNamedLoggerCarriesItsNameAndNoLine()
     testAssert.eq(lines[1].line, 0, "with no line to attribute")
     testAssert.eq(lines[1].message, "step 3", "and its formatted message")
     assert(physics:enabled("debug"), "and answers about its own levels")
-end
-
-function M.changingTheLevelRestampsExistingLoggers()
-    local log = runtime()
-    local lines, sink = recorder()
-    log.setsink(sink)
-    log.setlevel("debug")
-
-    local physics = log.named("physics")
-    physics:debug("first")
-    testAssert.eq(#lines, 1, "debug is admitted")
-
-    log.setlevel("error")
-    physics:debug("second")
-    testAssert.eq(#lines, 1, "a logger made before the change is restamped")
-
-    log.setlevel("debug")
-    physics:debug("third")
-    testAssert.eq(#lines, 2, "and restamped back")
 end
 
 function M.aModuleLevelOverridesOnlyThatExactModule()

@@ -51,7 +51,6 @@ local groups = {
         "doctest",
         "examplestest",
         "explaintest",
-        "homesampletest",
         "overloaddoctest",
         "referencetest",
     },
@@ -162,7 +161,7 @@ for name in (
     [[
 asserttest base64test bitsettest bufferapitest compressionprovidertest
 digestprovidertest digesttest sustest taskfailuretest taskstest
-workerstartuptest workersupporttest boundedcachetest clifacadetest portablefiletest
+workerstartuptest workersupporttest boundedcachetest portablefiletest
 processfiletest processprovidertest processtest scalaradapterstest jsonfuseddifferentialtest
 jsonpolicytest valuebuildertest standardtabletest typefactoriestest
 ]]
@@ -186,7 +185,7 @@ cdecltest layouttest targetvectorlayouttest bulkcolumntest concatbuffertest
 gentest loopclosuretest loweringinvarianttest neutralpolicytest optimizetest
 passpermutationtest runtimereflectiontest spanloweringtest switchplantest tableintrinsictest
 tier2test zoneintrinsictest analysisquerytest bundleddeclstest interfaceimagetest plaincodectest
-parallelcheckprotocoltest providerbundledtest annotationtest elseiftest lexertest
+parallelcheckprotocoltest annotationtest elseiftest lexertest
 parsertest switchtest typedtest binderidentitytest intersectiontest
 narrowingtest narrowtest normalizetest operatortest reflectiontest
 substitutiontest typeleveltest bytestest susinstallationtest benchtest
@@ -222,7 +221,7 @@ httpnativetest netnativetest tlstest pathtest processnativetest
 uritest filestest hostchanneltest jsonfacadedefaulttest jsonschematest
 serdecontracttest benchprojectstest benchrunnertest bctest absoluteentrytest
 clitest duplicateclitest coveragereporttest coveragetest clidoctest
-diagnosticgoldentest doctest examplestest explaintest homesampletest
+diagnosticgoldentest doctest examplestest explaintest
 referencetest fmtclitest fmtcorpustest inlinepathtest fmttreetest
 associatedtoolingtest lspclitest lsptest constructionmigrationtest repositoryscriptstest
 runnertest testtimingstest buildprogresstest buildtest
@@ -261,23 +260,23 @@ end
 for name in (
     [[
 bootstrapresourcestest bootstrapseedtest callargumenttest compilerbackendtest coregraphbudgettest
-corebuildoutputtest coregraphcatalogtest coregraphcodectest coregraphcontractstest coregraphexecutabletest coregraphshapetest corepiecetest
-coretaskownershiptest ownedcallablestest corewarnlogtest declaredborrowtest densecstwalktest filesystemcallstest
+corebuildoutputtest coregraphcatalogtest coregraphcodectest coregraphcontractstest coregraphexecutabletest corepiecetest
+coretaskownershiptest ownedcallablestest corewarnlogtest declaredborrowtest densecstwalktest corelibrarycallstest
 functioncleanuptest graphcallfronttest graphclosuretest graphguestbranchtest graphinvoketest
 guestartifactcallstest guestshardtest imagebytestest iofileargumenttest iopathargumenttest
 librarytextstest
 nativecatalogbudgettest nativeclosurestest nativefloatingcontracttest nativegraphcliftest nativegraphcontracttest
 nativegraphswitchtest nativegraphtest nativeheaptest nativejittest nativelowerscalarhelpertest
 nativelowertest nativenumbermodeltest nativeobjecthashtest nativeospagetest nativeownerviewtest nativeproducertest kernelidentitytest
-nativephysicalgraphtest nativephysicallocaltest nativephysicaltest nativepointercalltest nativepointertransporttest
+nativephysicalgraphtest nativephysicaltest nativepointercalltest nativepointertransporttest
 nativerecordstest nativeruntimetest nativestringstest nativetablestest nativeunittest
-nativevoidleaftest nominaleffectpublicationtest optionalmethodcleanuptest processargumenttest processcallstest
+nativevoidleaftest nominaleffectpublicationtest processargumenttest
 programgraphtest recordcallabletest residualtest scalaraliastest scalartypeoftest
 shellsyntaxtest specializationcontracttest taggedtransporttest targetmanifesttest vmalternativeresulttest
 vmasserttest vmclibuildtest vmclilaunchertest vmcolumnarsimdtest vmdefaultmethodtest
 vmemitcachetest vmfornumtest vmimagecachetest vmindexkeytest vmopcodetabletest
-vmpredicatecalltest vmqualifiedcleanuptest vmsimdbindingtest vmspanindextest vmspanlengthtest
-vmspanwritetest vmstandardrootloadertest workerreporttest
+vmpredicatecalltest vmqualifiedcleanuptest vmsimdbindingtest vmspanaccesstest
+vmstandardrootloadertest workerreporttest
 ]]
 ):gmatch("%S+") do
     scopes[name] = "integration"
@@ -389,12 +388,6 @@ scopes.templategametest = "integration"
 -- Independent packages retain the original suite obligations.
 scopes.fmtlayouttest = "component"
 scopes.fmttypetest = "component"
-scopes.fmtselflexertest = "component"
-scopes.fmtselfcsttest = "component"
-scopes.fmtselfparsertest = "component"
-scopes.fmtselfdisplaywidthtest = "component"
-scopes.fmtselfformattertest = "component"
-scopes.fmtselfmaintest = "component"
 
 -- Independent packages retain the original suite obligations.
 scopes.fmtoptionclitest = "integration"
@@ -677,13 +670,7 @@ tools/fmt
 tools/fmt/cli/cache
 tools/fmt/cli/options
 tools/fmt/cli/project
-tools/fmt/contracts/cst
-tools/fmt/contracts/displaywidth
-tools/fmt/contracts/formatter
 tools/fmt/contracts/layout
-tools/fmt/contracts/lexer
-tools/fmt/contracts/main
-tools/fmt/contracts/parser
 tools/fmt/contracts/syntax
 tools/fmt/contracts/types
 tools/fmt/tree/1

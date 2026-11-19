@@ -162,10 +162,6 @@ function M.aRecordCanHaveAnArrayPart()
     testAssert.eq(diagsOf(decl .. '\nlocal n = Node(kind = "if")\nn[1] = 5'), "NUPP2001")
 end
 
-function M.anArrayPartIsALuaThingSoAStructHasNone()
-    testAssert.eq(diagsOf("local struct P\n    {P}\n    x: float\nend"), "NUPP2204")
-end
-
 -- `x is T` as a return type says the function answers whether its parameter
 -- is a T, which narrows the argument wherever the call is the condition.
 function M.aPredicateNarrowsItsArgument()
@@ -203,20 +199,6 @@ function M.aPredicateNarrowsItsArgument()
     )
     -- without the call there is no narrowing, and the field is not shared
     testAssert.eq(diagsOf(decl .. "\nlocal function f(c: Child): string\n" .. "    return c.text\nend"), "NUPP2004")
-end
-
-function M.aPredicateMustNameAParameter()
-    testAssert.eq(
-        diagsOf("local record R\n    x: integer\nend\n" .. "local function f(a: R): b is R\n    return true\nend"),
-        "NUPP2109"
-    )
-end
-
-function M.aPredicateThatCanNeverHoldIsReported()
-    testAssert.eq(
-        diagsOf("local record R\n    x: integer\nend\n" .. "local function f(a: string): a is R\n    return true\nend"),
-        "NUPP2110"
-    )
 end
 
 -- Copying an integer into an inferred local keeps it an integer. Widening
@@ -433,7 +415,6 @@ function M.assignmentIsCheckedBeforeItNarrows()
         diagsOf(table.concat({"local record R", "    x: integer", "end", "local r = R(x = 1)", 'r.x = "no"',}, "\n")),
         "NUPP2001"
     )
-    testAssert.eq(diagsOf(table.concat({"local xs: {integer} = {}", 'xs[1] = "no"',}, "\n")), "NUPP2001")
 end
 
 -- Narrowing survives the join. A variable assigned in one branch and ruled

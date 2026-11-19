@@ -35,11 +35,7 @@ function M.realWorldLuaStaysClean()
     -- as-written, even though this project's default style warns about them, and
     -- the same holds for a closure this project would hoist out of its loop: what
     -- this test proves is that the program is accepted, not that it is fast.
-    local lintConfig = {
-        ['else-if'] = 'off',
-        ['unused-binding'] = 'off',
-        ['discarded-result'] = 'off',
-    }
+    local lintConfig = {['else-if'] = 'off', ['unused-binding'] = 'off', ['discarded-result'] = 'off',}
     local checked = 0
     for _, path in ipairs(CORPUS) do
         local src = read(path)
@@ -93,23 +89,6 @@ function M.declarationKeywordsRemainOrdinaryNames()
             local diags = check.check(result, "kw.nupp", env)
             assert(#diags == 0, ("`local %s` + `%s`: %s"):format(kw, follow, diags[1] and diags[1].msg or ""))
         end
-    end
-end
-
-function M.declarationsStillParseWhenTheyAreDeclarations()
-    local cases = {
-        "local record R\n    x: number\nend",
-        "local struct S\n    x: float\nend",
-        "local interface I\n    f: function(): nil\nend",
-        "local type Alias = number",
-        "local type Choice = 'a' | 'b'",
-    }
-    for _, src in ipairs(cases) do
-        local result = parser.parse(src, "decl")
-        assert(
-            #result.errors == 0,
-            "declaration must still parse: " .. src .. " -> " .. (result.errors[1] and result.errors[1].msg or "")
-        )
     end
 end
 

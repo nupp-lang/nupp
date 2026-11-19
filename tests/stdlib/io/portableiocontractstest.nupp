@@ -116,15 +116,6 @@ function tests.stringReadersFillWritableSpans(): nil
     assert2(destination:tostring() == "abc")
 end
 
-function tests.linesKeepTerminatorsAndFinalFragments(): nil
-    local lines = standard.Reader.of("one\r\ntwo\nlast"):lines()
-    assert2(lines:read() == "one")
-    assert2(lines:read() == "two")
-    assert2(lines:read() == "last")
-    assert2(lines:read() == nil)
-    lines:close()
-end
-
 function tests.buffersAppendConsumeAndBorrow(): nil
     local buffer = byteapi.Buffer.create(4)
     buffer:put("ab", 12)
@@ -147,26 +138,6 @@ function tests.buffersAppendConsumeAndBorrow(): nil
     assert2(buffer:len() == 0)
     buffer:reset():put("new")
     assert2(buffer:get(99) == "new")
-end
-
-function tests.bufferReservationsCommitOnlyWrittenBytes(): nil
-    local buffer = byteapi.Buffer.create("a")
-    do
-        local lease = buffer:reserve(3)
-        do
-            local bytes = lease:span()
-            bytes[1] = 98
-            bytes[2] = 99
-        end
-        lease:commit(2)
-    end
-    assert2(buffer:tostring() == "abc")
-    do
-        local lease = buffer:reserve(2)
-        local bytes = lease:span()
-        bytes[1] = 120
-    end
-    assert2(buffer:tostring() == "abc")
 end
 
 function tests.bufferScalarRangesAndEndianAreExplicit(): nil

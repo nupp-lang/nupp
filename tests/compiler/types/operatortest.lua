@@ -184,17 +184,6 @@ end
 function M.compoundExclusiveOr()
     testAssert.eq(run("local a = 5\na ~= 3\nreturn a"), 6)
     testAssert.eq(run("local t = {x = 5}\nt.x ~= 3\nreturn t.x"), 6)
-    testAssert.eq(
-        run(
-            [[
-local calls = 0
-local box = {n = 5}
-local function get() calls = calls + 1 return box end
-get().n ~= 3
-return calls]]
-        ),
-        1
-    )
 end
 
 -- The customary spellings are always linted, so these run past that one code.

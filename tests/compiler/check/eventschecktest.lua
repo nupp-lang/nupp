@@ -90,7 +90,9 @@ end
 -- Mode adoption
 ---------------------------------------------------------------------------
 
-function M.shortFunctionsAdoptTheSlotsModes()
+-- A short function, a long one, and one taking fewer parameters than the slot
+-- each adopt the slot's modes.
+function M.functionLiteralsAdoptTheSlotsModes()
     clean(
         OBSERVED
         .. [[
@@ -98,25 +100,13 @@ bus:observe(|event, world| -> do
     event.amount = event.amount * 2
     world.frame = world.frame + 1
 end)
-]]
-    )
-end
-
-function M.functionLiteralsAdoptTheSlotsModes()
-    clean(
-        OBSERVED .. [[
 bus:observe(function(event, world)
     world.frame = world.frame + 1
     print(event.amount)
 end)
+bus:observe(|event| -> print(event.amount))
 ]]
     )
-end
-
-function M.aOneArgumentObserverFits()
-    clean(OBSERVED .. [[
-bus:observe(|event| -> print(event.amount))
-]])
 end
 
 function M.anAdoptedBorrowCannotBeStored()

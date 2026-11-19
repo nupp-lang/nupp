@@ -484,20 +484,6 @@ local function drivingHandler()
     return handler
 end
 
-function M.waitingWorksUnderAHandler()
-    -- The point of the whole exercise: the same call parks under a scheduler and
-    -- blocks without one. Here a handler answers by driving the pumps itself.
-    local handler = drivingHandler()
-    local backend = fakeBackend({out = {"handled"}, exitAfter = 2})
-    local installation = suspensionHost.install(handler)
-    local child = spawnOn(backend, {args = {"echo"}})
-    local result = assert(child:communicate())
-    child:_drop()
-    installation:close()
-    testAssert.eq(result.output, "handled", "the output came back through a handled wait")
-    assert(handler.drove > 0, "and the handler is what drove it")
-end
-
 function M.makesProgressOnAllThreeStreamsTogether()
     -- The case a sequential `communicate` deadlocks on. Input is taken four bytes at a
     -- time, so it cannot all be written up front; both outputs go quiet between chunks,
@@ -545,18 +531,7 @@ function M.drainingUnderAHandlerNeverBlocksThePlatform()
         code = 0,
     })
     local child = spawnOn(backend, {args = {"filter"}})
-    local handler = {
-        park = function(_self, waiting)
-            local spins = 0
-            while not waiting:ready() do
-                spins = spins + 1
-                suspensionHost.poll()
-                if spins > 100 then
-                    error("the drain never resolved", 0)
-                end
-            end
-        end,
-    }
+    local handler = drivingHandler()
     local installation = suspensionHost.install(handler)
     local result = assert(child:communicate({input = "a longer payload than one chunk"}))
     child:_drop()
@@ -564,6 +539,7 @@ function M.drainingUnderAHandlerNeverBlocksThePlatform()
     testAssert.eq(result.output, "onetwo", "everything arrived")
     testAssert.eq(result.erroroutput, "a", "on both streams")
     assert(result:succeeded(), "and the child finished")
+    assert(handler.drove > 0, "the handler is what drove it")
     testAssert.eq(backend.state.waits, 0, "without ever asking the platform to block")
 end
 
@@ -620,31 +596,6 @@ function M.aGoneStdinIsLeftOutOfTheWriteInterest()
     child:_drop()
     testAssert.eq(result.output, "data", "the outputs were still drained to the end")
     assert(not waitedOnGoneStdin, "and no wait named a stdin whose far end had gone")
-end
-
-function M.aStepThatAnswersFailureIsNotMistakenForSuccess()
-    -- There are two ways to fail in a teardown and `pcall` sees only one. A step that
-    -- raises is caught; a step that answers `false` and a reason returns perfectly
-    -- normally, and a teardown judging only the call would read it as success -- then
-    -- go on to mark the child released with a stream or a handle still held.
-    -- Through the declared contract, not around it: `Backend.reap` answers
-    -- `(boolean, string?)`, so the fake declining is something a real platform can do
-    -- too. A test that could only be written by ignoring the types would be proving
-    -- behaviour no backend is able to produce.
-    local backend = fakeBackend({out = {}, err = {}, exitAfter = 1, code = 0})
-    backend.state.refuseReap = true
-    local child = spawnOn(backend, {args = {"quiet"}})
-    local ok, reported = pcall(function()
-        child:_drop()
-    end)
-    assert(not ok, "the answered failure was reported, not swallowed")
-    assert(
-        tostring(reported):find("declined", 1, true) ~= nil,
-        "and it said what the platform said, got: " .. tostring(reported)
-    )
-    assert(not backend.state.reaped, "nothing was marked released")
-    child:_drop()
-    assert(backend.state.reaped, "and the retry finished it")
 end
 
 function M.pollTakesNoMoreThanItWasAskedForAndLosesNothing()
@@ -859,7 +810,9 @@ function M.aRefusedStreamCloseBecomesAnErrorAtTheStreamEdge()
     -- `Backend.closestream` answers a status; `Reader.close` and `Writer.close` answer
     -- nothing, because those signatures are tecs's. The status has to become an error
     -- somewhere, and here is that seam -- a close that quietly returned would leave the
-    -- descriptor open with the stream believing itself shut.
+    -- descriptor open with the stream believing itself shut. And `closed` is what the
+    -- platform has done, not what was asked of it: set on a refusal, it would strand
+    -- the descriptor, since every later attempt would return at once.
     local backend = fakeBackend({out = {}, err = {}, exitAfter = 1, code = 0})
     backend.state.refuseClose = "in"
     local child = spawnOn(backend, {args = {"quiet"}})
@@ -874,7 +827,7 @@ function M.aRefusedStreamCloseBecomesAnErrorAtTheStreamEdge()
     assert(not child.stdin.closed, "and this end is still open, not pretending")
     backend.state.refuseClose = nil
     child.stdin:close()
-    assert(child.stdin.closed, "the retry closed it for real")
+    assert(child.stdin.closed and backend.state.closed["in"], "the retry closed it for real")
     child:_drop()
 end
 
@@ -886,14 +839,19 @@ function M.dropCanBeRetriedAfterItFails()
     -- The refusal is *returned*, not raised. `reap` is return-only precisely so that a
     -- caller can tell a child still theirs from one already gone; an error carries no
     -- release state, so asserting a retry is safe after one would be asserting
-    -- something unknowable.
+    -- something unknowable. A teardown judging only whether a step raised would read
+    -- the answered `false` as success.
     local backend = fakeBackend({out = {}, err = {}, exitAfter = 1, code = 0})
     backend.state.refuseReap = true
     local child = spawnOn(backend, {args = {"quiet"}})
-    local ok = pcall(function()
+    local ok, reported = pcall(function()
         child:_drop()
     end)
     assert(not ok, "the failure was reported rather than swallowed")
+    assert(
+        tostring(reported):find("declined", 1, true) ~= nil,
+        "and it said what the platform said, got: " .. tostring(reported)
+    )
     assert(not backend.state.reaped, "and nothing was reaped")
     assert(not child.state.childReleased, "the child is still ours, which is why a retry is safe")
     child:_drop()
@@ -997,44 +955,13 @@ function M.aWriteEndsWhenTheChildDoesRatherThanWaitingForever()
     local sent = child.stdin:send(payload)
     testAssert.eq(sent, 0, "nothing went, because nobody was reading")
     assert(child.stdin.gone, "and the writer knows the far end has gone")
+    -- Without `isended` the two zeroes an `offer` answers -- no room yet, no reader
+    -- ever -- are indistinguishable, and a drain loop's only safe reading is retry.
+    assert(child.stdin:isended(), "which is what tells a drain loop to stop rather than retry")
+    testAssert.eq(child.stdin:offer(payload), 0, "an offer takes nothing either")
     assert(not child.stdin.closed, "while this end is still open, since the descriptor is still ours to close")
     child:_drop()
     assert(backend.state.closed["in"], "and closing the child does release it")
-end
-
-function M.genericWriterCodeCanTellNoRoomYetFromNoRoomEver()
-    -- The loop every non-blocking writer is: offer, and on zero decide whether to come
-    -- back. Without `isEnded` the two zeroes -- no room yet, no reader ever -- are
-    -- indistinguishable, and the only safe reading of them is "retry", forever.
-    --
-    -- This asserts the behaviour, not a contract, and cannot assert more from here:
-    -- the suite is plain Lua, where there is nothing to annotate against, and the
-    -- readiness-capable interface that `streams.Writer` would have become is not
-    -- designed yet. So the claim is narrow -- these operations answer what a drain loop
-    -- needs -- and when that interface exists this is the shape it has to require.
-    local function drainInto(writer, data)
-        local sent, spins = 0, 0
-        while sent < #data do
-            spins = spins + 1
-            if spins > 200 then
-                return sent, "spun"
-            end
-            if writer:isended() then
-                return sent, "gone"
-            end
-            sent = sent + writer:offer(data:sub(sent + 1))
-        end
-
-        return sent, "complete"
-    end
-
-    local backend = fakeBackend({inputChunk = 4, out = {}, err = {}, exitAfter = 1, code = 0})
-    local child = spawnOn(backend, {args = {"quitter"}})
-    child:wait()
-    local sent, how = drainInto(child.stdin, "input for a child that is no longer there")
-    child:_drop()
-    testAssert.eq(how, "gone", "the loop ended because it was told to, not by giving up")
-    testAssert.eq(sent, 0, "having sent nothing to a child that had already left")
 end
 
 function M.aPartialWriteKeepsWhatWentBeforeTheChildLeft()
@@ -1046,27 +973,6 @@ function M.aPartialWriteKeepsWhatWentBeforeTheChildLeft()
     child:_drop()
     testAssert.eq(sent, 8, "the two chunks that landed before it stopped reading")
     testAssert.eq(table.concat(backend.state.written), "far more", "and those are the bytes the child actually got")
-end
-
-function M.aRefusedStreamCloseCanBeRetried()
-    -- `closed` is what the platform has done, not what was asked of it. Set on a
-    -- refusal it would strand the descriptor, since every later attempt returns at
-    -- once.
-    --
-    -- Returned rather than raised, for the reason `closeStream` is return-only: a raise
-    -- carries no release state, so retrying after one would be guessing.
-    local backend = fakeBackend({out = {"x"}, err = {}, exitAfter = 1, code = 0})
-    backend.state.refuseClose = "in"
-    local child = spawnOn(backend, {args = {"quiet"}})
-    local ok = pcall(function()
-        child.stdin:close()
-    end)
-    assert(not ok, "the refusal was reported")
-    backend.state.refuseClose = nil
-    assert(not child.stdin.closed, "and this end is still open, not pretending")
-    child.stdin:close()
-    assert(child.stdin.closed and backend.state.closed["in"], "the retry closed it for real")
-    child:_drop()
 end
 
 function M.dropReenteredFromItsOwnTeardownJustReturns()

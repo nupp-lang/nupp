@@ -153,7 +153,9 @@ function M.roundTripsEveryCScalar(): nil
 end
 
 function M.movesRawBytesAndTracksTheCursor(): nil
-    local reader = io2.Reader.of("abcdef"):scalar()
+    local reader = io2.Reader.of("\1\2\3\4abcdef"):scalar()
+    assert2(reader:remaining() == 10)
+    assert2(reader:readuint32() == 67305985)
     assert2(reader:readbytes(2) == "ab")
     assert2(reader:skip(2) == reader)
     assert2(reader:remaining() == 2)
@@ -178,29 +180,6 @@ function M.writesThroughSomebodyElsesWriter(): nil
     writer:writeuint16(513)
     assert2(writer:flush())
     assert2(destination:tostring() == "\1\2")
-end
-
-function M.readsThroughAnyReader(): nil
-    local reader = (io2.Reader.of("\1\2\3\4rest")):scalar()
-    assert2(reader:remaining() == 8)
-    assert2(reader:readuint32() == 67305985)
-    assert2(reader:readbytes(4) == "rest")
-    assert2(reader:atend())
-end
-
-function M.bufferReadersConsumeInPlace(): nil
-    local queue = text.Buffer.create()
-    queue:put("head:")
-    queue:put("!")
-
-    local reader = queue:reader():scalar()
-    assert2(reader:remaining() == 6)
-    assert2(reader:readbytes(5) == "head:")
-    assert2(reader:remaining() == 1)
-    assert2(reader:readuint8() == 33)
-    assert2(reader:atend())
-    reader:close()
-    assert2(queue:tostring() == "")
 end
 
 function M.bridgesAStringBufferIntoTheReaderContract(): nil
@@ -391,15 +370,6 @@ function M.lineReadersBoundPullsAndOwnTheirSources(): nil
     local lines = (ProbeReader(state = state)):lines(3)
     assert2(lines:read() == "abc")
     assert2(state.maxRead <= 5)
-    lines:close()
-    assert2(state.closes == 1)
-end
-
-function M.lineReadersPropagateFailuresAfterPartialInput(): nil
-    local state = {bytes = "partial", closes = 0, failure = "cancelled"}
-    local lines = (ProbeReader(state = state)):lines(64)
-    local line, reason = lines:read()
-    assert2(line == nil and reason == "cancelled")
     lines:close()
     assert2(state.closes == 1)
 end

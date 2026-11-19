@@ -1136,9 +1136,12 @@ local function compiledSwitch(source, expectedTable)
     return program.run(result, "switch_table_test", "switch-table-test.nupp")
 end
 
-function M.denseIntegerTablesKeepNegativeMinimaHolesAndDefaults()
-    testAssert.eq(
-        compiledSwitch(
+-- No switch shape lowers to a jump table today: negative minima with holes, named
+-- constants read through one selector evaluation, sparse labels, and a floating
+-- selector all compile to equality tests and answer the same.
+function M.switchesLowerToEqualityTests()
+    for _, case in ipairs({
+        {
             [[
 local function f(x: integer): integer
     return switch x do
@@ -1149,15 +1152,9 @@ local function f(x: integer): integer
 end
 return f(-4) + f(-3) + f(-2) + f(-1) + f(0) + f(1)
 ]],
-            false
-        ),
-        114
-    )
-end
-
-function M.denseIntegerTablesUseCheckedNamedConstantsAndOneSelectorEvaluation()
-    testAssert.eq(
-        compiledSwitch(
+            114,
+        },
+        {
             [[
 const A: 10 = 10
 const B: 11 = 11
@@ -1175,15 +1172,9 @@ local value = switch next() do
 end
 return value + calls
 ]],
-            false
-        ),
-        21
-    )
-end
-
-function M.sparseAndFloatingSwitchesKeepEqualityFallback()
-    testAssert.eq(
-        compiledSwitch(
+            21,
+        },
+        {
             [[
 local function f(x: integer): integer
     return switch x do
@@ -1195,12 +1186,9 @@ local function f(x: integer): integer
 end
 return f(-10000) + f(0) + f(10000) + f(1)
 ]],
-            false
-        ),
-        10
-    )
-    testAssert.eq(
-        compiledSwitch(
+            10,
+        },
+        {
             [[
 local function f(x: number): integer
     return switch x do
@@ -1212,10 +1200,11 @@ local function f(x: number): integer
 end
 return f(2.0) + f(2.5)
 ]],
-            false
-        ),
-        60
-    )
+            60,
+        },
+    }) do
+        testAssert.eq(compiledSwitch(case[1], false), case[2], case[1])
+    end
 end
 
 return M

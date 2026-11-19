@@ -168,16 +168,6 @@ function M.checkReportsNamedFilesWithoutWritingThem()
     os.execute("rm -rf '" .. dir .. "'")
 end
 
--- With nothing named it is the project, which is what the bare form already
--- did; saying so explicitly is what a build script wants to read.
-function M.checkWithNoFilesIsTheProject()
-    local dir = tempProject({["nupp.lua"] = 'return { include = { "src" } }\n', ["src/messy.nupp"] = UNFORMATTED,})
-    local out, ok = run(dir, "fmt --check")
-    assert(not ok and lines(out) == "src/messy.nupp", "the project is checked: " .. lines(out))
-    assert(readFile(dir .. "/src/messy.nupp") == UNFORMATTED, "and untouched")
-    os.execute("rm -rf '" .. dir .. "'")
-end
-
 -- One fixes the formatting and the other reports it, so asking for both is
 -- refused rather than resolved in whichever order the flags were read.
 function M.checkAndWriteTogetherAreRefused()

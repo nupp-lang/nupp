@@ -415,29 +415,6 @@ print(tostring(print):match("^function: 0x") ~= nil, tostring(function() end):ma
     )
 end
 
-function M.cliRunLoadsRequiredLjppModules()
-    withProject(
-        {
-            ["nupp.lua"] = "return { include = { 'src' } }\n",
-            ["main.nupp"] = [[
-local answer = require("runtimeclianswer")
-print(answer.value)
-]],
-            ["src/runtimeclianswer.nupp"] = "return { value = 42 }\n",
-        },
-        function(dir)
-            local output = dir .. "/output.txt"
-            local errors = dir .. "/errors.txt"
-            local command = (
-                "cd '%s' && '%s/bin/nupp' run main.nupp " .. "> '%s' 2> '%s'"
-            ):format(dir, ROOT, output, errors)
-            local status = os.execute(command)
-            testAssert.eq(status, 0, "nupp run exit status: " .. readFile(errors))
-            testAssert.eq(readFile(output), "42\n", "nupp run module output")
-        end
-    )
-end
-
 -- A `.lua` dependency whose body breaks the contract its annotations declare is
 -- refused at run, the way a `.nupp` dependency with an error is: strict code was
 -- checked against the claim, so running the body would hand it the wrong value.

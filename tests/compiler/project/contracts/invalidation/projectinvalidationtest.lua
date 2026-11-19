@@ -175,44 +175,20 @@ return {
     remove(dir)
 end
 
-function M.ownershipContractsInvalidateIncrementalInterfaces()
-    local function library(mode)
-        return table.concat(
-            {"cdef function inspect(" .. mode .. " value: cstring)", "return { inspect = inspect }",},
-            "\n"
-        )
-    end
-
-    local dir = tempProject({
-        ["nupp.lua"] = [[
-return {
-   include = {"src"},
-   build = {outDir = "out", entries = {"main"}},
-}
-]],
-        ["src/main.nupp"] = "local lib = require('lib')\nreturn lib\n",
-        ["src/lib.nupp"] = library("borrows"),
-    })
-
-    testAssert.eq(project.build(dir), 0)
-    write(dir .. "/src/lib.nupp", library("takes"))
-    local changed = {}
-    testAssert.eq(project.build(dir, {stats = changed}), 0)
-    testAssert.eq(changed.checkedModules, 2, "ownership-mode interface changes recheck dependents")
-    remove(dir)
-end
-
-function M.namedCleanupsInvalidateIncrementalInterfaces()
-    local function library(cleanup)
+-- An ownership mode and a named cleanup are both part of what a dependent was
+-- checked against, so either one changing rechecks it.
+function M.ownershipContractsAndCleanupsInvalidateIncrementalInterfaces()
+    local function library(mode, cleanup)
         return table.concat(
             {
+                "cdef function inspect(" .. mode .. " value: cstring)",
                 "cdef function create_c(): voidptr",
                 "cdef function first_cleanup(takes value: voidptr)",
                 "cdef function second_cleanup(takes value: voidptr)",
                 "local function create(): affine(voidptr, " .. cleanup .. ")",
                 "   return create_c()",
                 "end",
-                "return { create = create }",
+                "return { inspect = inspect, create = create }",
             },
             "\n"
         )
@@ -226,14 +202,19 @@ return {
 }
 ]],
         ["src/main.nupp"] = "local lib = require('lib')\nreturn lib\n",
-        ["src/lib.nupp"] = library("first_cleanup"),
+        ["src/lib.nupp"] = library("borrows", "first_cleanup"),
     })
 
     testAssert.eq(project.build(dir), 0)
-    write(dir .. "/src/lib.nupp", library("second_cleanup"))
-    local changed = {}
-    testAssert.eq(project.build(dir, {stats = changed}), 0)
-    testAssert.eq(changed.checkedModules, 2, "a changed cleanup rechecks dependents")
+    write(dir .. "/src/lib.nupp", library("takes", "first_cleanup"))
+    local ownership = {}
+    testAssert.eq(project.build(dir, {stats = ownership}), 0)
+    testAssert.eq(ownership.checkedModules, 2, "ownership-mode interface changes recheck dependents")
+
+    write(dir .. "/src/lib.nupp", library("takes", "second_cleanup"))
+    local cleanup = {}
+    testAssert.eq(project.build(dir, {stats = cleanup}), 0)
+    testAssert.eq(cleanup.checkedModules, 2, "a changed cleanup rechecks dependents")
     remove(dir)
 end
 

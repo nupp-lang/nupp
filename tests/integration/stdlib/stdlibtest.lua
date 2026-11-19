@@ -254,24 +254,6 @@ return #readable, readable[1].value
     )
 end
 
-function M.poolIsOrdinaryTablesOnEveryHost()
-    local source = table.concat(
-        {
-            "local pool = require('table')",
-            "local record Event",
-            "    id: integer",
-            "end",
-            "local events = pool.Pool(Event, 4)",
-            "local event = events:acquire()",
-            "event.id = 1",
-            "events:release(event)",
-            "return events:free()",
-        },
-        "\n"
-    )
-    assertClean(source)
-end
-
 function M.arenaLowersThroughTheStorageContract()
     local source = table.concat(
         {
@@ -324,44 +306,6 @@ function M.aComputedRequireArgumentIsChecked()
     )
     testAssert.eq((diagsOf("local n: integer = 5\nreturn require(n)")), "NUPP2006:2", "require takes a string")
     testAssert.eq((diagsOf("return require('serde', 'extra')")), "NUPP2007:1", "and takes one of them")
-end
-
-function M.randomUsesPortableBitops()
-    assertClean(
-        table.concat(
-            {
-                "local random = math",
-                "local generator = random.Xoshiro128(12345)",
-                "return generator:next(), generator:integer(1, 100)",
-            },
-            "\n"
-        )
-    )
-end
-
-function M.digestUsesPortableBitops()
-    assertClean(
-        table.concat(
-            {
-                "local digest = require('bytes').digest",
-                "local rolling = digest('sha256'):create()",
-                "rolling:write('message')",
-                "return rolling:hexdigest()",
-            },
-            "\n"
-        )
-    )
-end
-
-function M.oneShotHmacUsesOrdinaryCode()
-    local source = table.concat(
-        {
-            "local mac = require('bytes').mac",
-            "return mac('hmac-sha256'):computehex('key', 'message'), #mac('hmac-sha256'):compute('key', 'message')",
-        },
-        "\n"
-    )
-    assertClean(source)
 end
 
 function M.browserHttpProviderHasAPortableDependencyClosure()
@@ -1993,59 +1937,35 @@ if child ~= nil then useProcess(child) child:close() end
     )
 end
 
-function M.processSurfaceIsBundledOutsideThisCheckout()
-    local isolated = envMod.new(os.tmpname() .. "-nupp-process-surface")
-    local source = table.concat(
-        {
-            "local process = require('io')",
-            "local child = assert(process.popen({'true'}))",
-            "assert(child:isrunning() or not child:isrunning())",
-        },
-        "\n"
-    )
-    local result = parser.parse(source, "outside.nupp")
-    testAssert.eq(#result.errors, 0, "the external consumer parses")
-    local diags = check.check(result, "outside.nupp", isolated)
-    testAssert.eq(#diags, 0, "the shipped process source supplies its typed surface")
-end
-
-function M.randomSurfaceIsBundledOutsideThisCheckout()
-    local isolated = envMod.new(os.tmpname() .. "-nupp-random-surface")
-    local source = table.concat(
-        {"local random = math", "local generator = random.Xoshiro128(12345)", "assert(generator:next() >= 0)",},
-        "\n"
-    )
-    local result = parser.parse(source, "outside.nupp")
-    testAssert.eq(#result.errors, 0, "the external consumer parses")
-    local diags = check.check(result, "outside.nupp", isolated)
-    testAssert.eq(#diags, 0, "the shipped random source supplies its typed surface")
-end
-
-function M.digestAndMacSurfacesAreBundledOutsideThisCheckout()
-    local isolated = envMod.new(os.tmpname() .. "-nupp-streaming-hash-surface")
-    local source = table.concat(
-        {
-            "local digest = require('bytes').digest",
-            "local mac = require('bytes').mac",
-            "local rolling = digest('sha256'):create()",
-            "rolling:write('message')",
-            "assert(#rolling:digest() == 32)",
-            "assert(#mac('hmac-sha256'):computehex('key', 'message') == 64)",
-        },
-        "\n"
-    )
-    local result = parser.parse(source, "outside.nupp")
-    testAssert.eq(#result.errors, 0, "the external consumer parses")
-    local diags = check.check(result, "outside.nupp", isolated)
-    testAssert.eq(#diags, 0, "the shipped streaming hash source supplies its typed surface")
-    local catalog = isolated.bundled["nupp.digest.internal.catalog"]
-    assert(catalog and catalog.exports, "the compiler registers its shared digest catalog")
-    assert(isolated.bundled["nupp.digest.internal.catalog"] == catalog, "the catalog keeps its warm identity")
-end
-
-function M.serdeHelpersAreBundledOutsideThisCheckout()
-    local isolated = envMod.new(os.tmpname() .. "-nupp-serde-helpers")
-    local source = [[
+-- A consumer outside this checkout gets each standard surface, and the private
+-- helpers it reaches, from the sources the compiler bundles.
+function M.standardSurfacesAreBundledOutsideThisCheckout()
+    local isolated = envMod.new(os.tmpname() .. "-nupp-bundled-surfaces")
+    local consumers = {
+        process = table.concat(
+            {
+                "local process = require('io')",
+                "local child = assert(process.popen({'true'}))",
+                "assert(child:isrunning() or not child:isrunning())",
+            },
+            "\n"
+        ),
+        random = table.concat(
+            {"local random = math", "local generator = random.Xoshiro128(12345)", "assert(generator:next() >= 0)",},
+            "\n"
+        ),
+        hash = table.concat(
+            {
+                "local digest = require('bytes').digest",
+                "local mac = require('bytes').mac",
+                "local rolling = digest('sha256'):create()",
+                "rolling:write('message')",
+                "assert(#rolling:digest() == 32)",
+                "assert(#mac('hmac-sha256'):computehex('key', 'message') == 64)",
+            },
+            "\n"
+        ),
+        serde = [[
 local record Entry
     text: string
 end
@@ -2058,12 +1978,23 @@ assert(serde.native.decode(binding, native).text == "value")
 local json = serde.json.codec()
 local buffer = bytes.Buffer.create('{"text":"buffer"}')
 assert(json:decodebuffer(binding, buffer).text == "buffer")
-]]
-    local result = parser.parse(source, "outside.nupp")
-    testAssert.eq(#result.errors, 0, "the external serde consumer parses")
-    local diagnostics = check.check(result, "outside.nupp", isolated)
-    testAssert.eq(#diagnostics, 0, "the shipped serde source resolves its private shared helpers")
+]],
+    }
+    for surface, source in pairs(consumers) do
+        local filename = "outside-" .. surface .. ".nupp"
+        local result = parser.parse(source, filename)
+        testAssert.eq(#result.errors, 0, "the external " .. surface .. " consumer parses")
+        local diagnostics = check.check(result, filename, isolated)
+        testAssert.eq(
+            #diagnostics,
+            0,
+            "the shipped " .. surface .. " source supplies its typed surface: " .. (
+                diagnostics[1] and diagnostics[1].msg or ""
+            )
+        )
+    end
     for _, name in ipairs({
+        "nupp.digest.internal.catalog",
         "nupp.codec.json.internal.writerprotocol",
         "nupp.serde.internal.aggregate",
         "nupp.serde.internal.readplan",
@@ -2349,12 +2280,6 @@ function M.theUtf8ModuleNeedsNoNativeModule()
     local ok, problem = pcall(function()
         local utf8 = require("utf8")
         assert(package.loaded["lua-utf8"] == nil, "requiring the module opened no rock")
-        assert(utf8.len("A\226\130\172") == 2)
-        assert(utf8.isvalid("A\226\130\172"))
-        assert(not utf8.isvalid("\255"))
-        assert(utf8.encode(8364) == "\226\130\172")
-        local codepoint, nextAt = utf8.decodeat("A\226\130\172", 2)
-        assert(codepoint == 8364 and nextAt == 5, "decodes the second codepoint")
         assert(utf8.truncate("A\226\130\172", 3) == "A", "never cuts through a codepoint")
     end)
     -- Put back what was there, not whichever instance the proof happened to

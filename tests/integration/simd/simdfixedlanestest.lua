@@ -386,33 +386,20 @@ return tile
     testAssert.deepeq(run(), {11, 41, 32, 14, 44, 13 + 23 + 33 + 43})
 end
 
-function M.transposeExpandsOneTypedRowPackOnce()
+-- A typed row pack expands once, whether it is every row or trails a first row
+-- that is evaluated before it.
+function M.transposeExpandsATypedRowPackOnceInOrder()
     local run = compile(
         PRELUDE
         .. [[
-local type Row = simd.Vector<uint32, simd.Fixed<2>>
-local calls: integer = 0
-local function pair(): (Row, Row)
-    calls = calls + 1
+local type Pair = simd.Vector<uint32, simd.Fixed<2>>
+local type Row = simd.Vector<uint32, simd.Fixed<3>>
+local pairCalls: integer = 0
+local function pair(): (Pair, Pair)
+    pairCalls = pairCalls + 1
     local s = simd.species(array.uint32, 2)
     return s:iota(11, 1), s:iota(21, 1)
 end
-return function(): ({number}, integer)
-    local c1, c2 = simd.transpose(pair())
-    return {c1:extract(1), c1:extract(2), c2:extract(1), c2:extract(2)}, calls
-end
-]]
-    )
-    local columns, calls = run()
-    testAssert.eq(calls, 1, "the helper producing both rows runs once")
-    testAssert.deepeq(columns, {11, 21, 12, 22})
-end
-
-function M.transposeEvaluatesTheFirstRowBeforeTheTrailingTypedPack()
-    local run = compile(
-        PRELUDE
-        .. [[
-local type Row = simd.Vector<uint32, simd.Fixed<3>>
 local events: {integer} = {}
 local firstCalls: integer = 0
 local restCalls: integer = 0
@@ -428,9 +415,10 @@ local function rest(): (Row, Row)
     local s = simd.species(array.uint32, 3)
     return s:iota(21, 1), s:iota(31, 1)
 end
-return function(): ({number}, {integer}, integer, integer)
+return function(): ({number}, integer, {number}, {integer}, integer, integer)
+    local p1, p2 = simd.transpose(pair())
     local c1, c2, c3 = simd.transpose(first(), rest())
-    return {
+    return {p1:extract(1), p1:extract(2), p2:extract(1), p2:extract(2)}, pairCalls, {
         c1:extract(1), c1:extract(2), c1:extract(3),
         c2:extract(1), c2:extract(2), c2:extract(3),
         c3:extract(1), c3:extract(2), c3:extract(3)
@@ -438,7 +426,9 @@ return function(): ({number}, {integer}, integer, integer)
 end
 ]]
     )
-    local columns, events, firstCalls, restCalls = run()
+    local pairColumns, pairCalls, columns, events, firstCalls, restCalls = run()
+    testAssert.eq(pairCalls, 1, "the helper producing both rows runs once")
+    testAssert.deepeq(pairColumns, {11, 21, 12, 22})
     testAssert.deepeq(events, {1, 2})
     testAssert.eq(firstCalls, 1)
     testAssert.eq(restCalls, 1)

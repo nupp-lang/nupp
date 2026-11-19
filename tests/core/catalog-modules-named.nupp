@@ -1,12 +1,51 @@
 module nupp.core.catalogmodulesnamed
 
--- A module's named exports are its table's fields; a second require is
--- the same table.
+-- A module's named exports are its table's fields, and a second require is
+-- the same table; a binding pattern selects them by name, `as` renaming one,
+-- each read once, when the pattern runs; and a require by a name computed at
+-- run time, or through `_G`, answers the module the image holds by that
+-- name, loaded once and cached as a static require of it is. Each answer
+-- that holds is a bit.
+const _DYNAMIC_REQUIRES = "@requires-dynamically nupp.core.catalogmodulesgeometry"
+
+local score = 0
+local bit = 1
+
+local function check(ok: boolean): nil
+    if ok then
+        score = score | bit
+    end
+    bit = bit << 1
+end
+
 const geometry = require("nupp.core.catalogmodulesgeometry")
 const again = require("nupp.core.catalogmodulesgeometry")
 geometry.bump()
-local score = geometry.scale(3) + geometry.unit + again.bump() * 100
+local named = geometry.scale(3) + geometry.unit + again.bump() * 100
 if geometry == again then
-    score = score + 1000
+    named = named + 1000
 end
+check(named == 1240)
+
+const {scale, unit as base, bump} = require("nupp.core.catalogmodulesgeometry")
+bump()
+check(scale(2) + base + bump() * 100 == 430)
+
+local suffix = "geometry"
+local name = "nupp.core.catalogmodules" .. suffix
+local loaded: any = require(name)
+local cached: any = _G.require("nupp.core.catalogmodulesgeometry")
+local dynamic: any = loaded.scale(3) + loaded.unit
+if loaded == cached then
+    dynamic = dynamic + 1000
+end
+local missing = "nupp.core.absent"
+local found, reason = pcall(function(): any
+    return require(missing)
+end)
+if not found and string.find(tostring(reason), "module 'nupp.core.absent' not found", 1, true) ~= nil then
+    dynamic = dynamic + 10000
+end
+check(dynamic == 11040)
+
 export const result = score

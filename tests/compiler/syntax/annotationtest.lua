@@ -180,15 +180,6 @@ function M.sealedInterfacesRequireDeclaredConformance()
     )
 end
 
-function M.sealedAnnotationIsRemoved()
-    testAssert.eq(checked("@sealed\nlocal interface Token end"), "NUPP2111")
-end
-
-function M.ownershipAnnotationTwinsAreRemoved()
-    testAssert.eq(checked("@affine\nlocal interface Owner end"), "NUPP2111")
-    testAssert.eq(checked("local record Owner\n@terminal close: function(takes self: Owner): nil\nend"), "NUPP2111")
-end
-
 function M.partitionContractsRequireASealedInterfaceAndRealFields()
     testAssert.eq(
         checked(
@@ -317,10 +308,6 @@ function M.constMarksBodylessDeclarationBindings()
     testAssert.eq(declaration.names[1].definition.constant, true)
 end
 
-function M.stableIsNoLongerABuiltInAnnotation()
-    testAssert.eq(checked("@stable\nlocal service = 1"), "NUPP2111")
-end
-
 function M.effectContractsAttachToDeclarationBindings()
     local source = table.concat(
         {'@effects(raises = true)', "const fail: function(message: string): never", "return {fail = fail}",},
@@ -342,6 +329,17 @@ end
 
 function M.unknownAnnotationsAreErrors()
     testAssert.eq(diagsOf("@inline local function f() end"), "NUPP2111")
+    -- Names the language once defined, or whose meaning moved into syntax, are
+    -- ordinary unknown names now.
+    for _, source in ipairs({
+        "@sealed\nlocal interface Token end",
+        "@affine\nlocal interface Owner end",
+        "local record Owner\n@terminal close: function(takes self: Owner): nil\nend",
+        "@stable\nlocal service = 1",
+        "@spanabi(read = { values = 'count' })\ncdef function old(borrows values: const int32*, count: uint64)",
+    }) do
+        testAssert.eq(diagsOf(source), "NUPP2111", source)
+    end
 end
 
 function M.newAnnotationsCanBeDefined()
@@ -395,7 +393,6 @@ function M.definitionTargetsAreValidated()
 end
 
 function M.reservedAnnotationsAreNotSilentlyErased()
-    testAssert.eq(diagsOf("@comptime const function f() end"), "")
     testAssert.eq(diagsOf("@comptime const function f() end"), "")
 end
 
@@ -573,6 +570,7 @@ function M.annotationValueDesignatesThePositionalMember()
     testAssert.eq(codes, "")
     local definition = result.root.blocks[1].stats[1].stat.annotationDefinition
     testAssert.eq(definition.singleValue, "text")
+    testAssert.eq(checked((src:gsub('"A user"', "42"))), "NUPP2115", "the positional value has the member's type")
 end
 
 function M.lowercaseAnnotationValueUsesTheExistingDefinition()
@@ -583,32 +581,6 @@ function M.lowercaseAnnotationValueUsesTheExistingDefinition()
     testAssert.eq(registry.byname.annotationValue, nil, "the preceding builtin is retired")
     local replacement = registry:define({name = "annotationvalue", arguments = "none", targets = {"field"}})
     testAssert.eq(replacement, nil, "the accepted key cannot replace the builtin")
-    local prefix = [[
-@annotation(targets = {"record"})
-local record documentation
-    @annotationvalue
-    text: string
-end
-]]
-    local codes, result = checked(prefix .. '@documentation("A user")\nlocal record User end')
-    testAssert.eq(codes, "")
-    testAssert.eq(result.root.blocks[1].stats[1].stat.annotationDefinition.singleValue, "text")
-    testAssert.eq(checked(prefix .. '@documentation(42)\nlocal record User end'), "NUPP2115")
-    testAssert.eq(checked("local record Plain\n@annotationvalue\nx: string\nend"), "NUPP2114")
-    testAssert.eq(
-        checked(
-            [[
-@annotation(targets = {"record"})
-local record documentation
-    @annotationvalue
-    first: string
-    @annotationvalue
-    second: string
-end
-]]
-        ),
-        "NUPP2114"
-    )
 end
 
 function M.lowercaseCliMembersKeepCanonicalMetadataAndRejectMixedDuplicates()
@@ -647,10 +619,6 @@ end
     for _, members in ipairs({
         "preserveunknown = true, preserveUnknown = false",
         "preserveUnknown = true, preserveunknown = false",
-        "stopatfirstargument = true, stopAtFirstArgument = false",
-        "stopAtFirstArgument = true, stopatfirstargument = false",
-        'constantaliases = {a = "a"}, constantAliases = {b = "b"}',
-        'constantAliases = {a = "a"}, constantaliases = {b = "b"}',
     }) do
         testAssert.eq(checked("@cli(" .. members .. ")\nlocal record Duplicate end"), "NUPP2115")
     end

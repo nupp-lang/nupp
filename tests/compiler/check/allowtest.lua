@@ -289,11 +289,6 @@ function M.everyDiagnosticCarriesASeverity()
     testAssert.eq(warns[1].severity, "warning")
 end
 
-function M.aWarningCanBeAllowed()
-    testAssert.eq(diagsOf(COLOR .. "\n" .. CHAIN), "NUPP2107")
-    testAssert.eq(diagsOf(COLOR .. "\n@allow(NUPP2107)\n" .. CHAIN), "")
-end
-
 -- A registry entry is written by hand. A misspelled category or level would
 -- make a lint that nothing could configure and nothing reported, so the shape
 -- is checked here rather than at load, where a typo would brick a build tree
@@ -426,10 +421,11 @@ function M.allowReachesALintAtAnyLevel()
     testAssert.eq(diagsOf('@allow\nlocal x: number = "no"'), "NUPP2001")
 end
 
--- The name is what a person writes; the code is what tooling keys on.
+-- The name is what a person writes; the code is what tooling keys on, bare or quoted.
 function M.allowTakesALintByNameOrCode()
     testAssert.eq(diagsOf(COLOR .. '\n@allow("exhaustiveness")\n' .. CHAIN), "")
     testAssert.eq(diagsOf(COLOR .. "\n@allow(NUPP2107)\n" .. CHAIN), "")
+    testAssert.eq(diagsOf(COLOR .. '\n@allow("NUPP2107")\n' .. CHAIN), "")
 end
 
 function M.itCoversOnlyWhatItDecorates()
@@ -455,10 +451,6 @@ end
 
 function M.aCodeThatNeverFiresIsHarmless()
     testAssert.eq(diagsOf(COLOR .. "\n@allow(NUPP2501)\n" .. CHAIN), "NUPP2107")
-end
-
-function M.quotedCodesWork()
-    testAssert.eq(diagsOf(COLOR .. '\n@allow("NUPP2107")\n' .. CHAIN), "")
 end
 
 function M.strictLintsAreWarnings()

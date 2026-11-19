@@ -58,13 +58,6 @@ local TASK = table.concat(
 
 local M = {}
 
-function M.colonCallsRequireAMethodBearingReceiver()
-    testAssert.eq(
-        diagsOf(table.concat({"local value: integer = 1", "local text: string = value:upper()", "return text",}, "\n")),
-        "NUPP2004:2"
-    )
-end
-
 function M.recordMethodsTypeAtCallSites()
     assertClean(TASK .. "\nlocal t: Task = Task(title = 'test')\nlocal s: string = t:describe()")
     testAssert.eq(
@@ -125,23 +118,6 @@ function M.inlineFunctionsNeedSelfToBeMethods()
         "\n"
     )
     testAssert.eq(diagsOf(declaration, "test.nupp"), "NUPP2105:5")
-
-    testAssert.eq(
-        run(
-            table.concat(
-                {
-                    "local record Numbers",
-                    "    function answer(): integer",
-                    "        return 42",
-                    "    end",
-                    "end",
-                    "return Numbers.answer()",
-                },
-                "\n"
-            )
-        ),
-        42
-    )
     testAssert.eq(
         diagsOf(
             table.concat(
@@ -221,36 +197,7 @@ function M.structMethodsDispatchThroughMetatype()
         },
         "\n"
     )
-    assertClean(src)
     testAssert.eq(run(src), 5)
-    -- the constructor still works after metatype
-    testAssert.eq(
-        run(
-            table.concat(
-                {
-                    "local struct P",
-                    "    n: float",
-                    "end",
-                    "function P:twice(): number",
-                    "    return self.n * 2",
-                    "end",
-                    "local p = P(21)",
-                    "return p:twice()",
-                },
-                "\n"
-            )
-        ),
-        42
-    )
-end
-
-function M.multiValueReturnsExpandAcrossTargets()
-    local two = table.concat({"local function two(): number, string", "    return 1, 'two'", "end",}, "\n")
-    assertClean(two .. "\nlocal a, b = two()\nlocal n: number = a\nlocal s: string = b")
-    testAssert.eq(diagsOf(two .. "\nlocal a, b = two()\nlocal bad: number = b"), "NUPP2001:5")
-    -- only the trailing expression expands
-    assertClean(two .. "\nlocal x, y, z = 0, two()\nlocal n: number = y")
-    testAssert.eq(diagsOf(two .. "\nlocal x, y, z = 0, two()\nlocal bad: number = z"), "NUPP2001:5")
 end
 
 -- Only a call expands. Inferring anything else may still have left a call's
@@ -288,36 +235,6 @@ function M.onlyACallExpandsAcrossTargets()
             },
             "\n"
         )
-    )
-end
-
--- Record and struct declarations are callable through ordinary value lookup.
-function M.callsConstructRecordsAndStructs()
-    testAssert.eq(
-        run(
-            table.concat(
-                {
-                    "local record Account",
-                    "    name: string",
-                    "    balance: number",
-                    "    function deposit(self, credit: number)",
-                    "        self.balance = self.balance + credit",
-                    "    end",
-                    "end",
-                    "local struct V2",
-                    "    x: float",
-                    "    y: float",
-                    "end",
-                    "local a = Account(name = 'Hina', balance = 500)",
-                    "local named = V2(3.0, 4.0)",
-                    "local positional = V2(1.0, 2.0)",
-                    "a:deposit(20)",
-                    "return a.balance + named.x + named.y + positional.x + positional.y",
-                },
-                "\n"
-            )
-        ),
-        530
     )
 end
 
@@ -1319,48 +1236,11 @@ function M.constructorsRefuseWhatTheyCannotGuarantee()
         ),
         "NUPP2208:3"
     )
-    -- distinct constructor parameter packs form an overload set
-    assertClean(
-        table.concat(
-            {
-                "local record T",
-                "    n: integer",
-                "    constructor(self, v: integer)",
-                "        self.n = v",
-                "    end",
-                "    constructor(self, v: string)",
-                "        self.n = #v",
-                "    end",
-                "end",
-            },
-            "\n"
-        )
-    )
 end
 
-function M.overloadedConstructorsSelectDistinctBodies()
-    testAssert.eq(
-        run(
-            table.concat(
-                {
-                    "local record Value",
-                    "    text: string",
-                    "    constructor(self, value: integer)",
-                    "        self.text = tostring(value)",
-                    "    end",
-                    "    constructor(self, value: string)",
-                    "        self.text = value",
-                    "    end",
-                    "end",
-                    "local numberValue = Value(42)",
-                    "local stringValue = Value('ready')",
-                    "return numberValue.text .. ':' .. stringValue.text",
-                },
-                "\n"
-            )
-        ),
-        "42:ready"
-    )
+-- Distinct parameter packs select distinct bodies, run in callableconstructiontest's
+-- overloadsAgreeWithLuaCalls; the same pack twice is no overload.
+function M.overloadedConstructorsRejectADuplicatePack()
     testAssert.eq(
         diagsOf(
             table.concat(

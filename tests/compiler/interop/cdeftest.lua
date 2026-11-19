@@ -247,20 +247,10 @@ function M.countedPointersRejectContractsTheyCannotLowerSafely()
     one("cdef function bad(out values: int32** countedBy(count), count: uint64)")
 end
 
-function M.spanAbiAnnotationWasRemoved()
-    local got = diagsOf(
-        "@spanabi(read = { values = 'count' })\n" .. "cdef function old(borrows values: const int32*, count: uint64)"
-    )
-    assert(got:find("NUPP2111", 1, true), got)
-end
-
-function M.cdefCallbackParameter()
-    assertClean("cdef function each(fn: function(int32), n: int32)")
-end
-
-function M.nullableCallbacksWorkInEveryCDeclaratorPosition()
+function M.callbacksWorkInEveryCDeclaratorPosition()
     local source = table.concat(
         {
+            "cdef function each(fn: function(int32), n: int32)",
             "cdef struct callback_holder",
             "   callback: function(int32)?",
             "end",

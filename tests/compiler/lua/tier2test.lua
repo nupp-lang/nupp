@@ -161,14 +161,10 @@ function M.differentArgumentsAreDifferentTypes()
 end
 
 function M.constructionInfersTheArgument()
+    -- An integer argument infers a read-only property a number box accepts.
     assertClean(BOX .. "\nlocal b: Box<number> = Box(value = 1)")
     assertClean(BOX .. "\nlocal b: Box<string> = Box(value = 'x')")
     testAssert.eq(diagsOf(BOX .. "\nlocal b: Box<string> = Box(value = 1)"), "NUPP2001:4")
-end
-
-function M.readTypeArgumentsVaryCovariantly()
-    -- A read-only integer property is usable as a number property.
-    assertClean(BOX .. "\nlocal b: Box<number> = Box(value = 1)")
 end
 
 return M

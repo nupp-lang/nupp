@@ -438,21 +438,6 @@ function M.aChildStartingOnAFullScopeLendsItsSlotRatherThanDeadlocking()
     assert(peak <= 2, "more children ran at once than the limit")
 end
 
-function M.aScopeWithADeadlineCancelsWhatOutlivesIt()
-    local started = os.monotonic()
-    local problem = raises(function()
-        scoped({deadline = 40}, function(scope)
-            local child = scope:spawn(function()
-                time.sleep(4000)
-                return "late"
-            end)
-            child:await()
-        end)
-    end)
-    assert(tasks.iscancelled(problem), "the deadline did not cancel: " .. tostring(problem))
-    assert(os.monotonic() - started < 1000, "the scope waited for work its deadline had ended")
-end
-
 function M.aDeadlineUnwindsEveryParkedChildThroughItsCleanup()
     -- Expiry is structured cancellation rather than an escape from settling: each
     -- parked child is resumed far enough to run its cleanup, and only then is the
@@ -488,6 +473,7 @@ function M.aDeadlineUnwindsEveryParkedChildThroughItsCleanup()
     -- The same when the block is parked on a child when the deadline passes: its own
     -- wait is cancelled, and settling still drives the children through cleanup.
     closes, unwound = 0, 0
+    started = os.monotonic()
     problem = raises(function()
         scoped({deadline = 30}, function(scope)
             local task = scope:spawn(child)
@@ -498,6 +484,7 @@ function M.aDeadlineUnwindsEveryParkedChildThroughItsCleanup()
     assert(tasks.iscancelled(problem), "the deadline did not reach the block's wait: " .. tostring(problem))
     testAssert.eq(unwound, 2, "a child parked under an awaiting block did not observe the cancellation")
     testAssert.eq(closes, 2, "a child's cleanup was skipped under an awaiting block")
+    assert(os.monotonic() - started < 1000, "the scope waited for work its deadline had ended")
 end
 
 function M.aDeadlineCancelsTheBlocksOwnWait()
@@ -987,25 +974,7 @@ function M.raceAnswersAFalseWinnerRatherThanNothing()
     testAssert.eq(index, 2, "and which branch won")
 end
 
-function M.raceCancelsTheBranchesItAbandons()
-    local g = gate()
-    tasks.race({
-        function()
-            return g.wait(4, "slow")
-        end,
-        function()
-            return g.wait(1, "quick")
-        end,
-    })
-    -- The loser was parked, so abandoning it has to unsubscribe: a subscription left in
-    -- place would keep the pump polling for a wait nobody is doing.
-    assert(g.wasCancelled("slow"), "the loser unsubscribed")
-    assert(not g.wasCancelled("quick"), "the winner did not")
-    testAssert.eq(g.outstanding(), 0, "and nothing was left pending")
-    g.release()
-end
-
-function M.raceUnwindsTheLoserThroughItsCleanup()
+function M.raceCancelsAndUnwindsTheBranchesItAbandons()
     local g = gate()
     local cleaned = false
     tasks.race({
@@ -1021,8 +990,13 @@ function M.raceUnwindsTheLoserThroughItsCleanup()
             return g.wait(1, "quick")
         end,
     })
-    g.release()
+    -- The loser was parked, so abandoning it has to unsubscribe: a subscription left in
+    -- place would keep the pump polling for a wait nobody is doing.
+    assert(g.wasCancelled("slow"), "the loser unsubscribed")
+    assert(not g.wasCancelled("quick"), "the winner did not")
+    testAssert.eq(g.outstanding(), 0, "and nothing was left pending")
     assert(cleaned, "the abandoned branch was raised through, not dropped")
+    g.release()
 end
 
 function M.raceRaisesWhereTheWinnerWonByFailing()
@@ -1196,6 +1170,7 @@ function M.aSiblingFailureReachesAChildsOwnScope()
             end)
         end)
     end)
+    -- Exactly the sibling's failure: the cancelled task does not wrap it as suppressed.
     testAssert.eq(problem, "sibling failed", "the scope's failure")
     testAssert.eq(state.grandchild, "unwound", "the grandchild outlived the scope that failed")
 end
@@ -1488,8 +1463,12 @@ function M.runRefusesABadLimit()
     assert(tostring(problem):find("limit must be a positive integer", 1, true) ~= nil, tostring(problem))
 end
 
+-- A worker child's whole result pack is vmstandardrootloadertest's
+-- nativeCoroutineFacadeReusesTaskConstructorsAndCompleteResults.
 function M.canonicalTaskCompletionRetiresThePrecedingMethod()
     scoped(nil, function(scope)
+        testAssert.eq(scope.fork, nil, "the preceding worker method is absent")
+        testAssert.eq(type(scope.work), "function", "and work replaces it")
         local child = scope:spawn(function()
             return 17, nil, "tail"
         end)
@@ -1502,40 +1481,6 @@ function M.canonicalTaskCompletionRetiresThePrecedingMethod()
         testAssert.eq(child:isdone(), true)
         testAssert.eq(child.isDone, nil)
     end)
-end
-
-function M.canonicalWorkRunsTheExistingWorkerSubmission()
-    local parser = require("nupp.compiler.syntax.parser")
-    local checker = require("helpers.fragment")
-    local program = require("program")
-    local environment = require("nupp.compiler.project.env").new(".")
-    local source = [[
-module acceptingworkernames
-
-export function run(): (integer, nil, string, boolean, boolean, integer)
-return coroutine.run(function(borrows scope: coroutine.Scope): (integer, nil, string, boolean, boolean, integer)
-    assert((scope as any).fork == nil)
-    local handle = scope:work(6, function(value: integer): (integer, nil, string)
-        return value + 1, nil, "tail"
-    end)
-    assert((handle as any).isDone == nil)
-    local first, middle, last = handle:await()
-    return first, middle, last, handle:isdone(), (handle as any).isDone == nil, select("#", handle:await())
-end)
-end
-]]
-    local parsed = parser.parse(source, "acceptingworkernames.nupp")
-    testAssert.eq(#parsed.errors, 0)
-    local diagnostics = checker.check(parsed, "acceptingworkernames.nupp", environment)
-    testAssert.eq(#diagnostics, 0, diagnostics[1] and diagnostics[1].msg)
-    local module = program.run(parsed, "acceptingworkernames")
-    local first, middle, last, done, precedingDone, count = module.run()
-    testAssert.eq(first, 7)
-    testAssert.eq(middle, nil)
-    testAssert.eq(last, "tail")
-    testAssert.eq(done, true)
-    testAssert.eq(precedingDone, true)
-    testAssert.eq(count, 3, "the complete result pack survives canonical worker submission")
 end
 
 -- Threads share a metatable whose __index is the coroutine library (Decision
@@ -1561,166 +1506,99 @@ function M.threadsTakeCoroutineMethodsAndBoundArguments()
     testAssert.eq(getmetatable(co).__index, coroutine)
 end
 
-function M.rawCoroutineWaitsRunInsideManagedTasks()
-    for _, wrapped in ipairs({false, true}) do
-        local co = coroutine
-        local tasks = coroutine
-        local rawThread
-        local ok, problem = pcall(function()
+-- A raw coroutine started inside a managed task inherits its frame: the raw wait is
+-- scheduled with the task's, and when the task leaves first the raw wait is cancelled
+-- rather than left parked. The same under a family's private driver and a scope's.
+function M.rawCoroutinesInheritTheManagedFrameSchedulingAndCancellation()
+    local co = coroutine
+    local tasks = coroutine
+
+    local drivers = {
+        gather = function(branch)
             local values, errors = tasks.gather({
-                function()
-                    local complete
-
-                    local function body()
-                        rawThread = co.running()
-                        local pending = true
-                        local answer = co.suspend("raw child", function(resume, context)
-                            context:source("raw child", 1, function()
-                                if pending then
-                                    pending = false
-                                    resume(42)
-                                    return 1
-                                end
-
-                                return 0
-                            end)
-
-                            return function()
-                                pending = false
-                            end
-                        end)
-                        complete(answer)
-
-                        return "unowned result", nil
-                    end
-
-                    if wrapped then
-                        co.wrap(body)()
-                    else
-                        assert(co.resume(co.create(body)))
-                    end
-
-                    return co.suspend("raw result", function(resume)
-                        complete = resume
-                        return function()
-                        end
-                    end)
-                end
-            })
-            assert(next(errors) == nil, tostring(errors[1]))
-            assert(values[1] == 42)
-            assert(co.status(rawThread) == "dead")
-        end)
-        assert(ok, tostring(problem))
-    end
-end
-
-function M.managedTaskExitCancelsItsInheritedRawWaits()
-    for _, wrapped in ipairs({false, true}) do
-        local co = coroutine
-        local tasks = coroutine
-        local rawThread, raised
-        local cancelled = 0
-        local ok, problem = pcall(function()
-            local values, errors = tasks.gather({
-                function()
-                    local function body()
-                        rawThread = co.running()
-                        local settled, failure = pcall(co.suspend, "abandoned raw child", function()
-                            return function()
-                                cancelled = cancelled + 1
-                            end
-                        end)
-                        assert(not settled)
-                        raised = failure
-
-                        return "unowned cancellation result"
-                    end
-
-                    if wrapped then
-                        co.wrap(body)()
-                    else
-                        assert(co.resume(co.create(body)))
-                    end
-
-                    return 42
-                end,
+                branch,
                 function()
                     return 7
                 end
             })
             assert(next(errors) == nil, tostring(errors[1]))
-            assert(values[1] == 42 and values[2] == 7)
-            assert(cancelled == 1)
-            assert(tostring(raised):find("cancelled", 1, true), tostring(raised))
-            assert(co.status(rawThread) == "dead")
-        end)
-        assert(ok, tostring(problem))
-    end
-end
+            assert(values[2] == 7, "a sibling branch is unaffected")
 
-function M.rawCoroutinesInheritScopeFrameSchedulingAndCancellation()
-    for _, wrapped in ipairs({false, true}) do
-        for _, abandon in ipairs({false, true}) do
-            local co = coroutine
-            local tasks = coroutine
-            local rawThread, raised
-            local cancelled = 0
-            local ok, problem = pcall(function()
-                local result = tasks.run(function()
-                    local complete
-                    local pending = true
+            return values[1]
+        end,
+        run = function(branch)
+            return tasks.run(branch)
+        end,
+    }
 
-                    local function body()
-                        rawThread = co.running()
-                        local settled, answer = pcall(co.suspend, "scope raw child", function(resume, context)
-                            if not abandon then
-                                context:source("scope raw child", 1, function()
-                                    if pending then
-                                        pending = false
-                                        resume(42)
-                                        return 1
-                                    end
+    for _, driver in ipairs({"gather", "run"}) do
+        for _, wrapped in ipairs({false, true}) do
+            for _, abandon in ipairs({false, true}) do
+                local rawThread, raised
+                local cancelled = 0
+                local ok, problem = pcall(function()
+                    local result = drivers[driver](function()
+                        local complete
+                        local pending = true
 
-                                    return 0
-                                end)
+                        local function body()
+                            rawThread = co.running()
+                            local settled, answer = pcall(co.suspend, "raw child", function(resume, context)
+                                if not abandon then
+                                    context:source("raw child", 1, function()
+                                        if pending then
+                                            pending = false
+                                            resume(42)
+                                            return 1
+                                        end
+
+                                        return 0
+                                    end)
+                                end
+
+                                return function()
+                                    pending = false
+                                    cancelled = cancelled + 1
+                                end
+                            end)
+                            if settled then
+                                complete(answer)
+                            else
+                                raised = answer
                             end
 
+                            return "unowned result", nil
+                        end
+
+                        if wrapped then
+                            co.wrap(body)()
+                        else
+                            assert(co.resume(co.create(body)))
+                        end
+                        if abandon then
+                            return 42
+                        end
+
+                        return co.suspend("raw result", function(resume)
+                            complete = resume
                             return function()
-                                pending = false
-                                cancelled = cancelled + 1
                             end
                         end)
-                        if settled then
-                            complete(answer)
-                        else
-                            raised = answer
-                        end
-                    end
-
-                    if wrapped then
-                        co.wrap(body)()
-                    else
-                        assert(co.resume(co.create(body)))
-                    end
-                    if abandon then
-                        return 42
-                    end
-
-                    return co.suspend("scope raw result", function(resume)
-                        complete = resume
-                        return function()
-                        end
                     end)
+                    assert(result == 42)
+                    assert(co.status(rawThread) == "dead")
+                    assert(cancelled == (abandon and 1 or 0))
+                    if abandon then
+                        assert(tostring(raised):find("cancelled", 1, true), tostring(raised))
+                    end
                 end)
-                assert(result == 42)
-                assert(co.status(rawThread) == "dead")
-                assert(cancelled == (abandon and 1 or 0))
-                if abandon then
-                    assert(tostring(raised):find("cancelled", 1, true), tostring(raised))
-                end
-            end)
-            assert(ok, tostring(problem))
+                assert(
+                    ok,
+                    (
+                        "%s, wrapped=%s, abandon=%s: %s"
+                    ):format(driver, tostring(wrapped), tostring(abandon), tostring(problem))
+                )
+            end
         end
     end
 end

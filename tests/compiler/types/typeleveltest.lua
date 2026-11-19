@@ -562,27 +562,6 @@ function M.keyAndIndexedMemberOperatorsRespectCapabilities()
     )
 end
 
-function M.propertyCapabilityAnnotationsWorkInStructuralShapes()
-    clean(
-        table.concat(
-            {
-                "local type Cell = {@readonly value: string, @writeonly value: string | integer}",
-                "local readKey: keyof Cell = 'value'",
-                "local writeKey: writekeyof Cell = 'value'",
-                "local readValue: Cell.['value'] = 'ready'",
-                "local writeValue: writeof Cell.['value'] = 4",
-                "local type ReadonlyView<T> = {@readonly [K in keyof T]: T.[K]}",
-                "local type Sink<T> = {@writeonly [K in writekeyof T]: writeof T.[K]}",
-                "local source: ReadonlyView<{name: string}> = {name = 'Ada'}",
-                "local sink: Sink<{name: string}> = nil as any",
-                "sink.name = 'Grace'",
-                "print(source.name)",
-            },
-            "\n"
-        )
-    )
-end
-
 function M.mappedShapesReduceAfterGenericSubstitution()
     clean(
         table.concat(
@@ -1079,6 +1058,16 @@ function M.compilerOnlyNamespaceAliasesKeepRuntimeRefusals()
         'compiler-only member "string" is available only inside comptime'
     )
     clean("local types: {string: string} = {string = 'runtime'}\nreturn types.string")
+    -- A shadowing runtime table is not a type function in a type position.
+    testAssert.eq(
+        codes(
+            [[
+local types = {formatarguments = function(value: string): string return value end}
+local value: types.formatarguments("%d")
+]]
+        ),
+        "NUPP2421"
+    )
 end
 
 function M.templateConstructionAndOneSegmentExtractionAreFinite()
@@ -1210,23 +1199,6 @@ function M.constArgumentsParticipateInNominalIdentity()
         ),
         "NUPP2001"
     )
-end
-
-function M.emptyGenericMemberMapsLearnTheirFirstDeclaration()
-    local declaration = types.nominal("InitiallyEmptySurface", "record")
-    local parameter = types.typevar("T", "initially-empty-surface")
-    declaration.typeParams = {parameter}
-    local bindings = {[parameter] = types.string}
-    local instance = generics.instantiate(declaration, bindings)
-    local surfaces = {"byname", "writeByname", "staticByname", "staticWriteByname", "metamethods"}
-    for _, name in ipairs(surfaces) do
-        testAssert.eq(next(instance[name]), nil)
-        declaration[name].late = parameter
-    end
-    testAssert.eq(generics.instantiate(declaration, bindings), instance)
-    for _, name in ipairs(surfaces) do
-        testAssert.eq(instance[name].late, types.string)
-    end
 end
 
 function M.concreteSubgraphsAreRecognizedOncePerRefresh()
@@ -1443,27 +1415,6 @@ function M.unchangedReservedApplicationsStillComplete()
         testAssert.eq(completed.byname.value, parameter)
         testAssert.eq(completed.byname.get.rets[1], parameter)
     end
-end
-
-function M.cachedGenericInstantiationsLearnLateDeclaredMembers()
-    local declaration = types.nominal("LateSurface", "record")
-    local parameter = types.typevar("T", "late-surface-test")
-    declaration.typeParams = {parameter}
-
-    local first = generics.instantiate(declaration, {[parameter] = types.string})
-    testAssert.eq(first.byname.get, nil, "the early instance starts incomplete")
-
-    declaration.byname.get = types.func({declaration}, {parameter})
-    declaration.metamethods.__tostring = types.func({declaration}, {types.string})
-    local refreshed = generics.instantiate(declaration, {[parameter] = types.string})
-
-    testAssert.eq(refreshed, first, "refreshing preserves nominal identity")
-    local getter = refreshed.byname.get
-    local stringify = refreshed.metamethods.__tostring
-    assert(getter and getter.tag == "func")
-    assert(stringify and stringify.tag == "func")
-    testAssert.eq(getter.rets[1], types.string, "late members are specialized onto the cached instance")
-    testAssert.eq(stringify.rets[1], types.string, "late metamethods are copied onto the cached instance")
 end
 
 function M.genericMemberIdentitiesIgnoreHashIterationOrder()
@@ -3343,34 +3294,6 @@ function M.aMidFillFailureRestoresTheEnclosingDependencyCollector()
         "a failed nested fill must not steal the successful parent's later dependencies"
     )
     testAssert.eq(generics.instantiate(bad, bindings).byname.broken.params[1], types.string)
-end
-
-function M.lowercaseFormatargumentsEvaluatesTheExistingCheckedBody()
-    for _, member in ipairs({"formatarguments"}) do
-        local source = [[
-local function format<F is string>(fmt: F, ...: unpackof types.MEMBER(F)): string
-    return string.format(fmt, ...)
-end
-local value = format("%s=%d", "count", 3)
-print(value)
-]]
-        source = source:gsub("MEMBER", member)
-        clean(source)
-        assert(
-            codes(source:gsub("types.formatarguments", "types.formatArguments")) ~= "",
-            "the retired public name must be refused"
-        )
-        oneDiagnostic(source:gsub('"count", 3', '"count", "wrong"'), "NUPP2006", "argument 3: string is not a number")
-    end
-    testAssert.eq(
-        codes(
-            [[
-local types = {formatarguments = function(value: string): string return value end}
-local value: types.formatarguments("%d")
-]]
-        ),
-        "NUPP2421"
-    )
 end
 
 function M.canonicalTypeNamesWorkInRealTypePositions()

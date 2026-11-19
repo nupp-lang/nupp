@@ -44,6 +44,17 @@ local function ready()
     return process
 end
 
+local function packed(...)
+    return {n = select("#", ...), ...}
+end
+
+local function assertStartFailure(result)
+    test.eq(result.n, 3)
+    test.eq(result[1], nil)
+    assert(type(result[2]) == "string" and #result[2] > 0, tostring(result[2]))
+    assert(type(result[3]) == "number" and result[3] ~= 0, tostring(result[3]))
+end
+
 function M.communicateDrainsRealPipesWhileFeedingInput()
     ready()
     local child = assert(
@@ -119,11 +130,13 @@ end
 
 function M.aMissingProgramAnswersAReasonRatherThanRaising()
     ready()
-    local ok, child, reason = pcall(startProcess, {args = {"/no/such/nupp-program"}})
-    assert(ok, "spawn did not raise: " .. tostring(child))
-    test.eq(child, nil)
-    assert(reason ~= nil and #tostring(reason) > 0, "and said why")
-    assert(type(reason) == "string" and #reason > 0)
+    local ok, failure = pcall(function()
+        return packed(startProcess({args = {"/no/such/nupp-program"}}))
+    end)
+    assert(ok, "spawn did not raise: " .. tostring(failure))
+    assertStartFailure(failure)
+    -- A bare name is looked up on PATH, and missing there answers the same way.
+    assertStartFailure(packed(process.popen({"nupp-no-such-executable-8d368ef7"})))
 
     -- uv_spawn initializes its process handle before it can report that exec
     -- failed. The failed handle must be closed rather than freed in place, or
@@ -132,20 +145,6 @@ function M.aMissingProgramAnswersAReasonRatherThanRaising()
     local child = assert(startProcess({args = shell("printf recovered"), stderr = "null"}))
     local result = assert(child:communicate())
     test.eq(result.output, "recovered")
-    child:_drop()
-end
-
--- A pipe accepts checked spans directly at its native boundary.
-function M.aProcessWriterTakesCheckedSpans()
-    ready()
-    local child = assert(startProcess({args = shell("cat > /dev/null")}))
-    local source = buffers.Buffer.create("checked bytes")
-    local wrote, reason = child.stdin:writespan(source:span())
-    assert(wrote, reason)
-    test.eq(wrote, 13)
-    child.stdin:close()
-    local exit = child:wait()
-    assert(not exit.killed and not exit.timedout and exit.exitcode == 0)
     child:_drop()
 end
 
@@ -225,17 +224,6 @@ function M.thePublicModuleSelectsOnlyItsPrivateProvider()
         }):find("nuppProcessSpawnBegin", 1, true),
         "the ABI is the module's, not the bootstrap's"
     )
-end
-
-local function packed(...)
-    return {n = select("#", ...), ...}
-end
-
-local function assertStartFailure(result)
-    test.eq(result.n, 3)
-    test.eq(result[1], nil)
-    assert(type(result[2]) == "string" and #result[2] > 0, tostring(result[2]))
-    assert(type(result[3]) == "number" and result[3] ~= 0, tostring(result[3]))
 end
 
 local function assertExit(child, expected)
@@ -393,11 +381,6 @@ function M.closePreservesExitCodesAndDistinguishesSignals()
     end
 end
 
-function M.publicMissingProgramsReturnTheLuaFailureTriple()
-    local public = ready()
-    assertStartFailure(packed(public.popen({"nupp-no-such-executable-8d368ef7"})))
-end
-
 function M.publicMissingDirectoriesReturnTheLuaFailureTriple()
     local public = ready()
     local missing = os.tmpname()
@@ -499,9 +482,16 @@ function M.luaFileIterationParksUnderASuspensionHandler()
     assertExit(child, 0)
 end
 
-function M.aProcessReaderFillsCheckedSpansAndReportsEof()
+-- A pipe accepts and fills checked spans directly at its native boundary.
+function M.processStreamsMoveCheckedSpansAndReportEof()
     ready()
-    local child = assert(startProcess({args = shell("printf span"), stderr = "null"}))
+    local child = assert(startProcess({args = shell("cat"), stderr = "null"}))
+    local source = buffers.Buffer.create("span")
+    local wrote, reason = child.stdin:writespan(source:span())
+    assert(wrote, reason)
+    test.eq(wrote, 4)
+    child.stdin:close()
+    source:close()
     local result = buffers.Buffer.create()
     local lease = result:reserve(16)
     local output = lease:span()

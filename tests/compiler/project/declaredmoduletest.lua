@@ -789,6 +789,7 @@ end
 
 function M.shippedImplementationModulesAreNotApplicationImports()
     withProject({["src/app.nupp"] = "module app\n"}, function(dir)
+        local env = projectEnv(dir)
         for _, name in ipairs({
             "bytes._representation",
             "nupp.compiler.syntax.lexer",
@@ -806,7 +807,7 @@ function M.shippedImplementationModulesAreNotApplicationImports()
                 "module app\nlocal implementation = require(" .. string.format("%q", name) .. ")\n",
                 filename
             )
-            local diags = check.check(parsed, filename, projectEnv(dir))
+            local diags = check.check(parsed, filename, env)
             assert(diagnosticContaining(diags, "is internal to package namespace"), name .. " must remain private")
         end
     end)

@@ -631,24 +631,6 @@ local function callsIn(result)
     return calls
 end
 
-function M.intrinsicIdentityFollowsAliasesButNotShadowing()
-    local result = checkedTree(
-        table.concat(
-            {
-                "local rotate = math.u32.rotateleft",
-                "local a = rotate(0xffffffff, 1)",
-                "local math = {u32 = {rotateLeft = function(x: number, y: number): number return x + y end}}",
-                "local b = math.u32.rotateLeft(1, 2)",
-                "return a, b",
-            },
-            "\n"
-        )
-    )
-    local calls = callsIn(result)
-    testAssert.eq(calls[1].scalarIntrinsic, "u32.rotateLeft", "an exact alias keeps identity")
-    assert(not calls[2].scalarIntrinsic, "a shadowed path is ordinary code")
-end
-
 function M.releasedScalarCallsKeepTheirTypesAndCanonicalAliases()
     local result = checkedTree(
         [[

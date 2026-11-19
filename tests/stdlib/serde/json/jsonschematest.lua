@@ -167,7 +167,10 @@ function M.buildOutputMatchesItsSchemaWhenItFailsAndWhenItDoesNot()
     assert(failed.ok == false, "a build that reported an error is not ok")
     assert(#failed.written == 0, "and wrote nothing")
 
-    local good = tempProject({["nupp.lua"] = 'return {include = {"."}, build = {outDir = "out"}}\n', ["good.nupp"] = GOOD})
+    local good = tempProject({
+        ["nupp.lua"] = 'return {include = {"."}, build = {outDir = "out"}}\n',
+        ["good.nupp"] = GOOD
+    })
     local built = agrees(good, "build")
     assert(built.ok == true, "a build that worked says so")
     os.execute("rm -rf '" .. bad .. "' '" .. good .. "'")
@@ -454,48 +457,6 @@ function M.aUsageErrorWritesNothingToStdout()
     os.execute("rm -rf '" .. good .. "' '" .. broken .. "' '" .. none .. "'")
 end
 
--- The shapes a failure document takes are the command's own, so a reader validates
--- it against the same schema as a success.
-function M.everySchemaRequiresOk()
-    local cli = require("nupp.tools.cli")
-
-    local function requiresOk(schema, name)
-        if schema.oneOf or schema.anyOf then
-            for _, branch in ipairs(schema.oneOf or schema.anyOf) do
-                requiresOk(branch, name)
-            end
-            return
-        end
-        local found = false
-        for _, required in ipairs(schema.required or {}) do
-            found = found or required == "ok"
-        end
-        assert(found, name .. " --schema does not require ok")
-    end
-
-    -- `run` is the exception: the program owns stdout.
-    for _, name in ipairs(cli.names()) do
-        if name ~= "help" and name ~= "lsp" and name ~= "run" then
-            local help = capture(nil, "help " .. name)
-            if help:find("--schema", 1, true) then
-                requiresOk(json.decode(capture(nil, name .. " --schema")), name)
-            end
-        end
-    end
-    for _, operation in ipairs({
-        "inspect",
-        "definition",
-        "references",
-        "symbols",
-        "rename",
-        "actions",
-        "artifacts",
-        "artifact",
-    }) do
-        requiresOk(json.decode(capture(nil, "lsp " .. operation .. " --schema")), "lsp " .. operation)
-    end
-end
-
 function M.reportEncodingSortsKeysWithoutChangingValues()
     local report = require("nupp.tools.cli.report")
     local first = {text = "line\nbreak", number = 1.25, flag = true, list = {3, 2}, nested = {z = "last", a = "first"},}
@@ -546,27 +507,26 @@ local function requiredAreDescribed(schema, path)
     end
 end
 
-function M.everySchemaDescribesWhatItRequires()
-    local cli = require("nupp.tools.cli")
-    for _, name in ipairs(cli.names()) do
-        if name ~= "help" and name ~= "lsp" then
-            local help = capture(nil, "help " .. name)
-            if help:find("--schema", 1, true) then
-                local text = capture(nil, name .. " --schema")
-                requiredAreDescribed(json.decode(text), name)
-            end
+-- One pass over every command's help and schema holds three promises. A
+-- command that can be asked for JSON can always be asked what that JSON will
+-- look like. The shapes a failure document takes are the command's own, so
+-- every schema requires `ok` and a reader validates a failure against the same
+-- schema as a success. And every name a schema requires is one it describes.
+local function requiresOk(schema, name)
+    if schema.oneOf or schema.anyOf then
+        for _, branch in ipairs(schema.oneOf or schema.anyOf) do
+            requiresOk(branch, name)
         end
+        return
     end
-    local lspOperations = {"inspect", "definition", "references", "symbols", "rename", "actions"}
-    for _, operation in ipairs(lspOperations) do
-        local text = capture(nil, "lsp " .. operation .. " --schema")
-        requiredAreDescribed(json.decode(text), "lsp " .. operation)
+    local found = false
+    for _, required in ipairs(schema.required or {}) do
+        found = found or required == "ok"
     end
+    assert(found, name .. " --schema does not require ok")
 end
 
-function M.everyCommandThatWritesJsonAlsoDescribesIt()
-    -- The pairing is the point: a command that can be asked for JSON can always
-    -- be asked what that JSON will look like.
+function M.everyCommandDescribesItsJsonWithASchemaThatRequiresOk()
     local cli = require("nupp.tools.cli")
     for _, name in ipairs(cli.names()) do
         if name ~= "help" then
@@ -574,7 +534,29 @@ function M.everyCommandThatWritesJsonAlsoDescribesIt()
             if help:find("--json", 1, true) then
                 assert(help:find("--schema", 1, true), name .. " offers --json without --schema")
             end
+            if name ~= "lsp" and help:find("--schema", 1, true) then
+                local schema = json.decode(capture(nil, name .. " --schema"))
+                requiredAreDescribed(schema, name)
+                -- `run` is the exception: the program owns stdout.
+                if name ~= "run" then
+                    requiresOk(schema, name)
+                end
+            end
         end
+    end
+    for _, operation in ipairs({
+        "inspect",
+        "definition",
+        "references",
+        "symbols",
+        "rename",
+        "actions",
+        "artifacts",
+        "artifact",
+    }) do
+        local schema = json.decode(capture(nil, "lsp " .. operation .. " --schema"))
+        requiredAreDescribed(schema, "lsp " .. operation)
+        requiresOk(schema, "lsp " .. operation)
     end
 end
 

@@ -52,13 +52,8 @@ export = resources
     return resources.closed
 end
 
-function M.genericMethodDropsAQualifiedExportTerminal()
-    testAssert.eq(run("qualifiedcleanupdrop", [[
-        local value = self:acquire()
-        own.drop(value)
-]]), 1)
-end
-
+-- The explicit drop and the rearmed binding's scope exit both reach the
+-- terminal; either one missing it leaves a single close.
 function M.genericMethodRearmsAQualifiedExportTerminal()
     testAssert.eq(
         run(

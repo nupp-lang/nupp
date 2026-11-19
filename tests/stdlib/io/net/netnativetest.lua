@@ -62,15 +62,6 @@ function M.theModuleExampleConnectsItsOwnPeer()
     test.eq(output, "x\n")
 end
 
-function M.bytesCrossALoopbackConnection()
-    local listener, client, served = pair()
-    assert(client:write("hello sockets"), "the client writes")
-    testAssert.eq(assert(served:read(64)), "hello sockets", "and the server reads them back")
-    served:close()
-    client:close()
-    listener:close()
-end
-
 function M.aHalfCloseIsTheEndInOneDirectionOnly()
     -- The three-state read, against a real peer: after the client half-closes the
     -- server reads empty, and the server can still write back.
@@ -106,21 +97,6 @@ function M.aLargeValueCrossesInPieces()
     end
     testAssert.eq(#table.concat(parts), #payload, "every byte arrived")
     testAssert.eq(table.concat(parts), payload, "and in order")
-    served:close()
-    client:close()
-    listener:close()
-end
-
-function M.aReaderViewReadsARealConnection()
-    local listener, client, served = pair()
-    assert(client:write("through the contract"), "the client writes")
-    local reader = served:asreader()
-    testAssert.eq(
-        assert(reader:read(64)),
-        "through the contract",
-        "a borrowed view reads through the shared Reader contract"
-    )
-    reader:close()
     served:close()
     client:close()
     listener:close()
@@ -375,8 +351,11 @@ local function socketPath(label)
     return base .. "nupp-net-" .. label .. "-" .. tostring(os.time()) .. ".sock"
 end
 
-function M.aUnixSocketCarriesBytesLikeATcpOne()
-    local path = socketPath("bytes")
+function M.aUnixSocketCarriesBytesAndHalfClosesLikeATcpOne()
+    -- Bytes cross a filesystem name as they do a port, and the three-state read
+    -- is a property of the module, not of TCP: a quiet Unix stream must park, and
+    -- only a peer's half-close may read as the end.
+    local path = socketPath("halfclose")
     os.remove(path)
     local listener = assert(net.listen({path = path}))
     local client = assert(net.connect({path = path}))
@@ -384,22 +363,6 @@ function M.aUnixSocketCarriesBytesLikeATcpOne()
 
     assert(client:write("over a path"), "the client writes")
     testAssert.eq(assert(served:read(64)), "over a path", "and the server reads it back")
-
-    served:close()
-    client:close()
-    listener:close()
-    os.remove(path)
-end
-
-function M.aUnixSocketHalfClosesTheSameWay()
-    -- The three-state read is a property of the module, not of TCP: a quiet Unix
-    -- stream must park, and only a peer's half-close may read as the end.
-    local path = socketPath("halfclose")
-    os.remove(path)
-    local listener = assert(net.listen({path = path}))
-    local client = assert(net.connect({path = path}))
-    local served = assert(listener:accept())
-
     assert(client:shutdownwrite(), "the client ends its sending half")
     testAssert.eq(assert(served:read(64)), "", "which the server reads as the end")
     assert(served:isended(), "and says the peer is done")
@@ -545,40 +508,6 @@ function M.linesComeOffAConnectionThroughTheSharedReader()
     listener:close()
 end
 
-function M.anOverlongLineIsRefusedRatherThanBuffered()
-    -- A line that never ends is not a line, and growing until it does is how a
-    -- peer takes the process down.
-    local listener, client, served = pair()
-    assert(client:write(("x"):rep(4096)), "the client sends a very long line")
-    local lines = served:asreader():lines(64)
-    local line, why = lines:read()
-    testAssert.eq(line, nil, "the read is refused")
-    assert(why ~= nil and why:find("longer than the limit", 1, true) ~= nil, "and says the line was too long")
-    lines:close()
-    served:close()
-    client:close()
-    listener:close()
-end
-
-function M.anOverlongLineIsRefusedEvenWhenItsTerminatorArrivesWithIt()
-    -- The bound has to be checked before the line is answered, not only before
-    -- asking for more bytes: a terminator arriving in the same chunk would
-    -- otherwise walk straight past it.
-    local listener, client, served = pair()
-    assert(client:write(("x"):rep(100) .. "\n"), "a 100-byte line arrives whole")
-    local lines = served:asreader():lines(64)
-    local line, why = lines:read()
-    testAssert.eq(line, nil, "and is still refused against a 64-byte limit")
-    assert(
-        why ~= nil and why:find("longer than the limit", 1, true) ~= nil,
-        "with the same reason as one that arrived in pieces"
-    )
-    lines:close()
-    served:close()
-    client:close()
-    listener:close()
-end
-
 function M.flushWaitsForAcceptedBytesToLeave()
     -- `write` completes when the platform takes the bytes, which is not when it
     -- has sent them. A caller that writes, flushes and closes must not lose what
@@ -676,70 +605,71 @@ function M.connectingFallsBackToAWorkingAddress()
     listener:close()
 end
 
-function M.aLineOfExactlyTheLimitIsAccepted()
-    -- Neither terminator byte belongs to the line, so counting the carriage
-    -- return against the limit would refuse a line of exactly the allowed
-    -- length.
-    local listener, client, served = pair()
-    assert(client:write(("y"):rep(64) .. "\r\n"), "a 64-byte line ends with CRLF")
-    local lines = served:asreader():lines(64)
-    testAssert.eq(assert(lines:read()), ("y"):rep(64), "and is accepted at a 64-byte limit")
-    lines:close()
-    served:close()
-    client:close()
-    listener:close()
-end
-
 -- A reader answering a scripted run of chunks, then the end. A socket cannot
--- promise where a stream splits into reads, and the cases below are about
--- exactly that split, so the source is scripted rather than served.
-local function chunkedReader(chunks)
-    local at = 0
+-- promise where a stream splits into reads, and the line bounds below are about
+-- exactly that split, so the source is scripted rather than served. An
+-- `endless` source never ends: asking it for more is a line reader buffering
+-- past its bound rather than refusing at it.
+local function chunkedReader(chunks, endless)
+    local at, held = 0, ""
     return {
         lines = require("nupp.io.internal.bytes").Reader.lines,
-        read = function(_self, _count)
-            if at >= #chunks then
-                return ""
+        read = function(_self, count)
+            if held == "" then
+                if at >= #chunks then
+                    assert(not endless, "the line reader asked for more after passing its limit")
+                    return ""
+                end
+                at = at + 1
+                held = chunks[at]
             end
-            at = at + 1
+            -- A chunk larger than the request arrives over several reads, as a
+            -- socket's would; it never joins the next one.
+            local answer = held:sub(1, count)
+            held = held:sub(count + 1)
 
-            return chunks[at]
+            return answer
         end,
         close = function(_self)
         end,
     }
 end
 
-function M.aLimitLengthLineSplitBeforeItsLineFeedIsStillAccepted()
-    -- The same bytes `aLineOfExactlyTheLimitIsAccepted` sends, with the CRLF
-    -- terminator split across reads. A held trailing carriage return may be
-    -- half of a terminator, so it must not count against the limit before the
-    -- next chunk says which it was: a line's acceptance cannot depend on where
-    -- its bytes happened to fall.
-    local lines = chunkedReader({"abcde\r", "\n"}):lines(5)
-    testAssert.eq(assert(lines:read()), "abcde", "the line is accepted at a 5-byte limit")
-    testAssert.eq(lines:read(), nil, "and then the stream ends")
-    lines:close()
-end
+-- Each row is the chunks a stream arrives in, the limit, and the lines read
+-- before the end; `refused` rows are instead answered "longer than the limit".
+local LINE_LIMITS = {
+    -- Neither terminator byte belongs to the line, so counting the carriage
+    -- return against the limit would refuse a line of exactly the allowed length.
+    {"exact limit with CRLF", {("y"):rep(64) .. "\r\n"}, 64, lines = {("y"):rep(64)}},
+    -- The same with CRLF split across reads: a held trailing carriage return may
+    -- be half of a terminator, so it must not count before the next chunk says.
+    {"limit-length line split before its LF", {"abcde\r", "\n"}, 5, lines = {"abcde"}},
+    -- A line that never ends is not a line, and growing until it does is how a
+    -- peer takes the process down.
+    {"overlong line arriving in pieces", {("x"):rep(40), ("x"):rep(40)}, 64, refused = true, endless = true},
+    -- The bound is checked before the line is answered, not only before asking
+    -- for more: a terminator in the same chunk must not walk past it.
+    {"overlong line arriving with its terminator", {("x"):rep(100) .. "\n"}, 64, refused = true},
+    -- At the end a carriage return with no line feed after it is content, so the
+    -- byte of grace granted while more could arrive is taken back.
+    {"trailing CR at the end", {"abcde\r"}, 5, refused = true},
+    {"CR within the limit at the end", {"abcd\r"}, 5, lines = {"abcd\r"}},
+}
 
-function M.aTrailingCarriageReturnCountsAgainstTheLimitAtTheEnd()
-    -- At the end of the stream a carriage return with no line feed after it is
-    -- line content, so the byte of grace granted while more could still arrive
-    -- is taken back once nothing more can.
-    local lines = chunkedReader({"abcde\r"}):lines(5)
-    local line, why = lines:read()
-    testAssert.eq(line, nil, "a 6-byte unterminated tail is refused at a 5-byte limit")
-    assert(why ~= nil and why:find("longer than the limit", 1, true) ~= nil, "for being longer than the limit")
-    lines:close()
-end
-
-function M.aCarriageReturnWithinTheLimitIsContentAtTheEnd()
-    -- The bytes after the last terminator are a line, carriage return included:
-    -- with nothing following it, it terminated nothing.
-    local lines = chunkedReader({"abcd\r"}):lines(5)
-    testAssert.eq(assert(lines:read()), "abcd\r", "an unterminated tail keeps its carriage return")
-    testAssert.eq(lines:read(), nil, "and then the stream ends")
-    lines:close()
+function M.lineLimitsHoldWhereverTheStreamSplits()
+    for _, row in ipairs(LINE_LIMITS) do
+        local label, chunks, limit = row[1], row[2], row[3]
+        local lines = chunkedReader(chunks, row.endless):lines(limit)
+        for _, wanted in ipairs(row.lines or {}) do
+            testAssert.eq(assert(lines:read()), wanted, label .. ": the line is accepted")
+        end
+        local line, why = lines:read()
+        testAssert.eq(line, nil, label .. ": " .. (row.refused and "the read is refused" or "then the end"))
+        if row.refused then
+            assert(why ~= nil and why:find("longer than the limit", 1, true) ~= nil, label .. ": " .. tostring(why))
+        end
+        lines:close()
+    end
 end
 
 function M.aBorrowedWriterFlushesTheSameQueue()
@@ -781,6 +711,7 @@ function M.aPartiallyConsumedStreamStillDeliversEverything()
             end
             taken = taken + #chunk
         end
+        testAssert.eq(taken, #block, "every byte of the block arrived")
     end
     assert(client:shutdownwrite(), "the sender finishes")
     served:close()

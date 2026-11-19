@@ -2,7 +2,7 @@ module nupp.core.catalogstringsquoted
 
 -- string.format with more than three values, and %q: strings quoted with
 -- their escapes, integers in decimal (the least in hexadecimal), floats in
--- hexadecimal, and nil and Booleans by name.
+-- hexadecimal, and nil and Booleans by name; and `..` of numbers.
 local many = string.format("%d-%s-%d-%s-%d", 1, "two", 3, "four", 5)
 local wide = ("%s|%5d|%-3s|%x|%s|%s"):format("a", 42, "b", 255, "c", "d")
 local quoted = string.format("%q", "say \"hi\"\\\n\r\0x\0001\127")
@@ -27,5 +27,21 @@ if floats == "0x1p-1 -0x1p+1 1e9999" then
 end
 if others == "nil true false" then
     score = score + 32
+end
+
+-- `..` converts numbers of either subtype as tostring writes them. The
+-- operands arrive as `any`, so nothing folds them before the core runs.
+local function join(a: any, b: any): any
+    return a .. b
+end
+
+if join("x", 1.5) == "x1.5" then
+    score = score + 64
+end
+if join(2.0, "y") == tostring(2.0) .. "y" then
+    score = score + 128
+end
+if join(7, -0.25) == "7-0.25" then
+    score = score + 256
 end
 export const result = score

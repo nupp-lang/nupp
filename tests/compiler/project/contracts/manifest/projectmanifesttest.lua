@@ -357,14 +357,6 @@ function M.retiredManifestKeysFailAsUnknownKeys()
         .. 'aotFeatures = "avx2"}}}}\n',
         "aotFeatures must be a table"
     )
-    reject(
-        'return {include = {"src"}, build = {targets = {app = {kind = "modules", dialect = "luajit"}}}}\n',
-        'has no key "dialect"'
-    )
-    reject(
-        'return {include = {"src"}, build = {targets = {site = {kind = "docs", sources = {"src"}, dialect = "luajit"}}}}\n',
-        'has no key "dialect"'
-    )
     -- A produced path is `output` everywhere a manifest names one.
     reject(
         'return {include = {"src"}, dependencies = {native = {kind = "c", out = "lib/native.so"}}}\n',

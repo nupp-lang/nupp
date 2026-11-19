@@ -436,32 +436,16 @@ function M.positionArgumentsThatAreNotPositionsAreUsageErrors()
     os.execute("rm -rf '" .. dir .. "'")
 end
 
-function M.artifactOperationsPublishTheirSchemas()
+-- The group's help text is held to docs/reference/cli.md by clidoctest; what is
+-- left here is that every operation answers a schema and the group does not.
+function M.artifactOperationsPublishTheirSchemasAndTheGroupHasNone()
     local root = HERE .. "/.."
     local discovery = json.decode(captureJson(root, "lsp artifacts --schema"))
     local resolution = json.decode(captureJson(root, "lsp artifact --schema"))
     assert(discovery.properties.artifacts, "discovery documents what it lists")
     assert(resolution.properties.mapping.properties.kind, "resolution documents its mapping")
     assert(resolution.properties.unavailable, "and documents the unavailable case")
-    local help = capture(root, "lsp --help")
-    contains(help, "nupp lsp artifact", "the group lists the artifact operations")
-    contains(help, "artifact only:", "and attributes the options only it takes")
-end
-
-function M.groupHelpNamesServeAndTheOperations()
-    local help = capture(HERE .. "/..", "lsp --help")
-    contains(help, "nupp lsp serve", "explicit server help")
-    contains(help, "nupp lsp rename", "rename help")
-    contains(help, "nupp lsp actions", "actions help")
-end
-
-function M.groupHelpListsWhatTheOperationsParse()
-    local help = capture(HERE .. "/..", "lsp --help")
-    contains(help, "references only:", "an option one operation takes says which")
-    contains(help, "--include-declaration", "and is the operation's own option")
-    contains(help, "symbols only:", "the symbols filter is attributed")
-    contains(help, "nupp lsp <operation> --schema", "the group's --schema entry points at the operations")
-    local refusal = capture(HERE .. "/..", "lsp --schema 2>&1; echo \"__exit__:$?\"")
+    local refusal = capture(root, "lsp --schema 2>&1; echo \"__exit__:$?\"")
     contains(refusal, "nupp lsp <operation> --schema", "asking the group for a schema says where to ask")
     contains(refusal, "__exit__:2", "and is a usage error")
 end

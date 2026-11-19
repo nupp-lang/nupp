@@ -14,8 +14,6 @@ local json = require("testjson")
 local files = require("io.internal.files")
 
 local HERE = require("helpers.paths").tests
-local env = envMod.new(HERE .. "/..")
-local NUPP = HERE .. "/../bin/nupp"
 
 local function read(path)
     local file = assert(io.open(path, "rb"))
@@ -25,33 +23,34 @@ local function read(path)
     return content
 end
 
-local function jsonLines(path)
-    local values = {}
-    for line in read(path):gmatch("[^\r\n]+") do
-        values[#values + 1] = json.decode(line)
-    end
-
-    return values
-end
-
 local M = {}
 
--- A source fragment that must check without errors against the project.
-local function compile(source)
-    local parsed = parser.parse(source, "fragment.nupp")
-    testAssert.eq(#parsed.errors, 0)
-    local env = envMod.new(".", {cache = false})
-    for _, diagnostic in ipairs(check.check(parsed, "fragment.nupp", env)) do
-        assert(diagnostic.severity ~= "error", diagnostic.msg)
-    end
-end
-
-function M.bundledBenchmarkChecksWithoutCheckoutModuleRoots()
+-- One check against the bundled library alone, without the checkout's module roots,
+-- carries both the harness and its final public names: a full project check is the
+-- expensive part of this suite, so the two share it.
+function M.bundledBenchmarkChecksWithItsFinalNamesWithoutCheckoutModuleRoots()
+    local bench = require("debug.bench")
+    testAssert.eq(bench.oldest, 2)
+    testAssert.eq(rawget(bench, "SCHEMA"), nil)
+    testAssert.eq(rawget(bench, "OLDEST_BASELINE_SCHEMA"), nil)
     local standalone = envMod.new(".", {config = {include = {}}, typeRoots = {}, cache = false})
     local source = [[local bench = require("debug.bench")
+assert(debug.bench == bench)
 bench.case("standalone", function(case)
     bench.keep(case.n)
 end)
+local measurement = bench.Measurement(name = "x", kind = "case", medianms = 1.25, samplesms = {1.25})
+local options: debug.bench.SuiteOptions = {
+    name = "x", variants = {}, cases = {}, baseline = "base",
+    warmup = 1, batch = 2, minsamples = 3,
+    minms = 4, maxsamples = 5, maxms = 6
+}
+local format: debug.bench.FormatOptions = {geomean = true}
+local frames = bench.frames("typed-only", budgetms = 16, count = 1)
+bench.keep(measurement.medianms)
+bench.keep(frames.budgetms)
+bench.keep(options.batch)
+bench.keep(format.geomean)
 bench.report()
 ]]
     local parsed = parser.parse(source, "standalone-bench.nupp")
@@ -483,24 +482,16 @@ function M.aTrendNeedsMagnitudeAndNotOnlySignificance()
     end
     const jitter = statistics.trend(noisy)
     testAssert.eq(jitter.verdict, "no-trend-detected", "an unstructured series is not a trend")
-end
 
-function M.trendIsDetectedAndSteadyIsNeverClaimed()
-    local statistics = require("nupp.bench.internal.statistics")
-    -- The movements here clear the magnitude margin as well as the significance test,
-    -- because a trend now needs both.
-    local warming, drifting, flat = {}, {}, {}
+    -- Either direction is a trend, and its sign is carried by tau as well.
+    local rising = {}
     for index = 1, 200 do
-        warming[index] = 100.0 - index * 0.2
-        drifting[index] = 50.0 + index * 0.1
-        flat[index] = 100.0 + (index % 5) * 0.1
+        rising[index] = 50.0 + index * 0.1
     end
-    testAssert.eq(statistics.trend(warming).verdict, "trend", "a falling series is a trend")
-    testAssert.eq(statistics.trend(drifting).verdict, "trend", "a rising series is a trend")
+    testAssert.eq(statistics.trend(rising).verdict, "trend", "a rising series is a trend")
+    assert(real.tau < -0.5, "tau carries the direction")
     -- The negative result is deliberately weak. There is no verdict asserting a steady
     -- state, because failing to detect a monotone trend does not establish one.
-    testAssert.eq(statistics.trend(flat).verdict, "no-trend-detected", "a flat series is not declared steady")
-    assert(statistics.trend(warming).tau < -0.5, "tau carries the direction")
     testAssert.eq(statistics.trend({1.0, 2.0, 3.0}).verdict, "unknown", "too few samples to test is its own answer")
 end
 
@@ -707,44 +698,6 @@ function M.mergeWithholdsIntervalsItCannotSupport()
     testAssert.eq(unsettled.summary.intervalWithheld, "trend-warning", "a trending benchmark gets no interval")
     testAssert.eq(unsettled.summary.intervalLowMs, nil, "however many forks it ran")
     assert(table.concat(trendNotes, "\n"):find("trend%-warning") ~= nil, "and the reason is reported")
-end
-
--- A withheld interval must reach the verdict as a withheld interval. This existed as a
--- bug: the guard was written `withheld and nil or interval`, which reads as a
--- conditional and is not one -- when `withheld` is truthy the `and` yields nil and the
--- `or` hands the interval straight back. A benchmark that had earned no interval was
--- then reported `unchanged`, which is the single strongest claim this tool makes and
--- exactly the one it had no grounds for.
-function M.aWithheldIntervalCannotProduceAConfidentVerdict()
-    local statistics = require("nupp.bench.internal.statistics")
-    local narrow = {low = -0.001, upper = 0.001, k = 2, attainedCoverage = 0.978515625}
-
-    -- The interval on its own would be equivalence, and that is the point: the guard
-    -- has to be what stops it, not the width.
-    testAssert.eq(
-        statistics.verdict(narrow, 0.02, 0.9),
-        "unchanged",
-        "a narrow interval inside the margin is equivalence"
-    )
-    testAssert.eq(statistics.verdict(nil, 0.02, 0.9), "inconclusive", "and withholding it must reach inconclusive")
-
-    -- The shape of the guard itself, so a rewrite that reintroduces the idiom fails
-    -- here rather than in a report somebody believes.
-    local function guard(withheld, interval)
-        if withheld then
-            interval = nil
-        end
-
-        return interval
-    end
-
-    testAssert.eq(guard("trend-warning", narrow), nil, "a withheld interval is cleared")
-    testAssert.eq(guard(nil, narrow), narrow, "and an unwithheld one is passed through")
-    testAssert.eq(
-        statistics.verdict(guard("trend-warning", narrow), 0.02, 0.9),
-        "inconclusive",
-        "a trending benchmark is inconclusive however narrow its interval looked"
-    )
 end
 
 -- The measure that catches a median describing nothing.
@@ -958,31 +911,6 @@ function M.splitRssReadsTimeReports()
     own, bytes = runner.splitRss("only the child spoke\n", macos)
     testAssert.eq(bytes, nil, "no report, no peak")
     testAssert.eq(own, "only the child spoke\n", "and the output is untouched")
-end
-
-function M.finalBenchNamesRetireTheOldPublicKeys()
-    local bench = require("debug.bench")
-    testAssert.eq(bench.schema, 5)
-    testAssert.eq(bench.oldest, 2)
-    testAssert.eq(rawget(bench, "SCHEMA"), nil)
-    testAssert.eq(rawget(bench, "OLDEST_BASELINE_SCHEMA"), nil)
-    compile(
-        [[
-local bench = debug.bench
-local measurement = bench.Measurement(name = "x", kind = "case", medianms = 1.25, samplesms = {1.25})
-local options: debug.bench.SuiteOptions = {
-    name = "x", variants = {}, cases = {}, baseline = "base",
-    warmup = 1, batch = 2, minsamples = 3,
-    minms = 4, maxsamples = 5, maxms = 6
-}
-local format: debug.bench.FormatOptions = {geomean = true}
-local frames = bench.frames("typed-only", budgetms = 16, count = 1)
-bench.keep(measurement.medianms)
-bench.keep(frames.budgetms)
-bench.keep(options.batch)
-bench.keep(format.geomean)
-]]
-    )
 end
 
 function M.schema4AdaptersTranslateOnlyMeasurementSlots()

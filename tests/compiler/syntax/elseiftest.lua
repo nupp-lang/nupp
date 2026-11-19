@@ -164,14 +164,11 @@ end
     )
 end
 
-function M.canBeAllowedByNameOrCode()
-    assertQuiet('@allow("else-if")\n' .. CHAIN, "allowed by name")
-    assertQuiet("@allow(NUPP2510)\n" .. CHAIN, "allowed by code")
-    assertQuiet(ADJACENT:gsub("if c == \"a\"", '@allow("else-if")\nif c == "a"'), "adjacent form allowed by name")
-end
-
-function M.canBeTurnedOff()
-    testAssert.eq(#lint(CHAIN, {lints = {["else-if"] = "off"}}), 0, "a disabled lint says nothing")
+-- Allowing by name or code and moving a lint's level are allowtest's; what is
+-- particular here is where each form's report is allowed from.
+function M.eachFormIsAllowedWhereItStarts()
+    assertQuiet('@allow("else-if")\n' .. CHAIN, "allowed at the outer if")
+    assertQuiet(ADJACENT:gsub("if c == \"a\"", '@allow("else-if")\nif c == "a"'), "allowed at the first if")
 end
 
 return M

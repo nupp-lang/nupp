@@ -109,13 +109,11 @@ return 17
 end
 
 function M.executesBothTypeBuilderSurfacesAndAliases()
-    for _, root in ipairs({"types"}) do
-        test.eq(
-            run(
-                (
-                    [[
+    test.eq(
+        run(
+            [[
 @comptime local function Items(Element: type): type
-    local builders = ROOT
+    local builders = types
     local array = builders.array
     return array(Element)
 end
@@ -123,31 +121,25 @@ local type Names = Items(string)
 local values: Names = {"one", "two"}
 return #values
 ]]
-                ):gsub("ROOT", root)
-            ),
-            2
-        )
-    end
+        ),
+        2
+    )
 end
 
 function M.reflectsThroughBothCallableSurfacesAndLocalAliases()
-    for _, root in ipairs({"types.reflect"}) do
-        test.eq(
-            run(
-                (
-                    [[
+    test.eq(
+        run(
+            [[
 local record Point x: integer end
 local count = comptime do
-    local reflect = ROOT
+    local reflect = types.reflect
     return #reflect(Point).fields
 end
 return count
 ]]
-                ):gsub("ROOT", root)
-            ),
-            1
-        )
-    end
+        ),
+        1
+    )
 end
 
 function M.keepsOwnershipAliasesIntrinsicAndLocalShadowsOrdinary()
@@ -211,13 +203,8 @@ return 17
         HERE .. "/../src/nupp/compiler/apiidentityfixture.nupp"
     )
     test.eq(errors, "", errors)
-    for _, root in ipairs({"types.derive"}) do
-        local source = ([[
-return ROOT.entry()
-]]):gsub("ROOT", root)
-        local _, recipeErrors = compile(source)
-        assert(recipeErrors:find("NUPP2809", 1, true), recipeErrors)
-    end
+    local _, recipeErrors = compile("return types.derive.entry()\n")
+    assert(recipeErrors:find("NUPP2809", 1, true), recipeErrors)
 end
 
 function M.preservesLazyExplicitModuleRequires()
@@ -751,19 +738,13 @@ local record Point label: string end
 end
 
 function M.reflectionParsesFinalGenericTypeArguments()
-    for _, root in ipairs({"types.reflect"}) do
-        test.eq(
-            run(
-                (
-                    [[
+    test.eq(
+        run([[
 local record Box<T> value: T end
-return comptime do return #ROOT(Box<string>).fields end
-]]
-                ):gsub("ROOT", root)
-            ),
-            1
-        )
-    end
+return comptime do return #types.reflect(Box<string>).fields end
+]]),
+        1
+    )
 end
 
 function M.assertionAliasesPreserveTheWholeResultPack()
@@ -860,21 +841,19 @@ debug.log.info("value=%d", 1)
 end
 
 function M.resolvesConstraintIntrinsicsWithoutAProjectEnvironment()
-    for _, root in ipairs({"types"}) do
-        local function diagnostics(prefix, expression)
-            local source = prefix .. "\nlocal type Count = " .. root .. expression
-            local parsed = parser.parse(source, "constraint-fragment.nupp")
-            test.eq(#parsed.errors, 0)
-            return checker.check(parsed, "constraint-fragment.nupp", nil, {strict = false})
-        end
-
-        local clean = diagnostics("", ".range(integer, 0, 10)")
-        test.eq(#clean, 0)
-        local invalid = diagnostics("", ".range(integer, 10, 0)")
-        test.eq(invalid[1].code, "NUPP2422")
-        local shadow = diagnostics("local " .. root:match("^[^.]+") .. " = {}", ".range(integer, 0, 10)")
-        test.eq(shadow[1].code, "NUPP2421")
+    local function diagnostics(prefix, expression)
+        local source = prefix .. "\nlocal type Count = types" .. expression
+        local parsed = parser.parse(source, "constraint-fragment.nupp")
+        test.eq(#parsed.errors, 0)
+        return checker.check(parsed, "constraint-fragment.nupp", nil, {strict = false})
     end
+
+    local clean = diagnostics("", ".range(integer, 0, 10)")
+    test.eq(#clean, 0)
+    local invalid = diagnostics("", ".range(integer, 10, 0)")
+    test.eq(invalid[1].code, "NUPP2422")
+    local shadow = diagnostics("local types = {}", ".range(integer, 0, 10)")
+    test.eq(shadow[1].code, "NUPP2421")
 end
 
 function M.lowercaseDeriveAnnotationtypeKeepsItsCheckedOperation()
@@ -1085,62 +1064,57 @@ function M.canonicalWorkKeepsTheWorkerCallSurfaceAndRetiresFork()
     test.eq(surfaces.work.effect, "runtime.workers")
     test.eq(surfaces.work.rotate, true)
     test.eq(surfaces.work.sendableLast, true)
-    for _, member in ipairs({"work"}) do
-        local source = (
-            [[
+    local _, errors, parsed = compile(
+        [[
 module acceptingwork
 export function submit(borrows scope: coroutine.Scope): (integer, string?, nil)
-    local task = scope:%s(7, function(value: integer): (integer, string?, nil)
+    local task = scope:work(7, function(value: integer): (integer, string?, nil)
         return value + 1, "tail", nil
     end)
     local done: boolean = task:isdone()
     return task:await()
 end
-]]
-        ):format(member)
-        local _, errors, parsed = compile(source, nil, "acceptingwork.nupp")
-        test.eq(errors, "", errors)
-        local found = {}
+]],
+        nil,
+        "acceptingwork.nupp"
+    )
+    test.eq(errors, "", errors)
+    local found = {}
 
-        local function visit(node)
-            if type(node) ~= "table" or not node.kind then
-                return
-            end
-            if node.trailingCallableCall then
-                found[#found + 1] = node
-            end
-            for _, child in ipairs(node) do
-                visit(child)
-            end
+    local function visit(node)
+        if type(node) ~= "table" or not node.kind then
+            return
         end
+        if node.trailingCallableCall then
+            found[#found + 1] = node
+        end
+        for _, child in ipairs(node) do
+            visit(child)
+        end
+    end
 
-        visit(parsed.root)
-        test.eq(#found, 1)
-        test.eq(found[1].trailingCallableMember, member)
-        test.eq(found[1].compilerFeatureEffect, "runtime.workers")
-        local _, escaping = compile(
-            (
-                [[
+    visit(parsed.root)
+    test.eq(#found, 1)
+    test.eq(found[1].trailingCallableMember, "work")
+    test.eq(found[1].compilerFeatureEffect, "runtime.workers")
+    local _, escaping = compile(
+        [[
 module acceptingescape
 export function escape(borrows scope: coroutine.Scope): coroutine.Task<function(): integer>
-    return scope:%s(function(): integer return 1 end)
+    return scope:work(function(): integer return 1 end)
 end
 ]]
-            ):format(member)
-        )
-        assert(escaping:find("NUPP2608", 1, true), escaping)
-        local _, capture = compile(
-            (
-                [[
+    )
+    assert(escaping:find("NUPP2608", 1, true), escaping)
+    local _, capture = compile(
+        [[
 module acceptingcapture
 export function refuse(borrows scope: coroutine.Scope, value: thread): nil
-    scope:%s(function(): thread return value end)
+    scope:work(function(): thread return value end)
 end
 ]]
-            ):format(member)
-        )
-        assert(capture ~= "" and capture:find("thread", 1, true), capture)
-    end
+    )
+    assert(capture ~= "" and capture:find("thread", 1, true), capture)
     local _, retired = compile(
         [[
 local function stale(borrows scope: coroutine.Scope): nil

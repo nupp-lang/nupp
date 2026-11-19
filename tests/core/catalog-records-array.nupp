@@ -1,8 +1,13 @@
 module nupp.core.catalogrecordsarray
 
--- A record with an array part, as the parser's tree nodes are: its fields
--- and its integer-keyed elements live side by side, and neither overwrites
--- the other.
+-- Array parts beside named fields, as the compiler's syntax nodes and
+-- construction wrappers are built. A record with an array part keeps its
+-- fields and its integer-keyed elements apart, iteration sees the array
+-- alone, and a field the instance never set reads nil, through the record
+-- and through a dynamic value; one without an array part answers nil at
+-- every integer key; and a table constructor mixing named fields and
+-- positional items makes the positional item the first array element
+-- whatever the fields around it read. Each check is a bit.
 local record Node
     {string}
 
@@ -11,28 +16,124 @@ local record Node
     label: string?
 end
 
+local record Leaf
+    id: string = ""
+    hasNil: boolean
+end
+
+local record Item
+    {Leaf | string}
+    kind: string
+    note: string?
+    detail: any
+    leaf: Leaf?
+end
+
+local record Named
+    id: string = ""
+    tag: string
+    byname: {[string]: any}
+    writeByname: {[string]: any}
+    note: string?
+end
+
 local score: integer = 0
+local bit: integer = 1
+
+local function check(ok: boolean): nil
+    if ok then
+        score = score | bit
+    end
+    bit = bit << 1
+end
+
+-- Fields and elements side by side.
 local node = Node(kind = "args")
 node[1] = "first"
 node[#node + 1] = "second"
 node.count = #node
-if node.kind == "args" and node[1] == "first" and node[2] == "second" then
-    score = score + 1
-end
-if node.count == 2 and node.label == nil then
-    score = score + 2
-end
+check(node.kind == "args" and node[1] == "first" and node[2] == "second")
+check(node.count == 2 and node.label == nil)
 local seen: {string} = {}
 for _, child in ipairs(node) do
     seen[#seen + 1] = child
 end
-if table.concat(seen, ",") == "first,second" then
-    score = score + 4
-end
+check(table.concat(seen, ",") == "first,second")
 node.label = "named"
 node[3] = "third"
-if node.label == "named" and #node == 3 and node.kind == "args" then
-    score = score + 8
+check(node.label == "named" and #node == 3 and node.kind == "args")
+
+-- Iteration over the array alone, and fields never set.
+local item = Item(kind = "item")
+item[1] = "a"
+item[2] = Leaf(hasNil = true)
+item.leaf = Leaf(hasNil = false)
+local n = 0
+for _, v in ipairs(item as any) do
+    n = n + 1
+    if type(v) ~= "string" and type(v) ~= "table" then
+        n = n + 100
+    end
 end
+check(n == 2)
+check(item.note == nil and item.detail == nil)
+local dynamicitem: any = item
+check(dynamicitem.note == nil and dynamicitem.comptimeValue == nil and dynamicitem.materializedIR == nil)
+local leaf: any = item[2]
+check(leaf.comptimeValue == nil and leaf.kind == nil and leaf.hasNil == true)
+local walked: {[any]: boolean} = {}
+local visited = 0
+
+local function walk(value: any): nil
+    if type(value) ~= "table" or walked[value] then
+        return
+    end
+    walked[value] = true
+    visited = visited + 1
+    if value.comptimeValue ~= nil or value.materializedIR ~= nil then
+        visited = visited + 100
+    end
+    for _, v in ipairs(value) do
+        walk(v)
+    end
+end
+
+walk(item)
+check(visited == 2)
+
+-- A record without an array part, read at integer keys.
+local named = Named(tag = "nominal", byname = {kind = {}}, writeByname = {kind = {}})
+local dynamic: any = named
+check(dynamic[1] == nil and dynamic[2] == nil and dynamic[3] == nil)
+local count = 0
+for _ in ipairs(dynamic) do
+    count = count + 1
+end
+check(count == 0)
+check(#dynamic == 0)
+check(dynamic.kind == nil and dynamic.tag == "nominal")
+
+-- Constructors mixing named fields and positional items.
+local function wrap(value: any): any
+    return {kind = "newExpr", call = value, inferredType = value.inferredType, value}
+end
+
+local function wrapFirst(value: any): any
+    return {value, kind = "newExpr", call = value, inferredType = value.inferredType}
+end
+
+local function wrapTwo(value: any, other: any): any
+    return {kind = "pair", value, first = value.inferredType, other, last = other.kind}
+end
+
+local inner: any = {kind = "call", inferredType = {tag = "nominal", fields = {a = 1}}}
+local other: any = {kind = "other"}
+local wrapped = wrap(inner)
+check(#wrapped == 1 and wrapped[1] == inner and wrapped[2] == nil and wrapped.call == inner)
+check(wrapped.inferredType == inner.inferredType and wrapped.kind == "newExpr")
+local first = wrapFirst(inner)
+check(#first == 1 and first[1] == inner and first.inferredType == inner.inferredType)
+local two = wrapTwo(inner, other)
+check(#two == 2 and two[1] == inner and two[2] == other and two.first == inner.inferredType and two.last == "other")
 
 export const result = score

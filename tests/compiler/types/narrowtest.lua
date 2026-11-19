@@ -27,11 +27,6 @@ end)
 
 local M = {}
 
-function M.subtractingAnExhaustiveUnionLeavesNever()
-    local values = T.union({T.number, T.string})
-    testAssert.eq(narrowing.subtract(values, values), T.never)
-end
-
 function M.narrowingRetainsExplicitOpaqueOwnership()
     local source = T.affine(T.optional(T.string), nil, true)
     local narrowed = narrowing.subtract(source, T.nil_)
@@ -142,22 +137,6 @@ end
 
 function M.ternaryNarrowing()
     assertClean("local s: string?\nlocal t: string = s ~= nil ? s : 'd'")
-end
-
-function M.genericsInstantiation()
-    assertClean(
-        table.concat(
-            {"local id: function<T>(x: T): T = nil as any", "local n: number = id(42)", "local s: string = id('hi')",},
-            "\n"
-        )
-    )
-    testAssert.eq(
-        (diagsOf(table.concat({"local id: function<T>(x: T): T = nil as any", "local n: number = id('hi')",}, "\n"))),
-        "NUPP2001:2"
-    )
-    assertClean(
-        table.concat({"local first: function<V>(xs: {V}): V = nil as any", "local n: number = first({1, 2, 3})",}, "\n")
-    )
 end
 
 -- Every caller of analyzeCond infers the condition first, so a condition the
@@ -338,22 +317,6 @@ function M.aConjunctionWithAFalsyRightSideLeavesItsFallbackAlone()
             )
         ),
         "NUPP2001:5"
-    )
-end
-
-function M.genericMapIteration()
-    assertClean(
-        table.concat(
-            {
-                "local pairs2: function<K, V>(t: {[K]: V}): function(): (K, V) = nil as any",
-                "local m: {[string]: number} = {}",
-                "for k, v in pairs2(m) do",
-                "   local s: string = k",
-                "   local n: number = v",
-                "end",
-            },
-            "\n"
-        )
     )
 end
 

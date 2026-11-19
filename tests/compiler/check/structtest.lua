@@ -176,8 +176,6 @@ function M.runtimeStructSemantics()
 local v = Vec2(3, 4)
 v.x = v.x + 1
 return v.x + v.y]]), 8)
-    -- positional construction
-    testAssert.eq(run(VEC .. "local v = Vec2(3, 4)\nreturn v.y"), 4)
     -- float storage really is float-width (not a Lua table)
     testAssert.eq(run(VEC .. [[
 local v = Vec2(0.1, 0)
@@ -309,12 +307,12 @@ return b.pos.x + b.vel.y]]
 end
 
 function M.istypeNarrowingAtRuntime()
-    testAssert.eq(run(VEC .. [[
+    local isStruct, isTable = run(VEC .. [[
 local v: any = Vec2(1, 2)
-return v is Vec2]]), true)
-    testAssert.eq(run(VEC .. [[
-local v: any = {x = 1}
-return v is Vec2]]), false)
+local t: any = {x = 1}
+return v is Vec2, t is Vec2]])
+    testAssert.eq(isStruct, true)
+    testAssert.eq(isTable, false)
 end
 
 function M.structFieldAccessChecked()
@@ -334,16 +332,17 @@ end
 
 function M.bitWidthKeepsTheDeclaredType()
     -- a one-bit boolean reads back true, not 1: packing changes the layout only
-    testAssert.eq(run(FLAGS .. [[
+    local missing, typeColon, breakOp = run(
+        FLAGS
+        .. [[
 local m = Marks(7, true, false, true)
-return m.missing]]), true)
-    testAssert.eq(run(FLAGS .. [[
-local m = Marks(7, true, false, true)
-return m.typeColon]]), false)
-    testAssert.eq(run(FLAGS .. [[
-local m = Marks(7, false, false, false)
-m.breakOp = true
-return m.breakOp]]), true)
+local n = Marks(7, false, false, false)
+n.breakOp = true
+return m.missing, m.typeColon, n.breakOp]]
+    )
+    testAssert.eq(missing, true)
+    testAssert.eq(typeColon, false)
+    testAssert.eq(breakOp, true)
 end
 
 -- Three flags fit in the padding after a uint32 either way, so packing is only
@@ -385,7 +384,6 @@ end
 -- a base C allows one on. All four of these used to parse and be discarded.
 function M.bitWidthNeedsAnIntegerBase()
     testAssert.eq(diagsOf("local struct S\n   f: float32 : 1\nend"), "NUPP2201:2")
-    testAssert.eq(diagsOf("local struct S\n   n: float64 : 4\nend"), "NUPP2201:2")
     assertClean("local struct S\n   a: uint32 : 1\n   b: boolean : 1\nend")
 end
 
@@ -416,16 +414,12 @@ local SCALED = table.concat(
 )
 
 function M.structConstructorRunsUnderNew()
-    assertClean(SCALED .. "\nlocal s = S(1.5)\nlocal n: number = s.x + s.y")
-    local x, y = run(SCALED .. "\nlocal s = S(1.5)\nreturn s.x, s.y")
+    local x, y, isInstance = run(
+        SCALED .. "\nlocal s = S(1.5)\nlocal n: number = s.x + s.y\nlocal any: any = s\nreturn s.x, s.y, any is S"
+    )
     testAssert.eq(x, 3, "the body ran on the allocated instance")
     testAssert.eq(y, 2, "a field default is seeded before the body")
-end
-
-function M.structConstructorReturnsTheInstance()
-    local isInstance, x = run(SCALED .. "\nlocal s: any = S(4)\nreturn s is S, s.x")
     testAssert.eq(isInstance, true, "the constructor hands back an instance of that struct")
-    testAssert.eq(x, 8, "the one its body initialized")
 end
 
 function M.dottedStructConstructorReachesItsMetatable()

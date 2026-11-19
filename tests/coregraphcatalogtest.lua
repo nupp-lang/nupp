@@ -8,11 +8,13 @@ local contracts = require("nupp.compiler.vm.coregraphcontracts")
 local codec = require("nupp.compiler.vm.coregraphcodec")
 local schema = require("nupp.compiler.vm.coregraphschema")
 local verify = require("nupp.compiler.vm.coregraphverify")
+local shape = require("nupp.compiler.vm.coregraphshape")
 local M = {}
 local NONE = 4294967295
 
-local function normalized(source)
-    local path, name = "=core_catalog_fixture.nupp", "core_catalog_fixture"
+local function normalized(source, name)
+    name = name or "core_catalog_fixture"
+    local path = "=" .. name .. ".nupp"
     local parsed = parser.parse(
         source or "local function identity(value: boolean): boolean return value end\nreturn identity(true)",
         path
@@ -374,15 +376,234 @@ function M.callCycleRefusesWithoutScalarAuthentication()
     )
 end
 
-function M.absentReturnAndExplicitNilRemainDistinct()
-    for _, source in ipairs({"return", "return nil"}) do
-        local bytes = fixture(source)
-        codec.validateCatalog(bytes)
-        local graph = codec.decode(bytes).graphs[1]
-        local returned = graph.blocks[#graph.blocks].term
-        test.eq(returned.kind, "return")
-        test.eq(returned.value ~= nil, source == "return nil")
+-- ---- physical shape admission -----------------------------------------------
+
+local function shapeFixture()
+    return codec.encode(normalized(nil, "core_shape_fixture"))
+end
+
+function M.actualCheckedGraphHasPhysicalShape()
+    local bytes = shapeFixture()
+    local tables, wire = rows(bytes)
+    local before = codec.encode(codec.decode(bytes))
+    local result = shape.rows(tables, wire, 0)
+    test.eq(result.records, codec.validateShape(bytes).records)
+    assert(result.expansion > 0 and result.stringExpansion > 0)
+    test.eq(codec.encode(codec.decode(bytes)), before)
+end
+
+function M.rolesComeFromCanonicalDescriptors()
+    local wire = schema.wire()
+    local kinds = {}
+    for _, kind in ipairs(wire.shape.roles) do
+        kinds[kind] = true
     end
+    for _, section in ipairs(wire.sections) do
+        for _, field in ipairs(section.fields) do
+            assert(kinds[field.role.kind])
+            if field.role.target then
+                assert(wire.sections[field.role.target + 1])
+            end
+            if field.kind == "zero" then
+                test.eq(field.role.kind, "zero")
+            end
+            if field.kind == "u64" then
+                test.eq(field.role.kind, "bounded64")
+            end
+        end
+    end
+end
+
+function M.globalReferenceAndEnumBounds()
+    local bytes = shapeFixture()
+    local _, _, offsets = rows(bytes)
+    for _, mutation in ipairs({
+        {"catalog", "parent"},
+        {"catalog", "signature"},
+        {"catalog", "graph"},
+        {"contracts", "owner"},
+        {"contracts", "target"},
+        {"contracts", "signature"},
+        {"modules", "chunk"},
+        {"graphs", "owner"}
+    }) do
+        refuses(
+            function()
+                codec.validateShape(patch(bytes, field(offsets, mutation[1], 1, mutation[2]), 0xfffffffe))
+            end,
+            "reference"
+        )
+    end
+    for _, mutation in ipairs({
+        {"catalog", "kind"},
+        {"catalog", "effect"},
+        {"signatures", "kind"},
+        {"signatures", "result"},
+        {"constants", "kind"},
+        {"operations", "opcode"},
+        {"terms", "kind"}
+    }) do
+        refuses(
+            function()
+                codec.validateShape(patch(bytes, field(offsets, mutation[1], 1, mutation[2]), NONE))
+            end,
+            "enum"
+        )
+    end
+end
+
+function M.localSsaRemainsASeparateGate()
+    local bytes = shapeFixture()
+    local _, _, offsets = rows(bytes)
+    local changed = patch(bytes, field(offsets, "operations", 1, "dst"), 0xfffffffe)
+    assert(codec.validateShape(changed))
+    refuses(function()
+        codec.decode(changed)
+    end)
+end
+
+function M.ownedRowsCannotAliasOrDisappear()
+    local tables, wire = rows(shapeFixture())
+    tables.blocks[2].term = tables.blocks[1].term
+    refuses(
+        function()
+            shape.rows(tables, wire, 0)
+        end,
+        "overlapping"
+    )
+    tables, wire = rows(shapeFixture())
+    tables.graphs[1].blocksCount = 0
+    refuses(
+        function()
+            shape.rows(tables, wire, 0)
+        end,
+        "unused section record blocks"
+    )
+end
+
+function M.optionalNoneAndNonzeroEmptySpanRemainAccepted()
+    local bytes = shapeFixture()
+    local _, _, offsets = rows(bytes)
+    test.eq(read(bytes, field(offsets, "blocks", 1, "paramsCount")), 0)
+    local changed = patch(bytes, field(offsets, "blocks", 1, "paramsFirst"), offsets.words.count)
+    assert(codec.validateShape(changed))
+    test.eq(codec.encode(codec.decode(changed)), bytes)
+    local tables, wire = rows(bytes)
+    test.eq(tables.catalog[1].parent, NONE)
+    assert(shape.rows(tables, wire, 0))
+end
+
+function M.reservedAndHighLimbsRefuse()
+    local bytes = shapeFixture()
+    local _, _, offsets = rows(bytes)
+    refuses(
+        function()
+            codec.validateShape(patch(bytes, field(offsets, "strings", 1, "offset") + 4, 1))
+        end,
+        "high limb"
+    )
+    refuses(
+        function()
+            codec.validateShape(patch(bytes, field(offsets, "strings", 1, "reserved"), 1))
+        end,
+        "reserved"
+    )
+end
+
+function M.stringPartitionAndUnusedRowsRefuse()
+    local tables, wire = rows(shapeFixture())
+    tables.strings[1].offset = 1
+    refuses(
+        function()
+            shape.rows(tables, wire, 0)
+        end,
+        "partition"
+    )
+    tables, wire = rows(shapeFixture())
+    tables.strings[#tables.strings + 1] = {offset = #tables.bytes, bytes = 1, reserved = 0}
+    tables.bytes = tables.bytes .. "\255"
+    refuses(
+        function()
+            shape.rows(tables, wire, 0)
+        end,
+        "unused section record strings"
+    )
+end
+
+function M.duplicateEmptyAndBinaryStringsRefuse()
+    for _, value in ipairs({"", "a", "a\0\255", string.rep("x", 4096)}) do
+        local tables, wire = rows(shapeFixture())
+        tables.strings = {{offset = 0, bytes = #value}, {offset = #value, bytes = #value}}
+        tables.bytes = value .. value
+        refuses(
+            function()
+                shape.rows(tables, wire, 0)
+            end,
+            "duplicate interned string"
+        )
+    end
+end
+
+function M.prefixStringsFitDerivedWorkBound()
+    local tables, wire = rows(shapeFixture())
+    local parts, offset = {}, 0
+    for index, row in ipairs(tables.strings) do
+        local value = string.rep("x", 4096 + index)
+        row.offset, row.bytes = offset, #value
+        offset = offset + #value
+        parts[#parts + 1] = value
+    end
+    tables.bytes = table.concat(parts)
+    local result = shape.rows(tables, wire, 0)
+    assert(result.byteWork > 0 and result.mergeWork > 0)
+end
+
+function M.repeatedStringReferencesConsumeExpandedBytes()
+    local tables, wire = rows(shapeFixture())
+    local id = #tables.strings
+    tables.strings[id + 1] = {offset = #tables.bytes, bytes = wire.shape.stringItemLimit}
+    tables.bytes = tables.bytes .. string.rep("z", wire.shape.stringItemLimit)
+    -- Each source record is uniquely owned; only its string value is shared.
+    local graph = tables.graphs[1]
+    local first = #tables.positions
+    graph.positionsFirst, graph.positionsCount = first, 6
+    for index = 1, 6 do
+        tables.positionSources[#tables.positionSources + 1] = {moduleName = id, path = id}
+        tables.positions[#tables.positions + 1] = {line = 1, column = 1, source = #tables.positionSources - 1}
+    end
+    for _, module in ipairs(tables.modules) do
+        module.name, module.path = id, id
+    end
+    for _, graph in ipairs(tables.graphs) do
+        graph.name, graph.module, graph.path = id, id, id
+    end
+    refuses(
+        function()
+            shape.rows(tables, wire, 0)
+        end,
+        "decoded string expansion"
+    )
+end
+
+function M.sparseRowsAndRootCapsRefuse()
+    local tables, wire = rows(shapeFixture())
+    tables.catalog[0] = tables.catalog[1]
+    refuses(
+        function()
+            shape.rows(tables, wire, 0)
+        end,
+        "sparse physical section"
+    )
+    tables, wire = rows(shapeFixture())
+    for index = 2, schema.limits().modules + 1 do
+        tables.modules[index] = tables.modules[1]
+    end
+    refuses(
+        function()
+            shape.rows(tables, wire, 0)
+        end,
+        "invalid owned section span"
+    )
 end
 
 return M

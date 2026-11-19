@@ -129,6 +129,8 @@ function M.wrapDoesNotCallAReplacementPublicResume()
     testAssert.eq(answer, 42)
 end
 
+-- What answers is the handler in force where the work was started, which a reader can
+-- point at, not whoever happens to resume it.
 function M.createCapturesTheCreatingHandler()
     local pending
 
@@ -236,21 +238,13 @@ function M.wrapSkipsClosedInstallationsAndDoesNotInheritAtResume()
 end
 
 function M.answersASynchronousSubscriptionDirectly()
+    -- Nothing is left to cancel, so requiring a closure for it would be requiring an
+    -- allocation for the case that never waits: a nil cancellation is accepted.
     local answer = coroutine.suspend("test", function(resume)
         resume(42)
         return nil
     end)
     testAssert.eq(answer, 42, "the value the subscription supplied")
-end
-
-function M.aSynchronousSubscriptionNeedsNoCancellation()
-    -- Nothing is left to cancel, so requiring a closure for it would be requiring an
-    -- allocation for the case that never waits.
-    local answer = coroutine.suspend("test", function(resume)
-        resume("done")
-        return nil
-    end)
-    testAssert.eq(answer, "done", "nil cancellation is accepted")
 end
 
 function M.doesNotConsultAHandlerWhenTheSubscriptionIsReady()
@@ -293,30 +287,9 @@ function M.parksThroughAnInstalledHandler()
     testAssert.eq(answer, "from the library", "and the value came through resume")
 end
 
-function M.blocksThroughASourceWhenNoHandlerIsInstalled()
-    local pending = nil
-    local source = suspension.source("test", 10, function()
-        if pending then
-            local resume = pending
-            pending = nil
-            resume("settled")
-            return 1
-        end
-
-        return 0
-    end)
-    local answer = coroutine.suspend("waiting", function(resume)
-        pending = resume
-        return function()
-        end
-    end)
-    source:release()
-    testAssert.eq(answer, "settled", "the built-in handler drove the source")
-end
-
 function M.keepsPollingWhileSourcesAnswerZero()
-    -- The bug this replaces: one unsuccessful poll was read as "nothing can progress",
-    -- which rejected every ordinary asynchronous wait.
+    -- With no handler installed the built-in one drives the sources, and one
+    -- unsuccessful poll is not "nothing can progress".
     local passes = 0
     local pending = nil
     local source = suspension.source("slow", 1, function()
@@ -336,7 +309,7 @@ function M.keepsPollingWhileSourcesAnswerZero()
         end
     end)
     source:release()
-    testAssert.eq(answer, "eventually", "three quiet passes did not stop it")
+    testAssert.eq(answer, "eventually", "the built-in handler drove the source through three quiet passes")
     assert(passes >= 4, "it kept polling: " .. passes)
 end
 
@@ -535,7 +508,7 @@ function M.reportsAHandlerThatReturnsWithoutResuming()
     )
 end
 
-function M.restoresTheHandlerOnTheWayOut()
+function M.restoresTheHandlerOnTheWayOutAndAfterAnError()
     testAssert.eq(require("nupp.suspension").handled(), false, "nothing installed to begin with")
     local handler = {
         park = function()
@@ -546,13 +519,7 @@ function M.restoresTheHandlerOnTheWayOut()
         return nil
     end)
     testAssert.eq(require("nupp.suspension").handled(), false, "and gone again after")
-end
 
-function M.restoresTheHandlerAfterAnError()
-    local handler = {
-        park = function()
-        end
-    }
     pcall(handled, handler, function()
         error("boom", 0)
     end)
@@ -601,7 +568,8 @@ end
 
 function M.doesNotLeakBetweenCoroutines()
     -- The extent is per-coroutine: a handler installed on one must not answer for a
-    -- suspension performed on another.
+    -- suspension performed on another, and one created outside any handler inherits
+    -- nothing from whoever resumes it.
     local handler = {
         park = function()
         end
@@ -615,39 +583,6 @@ function M.doesNotLeakBetweenCoroutines()
         return nil
     end)
     testAssert.eq(seen, false, "a coroutine does not inherit by accident")
-end
-
-function M.ordersSourcesByPriority()
-    local order = {}
-    local late = suspension.source("late", 20, function()
-        order[#order + 1] = "late"
-        return 0
-    end)
-    local early = suspension.source("early", 5, function()
-        order[#order + 1] = "early"
-        return 0
-    end)
-    local pending = nil
-    local settle = suspension.source("settle", 30, function()
-        if pending then
-            local resume = pending
-            pending = nil
-            resume(true)
-            return 1
-        end
-
-        return 0
-    end)
-    coroutine.suspend("waiting", function(resume)
-        pending = resume
-        return function()
-        end
-    end)
-    late:release()
-    early:release()
-    settle:release()
-    testAssert.eq(order[1], "early", "lowest order runs first")
-    testAssert.eq(order[2], "late", "then the rest")
 end
 
 function M.keepsSourceRegistrationOrderForExactTies()
@@ -751,46 +686,33 @@ function M.sourcesDoNotCollideByName()
     testAssert.eq(second, 2, "the other kept going")
 end
 
-function M.reportsAWaitNothingCanComplete()
-    -- With no pump registered and no synchronous resumption, nothing in this process
-    -- can complete the wait. A quiet *pass* is not the same thing and must not stop the
-    -- loop: a source answering zero means "not ready yet".
-    local ok, err = pcall(coroutine.suspend, "waiting", function()
-        return function()
-        end
-    end)
-    testAssert.eq(ok, false, "nothing can make this progress")
-    assert(
-        tostring(err):find("no readiness source", 1, true) ~= nil,
-        "and it says so rather than hanging: " .. tostring(err)
-    )
-end
+-- With no pump registered and no synchronous resumption, nothing in this process can
+-- complete the wait. A quiet *pass* is not the same thing and must not stop the loop: a
+-- source answering zero means "not ready yet".
+--
+-- The same holds once a timer has run. The timer wheel registers one source on first
+-- use and keeps it, so a process that has slept once has a pump registered for the
+-- rest of its life -- and a pump that always counted as something that could make
+-- progress meant this wait was never refused. It slept in one-millisecond slices
+-- instead, for as long as anyone was willing to wait: a test run took thirty-five
+-- minutes instead of two and a half when the shards packed a suite that sleeps beside
+-- one that asks for something nothing will answer.
+function M.reportsAWaitNothingCanCompleteBeforeAndAfterATimerHasRun()
+    local function refused(why)
+        local ok, err = pcall(coroutine.suspend, "waiting", function()
+            return function()
+            end
+        end)
+        testAssert.eq(ok, false, why)
+        assert(
+            tostring(err):find("no readiness source", 1, true) ~= nil,
+            "and it says so rather than hanging: " .. tostring(err)
+        )
+    end
 
--- The same, in a process that has already used a timer.
---
--- A pump that outlives its work is the case the refusal above could not see. The
--- timer wheel registers one source on first use and keeps it, so a process that
--- has slept once has a pump registered for the rest of its life -- and a pump
--- that always counted as something that could make progress meant this wait was
--- never refused. It slept in one-millisecond slices instead, for as long as
--- anyone was willing to wait.
---
--- Ordinary enough to happen by accident: one suite in a shard sleeps, a later one
--- asks for something nothing will answer, and the run stops. It cost a test run
--- thirty-five minutes instead of two and a half, and only when the shards
--- happened to pack those two suites into one process.
-function M.reportsAWaitNothingCanCompleteEvenAfterATimerHasRun()
+    refused("nothing can make this progress")
     require("coroutine").sleep(1)
-
-    local ok, err = pcall(coroutine.suspend, "waiting", function()
-        return function()
-        end
-    end)
-    testAssert.eq(ok, false, "an idle timer pump is not something that can make progress")
-    assert(
-        tostring(err):find("no readiness source", 1, true) ~= nil,
-        "and it says so rather than hanging: " .. tostring(err)
-    )
+    refused("an idle timer pump is not something that can make progress")
 end
 
 -- A pump registered through a subscription's context takes the same activity
@@ -829,49 +751,6 @@ function M.aContextSourceTakesAnActivityPredicate()
     assert(asked > 0, "the predicate was asked")
 end
 
-function M.aCreatedCoroutineInheritsTheHandler()
-    local handler = {
-        park = function()
-        end
-    }
-    local inside = nil
-    handled(handler, function()
-        local co = coroutine.create(function()
-            inside = require("nupp.suspension").handled()
-        end)
-        coroutine.resume(co)
-
-        return nil
-    end)
-    testAssert.eq(inside, true, "work started inside a handled extent is handled, not only the frames below it")
-end
-
-function M.inheritanceIsFixedAtCreationNotResumption()
-    -- What answers is the handler in force where the work was started, which a reader
-    -- can point at. A resumption-time rule would make a coroutine's behaviour depend on
-    -- whoever happened to resume it, which is invisible from the coroutine.
-    local outer = {
-        park = function()
-        end
-    }
-    local other = {
-        park = function()
-        end
-    }
-    local seen = nil
-    local outerInstallation = suspensionHost.install(outer)
-    local co = coroutine.create(function()
-        seen = require("nupp.suspension").handled()
-    end)
-    -- Resumed under a different handler, while the creating extent is still live.
-    handled(other, function()
-        coroutine.resume(co)
-        return nil
-    end)
-    outerInstallation:close()
-    testAssert.eq(seen, true, "it kept what it was created with")
-end
-
 function M.aCoroutineDoesNotUseAnExtentThatHasEnded()
     -- A coroutine may start long after the extent it was created under has closed.
     -- Using that handler then would add parks to bookkeeping nobody will release, so
@@ -888,15 +767,6 @@ function M.aCoroutineDoesNotUseAnExtentThatHasEnded()
     installation:close()
     coroutine.resume(co)
     testAssert.eq(seen, false, "a closed extent no longer answers for it")
-end
-
-function M.creatingOutsideAnyHandlerInheritsNothing()
-    local inside = nil
-    local co = coroutine.create(function()
-        inside = require("nupp.suspension").handled()
-    end)
-    coroutine.resume(co)
-    testAssert.eq(inside, false, "nothing to inherit, nothing inherited")
 end
 
 function M.aCoroutineMayInstallItsOwn()

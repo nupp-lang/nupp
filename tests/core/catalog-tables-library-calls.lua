@@ -2,7 +2,9 @@
 
 -- The table library calls a function __index, __newindex and __len, as Lua
 -- 5.5's does, in the order Lua's makes its accesses: a proxy's values live
--- in its store, and a trace names each access.
+-- in its store, and a trace names each access. It reads and writes through
+-- `__index` and `__newindex` tables too: a proxy's values are its backing
+-- table's.
 local store = {}
 local trace = {}
 local proxy = setmetatable({}, {
@@ -122,6 +124,7 @@ local yields = coroutine.wrap(function()
         })
         table.concat(blocked)
     end)
+
     return joined .. " " .. tostring(refusal)
 end)
 local answer = yields()
@@ -139,5 +142,23 @@ table.sort(proxy, function(x, y)
 end)
 if table.concat(store, ",") == "d,c,b,a" then
     score = score + 512
+end
+do
+    local backing = {10, 20, 30}
+    local viewed = setmetatable({}, {__index = backing, __newindex = backing})
+    local text = table.concat(viewed, ",", 1, 3)
+    local a, b, c = table.unpack(viewed, 1, 3)
+    table.insert(viewed, 1, 5)
+    local target = setmetatable({}, {__newindex = backing})
+    table.move({7, 8}, 1, 2, 2, target)
+    if text == "10,20,30" and a == 10 and b == 20 and c == 30 then
+        score = score + 1024
+    end
+    if backing[1] == 5 and backing[2] == 7 and backing[3] == 8 then
+        score = score + 2048
+    end
+    if rawget(viewed, 1) == nil and rawget(target, 2) == nil then
+        score = score + 4096
+    end
 end
 return score

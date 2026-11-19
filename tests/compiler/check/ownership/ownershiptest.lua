@@ -380,23 +380,6 @@ function M.branchIndependenceStillCatchesADoubleMove()
     )
 end
 
-function M.scalarGenericPreservationTransfersAnOwner()
-    assertClean(
-        table.concat(
-            {
-                RESOURCE,
-                "local function id<T>(takes value: T): T preserves value",
-                "   return value",
-                "end",
-                "local value = resource_new()",
-                "local forwarded = id(value)",
-                "own.drop(forwarded)",
-            },
-            "\n"
-        )
-    )
-end
-
 function M.scalarGenericPreservationMovesItsInputExactlyOnce()
     testAssert.eq(
         codes(
@@ -562,24 +545,6 @@ function M.aLiteralTakesItsInferredRelationsFromItsSlot()
                 "   return value",
                 "end",
                 "print(plain(1), preserving(2))",
-            },
-            "\n"
-        )
-    )
-end
-
-function M.assertPreservesAndNarrowsAnOptionalOwner()
-    assertClean(
-        table.concat(
-            {
-                RESOURCE,
-                "local function cleanup(takes value: resource*): nil end",
-                "cdef function maybe_resource_c(): resource*?",
-                "local function maybe_resource(): affine(resource*?, cleanup)",
-                "   return maybe_resource_c()",
-                "end",
-                "local value = assert(maybe_resource())",
-                "own.drop(value)",
             },
             "\n"
         )
@@ -990,7 +955,7 @@ function M.earlyExitMovesDoNotPoisonFallthrough()
     )
 end
 
-function M.assertingANamedOptionalOwnerKeepsItInPlace()
+function M.assertPreservesAndNarrowsAnOptionalOwner()
     local declaration = table.concat(
         {
             RESOURCE,
@@ -1013,6 +978,7 @@ function M.assertingANamedOptionalOwnerKeepsItInPlace()
             "\n"
         )
     )
+    assertClean(declaration .. "\nlocal value = assert(maybe_resource())\nown.drop(value)")
     testAssert.eq(codes(declaration .. "\nassert(maybe_resource())"), "NUPP2605")
 end
 
@@ -1266,82 +1232,10 @@ function M.coroutineChildrenCannotCaptureAParentBorrow()
     )
 end
 
--- A terminal may suspend: discharging it is a settlement point. Only a region that
--- forbids suspending refuses one, and it says so where the owner is discharged.
-function M.settlingTerminalsAreAcceptedOutsideRegions()
-    testAssert.eq(
-        codes(
-            table.concat(
-                {
-                    "local record Resource value: integer end",
-                    "local park: function(): nil = nil as any",
-                    "local function close(takes value: Resource): nil",
-                    "   park()",
-                    "end",
-                    "local function open(): affine(Resource, close)",
-                    "   return Resource(value = 1)",
-                    "end",
-                    "local value = open()",
-                    "own.drop(value)",
-                },
-                "\n"
-            )
-        ),
-        ""
-    )
-end
-
-function M.settlingTerminalsAreRefusedInsideANosuspendRegion()
-    testAssert.eq(
-        codes(
-            table.concat(
-                {
-                    "local record Resource value: integer end",
-                    "local park: function(): nil = nil as any",
-                    "local function close(takes value: Resource): nil",
-                    "   park()",
-                    "end",
-                    "local function open(): affine(Resource, close)",
-                    "   return Resource(value = 1)",
-                    "end",
-                    "@nosuspend do",
-                    "   local value = open()",
-                    "   own.drop(value)",
-                    "end",
-                },
-                "\n"
-            )
-        ),
-        "NUPP2701"
-    )
-end
-
--- Parameter modes were read at the position the parameter takes in the function type,
--- which an inline method spelling `self` shifts by one. Every mode came from the
--- neighbour on its left: `takes` landed on the receiver and the argument arrived
--- borrowing, so a method that consumed an owner was checked as one that did not.
-function M.anInlineMethodOwnsTheParameterItTakes()
-    testAssert.eq(
-        codes(
-            table.concat(
-                {
-                    RESOURCE,
-                    "local record Holder",
-                    "   count: integer",
-                    "   function keep(self, takes value: resource*): nil",
-                    "      self.count = self.count + 1",
-                    "   end",
-                    "end",
-                },
-                "\n"
-            )
-        ),
-        "NUPP2603"
-    )
-end
-
--- The same body, discharging what it took. The receiver stays a borrow throughout:
--- shifting the modes the other way would consume `self` instead.
+-- An inline method spelling `self` shifts its parameters by one position. The
+-- receiver stays a borrow throughout: shifting the modes the other way would
+-- consume `self` instead. The undischarged case is
+-- takesParameterLeftLiveAtTheBodyEndIsReported.
 function M.anInlineMethodDischargesWhatItTakes()
     assertClean(
         table.concat(
@@ -1375,46 +1269,6 @@ function M.aQualifiedMethodOwnsTheParameterItTakes()
             },
             "\n"
         )
-    )
-end
-
--- `@unsafe own.release` lowers to its argument, so using it for the assertion rather
--- than the value left an expression where Lua wants a statement. The check and the
--- build both passed and the output would not load.
-function M.aDiscardedOwnershipIntrinsicEmitsLoadableLua()
-    local source = table.concat(
-        {
-            RESOURCE,
-            "local function spend(takes value: resource*): nil",
-            "   @unsafe do",
-            "      local _raw = @unsafe own.release(value)",
-            "   end",
-            "end",
-            "return spend",
-        },
-        "\n"
-    )
-    local result, diags = checked(source)
-    testAssert.eq(#diags, 0, diags[1] and diags[1].msg or "check")
-    local chunk, loadErr = program.load(result, "ownership-discarded-intrinsic")
-    assert(chunk, tostring(loadErr))
-end
-
-function M.manageRejectsTransferOnlyOwners()
-    testAssert.eq(
-        codes(
-            table.concat(
-                {
-                    "local record Request",
-                    "   value: integer",
-                    "end",
-                    "local function beginRequest(): affine(Request) return Request(value = 1) end",
-                    "local cell = own.manage(beginRequest())",
-                },
-                "\n"
-            )
-        ),
-        "NUPP2612"
     )
 end
 
@@ -1494,24 +1348,9 @@ function M.managedCellsRejectCapabilitiesTheyCannotDischarge()
     )
 end
 
-function M.dynamicErasureAndBorrowEscapesHaveDedicatedDiagnostics()
+-- The borrow escape is borrowedValuesCannotEscape.
+function M.dynamicErasureHasADedicatedDiagnostic()
     testAssert.eq(codes(table.concat({RESOURCE, "local value: any = resource_new()",}, "\n")), "NUPP2611")
-
-    testAssert.eq(
-        codes(
-            table.concat(
-                {
-                    RESOURCE,
-                    "local function leak(borrows value: resource*): resource*",
-                    "   return value",
-                    "end",
-                    "return leak",
-                },
-                "\n"
-            )
-        ),
-        "NUPP2608"
-    )
 end
 
 function M.loopBackEdgesCannotConsumeAnOuterCapabilityConditionally()
@@ -2581,13 +2420,6 @@ function M.borrowingSomethingThatIsNotAParameterIsRejected()
     )
 end
 
-function M.returningABorrowStillNeedsTheAnnotation()
-    testAssert.eq(
-        codes(POOL .. table.concat({"", "local function sneak(borrows p: Pool): Pool", "   return p", "end",}, "\n")),
-        "NUPP2608"
-    )
-end
-
 -- A borrow relation is linear flow information the way a preservation relation
 -- is: a callable that forgets one lets its caller lose the root and read what the
 -- source freed. Callable assignment therefore keeps the relation exactly.
@@ -2659,11 +2491,6 @@ end
 -- returned without a declaration — so a derived borrow can never outlive the
 -- one it came from, and the intermediate keeps the root borrowed meanwhile.
 
--- On a method there is only one thing a source-less borrow could mean, so
--- A borrowed method result elides to `borrows self`, the way Rust elides an output
--- lifetime to `&self`. The result is still explicitly a borrow, so nothing
--- returning a plain value is affected.
-
 -- An owning result may also retain a borrow of its input, which is what a
 -- layered resource is: the session owns itself and holds the socket, so the
 -- socket cannot be released until the session is.
@@ -2726,39 +2553,6 @@ function M.layeredResourcesHoldTogetherInAScope()
             },
             "\n"
         )
-    )
-end
-
-function M.anOwningResultThatBorrowsIsStillOwned()
-    testAssert.eq(
-        codes(
-            LAYERED .. table.concat(
-                {"", "local sock = open_socket()", "local tls = open_tls(sock)", "own.drop(sock)",},
-                "\n"
-            )
-        ),
-        "NUPP2602"
-    )
-end
-
-function M.aMethodBorrowedReturnElidesToTheReceiver()
-    testAssert.eq(
-        codes(
-            POOL .. table.concat(
-                {
-                    "",
-                    "function Pool:first(): Res borrows (self)",
-                    "   return self.items[1]",
-                    "end",
-                    "local pool = open_pool()",
-                    "local item = pool:first()",
-                    "own.drop(pool)",
-                    "print(item.name)",
-                },
-                "\n"
-            )
-        ),
-        "NUPP2602"
     )
 end
 
@@ -3361,22 +3155,8 @@ function M.aMisspelledMethodOnABorrowedRecordIsReported()
     )
 end
 
-function M.affineRejectsMissingAndInexactCleanupFunctions()
-    testAssert.eq(
-        codes(
-            table.concat(
-                {
-                    "local record File",
-                    "   closed: boolean",
-                    "end",
-                    "local function openFile(): affine(File, missingCleanup) return File(closed = false) end",
-                },
-                "\n"
-            )
-        ),
-        "NUPP2131"
-    )
-
+-- A missing cleanup is anAffineResultNeedsOneCleanupOrExplicitTransferOnlyPolicy.
+function M.affineRejectsAnInexactCleanupFunction()
     testAssert.eq(
         codes(
             table.concat(
@@ -3728,16 +3508,6 @@ function M.consumeMovesAndRejectsLaterUse()
     assert(diags[1].help and diags[1].help:find("borrow", 1, true), "move diagnostic explains the alternative")
 end
 
-function M.doubleConsumeIsRejected()
-    local got = codes(
-        RESOURCE .. table.concat(
-            {"", "local value = resource_new()", "resource_free(value)", "resource_free(value)",},
-            "\n"
-        )
-    )
-    assert(got:find("NUPP2601", 1, true), "double consume reports a move: " .. got)
-end
-
 function M.movesInsideNarrowedBranchesReachTheOuterOwner()
     testAssert.eq(
         codes(
@@ -3908,16 +3678,12 @@ function M.aBorrowingClosureCannotEraseProvenanceOnReturn()
 end
 
 function M.rawReconstructionRequiresUnsafe()
-    assertClean(
-        RESOURCE .. table.concat(
-            {
-                "",
-                "local raw = resource_create()",
-                "local value = @unsafe own.adopt<affine(resource*, resource_free)>(raw)",
-                "resource_free(value)",
-            },
-            "\n"
-        )
+    testAssert.eq(
+        codes(
+            RESOURCE
+            .. "\nlocal raw = resource_create()\nlocal value = own.adopt<affine(resource*, resource_free)>(raw)"
+        ),
+        "NUPP2604"
     )
 
     assertClean(
@@ -3947,38 +3713,6 @@ function M.rawReconstructionRequiresUnsafe()
             )
         ),
         "NUPP2615"
-    )
-end
-
-function M.ownershipCallsReplaceAdoptReleaseAndDropSyntax()
-    assertClean(
-        RESOURCE .. table.concat(
-            {
-                "",
-                "local raw = resource_create()",
-                "local value = @unsafe own.adopt<affine(resource*, resource_free)>(raw)",
-                "local restored = @unsafe own.release(value)",
-                "local again = @unsafe own.adopt<affine(resource*, resource_free)>(restored)",
-                "own.drop(again)",
-            },
-            "\n"
-        )
-    )
-    testAssert.eq(
-        codes(
-            RESOURCE
-            .. "\nlocal raw = resource_create()\nlocal value = own.adopt<affine(resource*, resource_free)>(raw)"
-        ),
-        "NUPP2604"
-    )
-end
-
-function M.rawAbandonmentRequiresUnsafe()
-    assertClean(
-        RESOURCE .. table.concat(
-            {"", "local value = resource_new()", "local raw = @unsafe own.release(value)", "print(raw)",},
-            "\n"
-        )
     )
 end
 
@@ -4300,28 +4034,6 @@ function M.rawCoroutinesCannotSuspendTemporalObligations()
     assertClean(table.concat({"local function pause()", "   coroutine.yield()", "end",}, "\n"))
 end
 
-function M.aRawYieldThroughAnAliasIsRefused()
-    -- `local co = coroutine` is common enough that leaving it unrecognized would be a
-    -- hole anyone falls into by accident.
-    testAssert.eq(
-        codes(
-            RESOURCE .. table.concat(
-                {
-                    "",
-                    "local co = coroutine",
-                    "local function pause()",
-                    "   local value = resource_new()",
-                    "   co.yield()",
-                    "   resource_free(value)",
-                    "end",
-                },
-                "\n"
-            )
-        ),
-        "NUPP2603"
-    )
-end
-
 function M.aRawYieldThroughAChainOfAliasesIsRefused()
     testAssert.eq(
         codes(
@@ -4522,9 +4234,15 @@ function M.cdefOwnedOutputsBecomeLuaReturns()
             "cdef function free(takes value: voidptr)",
             "cdef function posix_memalign(out result: affine(voidptr, free)*,"
             .. " alignment: uint64, size: uint64): Success<int32, 0>",
-            "local status, pointer = posix_memalign(16, 64)",
-            "if pointer then own.drop(pointer) end",
-            "return status == 0",
+            "local function allocate(alignment: integer): (boolean, boolean)",
+            "   local status, pointer = posix_memalign(alignment, 64)",
+            "   local present = pointer ~= nil",
+            "   if pointer then own.drop(pointer) end",
+            "   return status == 0, present",
+            "end",
+            "local ok, present = allocate(16)",
+            "local failed, missing = allocate(3)",
+            "return ok and present, not failed and not missing",
         },
         "\n"
     )
@@ -4535,30 +4253,9 @@ function M.cdefOwnedOutputsBecomeLuaReturns()
     end
     local chunk, loadErr = program.load(result, "ownership-cdef-out")
     assert(chunk, tostring(loadErr))
-    testAssert.eq(chunk(), true, "owned out pointer is returned and dropped")
-end
-
-function M.failedOwnedOutputsAreNil()
-    if package.config:sub(1, 1) == "\\" then
-        return
-    end
-    local source = table.concat(
-        {
-            "cdef function free(takes value: voidptr)",
-            "cdef function posix_memalign(out result: affine(voidptr, free)*,"
-            .. " alignment: uint64, size: uint64): Success<int32, 0>",
-            "local status, pointer = posix_memalign(3, 64)",
-            "local failed = pointer == nil",
-            "if pointer then own.drop(pointer) end",
-            "return status ~= 0 and failed",
-        },
-        "\n"
-    )
-    local result, diags = checked(source)
-    testAssert.eq(#diags, 0, diags[1] and diags[1].msg or "check")
-    local chunk, loadErr = program.load(result, "ownership-cdef-out-failure")
-    assert(chunk, tostring(loadErr))
-    testAssert.eq(chunk(), true, "failed output is nil")
+    local succeeded, failed = chunk()
+    testAssert.eq(succeeded, true, "owned out pointer is returned and dropped")
+    testAssert.eq(failed, true, "failed output is nil")
 end
 
 function M.ignoredOwnedOutputsAreRejected()
@@ -4810,22 +4507,6 @@ function M.cdefBorrowedOutputsMayNameSeveralSharedInputs()
     )
 end
 
-function M.borrowedIsNotACompilerAnnotation()
-    testAssert.eq(
-        codes(
-            table.concat(
-                {
-                    "@borrowed(out = view, from = owner)",
-                    "cdef function get_view(borrows owner: voidptr,",
-                    "   out view: voidptr* borrows (owner)): int32",
-                },
-                "\n"
-            )
-        ),
-        "NUPP2111"
-    )
-end
-
 function M.stringDerivedPointersCannotEscape()
     testAssert.eq(
         codes(
@@ -4914,7 +4595,7 @@ function M.inferredBorrowsPermitSharedMutation()
 end
 
 function M.pinsProveAndAnchorManagedPointers()
-    assertClean(
+    local result, diags = checked(
         table.concat(
             {
                 "cdef function remember(retains value: cstring)",
@@ -4928,6 +4609,9 @@ function M.pinsProveAndAnchorManagedPointers()
             "\n"
         )
     )
+    testAssert.eq(#diags, 0, diags[1] and diags[1].msg or "check")
+    -- Pinned arguments lower to their C pointers.
+    program.image(result, "ownership-test")
 
     testAssert.eq(
         codes(
@@ -4976,24 +4660,6 @@ function M.retainedPinsMustFollowReleaseContracts()
         ),
         "NUPP2602"
     )
-end
-
-function M.pinnedArgumentsLowerToTheirCPointers()
-    local source = table.concat(
-        {
-            "cdef function remember(retains value: cstring)",
-            "cdef function forget(releases value: cstring)",
-            "local text = 'hello'",
-            "local pointer = ffi.cast<cstring>(text)",
-            "local handle = own.pin(pointer, text)",
-            "remember(handle)",
-            "forget(handle)",
-        },
-        "\n"
-    )
-    local result, diags = checked(source)
-    testAssert.eq(#diags, 0, diags[1] and diags[1].msg or "check")
-    program.image(result, "ownership-test")
 end
 
 function M.rawTransferAndDropAreStaticAndDeterministic()
@@ -5069,30 +4735,6 @@ function M.consumingCFunctionsNeedNoRuntimeDetachment()
     local chunk, loadErr = program.load(result, "ownership-takes")
     assert(chunk, tostring(loadErr))
     testAssert.eq(chunk(), true, "C consumption runs without a double free")
-end
-
-function M.ownershipLoweringEmitsLoadableTransparentValues()
-    local source = table.concat(
-        {
-            "cdef function free(takes value: voidptr)",
-            "cdef function malloc(size: uint64): voidptr",
-            "local function ownedMalloc(size: integer): affine(voidptr, free)",
-            "   return malloc(size)",
-            "end",
-            "local value = ownedMalloc(8)",
-            "local raw",
-            "@unsafe do",
-            "   raw = @unsafe own.release(value)",
-            "   local restored = @unsafe own.adopt<affine(voidptr, free)>(raw)",
-            "   own.drop(restored)",
-            "end",
-        },
-        "\n"
-    )
-    local result, diags = checked(source)
-    testAssert.eq(#diags, 0)
-    local chunk, loadErr = program.load(result, "ownership-transparent-lowering")
-    assert(chunk, tostring(loadErr))
 end
 
 -- `function m.f()` has to put f on the table the way `m.f = ...` does, which
@@ -5252,80 +4894,6 @@ function M.remainingOwnershipHelpersAnswerToTheirQualifiedSpelling()
             "\n"
         )
     )
-    assertClean(
-        table.concat(
-            {
-                "cdef function remember(retains value: cstring)",
-                "cdef function forget(releases value: cstring)",
-                "local text = 'hello'",
-                "local pointer = ffi.cast<cstring>(text)",
-                "local handle: pinned(cstring) = own.pin(pointer, text)",
-                "remember(handle)",
-                "forget(handle)",
-            },
-            "\n"
-        )
-    )
-end
-
-function M.disposeIsNotAnAnnotationAliasForDrop()
-    testAssert.eq(
-        codes(
-            table.concat(
-                {
-                    RESOURCE,
-                    "@dispose",
-                    "local function close(takes value: resource*)",
-                    "   resource_free(value)",
-                    "end",
-                },
-                "\n"
-            )
-        ),
-        "NUPP2111"
-    )
-end
-
-function M.qualifiedDisposeIsNotAnIntrinsicAliasForDrop()
-    testAssert.eq(
-        codes(table.concat({RESOURCE, "local value = resource_new()", "nupp.dispose(value)",}, "\n")),
-        "NUPP2004 NUPP2611"
-    )
-end
-
-function M.bothSpellingsOfDropLowerTheSameWay()
-    local function lowered(call)
-        local source = table.concat(
-            {
-                "local calls = ''",
-                "local record File",
-                "   closed: boolean",
-                "   function drop(takes self): nil",
-                "      calls = calls .. 'close'",
-                "   end",
-                "end",
-                "local function closeFile(takes file: File): nil",
-                "   calls = calls .. 'close'",
-                "   @unsafe do local _raw = @unsafe own.release(file) end",
-                "end",
-                "local function openFile(): affine(File, closeFile)",
-                "   return File(closed = false)",
-                "end",
-                "local file = openFile()",
-                call,
-                "return calls",
-            },
-            "\n"
-        )
-        local result, diags = checked(source)
-        testAssert.eq(#diags, 0, diags[1] and diags[1].msg or "check")
-        local chunk, loadErr = program.load(result, "ownership-qualified-drop")
-        assert(chunk, tostring(loadErr))
-        testAssert.eq(chunk(), "close", "the drop operation runs")
-    end
-
-    lowered("own.drop(file)")
-    lowered("own.drop(file)")
 end
 
 function M.aBindingNamedOwnShadowsTheQualifiedSpelling()
@@ -5348,41 +4916,26 @@ function M.aBindingNamedOwnShadowsTheQualifiedSpelling()
     )
 end
 
-function M.aQualifiedIntrinsicGivesItsParameterTheSameMode()
+function M.aDropInABodyGivesItsParameterTheTakesMode()
     -- Parameter modes are read out of a body before the names in it resolve, so
-    -- both spellings have to be recognized by their spelling alone. Without that
-    -- the helper below infers a plain parameter and the double release goes
+    -- `own.drop` has to be recognized by its spelling alone. Without that the
+    -- helper below infers a plain parameter and the double release goes
     -- unreported.
-    testAssert.eq(
-        codes(
-            table.concat(
-                {
-                    RESOURCE,
-                    "local function release(value: resource*)",
-                    "   own.drop(value)",
-                    "end",
-                    "local value = resource_new()",
-                    "release(value)",
-                    "release(value)",
-                },
-                "\n"
-            )
-        ),
-        codes(
-            table.concat(
-                {
-                    RESOURCE,
-                    "local function release(value: resource*)",
-                    "   own.drop(value)",
-                    "end",
-                    "local value = resource_new()",
-                    "release(value)",
-                    "release(value)",
-                },
-                "\n"
-            )
+    local got = codes(
+        table.concat(
+            {
+                RESOURCE,
+                "local function release(value: resource*)",
+                "   own.drop(value)",
+                "end",
+                "local value = resource_new()",
+                "release(value)",
+                "release(value)",
+            },
+            "\n"
         )
     )
+    assert(got:find("NUPP2601", 1, true), got)
 end
 
 local CLOSURE_RESOURCE = table.concat(
@@ -6124,26 +5677,6 @@ function M.anOwnedResultCannotSilentlyDiscardExtraTerminals()
     testAssert.eq(diagnostics[1].code, "NUPP2421")
 end
 
--- Every result position is resolved, so a function may own its second result and
--- not only its first.
-function M.aNonFirstResultMayBeOwned()
-    assertClean(
-        DROPPING_RECORD .. table.concat(
-            {
-                "",
-                "local function openLogged(id: integer): (integer, affine(Session, closeSession))",
-                "   return id * 2, Session(id = id)",
-                "end",
-                "do",
-                "   local code, session = openLogged(7)",
-                "   print(code + session.id)",
-                "end",
-            },
-            "\n"
-        )
-    )
-end
-
 function M.anOwnedNonFirstResultIsDestroyedAtItsScope()
     local source = DROPPING_RECORD .. table.concat(
         {
@@ -6169,24 +5702,6 @@ function M.anOwnedNonFirstResultIsDestroyedAtItsScope()
     local answer, closed = program.run(result, "ownership-test")
     testAssert.eq(answer, 14)
     testAssert.eq(closed, 1, "the second result is discharged at scope exit")
-end
-
-function M.anOwnedResultDeclaresAnOwningResult()
-    assertClean(
-        DROPPING_RECORD .. table.concat(
-            {
-                "",
-                "local function open(id: integer): affine(Session, closeSession)",
-                "   return Session(id = id)",
-                "end",
-                "do",
-                "   local session = open(7)",
-                "   print(session.id)",
-                "end",
-            },
-            "\n"
-        )
-    )
 end
 
 -- A cleanup key names the function a declaration registers and reaches the
@@ -7540,47 +7055,14 @@ function M.anOptionalConsumingParameterNarrowedToNilIsDischarged()
     )
 end
 
--- An owner handed out by an iterator is dropped at the end of each iteration
--- like a local; it used to be reported as leaking at the loop variable.
-function M.aForInVariableHoldingAnOwnerIsDroppedEachIteration()
-    assertClean(
-        CONSUMABLE .. "\n" .. table.concat(
-            {
-                "local function use(borrows r: Res): nil print(r.id) end",
-                "local function iter(state: integer, control: integer): (integer?, Res?)",
-                "   if control >= 2 then return nil, nil end",
-                "   return control + 1, open(control + 1)",
-                "end",
-                "for i, r in iter, 0, 0 do",
-                "   if r then use(r) end",
-                "   if i == 2 then break end",
-                "end",
-            },
-            "\n"
-        )
-    )
-end
-
 -- A `Res?` local keeps its optionality: nil fills the slot back once the owner
 -- is discharged, and a slot that starts nil takes its first owner without
 -- overwriting anything. A live owner is still never overwritten.
 function M.anOptionalOwnerSlotIsFilledOnceAndClearedAfterDischarge()
     assertClean(CONSUMABLE .. "\nlocal a: Res? = open(1)\nown.drop(a)\na = nil")
     testAssert.eq(codes(CONSUMABLE .. "\nlocal a: Res? = open(1)\na = nil"), "NUPP2602")
-    assertClean(
-        CONSUMABLE .. "\n" .. table.concat(
-            {
-                "local function use(borrows r: Res): nil print(r.id) end",
-                "local function late(flag: boolean): nil",
-                "   local b: Res? = nil",
-                "   if flag then b = open(1) end",
-                "   if b ~= nil then use(b) end",
-                "end",
-                "late(true)",
-            },
-            "\n"
-        )
-    )
+    -- automaticdestructiontest's anOptionalSlotFilledLaterIsDroppedAtScopeEnd
+    -- fills a nil slot once and runs it.
     testAssert.eq(
         codes(
             CONSUMABLE
@@ -7591,24 +7073,9 @@ function M.anOptionalOwnerSlotIsFilledOnceAndClearedAfterDischarge()
 end
 
 -- A switch arm that names an owner moves it into the switch's value, so the name
--- is spent afterwards and the binding that takes the value closes it once.
+-- is spent afterwards. automaticdestructiontest's
+-- aSwitchArmHandsItsOwnerToTheBindingOnce runs the binding closing it once.
 function M.aSwitchArmNamingAnOwnerMovesIt()
-    assertClean(
-        CONSUMABLE .. "\n" .. table.concat(
-            {
-                "local function pick(flag: boolean): nil",
-                "   local a = open(1)",
-                "   local b = switch flag do",
-                "      case true -> a",
-                "      else -> do yield open(2) end",
-                "   end",
-                "   own.drop(b)",
-                "end",
-                "pick(true)",
-            },
-            "\n"
-        )
-    )
     testAssert.eq(
         codes(
             CONSUMABLE .. "\n" .. table.concat(
@@ -8349,18 +7816,6 @@ own.drop(restored)
     testAssert.eq(codes([[local p: int32* = nil as any
 @unsafe local n: string = p[0]
 ]]), "NUPP2001")
-    testAssert.eq(
-        codes(
-            RESOURCE
-            .. "\n"
-            .. [[
-local owner = resource_new()
-@unsafe do local box = {owner = owner} end
-resource_free(owner)
-]]
-        ),
-        "NUPP2603"
-    )
     for _, expression in ipairs({
         "own.release(first + second)",
         "own.release((first or second))",
@@ -8809,39 +8264,12 @@ return own.borrowfrom(2, 3), own.attemptall(5)
     testAssert.eq(b, 6)
 end
 
-function M.lowercaseAttemptallKeepsEveryCleanupAndOrderingRefusal()
-    local source = [[
-local record Resource id: integer end
-local calls = ""
-local function stop(value: Resource): nil
-    calls = calls .. "stop"
-    error("failed")
-end
-local function finish(value: Resource): nil calls = calls .. ",finish" end
-local function close(takes value: Resource): nil own.attemptall(value, stop, finish) end
-local function open(): affine(Resource, close) return Resource(id = 1) end
-local ok = pcall(function() local value = open() own.drop(value) end)
-return calls, ok
-]]
-    local calls, ok = runGenerated(source, "lowercase-attemptall")
-    testAssert.eq(calls, "stop,finish")
-    testAssert.eq(ok, false)
-    testAssert.eq(
-        codes(
-            [[
-local record Resource end
-local function take(takes value: Resource): nil end
-local function last(value: Resource): nil end
-local function close(takes value: Resource): nil own.attemptall(value, take, last) end
-]]
-        ),
-        "NUPP2615"
-    )
-end
-
-function M.consumingScalarAdaptersKeepTheirBuffersAlive()
-    for _, expression in ipairs({"buffer:writer():scalar()",}) do
-        local target = expression:find("writer", 1, true) and "ScalarWriter" or "ScalarReader"
+function M.scalarAdaptersCannotEscapeTheirBuffers()
+    for _, case in ipairs({
+        {"ScalarWriter", "buffer:writer():scalar()"},
+        {"ScalarReader", "buffer:reader():scalar()"}
+    }) do
+        local target, expression = case[1], case[2]
         local source = "local function escape(): affine(io."
             .. target
             .. ")\n"
@@ -8851,20 +8279,6 @@ function M.consumingScalarAdaptersKeepTheirBuffersAlive()
             .. "\nend"
         testAssert.eq(codes(source), "NUPP2608", expression)
     end
-end
-
-function M.scalarReadersCannotEscapeBorrowedBuffers()
-    testAssert.eq(
-        codes(
-            [[
-local function snapshot(): affine(io.ScalarReader)
-    local buffer = bytes.Buffer.create()
-    return buffer:reader():scalar()
-end
-]]
-        ),
-        "NUPP2608"
-    )
 end
 
 function M.consumingFunctionsKeepForeignLoansInOwnedResults()

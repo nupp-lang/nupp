@@ -60,6 +60,32 @@ local SAMPLES = {
     "local n: integer = 'not a number'\nreturn n\n",
 }
 
+-- Trivia is the one part of the graph that is not plain data: it is an arena of
+-- comments and whitespace, and it is where a prelude doc comment lives. Rebuilt
+-- from its source and its records rather than dropped.
+local function anyArena(env)
+    local seen, pending = {}, {env.globalTypeDefs, env.globalTypes, env.globals}
+    local at = 1
+    while at <= #pending do
+        local owner = pending[at]
+        if type(owner) == "table" and not seen[owner] then
+            seen[owner] = true
+            if owner.trivia ~= nil then
+                return owner.trivia
+            end
+            for key, value in pairs(owner) do
+                if key ~= "trivia" then
+                    pending[#pending + 1] = key
+                    pending[#pending + 1] = value
+                end
+            end
+        end
+        at = at + 1
+    end
+
+    return nil
+end
+
 -- The order here is the whole test.
 --
 -- Interning is process-wide: `intern` finds what an earlier environment put in
@@ -71,13 +97,31 @@ local SAMPLES = {
 --
 -- This is also why a process that mixes the two is the case to distrust: see
 -- `theSuiteThisCannotSpeakFor` below.
+--
+-- Every environment also declares its own nominals, stored prelude or not.
+--
+-- This is the invariant a stored prelude is easiest to break. Interning is
+-- process-wide and a nominal's identity is not, so an environment handed the
+-- first one's keys gets the first one's types -- which point at the first one's
+-- nominals, while the rest of it points at its own copies. One environment with
+-- two objects for one nominal type-checks differently: `ownershiptest` stopped
+-- being able to see an owned value being dropped, sixty cases after the one that
+-- caused it. So only the first environment in a process may read a stored
+-- prelude; a second one checks the prelude and declares nominals of its own.
 function M.aCachedPreludeAnswersLikeAFreshlyCheckedOne()
+    local types = require("nupp.compiler.types")
     local dir = project()
     -- Allowed the cache: the first fills it, the second reads it back.
+    local before = types.identity().nominal
     envMod.new(dir)
+    local afterOne = types.identity().nominal
     local cached = envMod.new(dir)
+    local afterTwo = types.identity().nominal
     -- Forbidden it, so it checks the prelude from source.
     local fresh = envMod.new(dir, {cache = false})
+
+    assert(afterOne > before, "an environment declares the prelude's nominals")
+    assert(afterTwo > afterOne, "and a second environment declares its own rather than sharing them")
 
     test.eq(names(cached.globals), names(fresh.globals), "the same globals")
     test.eq(names(cached.globalTypes), names(fresh.globalTypes), "the same global types")
@@ -89,46 +133,6 @@ function M.aCachedPreludeAnswersLikeAFreshlyCheckedOne()
 
     for _, source in ipairs(SAMPLES) do
         test.eq(codes(cached, source), codes(fresh, source), "the same diagnostics for:\n" .. source)
-    end
-
-    -- Two environments must not share the tables they are about to add
-    -- declarations to, or one project's globals would appear in another's.
-    assert(cached.globals ~= fresh.globals, "environments own their own globals")
-    local second = envMod.new(dir)
-    assert(second.globals ~= cached.globals, "two cached environments own their own globals")
-    os.execute("rm -rf '" .. dir .. "'")
-end
-
--- Trivia is the one part of the graph that is not plain data: it is an arena of
--- comments and whitespace, and it is where a prelude doc comment lives. Rebuilt
--- from its source and its records rather than dropped.
-function M.theCachedPreludeKeepsItsTrivia()
-    local dir = project()
-    envMod.new(dir)
-    local cached = envMod.new(dir)
-    local fresh = envMod.new(dir, {cache = false})
-
-    local function anyArena(env)
-        local seen, pending = {}, {env.globalTypeDefs, env.globalTypes, env.globals}
-        local at = 1
-        while at <= #pending do
-            local owner = pending[at]
-            if type(owner) == "table" and not seen[owner] then
-                seen[owner] = true
-                if owner.trivia ~= nil then
-                    return owner.trivia
-                end
-                for key, value in pairs(owner) do
-                    if key ~= "trivia" then
-                        pending[#pending + 1] = key
-                        pending[#pending + 1] = value
-                    end
-                end
-            end
-            at = at + 1
-        end
-
-        return nil
     end
 
     local one, other = anyArena(fresh), anyArena(cached)
@@ -143,6 +147,12 @@ function M.theCachedPreludeKeepsItsTrivia()
     test.eq(length, wantLength)
     test.eq(line, wantLine)
     test.eq(col, wantCol)
+
+    -- Two environments must not share the tables they are about to add
+    -- declarations to, or one project's globals would appear in another's.
+    assert(cached.globals ~= fresh.globals, "environments own their own globals")
+    local second = envMod.new(dir)
+    assert(second.globals ~= cached.globals, "two cached environments own their own globals")
     os.execute("rm -rf '" .. dir .. "'")
 end
 
@@ -175,32 +185,6 @@ function M.theNextCommandReadsWhatThisOneWrote()
     local second = json.decode(run())
     test.eq(second.ok, first.ok, "and the second answers the same")
     test.eq(#second.diagnostics, #first.diagnostics, "with the same diagnostics")
-    os.execute("rm -rf '" .. dir .. "'")
-end
-
--- Every environment declares its own nominals, stored prelude or not.
---
--- This is the invariant a stored prelude is easiest to break. Interning is
--- process-wide and a nominal's identity is not, so an environment handed the
--- first one's keys gets the first one's types -- which point at the first one's
--- nominals, while the rest of it points at its own copies. One environment with
--- two objects for one nominal type-checks differently: `ownershiptest` stopped
--- being able to see an owned value being dropped, sixty cases after the one that
--- caused it.
---
--- So only the first environment in a process may read a stored prelude. A second
--- one checks the prelude and declares nominals of its own, which is what this
--- watches for.
-function M.everyEnvironmentDeclaresItsOwnNominals()
-    local types = require("nupp.compiler.types")
-    local dir = project()
-    local first = types.identity().nominal
-    envMod.new(dir)
-    local afterOne = types.identity().nominal
-    envMod.new(dir)
-    local afterTwo = types.identity().nominal
-    assert(afterOne > first, "an environment declares the prelude's nominals")
-    assert(afterTwo > afterOne, "and a second environment declares its own rather than sharing them")
     os.execute("rm -rf '" .. dir .. "'")
 end
 

@@ -460,22 +460,6 @@ function M.extraParametersCompareAgainstTheTargetsVararg()
     assertClean(
         table.concat({takesTwo, "local f: function(x: string, ...: integer): string = takesTwo", "return f",}, "\n")
     )
-    testAssert.eq(
-        diagsOf(
-            table.concat(
-                {
-                    "local record R",
-                    "   n: integer",
-                    "end",
-                    "local function consume(a: string, takes r: R): string return a end",
-                    "local f: function(a: string, ...: R): string = consume",
-                    "return f",
-                },
-                "\n"
-            )
-        ),
-        "NUPP2001:5"
-    )
 end
 
 -- A mode says what a callee does with an owner, and nothing owned ever reaches
@@ -1618,7 +1602,7 @@ function M.aLaterLocalRecordStaysOutOfAnEarlierMethodsScope()
     assert(not got:find(":6", 1, true), "B names itself in its own method: " .. got)
 end
 
-function M.recordsWorkWithPairsAndMetatableTyposAreRejected()
+function M.recordsWorkWithPairs()
     assertClean(
         table.concat(
             {
@@ -1630,17 +1614,6 @@ function M.recordsWorkWithPairsAndMetatableTyposAreRejected()
             },
             "\n"
         )
-    )
-    testAssert.eq(
-        (
-            diagsOf(
-                table.concat(
-                    {"local record R end", "local r: R = R()", "setmetatable(r, {__cal = function() end})",},
-                    "\n"
-                )
-            )
-        ),
-        "NUPP2118:3"
     )
 end
 
@@ -1694,7 +1667,8 @@ function M.metamethodTyposCarrySafeFixes()
         {"local record R end", "local r: R = R()", "setmetatable(r, {__cal = function() end})",},
         "\n"
     )
-    local _, literalDiags = diagsOf(literal)
+    local literalCodes, literalDiags = diagsOf(literal)
+    testAssert.eq(literalCodes, "NUPP2118:3")
     local literalFixes = literalDiags[1] and literalDiags[1].fixes
     testAssert.eq(literalFixes and #literalFixes or 0, 1, "one runtime metamethod spelling is uniquely closest")
     testAssert.eq(literalFixes[1].title, "change to `__call`")
@@ -2084,33 +2058,6 @@ function M.safeIndexesAcceptAnOptionalReceiver()
     )
 end
 
-function M.recordDeclarationsCheck()
-    assertClean(
-        table.concat(
-            {
-                "local record Point",
-                "   x: number",
-                "   y: number",
-                "end",
-                "local p: Point = Point(x = 0, y = 0)",
-                "local n: number? = p?.x",
-            },
-            "\n"
-        )
-    )
-    testAssert.eq(
-        (
-            diagsOf(
-                table.concat(
-                    {"local record Point", "   x: number", "end", "local p: Point = Point(x = 0)", "local v = p.z",},
-                    "\n"
-                )
-            )
-        ),
-        "NUPP2004:5"
-    )
-end
-
 function M.nominalProvenance()
     -- same shape, different declarations: not interchangeable
     testAssert.eq(
@@ -2479,6 +2426,7 @@ function M.aColonCallNeedsTheMethodOnEveryAlternative()
     local R = "local record R\n    v: integer\n    function get(self): integer\n        return self.v\n    end\nend\n"
     local cases = {
         {"local function f(s: string?): string return s:upper() end", "NUPP2004:1"},
+        {"local function f(n: integer): string return n:upper() end", "NUPP2004:1"},
         {"local function f(r: R?): integer return r:get() end", "NUPP2004:7", R},
         {"local function f(u: string | integer): string return u:upper() end", "NUPP2004:1"},
         {"local function f(u: unknown): integer return u:status() end", "NUPP2004:1"},
@@ -2639,47 +2587,6 @@ function M.aLengthRefinementIsAdmittedAndNormalised()
     testAssert.eq(predicate.render(bare, "v"), '(type(v) == "string" and #v >= 2)')
     testAssert.eq(predicate.satisfiedByValue(bare, "ab"), true)
     testAssert.eq(predicate.satisfiedByValue(bare, "a"), false)
-end
-
-function M.aRefinementRejectsOrderedBooleanAndNilComparisons()
-    testAssert.eq(
-        (
-            diagsOf(
-                table.concat(
-                    {
-                        "local interface Invalid",
-                        "   enabled: boolean",
-                        "   satisfies |self| -> self.enabled < true",
-                        "end",
-                    },
-                    "\n"
-                )
-            )
-        ),
-        "NUPP2122:3"
-    )
-    testAssert.eq(
-        (
-            diagsOf(
-                table.concat(
-                    {"local interface Invalid", "   value: any", "   satisfies |self| -> self.value >= nil", "end",},
-                    "\n"
-                )
-            )
-        ),
-        "NUPP2122:3"
-    )
-end
-
-function M.refinementsRecognizeConstantLogicalAnswers()
-    local function refuses(test)
-        return diagsOf(
-            table.concat({"local interface I", "   enabled: boolean", "   satisfies |self| -> " .. test, "end",}, "\n")
-        )
-    end
-
-    testAssert.eq(refuses("false and self.enabled"), "NUPP2122:3")
-    testAssert.eq(refuses("true or self.enabled"), "NUPP2122:3")
 end
 
 function M.refinementsAcceptOrdinaryNumericLiteralForms()
@@ -2900,59 +2807,47 @@ function M.aDeclarationIsHeldToTheRefinementsItInherits()
             "\n"
         )
     )
-    -- so is a type test the declared field satisfies
-    assertClean(
-        table.concat(
-            {
-                "local interface Shape",
-                "   kind: string",
-                "   satisfies |self| -> type(self.kind) == 'string'",
-                "end",
-                "local record Circle is Shape",
-                "   kind: 'circle'",
-                "end",
-            },
-            "\n"
-        )
-    )
-    -- and a field no declaration settles decides nothing either way
-    assertClean(
-        table.concat(
-            {
-                "local interface Open",
-                "   n: integer",
-                "   satisfies |self| -> self.n == 1",
-                "end",
-                "local record Any is Open",
-                "   n: integer",
-                "end",
-            },
-            "\n"
-        )
-    )
+    -- a satisfied type test and an unsettled field:
+    -- aRefinementIsProvedAgainstDeclaredFields
 end
 
 function M.refinementsRejectWhatCannotBeEnforced()
     local function refuses(test)
         return (
             diagsOf(
-                table.concat({"local interface I", "   n: integer", "   satisfies |self| -> " .. test, "end",}, "\n")
+                table.concat(
+                    {
+                        "local interface I",
+                        "   n: integer",
+                        "   enabled: boolean",
+                        "   value: any",
+                        "   satisfies |self| -> " .. test,
+                        "end",
+                    },
+                    "\n"
+                )
             )
         )
     end
 
     -- arithmetic reaches nothing about the value
-    testAssert.eq(refuses("1 + 1 == 3"), "NUPP2122:3")
+    testAssert.eq(refuses("1 + 1 == 3"), "NUPP2122:5")
     -- a constant decides nothing: this one says yes to every value
-    testAssert.eq(refuses("true"), "NUPP2122:3")
+    testAssert.eq(refuses("true"), "NUPP2122:5")
     -- and this one says no to all of them
-    testAssert.eq(refuses("false"), "NUPP2122:3")
+    testAssert.eq(refuses("false"), "NUPP2122:5")
+    -- nor does a logical operator whose constant side settles the answer
+    testAssert.eq(refuses("false and self.enabled"), "NUPP2122:5")
+    testAssert.eq(refuses("true or self.enabled"), "NUPP2122:5")
+    -- a boolean or nil has no order to compare
+    testAssert.eq(refuses("self.enabled < true"), "NUPP2122:5")
+    testAssert.eq(refuses("self.value >= nil"), "NUPP2122:5")
     -- a field the declaration does not have compiles to a test never true
-    testAssert.eq(refuses("self.nope == 'x'"), "NUPP2122:3")
+    testAssert.eq(refuses("self.nope == 'x'"), "NUPP2122:5")
     -- a call cannot be made where `is` is written
-    testAssert.eq(refuses("tostring(self.n) == '1'"), "NUPP2122:3")
+    testAssert.eq(refuses("tostring(self.n) == '1'"), "NUPP2122:5")
     -- nor can anything outside the subject be read
-    testAssert.eq(refuses("other == 1"), "NUPP2122:3")
+    testAssert.eq(refuses("other == 1"), "NUPP2122:5")
 end
 
 -- An untyped function's results are any number of `any`, and print as such: a
@@ -3019,7 +2914,10 @@ end
 function M.compoundAssignmentWidensAnIntegerInitializedLocal()
     assertClean("local stored = 0\nstored += 0.5\nlocal total: number = stored\nreturn total")
     assertClean("local stored = 0\nfor _ = 1, 3 do stored += os.clock() end\nreturn stored")
-    testAssert.eq((diagsOf("local stored = 0\nstored += 0.5\nlocal exact: integer = stored\nreturn exact")), "NUPP2001:3")
+    testAssert.eq(
+        (diagsOf("local stored = 0\nstored += 0.5\nlocal exact: integer = stored\nreturn exact")),
+        "NUPP2001:3"
+    )
 end
 
 return M

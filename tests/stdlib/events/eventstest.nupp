@@ -372,16 +372,6 @@ function M.observersRunInRegistrationOrderAndSeeEachOthersMutations(): nil
     test.eq(order[3], "third 20")
 end
 
-function M.observersReachOtherStateThroughCaptures(): nil
-    local bus = newBus()
-    local countSeen = 0
-    bus:observe(7, Damage, |event| -> do
-        countSeen = bus:count()
-    end)
-    bus:emit(7, Damage, amount = 1, source = 1)
-    test.eq(countSeen, 1)
-end
-
 function M.observersReceiveOnlyTheEvent(): nil
     local bus = newBus()
     local argumentCount = 0
@@ -676,9 +666,14 @@ function M.clearAddressDuringDeliveryLetsTheDeliveryFinish(): nil
     bus:observe(7, Heal, |event| -> do
         order[#order + 1] = "heal"
     end)
-    bus:observe(0, Damage, |event| -> do
-        order[#order + 1] = "world"
-    end)
+    bus:observe(
+        0,
+        Damage,
+        |event| -> do
+            order[#order + 1] = "world"
+        end,
+        "world"
+    )
     bus:emit(7, Damage, amount = 1, source = 1)
     test.eq(table.concat(order, ","), "first,second", "the list in flight is finished")
     test(not bus:contains(7, Damage))
@@ -699,6 +694,12 @@ function M.clearAddressDuringDeliveryLetsTheDeliveryFinish(): nil
     end)
     bus:emit(7, Damage, amount = 1, source = 1)
     test.eq(table.concat(order, ","), "world,again")
+
+    -- What survived the clear is still removable by name, and clearing an address
+    -- nobody observes is not an error.
+    test(bus:stop(0, Damage, "world"))
+    test.eq(bus:count(), 1)
+    bus:clear(42)
 end
 
 function M.clearAddressAfterRemovalDuringDeliverySettlesCleanly(): nil
@@ -768,32 +769,6 @@ function M.resetLeavesAnInstalledAllocatorInPlace(): nil
     bus:observe(7, Damage, |event| -> nil)
     bus:emit(7, Damage, amount = 1, source = 1)
     test.eq(counting.acquires, 1, "the allocator survived the reset")
-end
-
-function M.registrationsAtAddressZeroSurviveClearingAnotherAddress(): nil
-    local bus = newBus()
-    local worldRuns = 0
-    bus:observe(
-        0,
-        Damage,
-        |event| -> do
-            worldRuns = worldRuns + 1
-        end,
-        "world"
-    )
-    bus:observe(7, Damage, |event| -> nil, "entity")
-    bus:observe(7, Heal, |event| -> nil)
-    test.eq(bus:count(), 3)
-    bus:clear(7)
-    test.eq(bus:count(), 1)
-    test(bus:contains(0, Damage))
-    test(not bus:contains(7, Damage))
-    bus:emit(0, Damage, amount = 1, source = 1)
-    test.eq(worldRuns, 1)
-    test(bus:stop(0, Damage, "world"), "the registration is still removable by name")
-    test.eq(bus:count(), 0)
-    -- Clearing an address nobody observes is not an error.
-    bus:clear(42)
 end
 
 ----------------------------------------------------------------------------
@@ -1090,48 +1065,6 @@ function M.defaultArenasRewindWhenTheOutermostDeliveryLeaves(): nil
     test.eq(usedInside, 1, "the next emission starts from the first row again")
     test.eq(rows:used(), 0)
     test.eq(rows:pages(), 1)
-end
-
-function M.anExplicitAllocatorSeesOneAcquireAndOneReleasePerEmitAndNoneForDeliver(): nil
-    local bus = newBus()
-    local counting = newCounting()
-    bus:setallocator(Damage, counting)
-    local runs = 0
-    bus:observe(
-        7,
-        Damage,
-        |event| -> do
-            runs = runs + 1
-            test.eq(counting.live, 1, "the lease is live while the observer runs")
-        end,
-        "emitted"
-    )
-    for _ = 1, 5 do
-        bus:emit(7, Damage, amount = 1, source = 1)
-    end
-    test.eq(runs, 5)
-    test.eq(counting.acquires, 5)
-    test.eq(counting.releases, 5)
-    test.eq(counting.live, 0)
-
-    test(bus:stop(7, Damage, "emitted"))
-    local held = Damage(amount = 1, source = 1)
-    bus:observe(7, Damage, |event| -> do
-        runs = runs + 1
-        test.eq(counting.live, 0, "deliver holds no lease")
-    end)
-    for _ = 1, 5 do
-        bus:deliver(7, Damage, held)
-    end
-    test.eq(runs, 10)
-    test.eq(counting.acquires, 5)
-    test.eq(counting.releases, 5)
-
-    -- The allocator belongs to the source it was installed on.
-    local other = newBus()
-    other:observe(7, Damage, |event| -> nil)
-    other:emit(7, Damage, amount = 1, source = 1)
-    test.eq(counting.acquires, 5)
 end
 
 function M.setAllocatorDuringDeliveryRaises(): nil

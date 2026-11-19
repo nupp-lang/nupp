@@ -6,7 +6,14 @@ local cabi = require("nupp.compiler.cinterop.cabi")
 
 local HERE = require("helpers.paths").tests
 
+-- Checked exports by source. Each check builds an uncached environment, which means
+-- checking the prelude from source, and most cases only read the one fixture below.
+local checkedSources = {}
+
 local function checked(source)
+    if checkedSources[source] then
+        return checkedSources[source][1], checkedSources[source][2]
+    end
     local result = parser.parse(source, "src/game.nupp")
     testAssert.eq(#result.errors, 0, "parse errors")
     local env = envMod.new(HERE .. "/..", {cache = false})
@@ -17,7 +24,9 @@ local function checked(source)
         end
     end
 
-    return assert(exports), result
+    checkedSources[source] = {assert(exports), result}
+
+    return exports, result
 end
 
 local SOURCE = [[

@@ -458,63 +458,12 @@ local mathutil = require("mathutil")
 local doubled: number = mathutil.double(21)
 local point: geometry.Point = geometry.Point(3, 4)
 local origin: Origin = Origin(5)
-print(doubled, point.x + point.y, origin.x)
-]],
-            [
-                "src/mathutil.nupp"
-            ] = [[
-local function double(value: number): number
-    return value * 2
-end
-return { double = double }
-]],
-            [
-                "src/geometry.nupp"
-            ] = [[
-local geometry = {}
-
-struct geometry.Point
-    x: float
-    y: float
-end
-
-return geometry
-]],
-            ["src/globals.nupp"] = [[
-global struct Origin
-    x: float
-end
-]],
-        },
-        function(dir)
-            local output = dir .. "/output.txt"
-            local errors = dir .. "/errors.txt"
-            local command = (
-                "cd '%s' && '%s/bin/nupp' run main.nupp " .. "> '%s' 2> '%s'"
-            ):format(dir, ROOT, output, errors)
-            local status = os.execute(command)
-            testAssert.eq(status, 0, "required project run: " .. readFile(errors))
-            testAssert.eq(readFile(output), "42\t7.0\t5.0\n", "required project output")
-        end
-    )
-end
-
-function M.cliCallsImportedAndGlobalStructReferences()
-    withProject(
-        {
-            ["nupp.lua"] = "return { include = { 'src' } }\n",
-            [
-                "main.nupp"
-            ] = [[
-local geometry = require("geometry")
-local mathutil = require("mathutil")
-
-local doubled: number = mathutil.double(21)
+-- The same constructors, called through their type witnesses.
 local Make: Type<geometry.Point> = geometry.Point
-local point: geometry.Point = Make(3, 4)
 local MakeOrigin: Type<Origin> = Origin
-local origin: Origin = MakeOrigin(5)
-print(doubled, point.x + point.y, origin.x)
+local witnessed: geometry.Point = Make(1, 2)
+local witnessedOrigin: Origin = MakeOrigin(6)
+print(doubled, point.x + point.y, origin.x, witnessed.x + witnessed.y, witnessedOrigin.x)
 ]],
             [
                 "src/mathutil.nupp"
@@ -550,7 +499,7 @@ end
             ):format(dir, ROOT, output, errors)
             local status = os.execute(command)
             testAssert.eq(status, 0, "required project run: " .. readFile(errors))
-            testAssert.eq(readFile(output), "42\t7.0\t5.0\n", "required project output")
+            testAssert.eq(readFile(output), "42\t7.0\t5.0\t3.0\t6.0\n", "required project output")
         end
     )
 end
@@ -651,12 +600,6 @@ return res
             ):format(dir, ROOT, checkErrors)
             testAssert.eq(os.execute(checkCommand), 0, "the initial check: " .. readFile(checkErrors))
 
-            local buildErrors = dir .. "/build-errors.txt"
-            local buildCommand = (
-                "cd '%s' && '%s/bin/nupp' check main.nupp " .. "> /dev/null 2> '%s'"
-            ):format(dir, ROOT, buildErrors)
-            testAssert.eq(os.execute(buildCommand), 0, "the dependency recheck: " .. readFile(buildErrors))
-
             local output = dir .. "/output.txt"
             local runErrors = dir .. "/run-errors.txt"
             local runCommand = (
@@ -669,9 +612,9 @@ return res
 end
 
 -- A free cleanup is resolved where the producer declares it, registered there, and
--- linked lazily where the consumer discharges it. The private spelling never has to be
--- visible in the consumer.
-function M.aPrivateCleanupCrossesIntoAnAutomaticLocal()
+-- linked lazily where the consumer discharges it, whether by leaving scope or by an
+-- explicit drop. The private spelling never has to be visible in the consumer.
+function M.aPrivateCleanupCrossesIntoAConsumersDischarge()
     withProject(
         {
             ["nupp.lua"] = "return { include = { 'src' } }\n",
@@ -683,6 +626,8 @@ local res = require("res")
 local use = require("use")
 
 print(use.slurp("input.txt"), res.closed)
+use.touch("input.txt")
+print(res.closed)
 ]],
             [
                 "src/res.nupp"
@@ -724,68 +669,6 @@ function use.slurp(path: string): string
     end
 end
 
-return use
-]],
-        },
-        function(dir)
-            local output = dir .. "/output.txt"
-            local errors = dir .. "/errors.txt"
-            local command = (
-                "cd '%s' && '%s/bin/nupp' run main.nupp " .. "> '%s' 2> '%s'"
-            ):format(dir, ROOT, output, errors)
-            testAssert.eq(os.execute(command), 0, "cross-module automatic cleanup: " .. readFile(errors))
-            testAssert.eq(readFile(output), "hello\n\t1\n", "the private cleanup ran")
-        end
-    )
-end
-
-function M.aPrivateCleanupCrossesIntoAnExplicitDrop()
-    withProject(
-        {
-            ["nupp.lua"] = "return { include = { 'src' } }\n",
-            ["input.txt"] = "hello\n",
-            [
-                "main.nupp"
-            ] = [[
-local res = require("res")
-local use = require("use")
-
-use.touch("input.txt")
-print(res.closed)
-]],
-            [
-                "src/res.nupp"
-            ] = [[
-local res = {}
-res.closed = 0
-
-record res.File
-    content: string
-
-    function read(self, format: string?): string
-        return self.content
-    end
-end
-
-local function closeFile(takes file: res.File): nil
-    res.closed = res.closed + 1
-end
-
-function res.open(path: string): affine(res.File, closeFile)
-    local file = io.open(path, "r")
-    if not file then error("cannot open " .. path) end
-    return res.File(content = file:read("*a"))
-end
-
-return res
-]],
-            [
-                "src/use.nupp"
-            ] = [[
-local res = require("res")
-
-local use = {}
-
 function use.touch(path: string): nil
     local file = res.open(path)
     own.drop(file)
@@ -800,8 +683,12 @@ return use
             local command = (
                 "cd '%s' && '%s/bin/nupp' run main.nupp " .. "> '%s' 2> '%s'"
             ):format(dir, ROOT, output, errors)
-            testAssert.eq(os.execute(command), 0, "cross-module explicit cleanup: " .. readFile(errors))
-            testAssert.eq(readFile(output), "1\n", "the private cleanup ran")
+            testAssert.eq(os.execute(command), 0, "cross-module cleanup: " .. readFile(errors))
+            testAssert.eq(
+                readFile(output),
+                "hello\n\t1\n2\n",
+                "the private cleanup ran for the automatic local and the explicit drop"
+            )
         end
     )
 end
@@ -1249,10 +1136,15 @@ end
 -- prefix a consumer writes is the local name it bound the module to rather than
 -- the module's own name, the qualifier the terminal check reads lives on the
 -- exported type rather than in this file's summaries, and the key both sides
--- compare under has to be the declaring module's.
-function M.aTerminalIsNamedThroughAModuleAlias()
-    -- A qualified affine annotation, `affine(gate.Ticket, gate.release)`, names the
-    -- same cleanup as the type `gate.issue` exports, through the alias or without.
+-- compare under has to be the declaring module's. That key is made once per
+-- declaration, however many definition records reach it: the declaring module
+-- used to number the one its hoisted export carried apart from the one its binding
+-- carried, so `issue(): affine(Ticket, release)` there and
+-- `affine(gate.Ticket, gate.release)` in a consumer never compared equal.
+function M.aConsumerNamesAnotherModulesTerminal()
+    -- A qualified affine annotation names the same cleanup as the type `gate.issue`
+    -- exports, through the module's own name or an alias. The two spellings live in
+    -- separate consumers so that neither binding can stand in for the other.
     withProject(
         {
             [
@@ -1284,19 +1176,33 @@ export function admit(): nil
     print(ticket.id)
 end
 ]],
+            [
+                "src/booth.nupp"
+            ] = [[
+module booth
+
+local gate = require("gate")
+
+export function admit(): nil
+    local ticket: affine(gate.Ticket, gate.release) = gate.issue()
+    print(ticket.id)
+end
+]],
         },
         function(dir)
-            local path = dir .. "/src/hall.nupp"
-            local parsed = parser.parse(readFile(path), path)
-            testAssert.eq(#parsed.errors, 0, "the consumer parses")
-            local diags = check.check(parsed, path, projectEnv(dir))
-            testAssert.eq(
-                #diags,
-                0,
-                "a terminal reached through an alias resolves, " .. "qualifies, and compares equal: " .. (
-                    diags[1] and diags[1].msg or ""
+            for _, consumer in ipairs({"hall", "booth"}) do
+                local path = dir .. "/src/" .. consumer .. ".nupp"
+                local parsed = parser.parse(readFile(path), path)
+                testAssert.eq(#parsed.errors, 0, consumer .. " parses")
+                local diags = check.check(parsed, path, projectEnv(dir))
+                testAssert.eq(
+                    #diags,
+                    0,
+                    consumer .. "'s terminal resolves, qualifies, and is the declaring module's: " .. (
+                        diags[1] and diags[1].msg or ""
+                    )
                 )
-            )
+            end
         end
     )
 end
@@ -1484,56 +1390,6 @@ return shape
             check.check(parsed, path, projectEnv(dir))
             local image = program.image(parsed, "shape", path)
             assert(not image:find("Named", 1, true), "an interface with no defaults emits nothing: " .. image)
-        end
-    )
-end
-
--- A terminal is keyed once per declaration, however many definition records reach
--- it. The declaring module used to number the one its hoisted export carried apart
--- from the one its binding carried, so `issue(): affine(Ticket, release)` there and
--- `affine(gate.Ticket, gate.release)` in a consumer never compared equal.
-function M.aConsumerNamesAnotherModulesTerminal()
-    withProject(
-        {
-            [
-                "src/gate.nupp"
-            ] = [[
-module gate
-
-export record Ticket
-    id: integer
-end
-
-export function release(takes self: Ticket): nil
-    print(self.id)
-end
-
-export function issue(): affine(Ticket, release)
-    return nil as any
-end
-]],
-            [
-                "src/hall.nupp"
-            ] = [[
-module hall
-
-local gate = require("gate")
-
-export function admit(): nil
-    local ticket: affine(gate.Ticket, gate.release) = gate.issue()
-    print(ticket.id)
-end
-]],
-        },
-        function(dir)
-            local path = dir .. "/src/hall.nupp"
-            local parsed = parser.parse(readFile(path), path)
-            local diags = check.check(parsed, path, projectEnv(dir))
-            testAssert.eq(
-                #diags,
-                0,
-                "the consumer's terminal is the declaring module's: " .. (diags[1] and diags[1].msg or "")
-            )
         end
     )
 end

@@ -316,6 +316,31 @@ function M.movedFacadesKeepTheirTypesOutsideTheCompilerCheckout()
     testAssert.eq(coroutineModule.exports.values.iscancellation.rets[1].tag, "boolean")
 end
 
+function M.providerHelpersKeepTheirTypesOutsideTheCompilerCheckout()
+    local surface = require("nupp.compiler.standardsurface")
+    local env = envMod.new("/private/tmp/nupp-provider-helper-consumer", {
+        config = {include = {"src"}},
+        typeRoots = {},
+        cache = false,
+    })
+    for _, helper in ipairs({
+        {name = "io.internal.boundedcache", path = "/io/internal/boundedcache.nupp", member = "create"},
+        {name = "nupp.workers.internal.support", path = "/nupp/workers/internal/support.nupp", member = "pack"},
+    }) do
+        testAssert.eq(env.bundledImplementation(helper.name), helper.path)
+        testAssert.eq(surface.classify(helper.name).kind, "common")
+        testAssert.eq(env.bundledInternal(helper.name), true, "carrying a helper keeps it private")
+        local cold = assert(env.resolveModuleExports(env, helper.name), helper.name .. " has checked carried exports")
+        testAssert.eq(cold.values[helper.member].tag, "func")
+        local warm = assert(env.resolveModuleExports(env, helper.name))
+        testAssert.eq(warm, cold, "warm resolution keeps the checked export identity")
+    end
+    local paths = assert(env.resolveModuleExports(env, "io.internal.path"))
+    testAssert.eq(paths.values.newpath.tag, "func", "the Path owner resolves through its private helper")
+    local native = assert(env.resolveModuleExports(env, "nupp.runtime.provider.workers"))
+    testAssert.eq(native.values.openscope.tag, "func", "the native provider resolves through its private helper")
+end
+
 function M.directSuspendKeepsItsGenericTypeOutsideTheCheckout()
     local env = envMod.new("/private/tmp/nupp-coroutine-sus-consumer", {config = {include = {"src"}}, cache = false})
     local source = [[
@@ -431,11 +456,7 @@ function M.uuidUsesItsContractWithoutNativeCompilerServices()
     end
     local exports = assert(env.resolveModuleExports(env, "os"))
     testAssert.eq(exports.values.uuid, uuid.byname.uuid, "module and export resolution agree")
-    testAssert.eq(
-        rawget(env.bundled, "nupp.runtime.provider.osuuid"),
-        nil,
-        "the native implementation was not loaded"
-    )
+    testAssert.eq(rawget(env.bundled, "nupp.runtime.provider.osuuid"), nil, "the native implementation was not loaded")
 end
 
 -- What `pcall` hands back on failure is whatever was raised, so the error slot is
@@ -773,58 +794,45 @@ function M.runnerResourceMapsToItsManifestSource()
     testAssert.eq(path, ROOT .. "/tests/run.lua", "the carried runner maps to the manifest source")
 end
 
-function M.fileByteViewsAreAffineOwners()
-    for _, method in ipairs({"reader", "writer"}) do
-        local diagnostics = diagsUnderPrelude(
-            ([[
-local file = assert(io.open("input.bin", "r+"))
-file:%s()
-]]):format(method)
-        )
-        assert(diagnostics:find("NUPP26", 1, true), method .. ": " .. diagnostics)
-    end
-end
-
-function M.fileByteViewsCannotEscapeTheirLocalFile()
-    for _, view in ipairs({{method = "reader", name = "Reader"}, {method = "writer", name = "Writer"}}) do
-        local diagnostics = diagsUnderPrelude(
-            (
-                [[
+-- A file's byte views are affine owners that borrow their file: dropping one, letting
+-- it outlive its file, or closing the file under it is refused.
+function M.fileByteViewsCannotOutliveOrBeAbandonedByTheirFile()
+    local escape = [[
 local function escape(): affine(io.%s)
     local file = assert(io.open("input.bin", "r+"))
     return file:%s()
 end
 ]]
-            ):format(view.name, view.method)
-        )
-        assert(diagnostics:find("NUPP26", 1, true), view.method .. ": " .. diagnostics)
-    end
-end
-
-function M.liveExclusiveFileViewsPreventClosingTheirFile()
-    for _, view in ipairs({
-        {method = "reader", operation = "read(1)"},
-        {method = "writer", operation = "write('x')"}
-    }) do
-        local diagnostics = diagsUnderPrelude(
-            (
-                [[
+    local closedUnder = [[
 local file = assert(io.open("input.bin", "r+"))
 local view = file:%s()
 file:close()
 view:%s
 view:close()
 ]]
-            ):format(view.method, view.operation)
-        )
-        assert(diagnostics:find("NUPP26", 1, true), view.method .. ": " .. diagnostics)
+    for _, source in ipairs({
+        'local file = assert(io.open("input.bin", "r+"))\nfile:reader()\n',
+        'local file = assert(io.open("input.bin", "r+"))\nfile:writer()\n',
+        escape:format("Reader", "reader"),
+        escape:format("Writer", "writer"),
+        closedUnder:format("reader", "read(1)"),
+        closedUnder:format("writer", "write('x')"),
+        [[
+local function escape(): affine(io.Lines)
+    local file = assert(io.open("input.bin", "rb"))
+    local reader = file:reader()
+    return reader:lines(32)
+end
+]],
+    }) do
+        local diagnostics = diagsUnderPrelude(source)
+        assert(diagnostics:find("NUPP26", 1, true), source .. diagnostics)
     end
 end
 
-function M.closingByteViewsAllowsReusingTheirFile()
-    testAssert.eq(
-        diagsUnderPrelude(
-            [[
+function M.fileByteViewsCheckWhenEachIsClosedBeforeItsFile()
+    for _, source in ipairs({
+        [[
 local file = assert(io.open("input.bin", "r+"))
 local reader = file:reader()
 reader:read(1)
@@ -835,16 +843,9 @@ writer:write("x")
 writer:close()
 file:flush()
 file:close()
-]]
-        ),
-        ""
-    )
-end
-
-function M.fileByteViewsCanBeConsumedByBoundedLines()
-    testAssert.eq(
-        diagsUnderPrelude(
-            [[
+]],
+        -- Bounded lines consume a view rather than the file.
+        [[
 local file = assert(io.open("input.bin", "rb"))
 local reader = file:reader()
 local lines = reader:lines(32)
@@ -853,10 +854,24 @@ if line == nil then assert(reason == nil, reason) end
 lines:close()
 file:seek("set", 0)
 file:close()
-]]
-        ),
-        ""
-    )
+]],
+        -- The standard streams hand out the same view types a file does.
+        [[
+local function acceptReader(exclusive reader: io.Reader): nil end
+local function acceptWriter(exclusive writer: io.Writer): nil end
+local reader = io.stdin:reader()
+acceptReader(reader)
+reader:close()
+local output = io.stdout:writer()
+acceptWriter(output)
+output:close()
+local errors = io.stderr:writer()
+acceptWriter(errors)
+errors:close()
+]],
+    }) do
+        testAssert.eq(diagsUnderPrelude(source), "", source)
+    end
 end
 
 function M.fileParametersGetByteViewsWithoutAnAcquisitionExpression()
@@ -879,40 +894,6 @@ return useFile
     end
     local image = program.image(parsed, "file-parameter")
     assert(program.names(image, "reader") and program.names(image, "writer"), "byte view calls lower to the image")
-end
-
-function M.standardStreamsExposeTheSameByteViewTypes()
-    testAssert.eq(
-        diagsUnderPrelude(
-            [[
-local function acceptReader(exclusive reader: io.Reader): nil end
-local function acceptWriter(exclusive writer: io.Writer): nil end
-local reader = io.stdin:reader()
-acceptReader(reader)
-reader:close()
-local output = io.stdout:writer()
-acceptWriter(output)
-output:close()
-local errors = io.stderr:writer()
-acceptWriter(errors)
-errors:close()
-]]
-        ),
-        ""
-    )
-end
-
-function M.boundedFileLinesCannotEscapeTheirLocalFile()
-    local diagnostics = diagsUnderPrelude(
-        [[
-local function escape(): affine(io.Lines)
-    local file = assert(io.open("input.bin", "rb"))
-    local reader = file:reader()
-    return reader:lines(32)
-end
-]]
-    )
-    assert(diagnostics:find("NUPP26", 1, true), diagnostics)
 end
 
 function M.movedPrivateBundledSourcesKeepFileAndTreePrivacyDistinct()

@@ -550,177 +550,97 @@ function M.deriveDocumentationChangesInvalidateGeneratedBehavior()
     os.execute("rm -rf '" .. dir .. "'")
 end
 
-function M.fieldDefaultChangesInvalidateModuleConsumers()
-    local dir = os.tmpname()
-    os.remove(dir)
-    os.execute("mkdir -p '" .. dir .. "'")
-    local depPath = dir .. "/dep.nupp"
-    local mainPath = dir .. "/main.nupp"
+-- Each of these is part of a module's interface without being a field or a function
+-- type, so each edit rechecks the dependency and its dependent, and the dependent sees
+-- the change.
+function M.interfaceMetadataEditsRecheckTheirDependents()
+    local cases = {
+        {
+            label = "a changed construction default",
+            cache = false,
+            dep = table.concat(
+                {"local dep = {}", "record dep.Config", "   value: integer = 1", "end", "return dep",},
+                "\n"
+            ),
+            main = "local dep = require('dep')\nreturn dep.Config()",
+            edit = function(dep)
+                return (dep:gsub("= 1", "= 2"))
+            end,
+        },
+        {
+            label = "a public result pack",
+            dep = table.concat(
+                {"local m = {}", "function m.pair(): (number, string)", "   return 1, 'one'", "end", "return m",},
+                "\n"
+            ),
+            main = table.concat(
+                {
+                    "local dep = require('dep')",
+                    "local n, s = dep.pair()",
+                    "local exactNumber: number = n",
+                    "local exactString: string = s",
+                    "return exactNumber, exactString",
+                },
+                "\n"
+            ),
+            edit = function(dep)
+                return (dep:gsub("%(number, string%)", "(string, number)"):gsub("return 1, 'one'", "return 'one', 1"))
+            end,
+            code = "NUPP2001",
+        },
+        {
+            label = "deprecation metadata on a module member",
+            dep = table.concat(
+                {"local M = {}", "function M.answer(): number", "   return 42", "end", "return M",},
+                "\n"
+            ),
+            main = "local dep = require('dep')\nreturn dep.answer()",
+            edit = function(dep)
+                return (
+                    dep:gsub("function M.answer", '@deprecated(replacement = "dep.currentAnswer")\nfunction M.answer')
+                )
+            end,
+            code = "NUPP2513",
+        },
+        {
+            label = "deprecation metadata on a project type",
+            cache = false,
+            dep = table.concat({"global record Shared", "   value: number", "end",}, "\n"),
+            main = "local item: Shared? = nil\nreturn item\n",
+            edit = function(dep)
+                return '@deprecated(replacement = "Current")\n' .. dep
+            end,
+            code = "NUPP2513",
+        },
+    }
+    for _, case in ipairs(cases) do
+        local dir = os.tmpname()
+        os.remove(dir)
+        os.execute("mkdir -p '" .. dir .. "'")
+        local depPath, mainPath = dir .. "/dep.nupp", dir .. "/main.nupp"
+        for path, source in pairs({[depPath] = case.dep, [mainPath] = case.main}) do
+            local file = assert(io.open(path, "wb"))
+            file:write(source)
+            file:close()
+        end
 
-    local function write(path, source)
-        local file = assert(io.open(path, "wb"))
-        file:write(source)
-        file:close()
-    end
-
-    local dep = table.concat(
-        {"local dep = {}", "record dep.Config", "   value: integer = 1", "end", "return dep",},
-        "\n"
-    )
-    write(depPath, dep)
-    write(mainPath, table.concat({"local dep = require('dep')", "return dep.Config()",}, "\n"))
-
-    local inc = incremental.new(dir, {cache = false})
-    testAssert.eq(#inc.checkFile(mainPath).diags, 0, "defaulted dependency checks cold")
-    local coldChecks = inc.q.stats.checkModule
-    inc.changeDocument(depPath, dep:gsub("= 1", "= 2"))
-    testAssert.eq(#inc.checkFile(mainPath).diags, 0, "changed default stays clean")
-    testAssert.eq(inc.q.stats.checkModule, coldChecks + 2, "a changed construction default rechecks its consumer")
-
-    os.execute("rm -rf '" .. dir .. "'")
-end
-
-function M.deprecationMetadataInvalidatesModuleDependents()
-    local dir = os.tmpname()
-    os.remove(dir)
-    os.execute("mkdir -p '" .. dir .. "'")
-    local depPath = dir .. "/dep.nupp"
-    local mainPath = dir .. "/main.nupp"
-
-    local function write(path, text)
-        local file = assert(io.open(path, "wb"))
-        file:write(text)
-        file:close()
-    end
-
-    local dep = table.concat({"local M = {}", "function M.answer(): number", "   return 42", "end", "return M",}, "\n")
-    write(depPath, dep)
-    write(mainPath, table.concat({"local dep = require('dep')", "return dep.answer()",}, "\n"))
-
-    local inc = incremental.new(dir)
-    testAssert.eq(#inc.checkFile(mainPath).diags, 0, "current API starts clean")
-    local coldChecks = inc.q.stats.checkModule
-
-    inc.changeDocument(
-        depPath,
-        dep:gsub("function M.answer", '@deprecated(replacement = "dep.currentAnswer")\nfunction M.answer')
-    )
-    local changed = inc.checkFile(mainPath)
-    testAssert.eq(inc.q.stats.checkModule, coldChecks + 2, "deprecation metadata rechecks the dependency and dependent")
-    testAssert.eq(
-        changed.diags[1] and changed.diags[1].code,
-        "NUPP2513",
-        "the dependent observes new deprecation metadata"
-    )
-
-    os.execute("rm -rf '" .. dir .. "'")
-end
-
-function M.deprecationMetadataInvalidatesProjectTypeDependents()
-    local dir = os.tmpname()
-    os.remove(dir)
-    os.execute("mkdir -p '" .. dir .. "'")
-    local modelPath = dir .. "/model.nupp"
-    local mainPath = dir .. "/main.nupp"
-
-    local function write(path, text)
-        local file = assert(io.open(path, "wb"))
-        file:write(text)
-        file:close()
-    end
-
-    local model = table.concat({"global record Shared", "   value: number", "end",}, "\n")
-    write(modelPath, model)
-    write(mainPath, "local item: Shared? = nil\nreturn item\n")
-
-    local inc = incremental.new(dir, {cache = false})
-    testAssert.eq(#inc.checkFile(mainPath).diags, 0, "project type starts current")
-    local coldChecks = inc.q.stats.checkModule
-    inc.changeDocument(modelPath, '@deprecated(replacement = "Current")\n' .. model)
-    local changed = inc.checkFile(mainPath)
-    testAssert.eq(
-        inc.q.stats.checkModule,
-        coldChecks + 2,
-        "deprecation metadata rechecks the declaration and dependent"
-    )
-    testAssert.eq(
-        changed.diags[1] and changed.diags[1].code,
-        "NUPP2513",
-        "the dependent observes project deprecation metadata"
-    )
-
-    os.execute("rm -rf '" .. dir .. "'")
-end
-
-function M.publicPackChangesInvalidateTypeDependents()
-    local dir = os.tmpname()
-    os.remove(dir)
-    os.execute("mkdir -p '" .. dir .. "'")
-    local depPath = dir .. "/dep.nupp"
-    local mainPath = dir .. "/main.nupp"
-
-    local function write(path, source)
-        local file = assert(io.open(path, "wb"))
-        file:write(source)
-        file:close()
-    end
-
-    local dep = table.concat(
-        {"local m = {}", "function m.pair(): (number, string)", "   return 1, 'one'", "end", "return m",},
-        "\n"
-    )
-    write(depPath, dep)
-    write(
-        mainPath,
-        table.concat(
-            {
-                "local dep = require('dep')",
-                "local n, s = dep.pair()",
-                "local exactNumber: number = n",
-                "local exactString: string = s",
-                "return exactNumber, exactString",
-            },
-            "\n"
+        local inc = incremental.new(dir, {cache = case.cache})
+        testAssert.eq(#inc.checkFile(mainPath).diags, 0, case.label .. ": checks cold")
+        local coldChecks = inc.q.stats.checkModule
+        inc.changeDocument(depPath, case.edit(case.dep))
+        local changed = inc.checkFile(mainPath).diags
+        testAssert.eq(
+            inc.q.stats.checkModule,
+            coldChecks + 2,
+            case.label .. ": rechecks the dependency and its dependent"
         )
-    )
-
-    local inc = incremental.new(dir)
-    testAssert.eq(#inc.checkFile(mainPath).diags, 0, "initial pack interface checks")
-    local coldChecks = inc.q.stats.checkModule
-    inc.changeDocument(
-        depPath,
-        dep:gsub("%(number, string%)", "(string, number)"):gsub("return 1, 'one'", "return 'one', 1")
-    )
-    local changed = inc.checkFile(mainPath)
-    testAssert.eq(
-        inc.q.stats.checkModule,
-        coldChecks + 2,
-        "a public result-pack change rechecks dependency and dependent"
-    )
-    testAssert.eq(
-        changed.diags[1] and changed.diags[1].code,
-        "NUPP2001",
-        "the dependent observes the changed result slots"
-    )
-    os.execute("rm -rf '" .. dir .. "'")
-end
-
-function M.overlayClearRevertsToDisk()
-    local dir = os.tmpname()
-    os.remove(dir)
-    os.execute("mkdir -p '" .. dir .. "'")
-    local path = dir .. "/m.nupp"
-    local f = assert(io.open(path, "wb"))
-    f:write("return { ok = 1 }")
-    f:close()
-
-    local inc = incremental.new(dir)
-    testAssert.eq(#inc.checkFile(path).diags, 0)
-    inc.changeDocument(path, "local x: number = 'broken'\nreturn x")
-    testAssert.eq(inc.checkFile(path).diags[1].code, "NUPP2001", "overlay wins")
-    inc.closeDocument(path)
-    testAssert.eq(#inc.checkFile(path).diags, 0, "disk content restored")
-    os.execute("rm -rf '" .. dir .. "'")
+        if case.code then
+            testAssert.eq(changed[1] and changed[1].code, case.code, case.label .. ": the dependent observes it")
+        else
+            testAssert.eq(#changed, 0, case.label .. ": stays clean")
+        end
+        os.execute("rm -rf '" .. dir .. "'")
+    end
 end
 
 -- A build hashes the text its check saw rather than the file as it now stands, and
@@ -940,31 +860,6 @@ function M.reflectionDependsOnlyOnTheExportedTypeItReads()
         inc.q.stats.checkModule,
         coldChecks + 3,
         "the declaring and reflecting modules recheck after a reflected field changes"
-    )
-
-    os.execute("rm -rf '" .. dir .. "'")
-end
-
-function M.removingGlobalOverlayInvalidatesDependents()
-    local dir = os.tmpname()
-    os.remove(dir)
-    os.execute("mkdir -p '" .. dir .. "'")
-    local globalsPath = dir .. "/globals.nupp"
-    local mainPath = dir .. "/main.nupp"
-    local globalsFile = assert(io.open(globalsPath, "wb"))
-    globalsFile:write("global type SharedId = number\n")
-    globalsFile:close()
-    local mainFile = assert(io.open(mainPath, "wb"))
-    mainFile:write("local value: SharedId = 1\nreturn value\n")
-    mainFile:close()
-
-    local inc = incremental.new(dir)
-    testAssert.eq(#inc.checkFile(mainPath).diags, 0, "global export is visible")
-    inc.changeDocument(globalsPath, "local type SharedId = number\n")
-    testAssert.eq(
-        inc.checkFile(mainPath).diags[1].code,
-        "NUPP2101",
-        "removed global export does not survive in ambient state"
     )
 
     os.execute("rm -rf '" .. dir .. "'")
@@ -1192,17 +1087,17 @@ function M.aCycleMemberCheckedThroughAnUnfinishedInterfaceIsCheckedAgain()
     write(
         "calls.nupp",
         "module calls\nconst native = require('native')\nexport const MAX: integer = 16\n"
-            .. "export function omits(given: integer): boolean\n    return given > MAX and native.ready()\nend\n"
+        .. "export function omits(given: integer): boolean\n    return given > MAX and native.ready()\nend\n"
     )
     write(
         "native.nupp",
         "module native\nconst graph = require('graph')\nexport function ready(): boolean\n"
-            .. "    return graph.limit() > 0\nend\n"
+        .. "    return graph.limit() > 0\nend\n"
     )
     write(
         "graph.nupp",
         "module graph\nconst calls = require('calls')\nexport const MAX = calls.MAX\n"
-            .. "export function limit(): integer\n    return MAX\nend\n"
+        .. "export function limit(): integer\n    return MAX\nend\n"
     )
     write("user.nupp", "const graph = require('graph')\nconst wrong: string = graph.MAX\nreturn wrong\n")
 

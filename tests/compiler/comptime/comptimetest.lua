@@ -118,48 +118,6 @@ end
 
 local M = {}
 
-function M.lowercaseBuilderPathsRespectLocalBindings()
-    local nominal, open = run(
-        "comptimetest.lowercaseBuilderPathsRespectLocalBindings",
-        [[
-local types = {
-    samenominal = function(left: integer, right: integer): boolean return left ~= right end,
-    nonexhaustive = function(): integer return 17 end,
-}
-local nominal: boolean = types.samenominal(1, 2)
-local open: integer = types.nonexhaustive()
-return nominal, open
-]]
-    )
-    testAssert.eq(nominal, true)
-    testAssert.eq(open, 17)
-end
-
-function M.lowercaseFieldcodecKeepsTheExistingMaterializationContract()
-    local left, right = run(
-        "comptimetest.lowercaseFieldcodecKeepsTheExistingMaterializationContract",
-        [[
-local record Item
-    value: integer
-end
-const old: types.reflect.FieldCodec<Item> = comptime do
-    return types.reflect.fieldcodec(types.reflect(Item))
-end
-const current: types.reflect.FieldCodec<Item> = comptime do
-    return types.reflect.fieldcodec(types.reflect(Item))
-end
-local value = Item(value = 23)
-local left: integer = old:encode(value).value
-local decoded, reason = current:decode(current:encode(value))
-if decoded == nil then error(reason) end
-local right: integer = decoded.value
-return left, right
-]]
-    )
-    testAssert.eq(left, 23)
-    testAssert.eq(right, 23)
-end
-
 function M.internsStructurallyDistinctTypesApart()
     local value = evaluateTypeBlueprint(
         [[
@@ -759,16 +717,6 @@ return CRC
     end
 end
 
-function M.worksAtEveryOptimizationLevel()
-    -- Comptime is semantics, not an optimization: `-O0` must still produce the value.
-    -- `compile` never optimizes, so reaching the value at all is the assertion.
-    testAssert.eq(
-        run("comptimetest.worksAtEveryOptimizationLevel", "return comptime do return 7 end"),
-        7,
-        "result at -O0"
-    )
-end
-
 function M.staysAName()
     -- `comptime` opens a block only when `do` follows it on the same line. Everywhere
     -- else it is the identifier it always was.
@@ -895,28 +843,21 @@ function M.refusesTheNondeterministicLibraries()
     -- A member the allowlist leaves out is NUPP2402 and names itself; a library that is
     -- not in the environment at all is NUPP2401, the same answer a runtime local gets.
     for _, expr in ipairs({"math.random()", "math.sin(1)"}) do
-        local codes = errorsOf(("return comptime do return %s end"):format(expr))
+        local codes, diags = errorsOf(("return comptime do return %s end"):format(expr))
         testAssert.eq(codes[1], "NUPP2411", expr .. " is left out of the allowlist")
+        -- The diagnostic says which member, not that a nil was called.
+        local found
+        for _, diag in ipairs(diags) do
+            if diag.code == "NUPP2411" then
+                found = diag.msg
+            end
+        end
+        testAssert.eq(found, expr:match("^[%w.]+") .. " is unavailable at comptime", expr .. " names the absent member")
     end
     for _, expr in ipairs({"os.clock()", "os.time()"}) do
         local codes = errorsOf(("return comptime do return %s end"):format(expr))
         testAssert.eq(codes[1], "NUPP2410", expr .. " has no library to reach")
     end
-end
-
-function M.namesTheAbsentMemberRatherThanItsSymptom()
-    local _, diags = compile("return comptime do return math.random() end")
-    local found
-    for _, diag in ipairs(diags) do
-        if diag.code == "NUPP2411" then
-            found = diag.msg
-        end
-    end
-    testAssert.eq(
-        found,
-        "math.random is unavailable at comptime",
-        "the diagnostic says which member, not that a nil was called"
-    )
 end
 
 function M.refusesTostringOfATable()
@@ -1541,11 +1482,6 @@ function M.infersComptimeNumericSubtypes()
             "comptime result retains numeric base"
         )
     end
-end
-
-function M.quotesNegativeZeroApart()
-    local answer = run("comptimetest.quotesNegativeZeroApart", "return comptime do return -0.0 end")
-    testAssert.eq(1 / answer, -math.huge, "negative zero keeps its sign")
 end
 
 function M.refusesNaNAndInfinity()

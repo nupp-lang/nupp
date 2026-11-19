@@ -340,6 +340,9 @@ function M.aVerifiedHandshakeCarriesBytesBothWays()
     assert(serverDone, "and so did the server")
     assert(client:isverified(), "the client verified the peer's certificate")
     assert(client:isready(), "and says the session is ready")
+    -- Neither side named protocols, so nothing was negotiated.
+    testAssert.eq(client:protocol(), nil, "the client negotiated no protocol")
+    testAssert.eq(server:protocol(), nil, "and neither did the server")
 
     assert(client:write("secret over the wire"), "the client writes plaintext")
     testAssert.eq(assert(server:read(64)), "secret over the wire", "the server reads it decrypted")
@@ -449,6 +452,8 @@ function M.closingDuringAHandshakeIsImmediateAndTerminal()
     testAssert.eq(done, false, "one client pass leaves the handshake pending")
     testAssert.eq(why, nil, "a pending handshake has not failed")
     client:close()
+    -- close() frees the native session, so the accessors below answer from the
+    -- record's own state rather than asking the backend about freed memory.
     testAssert.eq(client:isreleased(), true, "closing releases the pending session")
     testAssert.eq(client:isconnected(), false, "the closed session is terminal")
     local after, closedWhy = client:step()
@@ -479,21 +484,6 @@ function M.aPeerCloseDuringHandshakeBecomesAFailure()
     assert(why ~= nil, "the failed handshake reports its terminal reason")
 
     client:close()
-    clientSock:close()
-    listener:close()
-end
-
-function M.aReleasedSessionAnswersItsQuestionsRatherThanCrashing()
-    -- close() frees the native session, so every accessor has to answer from
-    -- the record's own state afterwards: asking the backend about a released
-    -- session is asking freed memory, which a plain-Lua caller can do however
-    -- firmly the affine layer forbids it in typed code.
-    local listener, clientSock, serverSock = sockets()
-    local client = assert(tls.tlsclient(clientSock, {verify = false}))
-    client:close()
-    testAssert.eq(client:isconnected(), false, "a released session is not connected")
-    testAssert.eq(client:isreleased(), true, "and says it was released")
-    serverSock:close()
     clientSock:close()
     listener:close()
 end
@@ -556,21 +546,6 @@ function M.alpnSharingNothingRefusesTheHandshake()
     local clientDone, clientWhy, serverDone, serverWhy = shake(client, server)
     assert(not clientDone or not serverDone, "a handshake with no protocol in common does not complete")
     assert(clientWhy ~= nil or serverWhy ~= nil, "and one side says why")
-
-    client:close()
-    server:close()
-    serverSock:close()
-    clientSock:close()
-    listener:close()
-end
-
-function M.noProtocolsMeansNoNegotiation()
-    local listener, clientSock, serverSock = sockets()
-    local server = assert(tls.tlsserver(serverSock, {certificate = CERT, privatekey = KEY}))
-    local client = assert(tls.tlsclient(clientSock, {hostname = "localhost", authority = CERT}))
-    assert((shake(client, server)), "the handshake completes without ALPN")
-    testAssert.eq(client:protocol(), nil, "and nothing was negotiated")
-    testAssert.eq(server:protocol(), nil, "on either side")
 
     client:close()
     server:close()

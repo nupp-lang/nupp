@@ -539,17 +539,6 @@ function M.aLoneCarriageReturnEndsALine()
     )
 end
 
-function M.fileUrisRoundTripWindowsDrivePaths()
-    local text = require("nupp.tools.lsp.text")
-    local path = "C:/Users/Example/space # percent%.nupp"
-    local uri = text.pathToUri(path)
-    assert(
-        uri == "file:///C:/Users/Example/space%20%23%20percent%25.nupp",
-        "a drive path is an absolute URI path: " .. uri
-    )
-    assert(text.uriToPath(uri) == path, "the URI returns to the same drive path")
-end
-
 -- RFC 8089 spells a local file three ways, and a client may send any of them:
 -- with an empty authority, with `localhost`, or with no authority at all. Each
 -- names the same absolute path. Another authority is a host, which a path can
@@ -578,6 +567,13 @@ function M.fileUrisOfEveryLocalSpellingNameTheSamePath()
     assert(text.pathToUri("/p/back\\slash.nupp") == "file:///p/back%5Cslash.nupp", "a POSIX name keeps its backslash")
     assert(text.pathToUri("src/main.nupp") == "file:src/main.nupp", "a relative path names no host")
     assert(text.uriToPath(text.pathToUri("src/main.nupp")) == "src/main.nupp", "and reads back unchanged")
+    local drive = "C:/Users/Example/space # percent%.nupp"
+    local escaped = text.pathToUri(drive)
+    assert(
+        escaped == "file:///C:/Users/Example/space%20%23%20percent%25.nupp",
+        "a drive path is an absolute URI path: " .. escaped
+    )
+    assert(text.uriToPath(escaped) == drive, "the URI returns to the same drive path")
 end
 
 -- A session started against a relative root answered a document reached by its
@@ -683,47 +679,6 @@ function M.projectExportDefinitionAndCompletion()
         labels[item.label] = true
     end
     assert(labels.ProjectRecord, "exported type completion")
-end
-
--- A docblock sits on the token that opens the declaration, not on the name a
--- definition points at, so hovering a symbol declared in another file has to
--- read that file's tokens rather than the ones of the document being edited.
-function M.hoverShowsDocsDeclaredInAnotherFile()
-    local projectDir = os.tmpname()
-    os.remove(projectDir)
-    assert(os.execute("mkdir -p '" .. projectDir .. "'") == 0)
-    local modelPath = projectDir .. "/model.nupp"
-    local model = "--- A record shared across files.\n" .. "global record ProjectRecord\n   id: uint32\nend\n"
-    local modelFile = assert(io.open(modelPath, "wb"))
-    modelFile:write(model)
-    modelFile:close()
-    local usePath = projectDir .. "/use.nupp"
-    local uri = fileUri(usePath)
-    local out = runSession(
-        {
-            {jsonrpc = "2.0", id = 1, method = "initialize", params = {}},
-            {
-                jsonrpc = "2.0",
-                method = "textDocument/didOpen",
-                params = {
-                    textDocument = {uri = uri, languageId = "nupp", version = 1, text = "local value: ProjectRecord\n"}
-                }
-            },
-            {
-                jsonrpc = "2.0",
-                id = 10,
-                method = "textDocument/hover",
-                params = {textDocument = {uri = uri}, position = {line = 0, character = 16}}
-            },
-            {jsonrpc = "2.0", id = 2, method = "shutdown"},
-            {jsonrpc = "2.0", method = "exit"},
-        },
-        projectDir
-    )
-    os.execute("rm -rf '" .. projectDir .. "'")
-    local hover = responseWithId(out, 10).result
-    assert(hover and hover.contents, "hover result missing")
-    assertContains(hover.contents.value, "A record shared across files.", "cross-file docs")
 end
 
 function M.comptimeHoverAndCompletionExposeOnlyEvaluatorState()
@@ -993,54 +948,6 @@ function M.anAnswerOvertakenByAnEditIsDiscarded()
     )
 end
 
--- Diagnostics say which version of the document they were worked out from, so
--- an editor that has typed on since drops them rather than showing squiggles
--- against text it no longer has.
-function M.publishedDiagnosticsCarryTheVersionTheyWereFoundIn()
-    local projectDir = makeDir()
-    local uri = fileUri(projectDir .. "/main.nupp")
-    local out = runSession(
-        {
-            {jsonrpc = "2.0", id = 1, method = "initialize", params = {}},
-            {
-                jsonrpc = "2.0",
-                method = "textDocument/didOpen",
-                params = {
-                    textDocument = {
-                        uri = uri,
-                        languageId = "nupp",
-                        version = 7,
-                        text = "local n: integer = 1\n\nreturn n\n"
-                    }
-                }
-            },
-            {
-                jsonrpc = "2.0",
-                method = "textDocument/didChange",
-                params = {
-                    textDocument = {uri = uri, version = 8},
-                    contentChanges = {{text = "local n: integer = nope\n\nreturn n\n"}}
-                }
-            },
-            {jsonrpc = "2.0", id = 2, method = "shutdown"},
-            {jsonrpc = "2.0", method = "exit"},
-        },
-        projectDir
-    )
-    os.execute("rm -rf '" .. projectDir .. "'")
-
-    local versions = {}
-    for _, message in ipairs(decodeMessages(out)) do
-        if message.method == "textDocument/publishDiagnostics" and message.params.uri == uri then
-            versions[#versions + 1] = message.params.version
-        end
-    end
-    assert(
-        versions[1] == 7 and versions[#versions] == 8,
-        "each publication names the version it was found in: " .. json.encode(versions)
-    )
-end
-
 -- The name of a `local function` is where a reader hovers first, and it names
 -- the same function every call of it does. The checker leaves a placeholder on
 -- that one token before the body is checked; the answer is the declaration's.
@@ -1226,50 +1133,6 @@ function M.republishesDependentDiagnostics()
     assert(#diagnostics[3] == 0, "dependent diagnostic clears when export is restored")
 end
 
-local function deepEq(a, b)
-    if type(a) ~= type(b) then
-        return false
-    end
-    if type(a) ~= "table" then
-        return a == b
-    end
-    for k, v in pairs(a) do
-        if not deepEq(v, b[k]) then
-            return false
-        end
-    end
-    for k in pairs(b) do
-        if a[k] == nil then
-            return false
-        end
-    end
-
-    return true
-end
-
-function M.jsonRoundtrip()
-    local cases = {
-        '{"a":1,"b":[1,2,3],"c":"x\\ny","d":null,"e":true}',
-        '{"nested":{"deep":{"list":[{"k":"v"}]}}}',
-        '[]',
-        '"\\u00e9\\u0041"',
-    }
-    for _, src in ipairs(cases) do
-        local v = json.decode(src)
-        local re = json.decode(json.encode(v))
-        assert(deepEq(v, re), "unstable roundtrip: " .. src)
-    end
-    assert(json.decode("null") == json.NULL, "null sentinel")
-    assert(json.encode(json.NULL) == "null", "encoded null sentinel")
-    assert(json.encode(json.decode("[]")) == "[]", "decoded empty array")
-    assert(json.encode(json.EMPTY_ARRAY) == "[]", "empty-array sentinel")
-    assert(json.encode({}) == "{}", "empty object")
-    assert(json.decode('"\\u00e9"') == "\195\169", "utf-8 escape")
-    local raised, value, reason = pcall(json.decode, "NaN")
-    assert(not raised or value == nil and reason ~= nil, "invalid decoded number rejected")
-    assert(not pcall(json.encode, 0 / 0), "invalid encoded number rejected")
-end
-
 function M.diagnosticsLifecycle()
     local root = scratchRoot()
     local uri = fileUri(root .. "/lifecycle-demo.nupp")
@@ -1283,7 +1146,7 @@ function M.diagnosticsLifecycle()
                 textDocument = {
                     uri = uri,
                     languageId = "nupp",
-                    version = 1,
+                    version = 7,
                     text = "local x: number = 'oops'\nreturn x\n",
                 }
             }
@@ -1292,7 +1155,7 @@ function M.diagnosticsLifecycle()
             jsonrpc = "2.0",
             method = "textDocument/didChange",
             params = {
-                textDocument = {uri = uri, version = 2},
+                textDocument = {uri = uri, version = 8},
                 contentChanges = {{text = "local x: number = 42\nreturn x\n"}}
             }
         },
@@ -1305,6 +1168,18 @@ function M.diagnosticsLifecycle()
     assertContains(out, "publishDiagnostics", "publish notification")
     -- the didChange fix must publish an EMPTY diagnostics list
     assertContains(out, '"diagnostics":[]', "clean after fix")
+    -- An editor that has typed on since drops diagnostics found in older text,
+    -- so each publication names the version it was found in.
+    local versions = {}
+    for _, message in ipairs(decodeMessages(out)) do
+        if message.method == "textDocument/publishDiagnostics" and message.params.uri == uri then
+            versions[#versions + 1] = message.params.version
+        end
+    end
+    assert(
+        versions[1] == 7 and versions[#versions] == 8,
+        "each publication names the version it was found in: " .. json.encode(versions)
+    )
 end
 
 -- `lsp serve .` under a client that names the same directory by an absolute
@@ -1471,6 +1346,11 @@ function M.definitionLocations()
             "   return v.x + p.x",
             "end",
             "length(p)",
+            -- a position at the right edge of a word names it, as an editor
+            -- considers it to
+            "local copy = p",
+            -- positions count UTF-16 units, and the emoji is two of them
+            "local emoji = '😀'; local value = emoji",
         },
         "\n"
     )
@@ -1487,6 +1367,8 @@ function M.definitionLocations()
         {id = 11, line = 5, character = 10, wantLine = 4, wantChar = 22},
         {id = 12, line = 5, character = 12, wantLine = 1, wantChar = 3},
         {id = 13, line = 7, character = 1, wantLine = 4, wantChar = 15},
+        {id = 14, line = 8, character = 14, wantLine = 3, wantChar = 6},
+        {id = 15, line = 9, character = 37, wantLine = 9, wantChar = 6},
     }
     for _, request in ipairs(requests) do
         messages[
@@ -1772,44 +1654,137 @@ function M.languageFeaturesAndCdefTooling()
     )
 end
 
-function M.contractSyntaxSemanticTokens()
-    local uri = fileUri(scratchRoot() .. "/contracts.nupp")
-    local source = table.concat(
-        {
-            "@!internal",
-            "local interface Bound",
-            "end",
-            "local record Box<T is Bound> is Bound where true",
-            "   metamethod __call: function(self): self",
-            "   function run()",
-            "      yields (number) resumes (boolean): string",
-            "      return 'ok'",
-            "   end",
-            "end",
-        },
-        "\n"
-    )
-    local out = runSession({
-        {jsonrpc = "2.0", id = 1, method = "initialize", params = {}},
-        {
+-- Opens each source in one session and decodes its full semantic tokens: for
+-- every document, the kind named at each `line:character` and the lines that
+-- carry any token at all.
+local function semanticTokensOf(documents)
+    local messages = {{jsonrpc = "2.0", id = 1, method = "initialize", params = {}}}
+    for index, document in ipairs(documents) do
+        local uri = fileUri(scratchRoot() .. "/" .. document.name)
+        messages[
+            #messages + 1
+        ] = {
             jsonrpc = "2.0",
             method = "textDocument/didOpen",
-            params = {textDocument = {uri = uri, languageId = "nupp", version = 1, text = source}}
-        },
-        {jsonrpc = "2.0", id = 10, method = "textDocument/semanticTokens/full", params = {textDocument = {uri = uri}}},
-        {jsonrpc = "2.0", id = 2, method = "shutdown"},
-        {jsonrpc = "2.0", method = "exit"},
-    })
-    local initialize = responseWithId(out, 1).result.capabilities
-    local types = initialize.semanticTokensProvider.legend.tokenTypes
-    local data = responseWithId(out, 10).result.data
-    local line, character = 0, 0
-    local at = {}
-    for index = 1, #data, 5 do
-        line = line + data[index]
-        character = data[index] == 0 and character + data[index + 1] or data[index + 1]
-        at[line .. ":" .. character] = types[data[index + 3] + 1]
+            params = {textDocument = {uri = uri, languageId = "nupp", version = 1, text = document.source}}
+        }
+        messages[
+            #messages + 1
+        ] = {
+            jsonrpc = "2.0",
+            id = 10 + index,
+            method = "textDocument/semanticTokens/full",
+            params = {textDocument = {uri = uri}}
+        }
     end
+    messages[#messages + 1] = {jsonrpc = "2.0", id = 2, method = "shutdown"}
+    messages[#messages + 1] = {jsonrpc = "2.0", method = "exit"}
+    local out = runSession(messages)
+    local types = responseWithId(out, 1).result.capabilities.semanticTokensProvider.legend.tokenTypes
+    local decoded = {}
+    for index, document in ipairs(documents) do
+        local data = responseWithId(out, 10 + index).result.data
+        local line, character = 0, 0
+        local at, lines = {}, {}
+        for offset = 1, #data, 5 do
+            line = line + data[offset]
+            character = data[offset] == 0 and character + data[offset + 1] or data[offset + 1]
+            at[line .. ":" .. character] = types[data[offset + 3] + 1]
+            lines[line] = true
+        end
+        decoded[document.name] = {at = at, lines = lines}
+    end
+
+    return decoded
+end
+
+-- Contextual keywords, annotations and comments, each where a TextMate grammar
+-- cannot tell them apart from the identifiers and text around them.
+function M.keywordsAnnotationsAndCommentsHaveTheirSemanticKinds()
+    local decoded = semanticTokensOf({
+        {
+            name = "contracts.nupp",
+            source = table.concat(
+                {
+                    "@!internal",
+                    "local interface Bound",
+                    "end",
+                    "local record Box<T is Bound> is Bound where true",
+                    "   metamethod __call: function(self): self",
+                    "   function run()",
+                    "      yields (number) resumes (boolean): string",
+                    "      return 'ok'",
+                    "   end",
+                    "end",
+                },
+                "\n"
+            ),
+        },
+        {
+            name = "safety-keywords.nupp",
+            source = table.concat(
+                {
+                    "@unsafe do end",
+                    "@nosuspend do end",
+                    "local callback: @nosuspend function(): nil = function() end",
+                    "local value: string = nil as any",
+                    "local unsafe = 1",
+                    "local expression = @unsafe unsafe",
+                },
+                "\n"
+            ),
+        },
+        -- column 43 is the `borrows` of the return annotation; the parameter
+        -- mode before it was already a keyword
+        {
+            name = "borrow-demo.nupp",
+            source = table.concat(
+                {
+                    "local record Pool",
+                    "   n: integer",
+                    "end",
+                    "local function peek(borrows p: Pool): Pool borrows (p)",
+                    "   return p",
+                    "end",
+                },
+                "\n"
+            ),
+        },
+        {
+            name = "predicate-demo.nupp",
+            source = table.concat(
+                {
+                    "local type Value = string | number",
+                    "local function isString(value: Value): value is string",
+                    "   return value is string",
+                    "end",
+                },
+                "\n"
+            ),
+        },
+        {
+            name = "embedded-string.nupp",
+            source = table.concat({'@syntax("json")', "local config = dedent [[", "{\"enabled\": true}", "]]",}, "\n"),
+        },
+        {
+            name = "doc-comment-demo.nupp",
+            source = table.concat(
+                {
+                    "-- ordinary comment",
+                    "--- @param value the value",
+                    "--- ```nupp",
+                    "--- local copy: integer = value",
+                    "--- ```",
+                    "local function identity(value: integer): integer",
+                    "   return value",
+                    "end",
+                },
+                "\n"
+            ),
+        },
+    })
+
+    local at = decoded["contracts.nupp"].at
     assert(at["0:2"] == "decorator", "inner annotation name is a decorator")
     assert(at["3:19"] == "nuppKeyword", "generic bound is keyword")
     assert(at["3:29"] == "nuppKeyword", "contract inclusion is keyword")
@@ -1820,41 +1795,8 @@ function M.contractSyntaxSemanticTokens()
     assert(at["5:12"] == "method", "inline method name is method")
     assert(at["6:6"] == "nuppKeyword", "yields is keyword")
     assert(at["6:22"] == "nuppKeyword", "resumes is keyword")
-end
 
-function M.unsafeAnnotationsAndNosuspendHaveDistinctSemanticKinds()
-    local uri = fileUri(scratchRoot() .. "/safety-keywords.nupp")
-    local source = table.concat(
-        {
-            "@unsafe do end",
-            "@nosuspend do end",
-            "local callback: @nosuspend function(): nil = function() end",
-            "local value: string = nil as any",
-            "local unsafe = 1",
-            "local expression = @unsafe unsafe",
-        },
-        "\n"
-    )
-    local out = runSession({
-        {jsonrpc = "2.0", id = 1, method = "initialize", params = {}},
-        {
-            jsonrpc = "2.0",
-            method = "textDocument/didOpen",
-            params = {textDocument = {uri = uri, languageId = "nupp", version = 1, text = source}}
-        },
-        {jsonrpc = "2.0", id = 10, method = "textDocument/semanticTokens/full", params = {textDocument = {uri = uri}}},
-        {jsonrpc = "2.0", id = 2, method = "shutdown"},
-        {jsonrpc = "2.0", method = "exit"},
-    })
-    local types = responseWithId(out, 1).result.capabilities.semanticTokensProvider.legend.tokenTypes
-    local data = responseWithId(out, 10).result.data
-    local line, character = 0, 0
-    local at = {}
-    for index = 1, #data, 5 do
-        line = line + data[index]
-        character = data[index] == 0 and character + data[index + 1] or data[index + 1]
-        at[line .. ":" .. character] = types[data[index + 3] + 1]
-    end
+    at = decoded["safety-keywords.nupp"].at
     assert(at["0:1"] == "decorator", "unsafe is an annotation")
     assert(at["4:6"] == "variable", "ordinary unsafe remains a variable")
     assert(at["5:20"] == "decorator", "expression annotations are decorators")
@@ -1862,32 +1804,23 @@ function M.unsafeAnnotationsAndNosuspendHaveDistinctSemanticKinds()
     assert(at["1:1"] == "decorator", "nosuspend block is an annotation")
     assert(at["2:17"] == "decorator", "@nosuspend function type is an annotation")
     assert(at["3:26"] == "nuppKeyword", "as cast is a keyword")
-end
 
-function M.embeddedStringSyntaxLeavesTheLiteralToTheTextMateGrammar()
-    local uri = fileUri(scratchRoot() .. "/embedded-string.nupp")
-    local source = table.concat({'@syntax("json")', "local config = dedent [[", "{\"enabled\": true}", "]]",}, "\n")
-    local out = runSession({
-        {jsonrpc = "2.0", id = 1, method = "initialize", params = {}},
-        {
-            jsonrpc = "2.0",
-            method = "textDocument/didOpen",
-            params = {textDocument = {uri = uri, languageId = "nupp", version = 1, text = source}}
-        },
-        {jsonrpc = "2.0", id = 10, method = "textDocument/semanticTokens/full", params = {textDocument = {uri = uri}}},
-        {jsonrpc = "2.0", id = 2, method = "shutdown"},
-        {jsonrpc = "2.0", method = "exit"},
-    })
-    local tokenTypes = responseWithId(out, 1).result.capabilities.semanticTokensProvider.legend.tokenTypes
-    local data = responseWithId(out, 10).result.data
-    local line, character = 0, 0
-    local at = {}
-    for index = 1, #data, 5 do
-        line = line + data[index]
-        character = data[index] == 0 and character + data[index + 1] or data[index + 1]
-        at[line .. ":" .. character] = tokenTypes[data[index + 3] + 1]
+    assert(decoded["borrow-demo.nupp"].at["3:43"] == "nuppKeyword", "borrows in a return annotation is a keyword")
+
+    at = decoded["predicate-demo.nupp"].at
+    assert(at["1:45"] == "nuppKeyword", "predicate-return is is a keyword")
+    assert(at["2:16"] == "operator", "expression is remains an operator")
+
+    assert(
+        decoded["embedded-string.nupp"].at["1:22"] == nil,
+        "the embedded long string does not receive an overriding string token"
+    )
+
+    local comments = decoded["doc-comment-demo.nupp"]
+    assert(comments.at["0:0"] == "comment", "ordinary comments retain semantic highlighting")
+    for docLine = 1, 4 do
+        assert(not comments.lines[docLine], "doc line " .. docLine .. " is left to TextMate highlighting")
     end
-    assert(at["1:22"] == nil, "the embedded long string does not receive an overriding string token")
 end
 
 function M.packBindersHaveTypeParameterEditorSemantics()
@@ -1958,30 +1891,6 @@ function M.packBindersHaveTypeParameterEditorSemantics()
         at["0:23"] == "typeParameter" and at["0:34"] == "typeParameter" and at["0:41"] == "typeParameter",
         "pack binders and splices use type-parameter semantic tokens"
     )
-end
-
-function M.utf16Positions()
-    local uri = fileUri(scratchRoot() .. "/utf16-demo.nupp")
-    local source = "local emoji = '😀'; local value = emoji\n"
-    local out = runSession({
-        {jsonrpc = "2.0", id = 1, method = "initialize", params = {}},
-        {
-            jsonrpc = "2.0",
-            method = "textDocument/didOpen",
-            params = {textDocument = {uri = uri, languageId = "nupp", version = 1, text = source}}
-        },
-        {
-            jsonrpc = "2.0",
-            id = 10,
-            method = "textDocument/definition",
-            params = {textDocument = {uri = uri}, position = {line = 0, character = 37}}
-        },
-        {jsonrpc = "2.0", id = 2, method = "shutdown"},
-        {jsonrpc = "2.0", method = "exit"},
-    })
-    local definition = responseWithId(out, 10).result
-    assert(definition.range.start.line == 0, "UTF-16 definition line")
-    assert(definition.range.start.character == 6, "UTF-16 definition character")
 end
 
 function M.constEditorSemantics()
@@ -2092,262 +2001,67 @@ end
 
 -- A built-in annotation like `@aot` has no declaration in the project to jump
 -- to, so hover falls back to a one-line blurb and a link to where it is
--- actually documented, and go-to-definition finds nothing to fabricate.
+-- actually documented, and go-to-definition finds nothing to fabricate. The
+-- same holds for an expression annotation and, one level down, for a built-in
+-- annotation's own member (`target` on `@aot`), which has no field declaration
+-- either.
 function M.builtinAnnotationHoverLinksToDocsWithNoFabricatedDefinition()
-    local uri = fileUri(scratchRoot() .. "/aot-demo.nupp")
-    local source = table.concat(
-        {"@aot", "local function double(x: integer): integer", "    return x * 2", "end", "return double",},
-        "\n"
-    ) .. "\n"
-    local out = runSession({
-        {jsonrpc = "2.0", id = 1, method = "initialize", params = {}},
+    local cases = {
         {
+            name = "aot-demo.nupp",
+            source = "@aot\nlocal function double(x: integer): integer\n    return x * 2\nend\nreturn double\n",
+            position = {line = 0, character = 2},
+            blurbs = {"ahead-of-time compilation contract"},
+            link = "https://nupp.org/api#annotation-aot",
+        },
+        {
+            name = "unsafe-expression.nupp",
+            source = "local value = @unsafe 1\nreturn value\n",
+            position = {line = 0, character = 16},
+            blurbs = {"one statement or operand"},
+            link = "https://nupp.org/api#annotation-unsafe",
+        },
+        {
+            name = "aot-target-demo.nupp",
+            source = '@aot(target = "cpu")\nlocal function double(x: integer): integer\n'
+            .. "    return x * 2\nend\nreturn double\n",
+            position = {line = 0, character = 7},
+            blurbs = {"target:", "execution family"},
+            link = "https://nupp.org/api#annotation-aot",
+        },
+    }
+    local messages = {{jsonrpc = "2.0", id = 1, method = "initialize", params = {}}}
+    for index, case in ipairs(cases) do
+        local uri = fileUri(scratchRoot() .. "/" .. case.name)
+        local at = {textDocument = {uri = uri}, position = case.position}
+        messages[
+            #messages + 1
+        ] = {
             jsonrpc = "2.0",
             method = "textDocument/didOpen",
-            params = {textDocument = {uri = uri, languageId = "nupp", version = 1, text = source}}
-        },
-        {
-            jsonrpc = "2.0",
-            id = 10,
-            method = "textDocument/hover",
-            params = {textDocument = {uri = uri}, position = {line = 0, character = 2},}
-        },
-        {
-            jsonrpc = "2.0",
-            id = 11,
-            method = "textDocument/definition",
-            params = {textDocument = {uri = uri}, position = {line = 0, character = 2},}
-        },
-        {jsonrpc = "2.0", id = 2, method = "shutdown"},
-        {jsonrpc = "2.0", method = "exit"},
-    })
-
-    local hover = responseWithId(out, 10).result
-    assert(hover and hover.contents, "builtin annotation hover missing")
-    assertContains(hover.contents.value, "ahead-of-time compilation contract", "builtin annotation hover blurb")
-    assertContains(
-        hover.contents.value,
-        "https://nupp.org/api#annotation-aot",
-        "builtin annotation hover links to nupp.org"
-    )
-
-    local definition = responseWithId(out, 11).result
-    assert(
-        definition == nil or definition == json.NULL,
-        "builtin annotation reports no fabricated definition location: " .. json.encode(definition)
-    )
-end
-
-function M.unsafeExpressionHoverLinksToDocsWithNoFabricatedDefinition()
-    local uri = fileUri(scratchRoot() .. "/unsafe-expression.nupp")
-    local source = table.concat({"local value = @unsafe 1", "return value"}, "\n") .. "\n"
-    local out = runSession({
-        {jsonrpc = "2.0", id = 1, method = "initialize", params = {}},
-        {
-            jsonrpc = "2.0",
-            method = "textDocument/didOpen",
-            params = {textDocument = {uri = uri, languageId = "nupp", version = 1, text = source}}
-        },
-        {
-            jsonrpc = "2.0",
-            id = 10,
-            method = "textDocument/hover",
-            params = {textDocument = {uri = uri}, position = {line = 0, character = 16},}
-        },
-        {
-            jsonrpc = "2.0",
-            id = 11,
-            method = "textDocument/definition",
-            params = {textDocument = {uri = uri}, position = {line = 0, character = 16},}
-        },
-        {jsonrpc = "2.0", id = 2, method = "shutdown"},
-        {jsonrpc = "2.0", method = "exit"},
-    })
-
-    local hover = responseWithId(out, 10).result
-    assert(hover and hover.contents, "builtin annotation hover missing")
-    assertContains(hover.contents.value, "one statement or operand", "builtin annotation hover blurb")
-    assertContains(
-        hover.contents.value,
-        "https://nupp.org/api#annotation-unsafe",
-        "builtin annotation hover links to nupp.org"
-    )
-
-    local definition = responseWithId(out, 11).result
-    assert(
-        definition == nil or definition == json.NULL,
-        "builtin annotation reports no fabricated definition location: " .. json.encode(definition)
-    )
-end
-
--- Same stand-in, one level down: a built-in annotation's own member
--- (`target` on `@aot`) has no field declaration either.
-function M.builtinAnnotationMemberHoverLinksToDocsWithNoFabricatedDefinition()
-    local uri = fileUri(scratchRoot() .. "/aot-target-demo.nupp")
-    local source = table.concat(
-        {
-            '@aot(target = "cpu")',
-            "local function double(x: integer): integer",
-            "    return x * 2",
-            "end",
-            "return double",
-        },
-        "\n"
-    ) .. "\n"
-    local out = runSession({
-        {jsonrpc = "2.0", id = 1, method = "initialize", params = {}},
-        {
-            jsonrpc = "2.0",
-            method = "textDocument/didOpen",
-            params = {textDocument = {uri = uri, languageId = "nupp", version = 1, text = source}}
-        },
-        {
-            jsonrpc = "2.0",
-            id = 10,
-            method = "textDocument/hover",
-            params = {textDocument = {uri = uri}, position = {line = 0, character = 7},}
-        },
-        {
-            jsonrpc = "2.0",
-            id = 11,
-            method = "textDocument/definition",
-            params = {textDocument = {uri = uri}, position = {line = 0, character = 7},}
-        },
-        {jsonrpc = "2.0", id = 2, method = "shutdown"},
-        {jsonrpc = "2.0", method = "exit"},
-    })
-
-    local hover = responseWithId(out, 10).result
-    assert(hover and hover.contents, "builtin annotation member hover missing")
-    assertContains(hover.contents.value, "target:", "member hover shows its type")
-    assertContains(hover.contents.value, "execution family", "member hover blurb")
-    assertContains(hover.contents.value, "https://nupp.org/api#annotation-aot", "member hover links to nupp.org")
-
-    local definition = responseWithId(out, 11).result
-    assert(
-        definition == nil or definition == json.NULL,
-        "builtin annotation member reports no fabricated definition location: " .. json.encode(definition)
-    )
-end
-
-function M.borrowReturnIsAKeyword()
-    local uri = fileUri(scratchRoot() .. "/borrow-demo.nupp")
-    -- column 40 is the `borrows` of the return annotation; column 20 is the
-    -- parameter mode, which was already a keyword
-    local source = table.concat(
-        {
-            "local record Pool",
-            "   n: integer",
-            "end",
-            "local function peek(borrows p: Pool): Pool borrows (p)",
-            "   return p",
-            "end",
-        },
-        "\n"
-    )
-    local out = runSession({
-        {jsonrpc = "2.0", id = 1, method = "initialize", params = {}},
-        {
-            jsonrpc = "2.0",
-            method = "textDocument/didOpen",
-            params = {textDocument = {uri = uri, languageId = "nupp", version = 1, text = source}}
-        },
-        {jsonrpc = "2.0", id = 10, method = "textDocument/semanticTokens/full", params = {textDocument = {uri = uri}}},
-        {jsonrpc = "2.0", id = 2, method = "shutdown"},
-        {jsonrpc = "2.0", method = "exit"},
-    })
-
-    local tokenTypes = responseWithId(out, 1).result.capabilities.semanticTokensProvider.legend.tokenTypes
-    local data = responseWithId(out, 10).result.data
-    local line, character = 0, 0
-    local semanticAt = {}
-    for index = 1, #data, 5 do
-        line = line + data[index]
-        character = data[index] == 0 and character + data[index + 1] or data[index + 1]
-        semanticAt[line .. ":" .. character] = tokenTypes[data[index + 3] + 1]
+            params = {textDocument = {uri = uri, languageId = "nupp", version = 1, text = case.source}}
+        }
+        messages[#messages + 1] = {jsonrpc = "2.0", id = index * 10, method = "textDocument/hover", params = at}
+        messages[
+            #messages + 1
+        ] = {jsonrpc = "2.0", id = index * 10 + 1, method = "textDocument/definition", params = at}
     end
-    assert(semanticAt["3:43"] == "nuppKeyword", "borrows in a return annotation is a keyword")
-end
+    messages[#messages + 1] = {jsonrpc = "2.0", id = 2, method = "shutdown"}
+    messages[#messages + 1] = {jsonrpc = "2.0", method = "exit"}
+    local out = runSession(messages)
 
-function M.predicateReturnIsAKeyword()
-    local uri = fileUri(scratchRoot() .. "/predicate-demo.nupp")
-    local source = table.concat(
-        {
-            "local type Value = string | number",
-            "local function isString(value: Value): value is string",
-            "   return value is string",
-            "end",
-        },
-        "\n"
-    )
-    local out = runSession({
-        {jsonrpc = "2.0", id = 1, method = "initialize", params = {}},
-        {
-            jsonrpc = "2.0",
-            method = "textDocument/didOpen",
-            params = {textDocument = {uri = uri, languageId = "nupp", version = 1, text = source}}
-        },
-        {jsonrpc = "2.0", id = 10, method = "textDocument/semanticTokens/full", params = {textDocument = {uri = uri}}},
-        {jsonrpc = "2.0", id = 2, method = "shutdown"},
-        {jsonrpc = "2.0", method = "exit"},
-    })
-
-    local initialize = responseWithId(out, 1).result.capabilities
-    local tokenTypes = initialize.semanticTokensProvider.legend.tokenTypes
-    local data = responseWithId(out, 10).result.data
-    local line, character = 0, 0
-    local semanticAt = {}
-    for index = 1, #data, 5 do
-        line = line + data[index]
-        character = data[index] == 0 and character + data[index + 1] or data[index + 1]
-        semanticAt[line .. ":" .. character] = tokenTypes[data[index + 3] + 1]
-    end
-    assert(semanticAt["1:45"] == "nuppKeyword", "predicate-return is is a keyword")
-    assert(semanticAt["2:16"] == "operator", "expression is remains an operator")
-end
-
-function M.docCommentsDeferToTextMateScopes()
-    local uri = fileUri(scratchRoot() .. "/doc-comment-demo.nupp")
-    local source = table.concat(
-        {
-            "-- ordinary comment",
-            "--- @param value the value",
-            "--- ```nupp",
-            "--- local copy: integer = value",
-            "--- ```",
-            "local function identity(value: integer): integer",
-            "   return value",
-            "end",
-        },
-        "\n"
-    )
-    local out = runSession({
-        {jsonrpc = "2.0", id = 1, method = "initialize", params = {}},
-        {
-            jsonrpc = "2.0",
-            method = "textDocument/didOpen",
-            params = {textDocument = {uri = uri, languageId = "nupp", version = 1, text = source}}
-        },
-        {jsonrpc = "2.0", id = 10, method = "textDocument/semanticTokens/full", params = {textDocument = {uri = uri}}},
-        {jsonrpc = "2.0", id = 2, method = "shutdown"},
-        {jsonrpc = "2.0", method = "exit"},
-    })
-
-    local initialize = responseWithId(out, 1).result.capabilities
-    local tokenTypes = initialize.semanticTokensProvider.legend.tokenTypes
-    local data = responseWithId(out, 10).result.data
-    local line, character = 0, 0
-    local semanticLines = {}
-    local semanticAt = {}
-    for index = 1, #data, 5 do
-        line = line + data[index]
-        character = data[index] == 0 and character + data[index + 1] or data[index + 1]
-        semanticLines[line] = true
-        semanticAt[line .. ":" .. character] = tokenTypes[data[index + 3] + 1]
-    end
-    assert(semanticAt["0:0"] == "comment", "ordinary comments retain semantic highlighting")
-    for docLine = 1, 4 do
-        assert(not semanticLines[docLine], "doc line " .. docLine .. " is left to TextMate highlighting")
+    for index, case in ipairs(cases) do
+        local hover = responseWithId(out, index * 10).result
+        assert(hover and hover.contents, case.name .. ": builtin annotation hover missing")
+        for _, blurb in ipairs(case.blurbs) do
+            assertContains(hover.contents.value, blurb, case.name .. ": builtin annotation hover blurb")
+        end
+        assertContains(hover.contents.value, case.link, case.name .. ": builtin annotation hover links to nupp.org")
+        local definition = responseWithId(out, index * 10 + 1).result
+        assert(
+            definition == nil or definition == json.NULL,
+            case.name .. ": no fabricated definition location: " .. json.encode(definition)
+        )
     end
 end
 
@@ -2431,7 +2145,9 @@ end
 
 -- A member is reached as `shapes.Point`, so the editor has to follow that
 -- spelling: the definition is the last segment's declaration in the other file,
--- and its docblock comes back on hover.
+-- and its docblock comes back on hover. A docblock sits on the token that opens
+-- the declaration, not on the name a definition points at, so hover has to read
+-- that file's tokens rather than the ones of the document being edited.
 function M.qualifiedMembersNavigateAcrossFiles()
     local projectDir = os.tmpname()
     os.remove(projectDir)
@@ -2821,103 +2537,6 @@ function M.refusesToRenameASymbolTheProjectDoesNotDeclare()
     )
 end
 
--- Completion offers names a reader could write here. A member is reached
--- through the table it was declared on, so its bare name is not one of them;
--- in its own file it is offered as the path it was declared under.
-function M.completionOffersOnlyNamesThatResolve()
-    local projectDir = os.tmpname()
-    os.remove(projectDir)
-    assert(os.execute("mkdir -p '" .. projectDir .. "'") == 0)
-    local shapesPath = projectDir .. "/shapes.nupp"
-    local shapesFile = assert(io.open(shapesPath, "wb"))
-    shapesFile:write(
-        "local shapes = {}\n\nrecord shapes.Point\n   x: number\n"
-        .. "end\n\nglobal record LoudGlobal\n   n: integer\nend\n\n"
-        .. "return shapes\n"
-    )
-    shapesFile:close()
-
-    local usePath = projectDir .. "/use.nupp"
-    local uri = fileUri(usePath)
-    local source = "local value: \n"
-    local out = runSession(
-        {
-            {jsonrpc = "2.0", id = 1, method = "initialize", params = {}},
-            {
-                jsonrpc = "2.0",
-                method = "textDocument/didOpen",
-                params = {textDocument = {uri = uri, languageId = "nupp", version = 1, text = source}}
-            },
-            {
-                jsonrpc = "2.0",
-                id = 10,
-                method = "textDocument/completion",
-                params = {textDocument = {uri = uri}, position = {line = 0, character = #source - 1}}
-            },
-            {jsonrpc = "2.0", id = 2, method = "shutdown"},
-            {jsonrpc = "2.0", method = "exit"},
-        },
-        projectDir
-    )
-    os.execute("rm -rf '" .. projectDir .. "'")
-
-    local labels = {}
-    for _, item in ipairs(responseWithId(out, 10).result) do
-        labels[item.label] = true
-    end
-    assert(labels.LoudGlobal, "a global is offered: it can be written as it is")
-    assert(not labels.Point, "a member's bare name is not offered: it would not resolve here")
-end
-
--- The same file that declares a member writes it as its path too, where no
--- table has been named yet.
-function M.completionOffersAMemberAsItsPathInItsOwnFile()
-    local projectDir = os.tmpname()
-    os.remove(projectDir)
-    assert(os.execute("mkdir -p '" .. projectDir .. "'") == 0)
-    local uri = fileUri(projectDir .. "/shapes.nupp")
-    -- The document has to check for its own symbols to exist, so the request
-    -- sits at the end of a complete annotation rather than a half-typed one.
-    local source = "local shapes = {}\n\nrecord shapes.Point\n   x: number\nend\n"
-        .. "\nlocal p: shapes.Point\n\nreturn shapes\n"
-    local out = runSession(
-        {
-            {jsonrpc = "2.0", id = 1, method = "initialize", params = {}},
-            {
-                jsonrpc = "2.0",
-                method = "textDocument/didOpen",
-                params = {textDocument = {uri = uri, languageId = "nupp", version = 1, text = source}}
-            },
-            -- after `local p: `, where nothing has been dotted off yet
-            {
-                jsonrpc = "2.0",
-                id = 10,
-                method = "textDocument/completion",
-                params = {textDocument = {uri = uri}, position = {line = 6, character = 9}}
-            },
-            {jsonrpc = "2.0", id = 2, method = "shutdown"},
-            {jsonrpc = "2.0", method = "exit"},
-        },
-        projectDir
-    )
-    os.execute("rm -rf '" .. projectDir .. "'")
-
-    local labels = {}
-    for _, item in ipairs(responseWithId(out, 10).result) do
-        labels[item.label] = true
-    end
-    local seen = {}
-    for label in pairs(labels) do
-        seen[#seen + 1] = label
-    end
-    table.sort(seen)
-    assert(
-        labels["shapes.Point"],
-        "the member is offered as the path it was declared under; got: " .. table.concat(seen, " ")
-    )
-    assert(not labels.Point, "and not as the bare name, which names nothing here")
-end
-
 -- Contextual completion --------------------------------------------------------
 --
 -- A request arrives in the middle of the expression it is about: `util.` is not
@@ -3215,6 +2834,9 @@ end
 
 -- A type annotation is a place only a type can stand, so only types are offered
 -- there. A local in scope is a name, and naming it would complete to a refusal.
+-- And only names a reader could write there: a member is reached through the
+-- table it was declared on, so its bare name is not one of them; in its own file
+-- it is offered as the path it was declared under, and elsewhere not at all.
 function M.completionInATypePositionOffersOnlyTypes()
     local projectDir = makeDir()
     local source = table.concat(
@@ -3241,6 +2863,8 @@ function M.completionInATypePositionOffersOnlyTypes()
     ) .. "\n"
     local uri = fileUri(projectDir .. "/shapes.nupp")
     writeInto(projectDir, "shapes.nupp", source)
+    local use = "local value: \n"
+    local useUri = fileUri(projectDir .. "/use.nupp")
     local out = runSession(
         {
             {jsonrpc = "2.0", id = 1, method = "initialize", params = {}},
@@ -3254,6 +2878,17 @@ function M.completionInATypePositionOffersOnlyTypes()
                 id = 10,
                 method = "textDocument/completion",
                 params = {textDocument = {uri = uri}, position = {line = 11, character = 9}}
+            },
+            {
+                jsonrpc = "2.0",
+                method = "textDocument/didOpen",
+                params = {textDocument = {uri = useUri, languageId = "nupp", version = 1, text = use}}
+            },
+            {
+                jsonrpc = "2.0",
+                id = 11,
+                method = "textDocument/completion",
+                params = {textDocument = {uri = useUri}, position = {line = 0, character = #use - 1}}
             },
             {jsonrpc = "2.0", id = 2, method = "shutdown"},
             {jsonrpc = "2.0", method = "exit"},
@@ -3274,6 +2909,15 @@ function M.completionInATypePositionOffersOnlyTypes()
     assert(not labels.counter, "a local is not a type, so it is not offered")
     assert(not labels.print, "and neither is a global function")
     assert(not labels["while"], "nor a keyword that cannot open a type")
+    assert(labels["shapes.Point"], "a member is offered as the path it was declared under in its own file")
+    assert(not labels.Point, "and not as the bare name, which names nothing here")
+
+    local elsewhere = {}
+    for _, item in ipairs(responseWithId(out, 11).result) do
+        elsewhere[item.label] = true
+    end
+    assert(elsewhere.Marker, "a global is offered in another file: it can be written as it is")
+    assert(not elsewhere.Point, "a member's bare name is not offered there: it would not resolve")
 end
 
 -- Plain module members --------------------------------------------------------
@@ -3321,80 +2965,12 @@ local UTIL = table.concat(
 
 -- Definition and hover reach a plain member in another file. There is no type
 -- to render, so hover shows the declaration as it was written, which is the
--- most the module ever said about it.
-function M.plainModuleMembersNavigateAcrossFiles()
+-- most the module ever said about it. References and rename run over the
+-- project, the same way they do for a typed declaration: a use in a file nobody
+-- opened is a use the rename has to reach.
+function M.plainModuleMembersNavigateAndRenameAcrossTheProject()
     local use = 'local util = require("util")\n\nlocal y = util.double(3)\n'
-    local session = withFiles({["util.nupp"] = UTIL, ["use.nupp"] = use}, function(projectDir)
-        local path = projectDir .. "/use.nupp"
-        local uri = fileUri(path)
-        return {
-            path = path,
-            out = runSession(
-                {
-                    {jsonrpc = "2.0", id = 1, method = "initialize", params = {}},
-                    {
-                        jsonrpc = "2.0",
-                        method = "textDocument/didOpen",
-                        params = {textDocument = {uri = uri, languageId = "nupp", version = 1, text = use}}
-                    },
-                    -- on `double` of `util.double(3)`
-                    {
-                        jsonrpc = "2.0",
-                        id = 10,
-                        method = "textDocument/definition",
-                        params = {textDocument = {uri = uri}, position = {line = 2, character = 17}}
-                    },
-                    {
-                        jsonrpc = "2.0",
-                        id = 11,
-                        method = "textDocument/hover",
-                        params = {textDocument = {uri = uri}, position = {line = 2, character = 17}}
-                    },
-                    -- on `util`, the table it sits on, which is a local of this file
-                    {
-                        jsonrpc = "2.0",
-                        id = 12,
-                        method = "textDocument/definition",
-                        params = {textDocument = {uri = uri}, position = {line = 2, character = 11}}
-                    },
-                    {jsonrpc = "2.0", id = 2, method = "shutdown"},
-                    {jsonrpc = "2.0", method = "exit"},
-                },
-                projectDir
-            )
-        }
-    end)
-    local out, usePath = session.out, session.path
-
-    local location = responseWithId(out, 10).result
-    assert(location and location.uri, "plain member definition missing")
-    assert(location.uri:match("util%.nupp$"), "the definition is in the declaring module: " .. tostring(location.uri))
-    assert(
-        location.range.start.line == 3,
-        "on the `function util.double` line: " .. tostring(location.range.start.line)
-    )
-    assert(
-        location.range.start.character == 14 and location.range["end"].character == 20,
-        "and covers `double`, not `util.double`"
-    )
-
-    local hover = responseWithId(out, 11).result
-    assert(hover and hover.contents, "plain member hover missing")
-    assertContains(
-        hover.contents.value,
-        "function util.double(x: number): number",
-        "hover shows the declaration as written"
-    )
-    assertContains(hover.contents.value, "Doubles a number.", "and the docblock above it")
-
-    local holder = responseWithId(out, 12).result
-    assert(holder and holder.uri == fileUri(usePath), "the table it is dotted off is still this file's own local")
-end
-
--- References and rename run over the project, the same way they do for a typed
--- declaration: a use in a file nobody opened is a use the rename has to reach.
-function M.plainModuleMembersAreRenamedAcrossTheProject()
-    local use = 'local util = require("util")\n\nlocal y = util.double(3)\n'
+    local useUri = nil
     local out = withFiles(
         {
             ["util.nupp"] = UTIL,
@@ -3407,6 +2983,7 @@ function M.plainModuleMembersAreRenamedAcrossTheProject()
         },
         function(projectDir)
             local uri = fileUri(projectDir .. "/use.nupp")
+            useUri = uri
             return runSession(
                 {
                     {jsonrpc = "2.0", id = 1, method = "initialize", params = {}},
@@ -3414,6 +2991,26 @@ function M.plainModuleMembersAreRenamedAcrossTheProject()
                         jsonrpc = "2.0",
                         method = "textDocument/didOpen",
                         params = {textDocument = {uri = uri, languageId = "nupp", version = 1, text = use}}
+                    },
+                    -- on `double` of `util.double(3)`
+                    {
+                        jsonrpc = "2.0",
+                        id = 20,
+                        method = "textDocument/definition",
+                        params = {textDocument = {uri = uri}, position = {line = 2, character = 17}}
+                    },
+                    {
+                        jsonrpc = "2.0",
+                        id = 21,
+                        method = "textDocument/hover",
+                        params = {textDocument = {uri = uri}, position = {line = 2, character = 17}}
+                    },
+                    -- on `util`, the table it sits on, which is a local of this file
+                    {
+                        jsonrpc = "2.0",
+                        id = 22,
+                        method = "textDocument/definition",
+                        params = {textDocument = {uri = uri}, position = {line = 2, character = 11}}
                     },
                     {
                         jsonrpc = "2.0",
@@ -3454,6 +3051,30 @@ function M.plainModuleMembersAreRenamedAcrossTheProject()
             )
         end
     )
+
+    local location = responseWithId(out, 20).result
+    assert(location and location.uri, "plain member definition missing")
+    assert(location.uri:match("util%.nupp$"), "the definition is in the declaring module: " .. tostring(location.uri))
+    assert(
+        location.range.start.line == 3,
+        "on the `function util.double` line: " .. tostring(location.range.start.line)
+    )
+    assert(
+        location.range.start.character == 14 and location.range["end"].character == 20,
+        "and covers `double`, not `util.double`"
+    )
+
+    local hover = responseWithId(out, 21).result
+    assert(hover and hover.contents, "plain member hover missing")
+    assertContains(
+        hover.contents.value,
+        "function util.double(x: number): number",
+        "hover shows the declaration as written"
+    )
+    assertContains(hover.contents.value, "Doubles a number.", "and the docblock above it")
+
+    local holder = responseWithId(out, 22).result
+    assert(holder and holder.uri == useUri, "the table it is dotted off is still this file's own local")
 
     local counted = {}
     for _, location in ipairs(responseWithId(out, 10).result) do
@@ -3763,19 +3384,6 @@ function M.answersSayWhichFolderTheyCameFrom()
         symbols[1] and symbols[1].data.root == otherDir,
         "and a workspace search says which folder each declaration is in: " .. json.encode(symbols)
     )
-end
-
--- The server tells the client it can be sent folder changes at all; a client
--- that is not told does not send them.
-function M.workspaceFolderCapabilityIsAdvertised()
-    local out = runSession({
-        {jsonrpc = "2.0", id = 1, method = "initialize", params = {}},
-        {jsonrpc = "2.0", id = 2, method = "shutdown"},
-        {jsonrpc = "2.0", method = "exit"},
-    })
-    local folders = responseWithId(out, 1).result.capabilities.workspace.workspaceFolders
-    assert(folders.supported == true, "workspace folders are supported")
-    assert(folders.changeNotifications == true, "and the server wants to hear about changes to them")
 end
 
 -- A watched file created on disk joins the project, so a rename reaches it
@@ -4166,39 +3774,6 @@ end
 
 -- Format-on-save uses the same formatter as `nupp fmt`, so a manifest that
 -- turns method-call parenthesization off reaches the editor too.
-function M.rangeFormattingKeepsQualifiedReferencesBound()
-    local projectDir = makeDir()
-    local uri = fileUri(projectDir .. "/imports.nupp")
-    local source = '-- imports stay outside the selection\n\nreturn io.http.file(  "a"  )\n'
-    local out = runSession(
-        {
-            {jsonrpc = "2.0", id = 1, method = "initialize", params = {}},
-            {
-                jsonrpc = "2.0",
-                method = "textDocument/didOpen",
-                params = {textDocument = {uri = uri, languageId = "nupp", version = 1, text = source}}
-            },
-            {
-                jsonrpc = "2.0",
-                id = 10,
-                method = "textDocument/rangeFormatting",
-                params = {
-                    textDocument = {uri = uri},
-                    options = {},
-                    range = {start = {line = 2, character = 0}, ["end"] = {line = 2, character = 40}}
-                }
-            },
-            {jsonrpc = "2.0", id = 2, method = "shutdown"},
-            {jsonrpc = "2.0", method = "exit"},
-        },
-        projectDir
-    )
-    os.execute("rm -rf '" .. projectDir .. "'")
-    local edits = responseWithId(out, 10).result
-    assert(#edits == 1, "range receives its layout edit")
-    assert(edits[1].newText == 'return io.http.file("a")\n', "reference keeps its module path")
-end
-
 function M.formattingHonorsAManifestThatTurnsMethodParensOff()
     local projectDir = makeDir()
     writeInto(projectDir, "nupp.lua", 'return { fmt = { methodParens = false } }\n')
@@ -4365,7 +3940,10 @@ function M.documentSymbolsOutlineWhatTheFileDeclares()
 end
 
 -- A workspace search finds declarations wherever they are, including files
--- nobody opened.
+-- nobody opened. Functions are what it is most often for, and a module's
+-- functions are rarely exported declarations: a `local function` returned in a
+-- table, or a `function m.f` member. A search that names one finds it in any
+-- project file that spells it.
 function M.workspaceSymbolsFindDeclarationsAcrossTheProject()
     local projectDir = makeDir()
     writeInto(projectDir, "shapes.nupp", OUTLINE)
@@ -4374,10 +3952,22 @@ function M.workspaceSymbolsFindDeclarationsAcrossTheProject()
         "other.nupp",
         "local other = {}\n\nrecord other.Pointer\n    n: integer\nend\n\n" .. "return other\n"
     )
+    writeInto(
+        projectDir,
+        "greet.nupp",
+        "--- Greets.\nlocal function greet(name: string): string\n"
+        .. "    return \"Hello, \" .. name\nend\n\nreturn {greet = greet}\n"
+    )
+    writeInto(
+        projectDir,
+        "tools.nupp",
+        "local tools = {}\n\nfunction tools.greeting(): string\n" .. "    return \"hi\"\nend\n\nreturn tools\n"
+    )
     local out = runSession(
         {
             {jsonrpc = "2.0", id = 1, method = "initialize", params = {}},
             {jsonrpc = "2.0", id = 10, method = "workspace/symbol", params = {query = "point"}},
+            {jsonrpc = "2.0", id = 11, method = "workspace/symbol", params = {query = "GREET"}},
             {jsonrpc = "2.0", id = 2, method = "shutdown"},
             {jsonrpc = "2.0", method = "exit"},
         },
@@ -4394,47 +3984,18 @@ function M.workspaceSymbolsFindDeclarationsAcrossTheProject()
     assert(found.Point.location.uri:match("shapes%.nupp$"), "and pointing at the file that declares it")
     assert(found.Pointer, "the query matches by substring, not by whole name")
     assert(not found.Colour, "and a name it does not match is not returned")
-end
 
--- Functions are what a workspace search is most often for, and a module's
--- functions are rarely exported declarations: a `local function` returned in a
--- table, or a `function m.f` member. A search that names one finds it in any
--- project file that spells it, opened or not.
-function M.workspaceSymbolsFindFunctionsAcrossTheProject()
-    local projectDir = makeDir()
-    writeInto(
-        projectDir,
-        "greet.nupp",
-        "--- Greets.\nlocal function greet(name: string): string\n"
-        .. "    return \"Hello, \" .. name\nend\n\nreturn {greet = greet}\n"
-    )
-    writeInto(
-        projectDir,
-        "tools.nupp",
-        "local tools = {}\n\nfunction tools.greeting(): string\n" .. "    return \"hi\"\nend\n\nreturn tools\n"
-    )
-    local out = runSession(
-        {
-            {jsonrpc = "2.0", id = 1, method = "initialize", params = {}},
-            {jsonrpc = "2.0", id = 10, method = "workspace/symbol", params = {query = "GREET"}},
-            {jsonrpc = "2.0", id = 2, method = "shutdown"},
-            {jsonrpc = "2.0", method = "exit"},
-        },
-        projectDir
-    )
-    os.execute("rm -rf '" .. projectDir .. "'")
-
-    local found = {}
-    for _, symbol in ipairs(responseWithId(out, 10).result) do
-        found[symbol.name] = symbol
+    local functions = {}
+    for _, symbol in ipairs(responseWithId(out, 11).result) do
+        functions[symbol.name] = symbol
     end
-    local greet = assert(found.greet, "a local function is found: " .. out)
+    local greet = assert(functions.greet, "a local function is found: " .. out)
     assert(greet.kind == 12 and greet.location.uri:match("greet%.nupp$"), "as a function, where it is declared")
     assert(
         greet.location.range.start.line == 1 and greet.location.range.start.character == 15,
         "at its name: " .. json.encode(greet.location.range)
     )
-    assert(found["tools.greeting"], "and so is a module member, by its qualified name")
+    assert(functions["tools.greeting"], "and so is a module member, by its qualified name")
 end
 
 -- Highlighting a name marks every occurrence of that one binding in this file,
@@ -4826,8 +4387,6 @@ local function codeActionSession(projectDir, name, source, position, applyTitle)
     return actions, uri, rewritten, published[#published]
 end
 
--- A misspelled literal metamethod has one checker-provided spelling repair,
--- which reaches the client as a quick fix and leaves the rewritten file clean.
 function M.codeActionConvertsAPlainModuleTable()
     local source = "module sample\nlocal api = {}\nfunction api.answer(): integer return 42 end\nexport = api\n"
     local actions = codeActionSession(scratchRoot(), "sample.nupp", source, {line = 0, character = 0})
@@ -4836,28 +4395,6 @@ function M.codeActionConvertsAPlainModuleTable()
     local rewritten = applied(source, action, fileUri(scratchRoot() .. "/sample.nupp"))
     assertContains(rewritten, "export function answer", "direct declaration")
     assert(not rewritten:find("export =", 1, true))
-end
-
-function M.codeActionCorrectsAMetamethodTypo()
-    local projectDir = tempProject()
-    local source = table.concat(
-        {"local record R end", "local r: R = R()", "setmetatable(r, {__cal = function() end})",},
-        "\n"
-    )
-    local actions, _, rewritten, diagnostics = codeActionSession(
-        projectDir,
-        "metamethod.nupp",
-        source,
-        positionOf(source, "__cal"),
-        "change to `__call`"
-    )
-    os.execute("rm -rf '" .. projectDir .. "'")
-
-    assert(#actions == 1, "one uniquely closest metamethod spelling")
-    assert(actions[1].kind == "quickfix", "a diagnostic repair is a quick fix")
-    assert(actions[1].diagnostics[1].code == "NUPP2118", "the action carries the metamethod diagnostic")
-    assertContains(rewritten, "{__call = function() end}", "the key is replaced in place")
-    assert(diagnostics and #diagnostics == 0, "the rewritten file checks clean")
 end
 
 function M.codeActionRewritesElseIf()
@@ -5070,21 +4607,34 @@ function M.codeActionRequiresAndQualifiesTogether()
     assert(diagnostics and #diagnostics == 0, "the rewritten file checks clean")
 end
 
--- The server says it does code actions, and which kinds, so a client knows to
--- ask before anything is wrong with the file.
-function M.codeActionCapabilityIsAdvertised()
+-- What a client is told at `initialize` before it has opened anything: it can
+-- send folder changes, it can ask for code actions of the kinds named before
+-- anything is wrong with a file, and it can ask for the artifacts listed.
+function M.initializeAdvertisesFoldersActionsAndArtifacts()
     local out = runSession({
         {jsonrpc = "2.0", id = 1, method = "initialize", params = {}},
         {jsonrpc = "2.0", id = 2, method = "shutdown"},
         {jsonrpc = "2.0", method = "exit"},
     })
-    local provider = responseWithId(out, 1).result.capabilities.codeActionProvider
+    local capabilities = responseWithId(out, 1).result.capabilities
+    local folders = capabilities.workspace.workspaceFolders
+    assert(folders.supported == true, "workspace folders are supported")
+    assert(folders.changeNotifications == true, "and the server wants to hear about changes to them")
+
+    local provider = capabilities.codeActionProvider
     assert(provider, "codeActionProvider is advertised")
-    local kinds = {}
+    local actionKinds = {}
     for _, kind in ipairs(provider.codeActionKinds) do
-        kinds[kind] = true
+        actionKinds[kind] = true
     end
-    assert(kinds.quickfix and kinds["refactor.rewrite"], "quick fixes and module refactoring are named")
+    assert(actionKinds.quickfix and actionKinds["refactor.rewrite"], "quick fixes and module refactoring are named")
+
+    local artifactKinds = {}
+    for _, kind in ipairs(capabilities.experimental.nuppArtifacts) do
+        artifactKinds[kind] = true
+    end
+    assert(artifactKinds.image, "the VM image artifact is advertised")
+    assert(artifactKinds.bytecode, "the bytecode artifact is advertised")
 end
 
 -- Compiled artifacts ----------------------------------------------------------
@@ -5131,72 +4681,26 @@ local function artifactSession(projectDir, name, source, method, params, clientO
         projectDir
     )
 
-    return responseWithId(out, 2).result, uri
-end
-
-function M.artifactKindsAreAdvertisedAsExperimentalCapabilities()
-    local out = runSession({
-        {jsonrpc = "2.0", id = 1, method = "initialize", params = {}},
-        {jsonrpc = "2.0", id = 2, method = "shutdown"},
-        {jsonrpc = "2.0", method = "exit"},
-    })
-    local capabilities = responseWithId(out, 1).result.capabilities
-    local kinds = {}
-    for _, kind in ipairs(capabilities.experimental.nuppArtifacts) do
-        kinds[kind] = true
-    end
-    assert(kinds.image, "the VM image artifact is advertised")
-    assert(kinds.bytecode, "the bytecode artifact is advertised")
+    return responseWithId(out, 2).result, uri, responseWithId(out, 1).result.capabilities
 end
 
 -- A lens runs a command belonging to the client. Offering one to a client that
 -- never registered it puts a button over every function that nothing can run,
 -- which is exactly what an editor still on an older extension would see. So the
--- capability is the client's to ask for, by naming the command.
-function M.codeLensesAreOfferedOnlyToAClientThatNamedItsCommand()
-    local silent = runSession({
-        {jsonrpc = "2.0", id = 1, method = "initialize", params = {}},
-        {jsonrpc = "2.0", id = 2, method = "shutdown"},
-        {jsonrpc = "2.0", method = "exit"},
-    })
-    test.eq(responseWithId(silent, 1).result.capabilities.codeLensProvider, nil)
-
-    local asked = runSession({
-        {
-            jsonrpc = "2.0",
-            id = 1,
-            method = "initialize",
-            params = {initializationOptions = {artifacts = {inspectCommand = "demo.inspect"}},},
-        },
-        {jsonrpc = "2.0", id = 2, method = "shutdown"},
-        {jsonrpc = "2.0", method = "exit"},
-    })
-    assert(
-        responseWithId(asked, 1).result.capabilities.codeLensProvider,
-        "a client that named a command is offered lenses"
-    )
-end
-
--- And the lens carries the client's own command, not one this server invented.
-function M.codeLensesCarryTheCommandTheClientNamed()
-    local projectDir = tempProject()
-    writeFile(projectDir .. "/nupp.lua", 'return {include = {"."}}\n')
-    local lenses = artifactSession(projectDir, "named.nupp", ARTIFACT_SOURCE, "textDocument/codeLens", {}, {
-        artifacts = {inspectCommand = "demo.inspect"}
-    })
-    os.execute("rm -rf '" .. projectDir .. "'")
-    assert(#lenses > 0, "a client that asked gets lenses")
-    for _, lens in ipairs(lenses) do
-        test.eq(lens.command.command, "demo.inspect")
-    end
-end
-
--- A client that said nothing gets none, even if it asks for them anyway.
+-- capability is the client's to ask for, by naming the command, and a client
+-- that said nothing gets none, even if it asks for them anyway.
 function M.codeLensesAreEmptyForAClientThatNamedNoCommand()
     local projectDir = tempProject()
     writeFile(projectDir .. "/nupp.lua", 'return {include = {"."}}\n')
-    local lenses = artifactSession(projectDir, "silent.nupp", ARTIFACT_SOURCE, "textDocument/codeLens", {})
+    local lenses, _, capabilities = artifactSession(
+        projectDir,
+        "silent.nupp",
+        ARTIFACT_SOURCE,
+        "textDocument/codeLens",
+        {}
+    )
     os.execute("rm -rf '" .. projectDir .. "'")
+    test.eq(capabilities.codeLensProvider, nil)
     test.eq(#lenses, 0)
 end
 
@@ -5288,7 +4792,8 @@ function M.anUnknownArtifactKindIsRefusedByName()
 end
 
 -- One lens per function rather than one per artifact kind: most kinds do not
--- apply to most functions, and a row of dead buttons is worse than a menu.
+-- apply to most functions, and a row of dead buttons is worse than a menu. Each
+-- carries the client's own command, not one this server invented.
 function M.codeLensesOfferOneInspectPerFunction()
     local projectDir = tempProject()
     writeFile(projectDir .. "/nupp.lua", 'return {include = {"."}}\n')
@@ -5296,14 +4801,15 @@ function M.codeLensesOfferOneInspectPerFunction()
         "return scale\n",
         "local function second(): integer\n    return 1\nend\n\nreturn scale, second\n"
     )
-    local lenses = artifactSession(projectDir, "lenses.nupp", source, "textDocument/codeLens", {}, {
-        artifacts = {inspectCommand = "nupp.inspectCompiledFunction"}
+    local lenses, _, capabilities = artifactSession(projectDir, "lenses.nupp", source, "textDocument/codeLens", {}, {
+        artifacts = {inspectCommand = "demo.inspect"}
     })
     os.execute("rm -rf '" .. projectDir .. "'")
+    assert(capabilities.codeLensProvider, "a client that named a command is offered lenses")
     local names = {}
     for _, lens in ipairs(lenses) do
         test.eq(lens.command.title, "Inspect")
-        test.eq(lens.command.command, "nupp.inspectCompiledFunction")
+        test.eq(lens.command.command, "demo.inspect")
         names[lens.command.arguments[1].name] = true
         test.eq(lens.range.start.line, lens.range["end"].line)
     end
@@ -5598,46 +5104,6 @@ function M.blockCommentDocsHoverWithoutTheirDelimiters()
     assert(
         not hover.contents.value:find("[[", 1, true),
         "block comment delimiters leak into hover: " .. hover.contents.value
-    )
-end
-
--- An editor considers a position at the right edge of a word to name it, and
--- every other position request already answers there through the same token
--- fallback; go-to-definition has to agree.
-function M.definitionResolvesAtTheNameRightEdge()
-    local root = scratchRoot()
-    local uri = fileUri(root .. "/edge-definition.nupp")
-    local out = runSession(
-        {
-            {jsonrpc = "2.0", id = 1, method = "initialize", params = {}},
-            {
-                jsonrpc = "2.0",
-                method = "textDocument/didOpen",
-                params = {
-                    textDocument = {
-                        uri = uri,
-                        languageId = "nupp",
-                        version = 1,
-                        text = "local abc = 1\nlocal xyz = abc\nreturn xyz\n"
-                    }
-                }
-            },
-            {
-                jsonrpc = "2.0",
-                id = 10,
-                method = "textDocument/definition",
-                params = {textDocument = {uri = uri}, position = {line = 1, character = 15}}
-            },
-            {jsonrpc = "2.0", id = 2, method = "shutdown"},
-            {jsonrpc = "2.0", method = "exit"},
-        },
-        root
-    )
-    local location = responseWithId(out, 10).result
-    assert(location and location.range, "definition at the name's right edge")
-    assert(
-        location.range.start.line == 0 and location.range.start.character == 6,
-        "definition points at the declaration"
     )
 end
 

@@ -109,16 +109,6 @@ function M.everyExampleChecksClean()
     assert(#problems == 0, table.concat(problems, "\n"))
 end
 
--- A reference that cites a code nothing can explain sends its reader nowhere.
-function M.everyCitedCodeResolves()
-    for _, section in ipairs(reference.sections) do
-        for _, code in ipairs(section.codes) do
-            local entry = explain.lookup(code)
-            assert(entry, ("the %q section cites %s, which nothing explains"):format(section.title, code))
-        end
-    end
-end
-
 -- The lint table is generated rather than written beside the lints, so a lint
 -- added without touching the reference still appears in it.
 function M.everyLintAppears()
@@ -178,21 +168,6 @@ function M.chaptersAreDiscoverableAndFocused()
     local performanceSkill = reference.skill(performance)
     assert(performanceSkill:find("name: nupp-performance", 1, true), "names focused performance skill")
     assert(performanceSkill:find("performance regressions", 1, true), "describes the requests that load it")
-end
-
-function M.referenceCommandListsAndSelectsChapters()
-    local pipe = assert(io.popen(('%q reference'):format(NUPP)))
-    local catalogue = pipe:read("*a")
-    pipe:close()
-    assert(catalogue:find("Nupp reference chapters", 1, true), "bare command lists chapters")
-    local cliPipe = assert(io.popen(('%q reference cli'):format(NUPP)))
-    local cli = cliPipe:read("*a")
-    cliPipe:close()
-    assert(cli:find("# Nupp CLI reference", 1, true), "CLI chapter is selectable")
-    local performancePipe = assert(io.popen(('%q reference performance'):format(NUPP)))
-    local performance = performancePipe:read("*a")
-    performancePipe:close()
-    assert(performance:find("# Nupp Performance reference", 1, true), "performance chapter is selectable")
 end
 
 function M.allJsonListsEverySectionItsMarkdownContains()
@@ -261,16 +236,6 @@ function M.oneSectionIsSelectableAndFarSmallerThanItsChapter()
     )
 end
 
---- Every diagnostic carries a `docs` pointer, and the anchor in it is what
---- identifies the section. Naming a section by the whole pointer has to work, or
---- the pointer is one a reader cannot follow.
-function M.aDocsPointerNamesItsSection()
-    local pipe = assert(io.popen(('%q reference --section "docs/learn/language/modules.md#modules"'):format(NUPP)))
-    local out = pipe:read("*a")
-    pipe:close()
-    assert(out:find("# Modules", 1, true), "a docs pointer resolves: " .. out:sub(1, 120))
-end
-
 function M.anAnnotationPointerNamesItsGeneratedDeclaration()
     local pipe = assert(io.popen(('%q reference --section "docs/api.md#annotation-aot"'):format(NUPP)))
     local out = pipe:read("*a")
@@ -288,6 +253,12 @@ function M.aCodeReachesTheSectionsExplainingIt()
     for _, chapter in ipairs(reference.chapters) do
         for _, section in ipairs(chapter.sections) do
             for _, code in ipairs(section.codes) do
+                -- A reference that cites a code nothing can explain sends its reader
+                -- nowhere.
+                assert(
+                    explain.lookup(code),
+                    ("the %q section cites %s, which nothing explains"):format(section.title, code)
+                )
                 local found = reference.sectionsFor(code)
                 assert(#found > 0, code .. " is cited but reaches no section")
                 checked = checked + 1
@@ -304,6 +275,7 @@ function M.theCatalogueNamesEverySection()
     local pipe = assert(io.popen(('%q reference'):format(NUPP)))
     local catalogue = pipe:read("*a")
     pipe:close()
+    assert(catalogue:find("Nupp reference chapters", 1, true), "bare command lists chapters")
     for _, chapter in ipairs(reference.chapters) do
         for _, section in ipairs(chapter.sections) do
             local slug = reference.slug(section.title)

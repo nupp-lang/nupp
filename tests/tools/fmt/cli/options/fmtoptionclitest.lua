@@ -8,29 +8,21 @@ local WIDE_SIGNATURE = fixture.WIDE_SIGNATURE
 
 local M = {}
 
--- A method call left in its sugar form gets its parens back by default, and
--- keeps them however many times it is formatted again.
-function M.addsMethodCallParensByDefault()
-    local dir = tempProject({["nupp.lua"] = 'return { include = { "src" } }\n', ["src/sugar.nupp"] = "obj:m{a = 1}\n",})
-    local out, ok = run(dir, "fmt -w")
-    assert(ok, "formatting succeeds: " .. out)
-    assert(readFile(dir .. "/src/sugar.nupp") == "obj:m({a = 1})\n", "the sugar-form call gains its parens")
-
-    local again, againOk = run(dir, "fmt --check")
-    assert(againOk and again == "", "and formatting it again changes nothing: " .. again)
-    os.execute("rm -rf '" .. dir .. "'")
-end
-
--- --no-method-parens turns that off, leaving the sugar as written.
-function M.noMethodParensLeavesTheSugarAlone()
+-- A method call left in its sugar form gets its parens back by default, which
+-- --no-method-parens turns off, leaving the sugar as written.
+function M.methodCallParensAreOnByDefaultAndTheFlagTurnsThemOff()
     local dir = tempProject({["nupp.lua"] = 'return { include = { "src" } }\n', ["src/sugar.nupp"] = "obj:m{a = 1}\n",})
     local out, ok = run(dir, "fmt --check --no-method-parens")
     assert(ok and out == "", "already-formatted sugar passes the check: " .. out)
+
+    out, ok = run(dir, "fmt -w")
+    assert(ok, "formatting succeeds: " .. out)
+    assert(readFile(dir .. "/src/sugar.nupp") == "obj:m({a = 1})\n", "the sugar-form call gains its parens")
     os.execute("rm -rf '" .. dir .. "'")
 end
 
 -- A manifest can turn it off for the whole project, without a flag on every
--- invocation.
+-- invocation, and the flag over that manifest is redundant but not a conflict.
 function M.manifestCanTurnMethodParensOffProjectWide()
     local dir = tempProject({
         ["nupp.lua"] = 'return { include = { "src" }, ' .. 'fmt = { methodParens = false } }\n',
@@ -38,17 +30,8 @@ function M.manifestCanTurnMethodParensOffProjectWide()
     })
     local out, ok = run(dir, "fmt --check")
     assert(ok and out == "", "the manifest default leaves the sugar formatted: " .. out)
-    os.execute("rm -rf '" .. dir .. "'")
-end
-
--- --no-method-parens is redundant over that manifest, but not a conflict.
-function M.noMethodParensAgreesWithAManifestThatAlreadySaysSo()
-    local dir = tempProject({
-        ["nupp.lua"] = 'return { include = { "src" }, ' .. 'fmt = { methodParens = false } }\n',
-        ["src/sugar.nupp"] = "obj:m{a = 1}\n",
-    })
-    local out, ok = run(dir, "fmt --check --no-method-parens")
-    assert(ok and out == "", "still passes: " .. out)
+    out, ok = run(dir, "fmt --check --no-method-parens")
+    assert(ok and out == "", "and the flag agrees with it: " .. out)
     os.execute("rm -rf '" .. dir .. "'")
 end
 
@@ -78,17 +61,12 @@ function M.widthBreaksALineOverTheGivenWidth()
     os.execute("rm -rf '" .. dir .. "'")
 end
 
-function M.widthRejectsATooSmallValue()
+function M.widthRejectsATooSmallOrNonNumericValue()
     local dir = tempProject({["nupp.lua"] = 'return { include = { "src" } }\n', ["src/x.nupp"] = FORMATTED,})
     local out, ok = run(dir, "fmt --width 5 --check")
     assert(not ok, "a width under 20 is refused")
     assert(out:find("at least 20", 1, true), "and says why: " .. out)
-    os.execute("rm -rf '" .. dir .. "'")
-end
-
-function M.widthRejectsANonNumericValue()
-    local dir = tempProject({["nupp.lua"] = 'return { include = { "src" } }\n', ["src/x.nupp"] = FORMATTED,})
-    local out, ok = run(dir, "fmt --width columns --check")
+    out, ok = run(dir, "fmt --width columns --check")
     assert(not ok, "a non-numeric width is refused")
     assert(out:find("whole number", 1, true), "and says why: " .. out)
     os.execute("rm -rf '" .. dir .. "'")

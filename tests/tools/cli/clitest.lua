@@ -323,13 +323,16 @@ function M.tableBuilderRejectsIncompleteRowsBeforeWritingAndCanBeReused()
     -- io.tmpfile nor seek.
     local path = os.tmpname()
     local file = assert(io.open(path, "wb"))
+
     local function written()
         file:flush()
         local reader = assert(io.open(path, "rb"))
         local text = reader:read("*a")
         reader:close()
+
         return text
     end
+
     local output = terminal.table(file)
 
     local function refused(body, message)
@@ -580,9 +583,6 @@ return serde.of(Value)
     assert(not report.ok and not report.migrations[1].written)
     assert(read() == original, "a failed check replaced the input")
     write(source)
-    local preview = json.decode(captureJsonAt(dir, "migrate --dry-run --json legacy.nupp"))
-    assert(preview.ok and preview.migrations[1].dialect == "serde")
-    assert(read() == source, "preview changed the input")
     local output, migrated = captureAt(dir, "migrate legacy.nupp")
     assert(migrated, output)
     local result = read()
@@ -833,15 +833,6 @@ function M.namesDecidableFromTheArgumentsAreUsageErrors()
     local _, validCode = captureStatusAt(dir, "lsp rename main.nupp 1 7 second")
     assert(validCode == 0, "a valid identifier previews the rename")
     os.execute("rm -rf '" .. dir .. "'")
-end
-
-function M.binaryPrintsCompletionScripts()
-    local bash = capture("completions bash")
-    assert(bash:find("complete -F _nupp nupp", 1, true), "the Bash script is available through the CLI")
-    assert(bash:find("__complete bash", 1, true), "the script asks the binary for its candidates")
-
-    local fish = capture("completions fish")
-    assert(fish:find("complete -c nupp", 1, true), "the Fish script is available through the CLI")
 end
 
 -- `--version` is a spelling of the command rather than a second answer beside

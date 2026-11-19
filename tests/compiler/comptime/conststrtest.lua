@@ -73,20 +73,6 @@ function M.aRuntimeTypeStringYieldsCdataNotAny()
     )
 end
 
-function M.declaredStructsKeepTheirIdentityAcrossMentions()
-    -- two mentions of a tag give the same type, so a value from one flows
-    -- where the other is expected
-    testAssert.eq(
-        diagsOf(
-            DECL .. table.concat(
-                {"local a = ffi.new('struct CstA')", "local function take(v: number): nil end", "take(a.x)",},
-                "\n"
-            )
-        ),
-        ""
-    )
-end
-
 function M.constIsAModifierOnlyWhenATypeFollows()
     -- `const` is a statement keyword and may also name a type; in type
     -- position it modifies only when a type comes next
@@ -119,12 +105,6 @@ function M.cFunctionPointersDecodeAsCallbackTypes()
     assert(handler, "the callback field is present")
     local rendered = require("nupp.compiler.types").tostring(handler)
     assert(rendered:find("function", 1, true), "a pointer to a function reads as one: " .. rendered)
-end
-
-function M.fixedWidthClaimsRequireEstablishment()
-    testAssert.eq(diagsOf("local x: number = 5\nlocal small: int32 = x"), "NUPP2011")
-    -- A wider target needs no establishment fact.
-    testAssert.eq(diagsOf("local x: number = 5\nlocal big: number = x"), "")
 end
 
 function M.theCNamespaceIsTypedFromDeclarations()

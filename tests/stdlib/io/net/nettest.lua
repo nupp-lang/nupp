@@ -229,15 +229,8 @@ function M.aQuietConnectionIsNotTheEnd()
     testAssert.eq(assert(stream:read(8)), "ab", "the first bytes arrive")
     testAssert.eq(assert(stream:read(8)), "cd", "and so do the ones after the gap")
     testAssert.eq(assert(stream:read(8)), "", "only a finished stream reads empty")
-    assert(state.runs > 0, "the gap drove the reactor rather than spinning")
-    stream:close()
-end
-
-function M.emptyIsOnlyEverTheEnd()
-    local stream = connected({arriving = {"x"}})
-    testAssert.eq(assert(stream:read(4)), "x", "the byte arrives")
-    testAssert.eq(assert(stream:read(4)), "", "then the end")
     assert(stream:isended(), "and the stream says so")
+    assert(state.runs > 0, "the gap drove the reactor rather than spinning")
     stream:close()
 end
 
@@ -246,13 +239,6 @@ function M.readReportsWhyItCouldNotRead()
     local got, why = stream:read(4)
     testAssert.eq(got, nil, "a failed read answers nil")
     assert(why ~= nil and why:find("connection reset", 1, true) ~= nil, "and carries what the platform said")
-    stream:close()
-end
-
-function M.writeCompletesTheWholeValue()
-    local stream, state = connected({})
-    assert(stream:write("payload"), "the write completes")
-    testAssert.eq(table.concat(state.written), "payload", "and everything landed")
     stream:close()
 end
 
@@ -340,14 +326,6 @@ function M.directionViewsExposeOnlyTheirOwnHalf()
     testAssert.eq(bytes, nil, "a writing view cannot read")
     assert(tostring(readWhy):find("write-only", 1, true) ~= nil, "and says which direction it has")
     writer:close()
-    stream:close()
-end
-
-function M.aViewReadsThroughTheSharedContract()
-    local stream = connected({arriving = {"shared"}})
-    local reader = stream:asreader()
-    testAssert.eq(assert(reader:read(6)), "shared", "a view is a Reader")
-    reader:close()
     stream:close()
 end
 

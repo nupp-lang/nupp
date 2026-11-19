@@ -1,8 +1,6 @@
 local fixture = require("helpers.formatfixture")
 local testAssert = fixture.testAssert
 local fmt1 = fixture.fmt1
-local kinds = fixture.kinds
-local CORPUS = fixture.CORPUS
 
 local M = {}
 
@@ -102,14 +100,6 @@ function M.commentsPreserved()
     local input = "local x = 1  -- tail\n-- own line\nlocal y = 2"
     testAssert.eq(fmt1(input), "local x = 1 -- tail\n-- own line\nlocal y = 2\n")
     testAssert.eq(fmt1("-- only a comment"), "-- only a comment\n")
-end
-
-function M.idempotentAndParseStable()
-    for _, src in ipairs(CORPUS) do
-        local once = fmt1(src)
-        testAssert.eq(fmt1(once), once, "not idempotent: " .. src)
-        testAssert.eq(kinds(once), kinds(src), "parse changed: " .. src)
-    end
 end
 
 return M

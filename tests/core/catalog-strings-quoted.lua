@@ -28,4 +28,20 @@ end
 if others == "nil true false" then
     score = score + 32
 end
+
+-- `..` converts numbers of either subtype as tostring writes them. The
+-- operands arrive as `any`, so nothing folds them before the core runs.
+local function join(a, b)
+    return a .. b
+end
+
+if join("x", 1.5) == "x1.5" then
+    score = score + 64
+end
+if join(2.0, "y") == tostring(2.0) .. "y" then
+    score = score + 128
+end
+if join(7, -0.25) == "7-0.25" then
+    score = score + 256
+end
 return score

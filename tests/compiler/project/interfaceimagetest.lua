@@ -145,45 +145,34 @@ local function selfBinderImage(name)
     return image, producer, binder, path
 end
 
-function M.restoringASelfBinderDoesNotRebindItsProducer()
-    local image, producer, binder, path = selfBinderImage("ProducerIsolation")
-    local recipient = indexed("ProducerIsolation", path)
-    assert(recipient ~= producer, "a separate environment owns its nominal")
-    local decoded, problem = interfaceimage.decode(image, {nominals = {[producer.declarationKey] = recipient}})
-    assert(decoded, problem)
+function M.restoringASelfBinderBindsEachRecipientAndNeverItsProducer()
+    local image, producer, binder, path = selfBinderImage("SelfRecipient")
+    local first = indexed("SelfRecipient", path)
+    local second = indexed("SelfRecipient", path)
+    assert(first ~= second and first ~= producer and second ~= producer, "separate environments own their nominals")
+
+    local function restore(recipient)
+        local decoded, problem = interfaceimage.decode(image, {nominals = {[producer.declarationKey] = recipient}})
+        assert(decoded, problem)
+
+        return decoded
+    end
+
+    local decoded = restore(first)
     assert(binder.bound == producer, "restoring must not rebind the producer environment")
-    assert(recipient.selfType ~= binder, "the recipient owns a separate self binder")
-    assert(recipient.selfType.bound == recipient, "restored self binds the receiving nominal")
-    assert(decoded.sample.exports.types.Value == recipient, "the exported edge uses the receiving nominal")
-end
+    assert(first.selfType ~= binder, "the recipient owns a separate self binder")
+    assert(first.selfType.bound == first, "restored self binds the receiving nominal")
+    assert(decoded.sample.exports.types.Value == first, "the exported edge uses the receiving nominal")
 
-function M.restoringASelfBinderReusesTheSameRecipient()
-    local image, producer, binder, path = selfBinderImage("RecipientReuse")
-    local recipient = indexed("RecipientReuse", path)
-    local options = {nominals = {[producer.declarationKey] = recipient}}
-    local decoded, problem = interfaceimage.decode(image, options)
-    assert(decoded, problem)
-    local self = recipient.selfType
-    decoded, problem = interfaceimage.decode(image, options)
-    assert(decoded, problem)
-    assert(recipient.selfType == self, "restoring into one recipient reuses its self binder")
-    assert(self.bound == recipient, "the reused binder stays bound to its recipient")
-    assert(binder.bound == producer, "repeated restore leaves the producer bound unchanged")
-end
-
-function M.restoringASelfBinderKeepsTwoRecipientsIsolated()
-    local image, producer, binder, path = selfBinderImage("RecipientIsolation")
-    local first = indexed("RecipientIsolation", path)
-    local second = indexed("RecipientIsolation", path)
-    assert(first ~= second and first ~= producer and second ~= producer)
-    local decoded, problem = interfaceimage.decode(image, {nominals = {[producer.declarationKey] = first}})
-    assert(decoded, problem)
     local firstSelf = first.selfType
-    decoded, problem = interfaceimage.decode(image, {nominals = {[producer.declarationKey] = second}})
-    assert(decoded, problem)
+    restore(first)
+    assert(first.selfType == firstSelf, "restoring into one recipient reuses its self binder")
+    assert(firstSelf.bound == first, "the reused binder stays bound to its recipient")
+
+    restore(second)
     assert(first.selfType == firstSelf and firstSelf.bound == first, "a later recipient leaves the first unchanged")
     assert(second.selfType ~= firstSelf and second.selfType.bound == second, "the second owns its self binder")
-    assert(binder.bound == producer, "both recipients leave the producer bound unchanged")
+    assert(binder.bound == producer, "repeated restores leave the producer bound unchanged")
 end
 
 function M.restoringDuplicateSelfIdentitiesKeepsEachOwnerBound()
@@ -643,7 +632,15 @@ local function withMethod(name, overloaded, declaration)
     holder.staticWriteByname = {}
     holder.fieldOrder = {}
     holder.methodEntries = {
-        read = {{signature = signature, member = 1, parameterKey = "text", definition = {name = "read"}, declaration = declaration}},
+        read = {
+            {
+                signature = signature,
+                member = 1,
+                parameterKey = "text",
+                definition = {name = "read"},
+                declaration = declaration
+            }
+        },
     }
     holder.methodDispatchEntries = holder.methodEntries
     holder.staticEntries = {}

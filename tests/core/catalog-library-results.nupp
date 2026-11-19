@@ -1,8 +1,8 @@
 module nupp.core.cataloglibraryresults
 
--- Library calls whose last argument is a call with several results: Lua passes
--- every result, so each call goes through the library function's value. Each
--- check is a bit of the score.
+-- Library calls given a call with several results last, or `...` as comptime's
+-- bounded adapters spread it: Lua passes every value, so each call goes through
+-- the library function's value. Each check is a bit of the score.
 local score = 0
 local bit = 1
 
@@ -107,6 +107,58 @@ do
         error(only("boom"))
     end)
     check(not positioned and string.find(tostring(where), ":107: boom", 1, true) ~= nil)
+end
+
+local function chars(...: integer): string
+    return string.char(...)
+end
+
+local function cut(...: any): string
+    return string.sub(...)
+end
+
+local function biggest(...: number): number
+    return math.max(...)
+end
+
+local function repeated(...: any): string
+    return "<" .. string.rep(...) .. ">"
+end
+
+-- Every result of the call, through an open return.
+local function bytes(...: any): ...integer
+    return string.byte(...)
+end
+
+-- Two of its results, kept as locals.
+local function bytepair(...: any): boolean
+    local first, second = string.byte(...)
+
+    return first == 104 and second == 105
+end
+
+local function show(...: any): string
+    return tostring(...)
+end
+
+local function fail(...: any): nil
+    error(...)
+end
+
+do
+    check(chars(104, 105) == "hi")
+    check(cut("hello", 2, 3) == "el")
+    check(chars() == "")
+    check(biggest(3, 9, 4) == 9)
+    check(repeated("ab", 3) == "<ababab>")
+    local first, second, third = bytes("hi!", 1, 3)
+    check(first == 104 and second == 105 and third == 33)
+    check(bytepair("hi", 1, 2))
+    check(show(42) == "42")
+    local ok, message = pcall(fail, "boom", 0)
+    check(not ok and message == "boom")
+    local raised = pcall(chars, 256)
+    check(not raised)
 end
 
 export const result = score

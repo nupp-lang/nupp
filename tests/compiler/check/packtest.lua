@@ -32,8 +32,9 @@ local function worker(start: number) yields(number, string) resumes(boolean): st
     local again: boolean = coroutine.yield(start, 'paused')
     return tostring(again)
 end
+local type Feed = thread<(number), (boolean), (number, string), (string)>
 local producer: Producer = worker
-local co: thread<(number), (boolean), (number, string), (string)> = coroutine.create(producer)
+local co: Feed = coroutine.create(producer)
 local ok, value, label = coroutine.resume(co, 1)
 ]]
     )
@@ -409,10 +410,6 @@ function M.finalTableItemsExpandTheirResultPack()
     )
 end
 
-function M.tableLiteralsFitHeterogeneousTupleTypes()
-    clean(table.concat({"local pair: {number, string} = {1, 'one'}", "local n: number = pair[1]", "return n",}, "\n"))
-end
-
 -- An expanding expression is read for every value it produces, and the reader
 -- takes them off the node. A call whose own path published no pack used to leave
 -- the reader with whichever call ran last, which is one of its own arguments: the
@@ -600,47 +597,6 @@ function M.unpackPreservesTupleAndArrayElementTypes()
                 "local a, b = unpack(list)",
                 "local first: string = a",
                 "local second: string = b",
-            },
-            "\n"
-        )
-    )
-end
-
-function M.coroutineProtocolsTypeYieldResumeAndReturnValues()
-    clean(
-        table.concat(
-            {
-                "local function worker(start: number)",
-                "   yields (number, string) resumes (boolean): string",
-                "   local again: boolean = coroutine.yield(start, 'paused')",
-                "   return tostring(again)",
-                "end",
-                "local co: thread<(number), (boolean), (number, string), (string)> =",
-                "   coroutine.create(worker)",
-                "local ok, value, label = coroutine.resume(co, 1)",
-                "if ok then",
-                "   local result: number | string = value",
-                "   local detail: string? = label",
-                "end",
-            },
-            "\n"
-        )
-    )
-end
-
-function M.namedCoroutineFunctionTypeUsesTheThreadProtocolType()
-    clean(
-        table.concat(
-            {
-                "local type Feed = thread<(number), (boolean), (number, string), (string)>",
-                "local type Producer = function(number) yields(number, string) resumes(boolean): string",
-                "local function worker(start: number) yields(number, string) resumes(boolean): string",
-                "   local again: boolean = coroutine.yield(start, 'paused')",
-                "   return tostring(again)",
-                "end",
-                "local producer: Producer = worker",
-                "local co: Feed = coroutine.create(producer)",
-                "local ok, value, label = coroutine.resume(co, 1)",
             },
             "\n"
         )

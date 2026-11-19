@@ -174,6 +174,9 @@ return M
         test(records["roottest/root"], "root suites remain discoverable")
         if jobs == 2 then
             test(#report.shards > 0, "nested suites ran through parallel workers")
+        else
+            test.eq(#report.shards, 0, "a one-job run stays serial")
+            test.matches(read(dir .. "/build/.nupp-test-times.json"), '"nestedluatest"', "timings are persisted")
         end
     end
     os.execute("rm -rf " .. string.format("%q", dir))
@@ -211,43 +214,6 @@ function M.classifiesNestedSuitesFromTheirActualSources()
     test.eq(run(dir, "--lane=shared --list-suites"), "puretest\n")
     test.eq(run(dir, "--lane=shell --list-suites"), "shelltest\n")
     test.eq(run(dir, "--lane=isolated --list-suites"), "isolatedtest\n")
-    os.execute("rm -rf " .. string.format("%q", dir))
-end
-
-function M.bundledRunnerWorksOutsideTheCompilerCheckout()
-    local dir = os.tmpname()
-    os.remove(dir)
-    assert(os.execute("mkdir -p " .. string.format("%q", dir .. "/tests")) == 0)
-    assert(os.execute("mkdir -p " .. string.format("%q", dir .. "/src")) == 0)
-    write(dir .. "/nupp.lua", 'return {include = {"src"}, build = {entries = {"main"}}}\n')
-    write(dir .. "/src/main.nupp", "return true\n")
-    for _, name in ipairs({"alpha", "beta"}) do
-        write(
-            ("%s/tests/%stest.lua"):format(dir, name),
-            (
-                [=[
-local test = require("assert")
-local M = {}
-function M.passes() test.eq(%q, %q) end
-return M
-]=]
-            ):format(name, name)
-        )
-    end
-
-    -- Keep the copied runner in one process. External discovery, persistence,
-    -- and the public test command are what this case exercises; worker shape is
-    -- covered independently below.
-    local command = ("cd %q && %q test --jobs=1 --json 2>/dev/null"):format(dir, NUPP)
-    local output, bundled = capturedRun(command)
-    test.eq(bundled.status, 0, "the bundled runner failed outside its checkout" .. evidence(bundled))
-    local report = decode(output)
-    test.eq(report.total, 2, "both external suites ran")
-    test.eq(report.passed, 2, "both external suites passed")
-    test.eq(#report.shards, 0, "the external run stayed serial")
-    local timings = read(dir .. "/build/.nupp-test-times.json")
-    test.matches(timings, '"alphatest"', "external timing history is persisted")
-    test.matches(timings, '"betatest"', "every external suite is timed")
     os.execute("rm -rf " .. string.format("%q", dir))
 end
 
@@ -1137,19 +1103,22 @@ end}
     os.execute("rm -rf " .. string.format("%q", dir))
 end
 
+-- Two small suites in a copied runner, of one case and two.
+local function twoSuites()
+    local dir = copiedRunner()
+    write(dir .. "/tests/onecasetest.lua", "return {only = function() end}\n")
+    write(dir .. "/tests/twocasetest.lua", "return {first = function() end, second = function() end}\n")
+
+    return dir
+end
+
 function M.namingSeveralSuitesRunsEveryOneOfThem()
     -- Each name used to overwrite the one before it, so `nupp test a b` ran only `b`
-    -- and reported a count that looked like an answer. Summed from the single runs
-    -- rather than written down, so this keeps meaning what it says as suites grow.
-    local first, firstRun = runRepositoryRunner("lexertest --timings=0")
-    local second, secondRun = runRepositoryRunner("uritest --timings=0")
-    local both, bothRun = runRepositoryRunner("lexertest uritest --timings=0")
-    local a = tonumber(first:match("(%d+) tests,"))
-    local b = tonumber(second:match("(%d+) tests,"))
-    local together = tonumber(both:match("(%d+) tests,"))
-    local runs = evidence(firstRun, secondRun, bothRun)
-    test(a and b and together, "each run reports a count" .. runs)
-    test.eq(together, a + b, "naming two suites runs both of them" .. runs)
+    -- and reported a count that looked like an answer.
+    local dir = twoSuites()
+    test.matches(run(dir, "onecasetest twocasetest --jobs=1 --timings=0"), "3 tests, 3 passed")
+    test.matches(run(dir, "twocasetest onecasetest --jobs=1 --timings=0"), "3 tests, 3 passed")
+    os.execute("rm -rf " .. string.format("%q", dir))
 end
 
 function M.aNameMatchingNoSuiteIsAFailure()
@@ -1244,11 +1213,13 @@ return M
 end
 
 function M.runnerColorsOnlyWhenAskedDownAPipe()
-    local colored, coloredRun = runRepositoryRunner("lexertest --timings=0 --color=always")
-    test(colored:find("\27[", 1, true), "--color=always paints runner output" .. evidence(coloredRun))
+    local dir = twoSuites()
+    local colored = run(dir, "onecasetest --jobs=1 --timings=0 --color=always")
+    test(colored:find("\27[", 1, true), "--color=always paints runner output: " .. colored)
 
-    local plain, plainRun = runRepositoryRunner("lexertest --timings=0 --no-color")
-    test.eq(plain:find("\27[", 1, true), nil, "--no-color keeps redirected runner output plain" .. evidence(plainRun))
+    local plain = run(dir, "onecasetest --jobs=1 --timings=0 --no-color")
+    test.eq(plain:find("\27[", 1, true), nil, "--no-color keeps redirected runner output plain: " .. plain)
+    os.execute("rm -rf " .. string.format("%q", dir))
 end
 
 -- A runner's progress descriptor belongs to that runner process. A nested runner
@@ -1391,10 +1362,13 @@ end}
         -- slices both by cost alone, and in the isolated lane every empty slice is
         -- a fresh process the failing case queues behind. On a loaded runner, two
         -- of those outlasted the observer.
-        write(dir .. "/build/.nupp-test-times.json", [[
+        write(
+            dir .. "/build/.nupp-test-times.json",
+            [[
 {"version":2,"suites":{"zwaittest":2000,"aearlytest":1000},
 "cases":{"zwaittest":{"observesFailure":2000},"aearlytest":{"fails":1000}}}
-]])
+]]
+        )
         local outputPath = dir .. "/report.out"
         local command = (
             "cd %q && NUPP_TEST_BUILD=%q %q %s >%q 2>%q"
@@ -1458,13 +1432,6 @@ return {refused = function(): nil assert(implementation.answer == 42) end}
     test(refusal.status ~= 0, evidence(refusal))
     test.matches(refused, "internal to package namespace")
     os.remove(dir, true)
-end
-
-function M.runsNuppSuites()
-    local output = run(ROOT, "nuppsuitetest --json")
-    test.matches(output, '"suite":"nuppsuitetest"')
-    test.matches(output, '"name":"runsAsNupp"')
-    test.matches(output, '"name":"requiresNuppProjectModules"')
 end
 
 -- Where the time went, which is the report a person asking why the suite takes
@@ -1965,129 +1932,76 @@ end}
     end
 end
 
-function M.runsLifecycleHooksInOrder()
+-- Hooks run in order around every case, and teardown still runs when a case, a
+-- per-case hook or the suite's own setup fails. One run of four suites, each
+-- tracing what it ran to a file of its own.
+function M.runsLifecycleHooksAndTheirTeardowns()
     local dir = copiedRunner()
-    local trace = dir .. "/trace"
-    write(
-        dir .. "/tests/lifecycletest.lua",
-        (
-            [[
-local M = {}
-local trace = %q
-local function mark(name)
-   local f = assert(io.open(trace, "ab"))
-   f:write(name, "\n")
-   f:close()
-end
+    local suites = {
+        lifecycletest = [[
 function M.beforeAll() mark("beforeAll") end
 function M.beforeEach() mark("beforeEach") end
 function M.alpha() mark("alpha") end
 function M.beta() mark("beta") end
 function M.afterEach() mark("afterEach") end
 function M.afterAll() mark("afterAll") end
-return M
-]]
-        ):format(trace)
-    )
-
-    local output = run(dir, "lifecycletest")
-    test.matches(output, "2 tests, 2 passed, 0 skipped, 0 failed")
-    test.eq(
-        read(trace),
-        table.concat(
-            {"beforeAll", "beforeEach", "alpha", "afterEach", "beforeEach", "beta", "afterEach", "afterAll", "",},
-            "\n"
-        )
-    )
-    os.execute("rm -rf " .. string.format("%q", dir))
-end
-
-function M.runsTeardownAfterFailures()
-    local dir = copiedRunner()
-    local trace = dir .. "/trace"
-    write(
-        dir .. "/tests/cleanupfailtest.lua",
-        (
-            [[
-local M = {}
-local trace = %q
-local function mark(name)
-   local f = assert(io.open(trace, "ab"))
-   f:write(name, "\n")
-   f:close()
-end
+]],
+        cleanupfailtest = [[
 function M.beforeAll() mark("beforeAll") end
 function M.beforeEach() mark("beforeEach") end
 function M.fails() mark("test"); error("case failure") end
 function M.afterEach() mark("afterEach"); error("cleanup failure") end
 function M.afterAll() mark("afterAll") end
-return M
-]]
-        ):format(trace)
-    )
-
-    local output = run(dir, "cleanupfailtest")
-    test.matches(output, "case failure")
-    test.matches(output, "afterEach failed: .-cleanup failure")
-    test.eq(read(trace), "beforeAll\nbeforeEach\ntest\nafterEach\nafterAll\n")
-    os.execute("rm -rf " .. string.format("%q", dir))
-end
-
-function M.runsTeardownAfterFailedSetup()
-    local dir = copiedRunner()
-    local trace = dir .. "/trace"
-    write(
-        dir .. "/tests/setupcasefailtest.lua",
-        (
-            [[
-local M = {}
-local trace = %q
-local function mark(name)
-   local f = assert(io.open(trace, "ab"))
-   f:write(name, "\n")
-   f:close()
-end
+]],
+        setupcasefailtest = [[
 function M.beforeEach() mark("beforeEach"); error("case setup failure") end
 function M.shouldNotRun() mark("test") end
 function M.afterEach() mark("afterEach") end
 function M.afterAll() mark("afterAll") end
-return M
-]]
-        ):format(trace)
-    )
-
-    local output = run(dir, "setupcasefailtest")
-    test.matches(output, "case setup failure")
-    test.eq(read(trace), "beforeEach\nafterEach\nafterAll\n")
-    os.execute("rm -rf " .. string.format("%q", dir))
-end
-
-function M.runsSuiteTeardownWhenSetupFails()
-    local dir = copiedRunner()
-    local trace = dir .. "/trace"
-    write(
-        dir .. "/tests/setupfailtest.lua",
-        (
-            [[
-local M = {}
-local trace = %q
-local function mark(name)
-   local f = assert(io.open(trace, "ab"))
-   f:write(name, "\n")
-   f:close()
-end
+]],
+        setupfailtest = [[
 function M.beforeAll() mark("beforeAll"); error("setup failure") end
 function M.shouldNotRun() mark("test") end
 function M.afterAll() mark("afterAll") end
-return M
+]],
+    }
+    for name, body in pairs(suites) do
+        write(
+            ("%s/tests/%s.lua"):format(dir, name),
+            (
+                [[
+local M = {}
+local function mark(name)
+   local f = assert(io.open(%q, "ab"))
+   f:write(name, "\n")
+   f:close()
+end
 ]]
-        ):format(trace)
-    )
+            ):format(dir .. "/" .. name .. ".trace") .. body .. "return M\n"
+        )
+    end
 
-    local output = run(dir, "setupfailtest")
+    local output = run(dir, "--jobs=1 --timings=0")
+    test.eq(output:find("lifecycletest /", 1, true), nil, "the suite whose hooks pass has no failure: " .. output)
+
+    local function trace(name)
+        return read(dir .. "/" .. name .. ".trace")
+    end
+
+    test.eq(
+        trace("lifecycletest"),
+        table.concat(
+            {"beforeAll", "beforeEach", "alpha", "afterEach", "beforeEach", "beta", "afterEach", "afterAll", "",},
+            "\n"
+        )
+    )
+    test.matches(output, "case failure")
+    test.matches(output, "afterEach failed: .-cleanup failure")
+    test.eq(trace("cleanupfailtest"), "beforeAll\nbeforeEach\ntest\nafterEach\nafterAll\n")
+    test.matches(output, "case setup failure")
+    test.eq(trace("setupcasefailtest"), "beforeEach\nafterEach\nafterAll\n")
     test.matches(output, "setup failure")
-    test.matches(output, "beforeAll")
-    test.eq(read(trace), "beforeAll\nafterAll\n")
+    test.eq(trace("setupfailtest"), "beforeAll\nafterAll\n")
     os.execute("rm -rf " .. string.format("%q", dir))
 end
 

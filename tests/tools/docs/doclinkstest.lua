@@ -1,24 +1,11 @@
 local urls = require("nupp.tools.doc.urls")
 
-local HERE = require("helpers.paths").tests
 local M = {}
 
 local function routed(markdown)
     local page = {source = "docs/start.md", path = "start"}
     local pages = {page, {source = "docs/guide.md", path = "guide", title = "Guide"}}
     return urls.rewriteConfiguredPageLinks(markdown, page, pages, "start/index.html")
-end
-
-function M.documentationGrammarLinkAfterShowcaseFencesUsesItsRoute()
-    local file = assert(io.open(HERE .. "/../docs/learn/tooling/documentation.md", "rb"))
-    local markdown = file:read("*a")
-    file:close()
-    assert(markdown:find("[grammar reference](../../reference/grammar.md)", 1, true))
-    local page = {source = "docs/learn/tooling/documentation.md", path = "learn/tooling/documentation"}
-    local pages = {page, {source = "docs/reference/grammar.md", path = "reference/grammar"}}
-    local result = urls.rewriteConfiguredPageLinks(markdown, page, pages, "learn/tooling/documentation/index.html")
-    assert(result:find("[grammar reference](../../../reference/grammar/index.html)", 1, true), result)
-    assert(not result:find("[grammar reference](../../reference/grammar.md)", 1, true))
 end
 
 function M.longerAndTildeFencesPreserveLinksUntilTheirRealCloser()

@@ -47,46 +47,6 @@ end
 
 local M = {}
 
-function M.aWrittenOutReceiverWorks()
-    -- The spelling `nupp reference` prints under Records.
-    local value = runs(
-        [[
-local m = {}
-
-record m.Point
-    x: integer
-    y: integer
-
-    function lengthSquared(self): number
-        return self.x * self.x + self.y * self.y
-    end
-end
-
-return (m.Point(x = 3, y = 4)):lengthSquared()
-]],
-        "written-out self"
-    )
-    testAssert.eq(value, 25, "the receiver reaches the body")
-end
-
-function M.aReceiverlessFunctionIsStatic()
-    local value = runs(
-        [[
-local m = {}
-
-record m.Point
-    function origin(): integer
-        return 0
-    end
-end
-
-return m.Point.origin()
-]],
-        "static function"
-    )
-    testAssert.eq(value, 0, "the declaration table carries the function")
-end
-
 function M.staticAndInstanceFunctionsGenerateDistinctForms()
     local value = runs(
         [[

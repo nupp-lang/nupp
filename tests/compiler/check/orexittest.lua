@@ -558,37 +558,25 @@ return first == nil and rawequal(why, raised) and second == nil and empty == nil
 end
 
 function M.protectedCallsPreserveExactHandlerErrorTypes()
-    for _, shape in ipairs({"string", "integer", "Problem"}) do
-        local source = (
-            [=[
+    runsGenerated(
+        [=[
 local record Problem message: string end
-local type Reason = %s
 local function work(): integer
     error("raised", 0)
 end
 local handled = 0
-local function handler(problem: any): Reason
+local function handler(problem: any): Problem
     handled = handled + 1
-    return %s
+    return Problem(message = tostring(problem))
 end
-local function wrapped(): (integer?, Reason?)
+local function wrapped(): (integer?, Problem?)
     local value = xpcall(work, handler) or return
     return value, nil
 end
 local value, problem = wrapped()
-return value == nil and handled == 1 and %s
+return value == nil and handled == 1 and problem ~= nil and problem.message == "raised"
 ]=]
-        ):format(
-            shape,
-            shape == "string" and "tostring(problem)"
-            or shape == "integer" and "7"
-            or "Problem(message = tostring(problem))",
-            shape == "string" and 'problem == "raised"'
-            or shape == "integer" and "problem == 7"
-            or 'problem ~= nil and problem.message == "raised"'
-        )
-        runsGenerated(source)
-    end
+    )
     assertReports(
         [=[
 local function work(): integer return 1 end
@@ -642,10 +630,12 @@ return good == 4 and bad == nil and chosen == 2 and supplied == 2 and called == 
     )
 end
 
+-- xpcall takes the same three exits in
+-- protectedCallsUseStatusAndPreserveFalsySuccesses; what this adds is the cleanup each
+-- exit runs.
 function M.protectedLoopExitsAndCleanupUseStatus()
-    for _, builtin in ipairs({"pcall", "xpcall"}) do
-        local source = (
-            [=[
+    runsGenerated(
+        [=[
 local closed = 0
 local record Resource is own.Closeable
     function close(takes self): nil closed = closed + 1 end
@@ -655,10 +645,9 @@ local function work(n: integer): integer
     if n == 0 then error("zero", 0) end
     return n
 end
-local function handler(problem: any): string return tostring(problem) end
 local function wrapped(n: integer): (integer?, unknown)
     local resource = Resource()
-    local value = %s or return
+    local value = pcall(work, n) or return
     return value, nil
 end
 local good = wrapped(2)
@@ -666,24 +655,18 @@ local bad = wrapped(0)
 local continued = 0
 for _, n in ipairs({1, 0, 2}) do
     local resource = Resource()
-    local value = %s or continue
+    local value = pcall(work, n) or continue
     continued = continued + value
 end
 local broken = 0
 for _, n in ipairs({1, 0, 2}) do
     local resource = Resource()
-    local value = %s or break
+    local value = pcall(work, n) or break
     broken = broken + value
 end
 return good == 2 and bad == nil and continued == 3 and broken == 1 and closed == 14
 ]=]
-        ):format(
-            builtin == "pcall" and "pcall(work, n)" or "xpcall(work, handler, n)",
-            builtin == "pcall" and "pcall(work, n)" or "xpcall(work, handler, n)",
-            builtin == "pcall" and "pcall(work, n)" or "xpcall(work, handler, n)"
-        )
-        runsGenerated(source)
-    end
+    )
 end
 
 function M.protectedCallsKeepAnOwnedFirstResultAndRejectDiscardedOwners()
@@ -1266,7 +1249,10 @@ end
 -- Explicit protected calls
 ---------------------------------------------------------------------------
 
-function M.protectedBuiltinsPreserveRaisedValuesAndNilResults()
+-- A message handler runs before the stack unwinds, which is what lets one read the
+-- failing frame. Raised identity, a raised nil and a successful nil are pinned by
+-- the protected-call cases above and by tests/core/catalog-protected-packs.nupp.
+function M.xpcallRunsItsHandlerBeforeTheStackUnwinds()
     local function work(n)
         if n < 0 then
             error("negative")
@@ -1275,24 +1261,8 @@ function M.protectedBuiltinsPreserveRaisedValuesAndNilResults()
         return n * 2
     end
 
-    local ok, value = pcall(work, 4)
-    assert(ok and value == 8, tostring(value))
-    ok, value = pcall(work, -1)
-    assert(not ok and tostring(value):find("negative", 1, true), tostring(value))
-
-    local raised = {code = 7}
-    ok, value = pcall(error, raised, 0)
-    assert(not ok and rawequal(value, raised), "a raised object keeps its identity")
-
-    ok, value = pcall(error, nil)
-    assert(not ok and value == nil, "raising nil remains a failure")
-    ok, value = pcall(function()
-        return nil
-    end)
-    assert(ok and value == nil, "a successful nil remains distinguishable")
-
     local workIsOnStack = false
-    ok, value = xpcall(
+    local ok, value = xpcall(
         work,
         function(problem)
             local level = 2
@@ -1315,108 +1285,6 @@ function M.protectedBuiltinsPreserveRaisedValuesAndNilResults()
     assert(not ok and type(value) == "table", tostring(value))
     assert(value.message:find("negative", 1, true), value.message)
     assert(workIsOnStack, "the handler ran before the stack unwound")
-end
-
---- A local explicit protected call exposes an `unknown` reason; narrowing it
---- at the hop is what is refused.
-function M.propagatingAnUnknownReasonChecks()
-    local _, diagnostics = checked(
-        [[
-local function work(n: integer): integer
-    return n * 2
-end
-
-local function called(n: integer): (integer?, unknown)
-    local ok, value = pcall(work, n)
-    if ok then
-        return value, nil
-    end
-
-    return nil, value
-end
-
-local function propagated(n: integer): (integer?, unknown)
-    local value = called(n) or return
-
-    return value + 1, nil
-end
-
-return propagated(1)
-]]
-    )
-    assertClean(diagnostics)
-    assertReports(
-        [[
-local function work(n: integer): integer
-    return n * 2
-end
-
-local function called(n: integer): (integer?, unknown)
-    local ok, value = pcall(work, n)
-    if ok then
-        return value, nil
-    end
-
-    return nil, value
-end
-
-local function narrowed(n: integer): (integer?, string?)
-    local value = called(n) or return
-
-    return value + 1, nil
-end
-
-return narrowed(1)
-]],
-        "NUPP2002",
-        "narrowing unknown at the hop"
-    )
-end
-
---- A handler's own result type reaches the caller, whatever it is.
-function M.aHandlerResultTypeReachesTheCaller()
-    for _, shape in ipairs({"string", "integer", "Problem"}) do
-        local source = (
-            [[
-local record Problem
-    message: string
-end
-local type Reason = %s
-
-local function work(n: integer): integer
-    return n * 2
-end
-
-local function handler(raised: any): Reason
-    return %s
-end
-
-local function called(n: integer): (integer?, Reason?)
-    local ok, value = xpcall(work, handler, n)
-    if ok then
-        return value, nil
-    end
-
-    return nil, value
-end
-
-local function described(n: integer): (integer?, Reason?)
-    local value = called(n) or return
-
-    return value + 1, nil
-end
-
-return described(1)
-]]
-        ):format(
-            shape,
-            shape == "string" and "tostring(raised)"
-            or shape == "integer" and "1"
-            or "Problem(message = tostring(raised))"
-        )
-        local _, diagnostics = checked(source)
-        assertClean(diagnostics, shape)
-    end
 end
 
 return M

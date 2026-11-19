@@ -455,11 +455,6 @@ function M.opaqueOwnersStillNeedAnExplicitTerminal()
     testAssert.eq(codes(source), "NUPP2603")
 end
 
-function M.rawSuspensionStillCannotStrandAnAutomaticOwner()
-    local source = PRELUDE .. table.concat({"", "local value = open_resource('s')", "coroutine.yield()",}, "\n")
-    testAssert.eq(codes(source), "NUPP2603")
-end
-
 function M.optionalOwnersDestroyOnlyWhenPresent()
     local chunk = compile(
         PRELUDE .. table.concat(
@@ -766,14 +761,6 @@ function M.frameWritebackPrecedesStructuredExitDispatch()
     local totals, calls = chunk()
     testAssert.eq(totals, "333")
     testAssert.eq(calls, "xxxxxx")
-end
-
-function M.automaticLoweringEmitsLoadableCleanupRegions()
-    local source = PRELUDE .. table.concat(
-        {"", "local function run()", "   local value = open_resource('l')", "   print(value.name)", "end",},
-        "\n"
-    )
-    assert(compile(source))
 end
 
 function M.aNestedFunctionReturnsValuesThroughItsOwnRegion()

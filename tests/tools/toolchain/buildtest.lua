@@ -132,14 +132,6 @@ test.eq(42, 42)
     os.execute("rm -rf " .. string.format("%q", dir))
 end
 
-function M.explicitBuildCreatesItsOutputDirectory()
-    local dir = tempProject({["nupp.lua"] = binaryManifest(), ["main.nupp"] = "return 42\n",})
-    local out = capture(("cd '%s' && '%s' build -o nested/out"):format(dir, NUPP))
-    testAssert.eq(out, "", "explicit build creates its output directory: " .. out)
-    assert(exists(dir .. "/nested/out/" .. APP_FILE), "explicit build writes beneath the requested directory")
-    os.execute("rm -rf '" .. dir .. "'")
-end
-
 function M.projectOutDirOverrideBundlesResourcesFromTheOverride()
     local dir = tempProject({
         [
@@ -170,9 +162,10 @@ local embedded = (package.preload["nupp.embedded"] as any)()
 print(embedded["/asset.txt"])
 ]],
     })
-    local out = capture(("cd %q && %q build --output alternate"):format(dir, NUPP))
+    -- Nested, so the override also proves the build creates its output directory.
+    local out = capture(("cd %q && %q build --output nested/alternate"):format(dir, NUPP))
     testAssert.eq(out, "", "project output override builds a resource bundle")
-    local ran = capture(("cd %q && ./alternate/application"):format(dir))
+    local ran = capture(("cd %q && ./nested/alternate/application"):format(dir))
     testAssert.eq(ran, "resource from overridden output\n", "the overridden bundle carries its staged resource")
     os.execute("rm -rf " .. string.format("%q", dir))
 end
@@ -326,45 +319,31 @@ function M.theLoweringDialectIsNotAnOptionAKeyOrAField()
     os.execute("rm -rf '" .. dir .. "' '" .. keyed .. "'")
 end
 
-function M.cliProvidesHelpForMainAndEverySubcommand()
+function M.cliProvidesMainHelpAndRefusesRemovedCommands()
     local main = capture(("'%s' --help"):format(NUPP))
     assert(main:find("Usage:\n  nupp <command>", 1, true), "--help prints main help: " .. main)
     assert(main:find("Commands:", 1, true), "main help lists commands: " .. main)
 
-    local commands = {
-        "ast",
-        "check",
-        "fmt",
-        "build",
-        "clean",
-        "bench",
-        "task",
-        "test",
-        "doc",
-        "fixpoint",
-        "run",
-        "import-c",
-        "lsp",
-        "help",
-    }
-    for _, command in ipairs(commands) do
-        local out = capture(("'%s' %s --help"):format(NUPP, command))
-        assert(out:find("Usage:", 1, true), command .. " --help did not print command help: " .. out)
-        assert(not out:find("No such file", 1, true), command .. " --help was interpreted as an input: " .. out)
-    end
+    -- Each command's own `--help` is clitest's everyPublicCommandHelpHasExamples,
+    -- which walks every subcommand and resolves the examples it prints.
 
     local removed = capture(("'%s' tasks"):format(NUPP))
     assert(removed:find("unknown command tasks", 1, true), "the standalone tasks command still exists: " .. removed)
 end
 
-function M.astCommandDumpsJsonSyntaxTrees()
+-- The indented form is the same document with whitespace in it, so it is checked
+-- by decoding both and comparing what they describe rather than by matching text.
+function M.astCommandDumpsJsonSyntaxTreesCompactOrPretty()
     local dir = tempProject({
         ["nupp.lua"] = 'return {include = {"."}}\n',
-        ["sample.nupp"] = "local answer: number = 20 + 22\nreturn answer\n",
+        -- The string literal carries a quote, a brace and a comma, which is what
+        -- says the indenter steps over strings instead of punctuating inside them.
+        ["sample.nupp"] = 'local answer: string = "a {brace}, a quote \\" and more" .. 20 + 22\nreturn answer\n',
     })
-    local encoded = captureJson(("cd '%s' && '%s' ast sample.nupp"):format(dir, NUPP))
-    testAssert.eq(select(2, encoded:gsub("\n", "")), 1, "the default report is one line")
-    local decoded = require("testjson").decode(encoded)
+    local json = require("testjson")
+    local compact = captureJson(("cd '%s' && '%s' ast sample.nupp"):format(dir, NUPP))
+    testAssert.eq(select(2, compact:gsub("\n", "")), 1, "the default report is one line")
+    local decoded = json.decode(compact)
     testAssert.eq(decoded.file, "sample.nupp", "JSON identifies the input")
     testAssert.eq(decoded.root.tag, "node", "JSON distinguishes nodes")
     testAssert.eq(decoded.root.kind, "chunk", "JSON includes the root production")
@@ -385,20 +364,7 @@ function M.astCommandDumpsJsonSyntaxTrees()
     end
 
     assert(containsKind(decoded.root, "binop"), "JSON includes structural expression children")
-    os.execute("rm -rf '" .. dir .. "'")
-end
 
--- The indented form is the same document with whitespace in it, so it is checked
--- by decoding both and comparing what they describe rather than by matching text.
-function M.astJsonPrettyIndentsTheSameDocument()
-    local dir = tempProject({
-        ["nupp.lua"] = 'return {include = {"."}}\n',
-        -- The string literal carries a quote, a brace and a comma, which is what
-        -- says the indenter steps over strings instead of punctuating inside them.
-        ["sample.nupp"] = 'local answer: string = "a {brace}, a quote \\" and more"\nreturn answer\n',
-    })
-    local json = require("testjson")
-    local compact = captureJson(("cd '%s' && '%s' ast sample.nupp"):format(dir, NUPP))
     local pretty = captureJson(("cd '%s' && '%s' ast --json-pretty sample.nupp"):format(dir, NUPP))
     assert(select(2, pretty:gsub("\n", "")) > 10, "the pretty report spans lines: " .. pretty)
     assert(pretty:find('{\n  "', 1, true), "the pretty report indents members: " .. pretty)
@@ -425,7 +391,7 @@ function M.astJsonPrettyIndentsTheSameDocument()
         return true
     end
 
-    assert(same(json.decode(pretty), json.decode(compact)), "both forms describe one tree:\n" .. pretty)
+    assert(same(json.decode(pretty), decoded), "both forms describe one tree:\n" .. pretty)
     os.execute("rm -rf '" .. dir .. "'")
 end
 

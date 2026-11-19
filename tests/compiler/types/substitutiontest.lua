@@ -794,23 +794,10 @@ function M.anApplicationWritesAsManyArgumentsAsTheDeclarationBinds()
     clean(pair .. "local exact: Pair<integer, string> = nil as any\nreturn exact\n")
 end
 
--- A trailing parameter the declaration defaulted may be left out, and the two
--- spellings that name a declaration rather than one of its values take none at all.
-function M.anApplicationMayLeaveOutADefaultedParameter()
-    clean(
-        table.concat(
-            {
-                "local record Tagged<A, B = string>",
-                "   a: A",
-                "   b: B",
-                "end",
-                "local one: Tagged<integer> = nil as any",
-                "local both: Tagged<integer, boolean> = nil as any",
-                "return one, both",
-            },
-            "\n"
-        ) .. "\n"
-    )
+-- The two spellings that name a declaration rather than one of its values take no
+-- arguments at all. A defaulted trailing parameter may also be left out, which
+-- typeleveltest's aDefaultedTypeParameterMayBeLeftOut pins.
+function M.aDeclarationWitnessTakesNoArguments()
     clean(
         table.concat(
             {

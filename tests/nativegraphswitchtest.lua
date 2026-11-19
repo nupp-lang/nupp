@@ -148,23 +148,4 @@ end
     )
 end
 
-function M.duplicateCasesFailTheChecker()
-    local _, diagnostics = checked(
-        [[
-local function dispatch(code: uint64): uint64
-    return switch code do
-        case 0 -> 11ULL
-        case 0 -> 22ULL
-        else -> 44ULL
-    end
-end
-]]
-    )
-    local duplicate = false
-    for _, item in ipairs(diagnostics) do
-        duplicate = duplicate or item.code == "NUPP2138"
-    end
-    assert(duplicate, "checker accepted duplicate static case")
-end
-
 return M

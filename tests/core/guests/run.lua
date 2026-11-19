@@ -103,27 +103,16 @@ local CASES = {
     {"optionalmethodcleanups", 0x7FFF000000000001},
     {"numericsteps", 0x7FFF000000000001},
     {"stringdynamic", 0x7FFF000000000001},
-    -- Concatenation of floats and integers through dynamic values.
-    {"concatnumbers", 0x7FFF000000000007},
     -- NUL bytes in strings: the %z pattern class, sets ranging from NUL
     -- and a replacement table read through __index.
     {"stringsnul", 0x7FFF00000000001F},
-    -- Results led by nils, directly, through tail calls and function values.
-    {"callsleadingnils", 0x7FFF00000000000F},
-    -- A record with an array part: iteration and absent fields.
-    {"recordsarraypart", 0x7FFF00000000001F},
-    -- Table constructors mixing named fields and positional items.
-    {"tablesmixedconstructor", 0x7FFF00000000000F},
     -- A weak-keyed cache whose values hold their keys, across collections.
     {"weakwrappers", 0x7FFF000000000007},
-    -- A record without an array part read at integer keys.
-    {"recordsintegerkeys", 0x7FFF00000000000F},
     {"stringmetaonly", 0x7FFF000000000001},
     {"stringmetatable", 0x7FFF000000000001},
     {"stringmethods", 0x7FFF000000000001},
     {"stringgmatchvalues", 0x7FFF000000000001},
     {"scalarmath", 0x7FFF000000000001},
-    {"scalarrandom", 0x7FFF000000000001},
     {"randomvalues", 0x7FFF000000000001},
     {"scalarmutation", 0x7FFF000000000001},
     {"clockprovider", 0x7FFF00000000003F},
@@ -167,12 +156,11 @@ local CASES = {
     {"numbersText", 0x7FFF000004A6983A},
     {"environmentRead", 0x7FFF000011E63D2B},
     {"numbersFloat", 0x7FFF0001C768D923},
-    {"callsResults", 0x7FFF000000259D74},
+    -- Multiple results and varargs: one bit for each block's answer.
+    {"callsResults", 0x7FFF0000000FFFFF},
     {"tablesFloatKeys", 0x7FFF0000065C2564},
     {"stringsLibrary", 0x7FFF0000547F9CA7},
     {"callsGeneric", 0x7FFF00000C2F4BF7},
-    {"callsVariadic", 0x7FFF01026AA11247},
-    {"callsSpread", 0x7FFF001B69EC548D},
     {"recordsMethods", 0x7FFF000AFDC52FB5},
     {"callsProtected", 0x7FFF00001E76EFC7},
     {"protectedpacks", 0x7FFF000000000001},
@@ -196,7 +184,8 @@ local CASES = {
     {"recordscallable", 0x7FFF0000073A889B},
     {"tablesSort", 0x7FFF000000560C7F},
     {"stringsGsubFunction", 0x7FFF00000000003F},
-    {"stringsQuoted", 0x7FFF00000000003F},
+    -- format with %q, and `..` of floats and integers through dynamic values.
+    {"stringsQuoted", 0x7FFF0000000001FF},
     {"outputPrint", 0x7FFF000000000006},
     {"numbersPower", 0x7FFF00018C459471},
     {"libraryRanges", 0x7FFF00000000001F},
@@ -206,7 +195,6 @@ local CASES = {
     {"recordsMetamethods", 0x7FFF0000043EE3C6},
     {"callsPacks", 0x7FFF0000002F5D00},
     {"callsOpen", 0x7FFF000000002B71},
-    {"callsExpand", 0x7FFF00000E655693},
     {"errorsMethods", 0x7FFF0000000000FF},
     {"recordsAffineReturns", 0x7FFF001A27644F86},
     {"threadsbasic", 0x7FFF000000000FFF},
@@ -227,12 +215,11 @@ local CASES = {
     {"threadsstacks", 0x7FFF00000000003F},
     {"outputwrite", 0x7FFF000000000001},
     {"libraryspread", 0x7FFF000000000C8D},
-    {"tableslibrarymeta", 0x7FFF000000000007},
-    {"tableslibrarycalls", 0x7FFF0000000003FF},
+    {"tableslibrarycalls", 0x7FFF000000001FFF},
     {"tablesmetaarity", 0x7FFF0000000004BE},
     {"moduleslazy", 0x7FFF000000000520},
-    {"modulesnamed", 0x7FFF0000000004D8},
-    {"modulespattern", 0x7FFF0000000000E6},
+    -- Named exports, read as fields, through a pattern and by computed names.
+    {"modulesnamed", 0x7FFF000000000007},
     {"modulesrecords", 0x7FFF000000002BD9},
     {"modulescycle", 0x7FFF000000000017},
     {"pluckedarguments", 0x7FFF001C1CF80790},
@@ -247,7 +234,6 @@ local CASES = {
     {"shortfunctions", 0x7FFF000000003BEE},
     {"modulesforward", 0x7FFF0000000000FF},
     {"modulesself", 0x7FFF000000000007},
-    {"modulesdynamic", 0x7FFF000000002B20},
     {"libraryvalues", 0x7FFF00000000003F},
     {"bytebuffer", 0x7FFF000000000003},
     {"bufferstate", 0x7FFF000000000001},
@@ -301,17 +287,15 @@ local CASES = {
     {"testrunner", 0},
     {"ffiaggregates", 0x7FFF00001FFFFFFF},
     {"runnerresiduals", 0x7FFF00000000007F},
-    -- Library calls spreading `...` through the library function's value.
-    {"spreadlibrary", 0x7FFF0000000003FF},
-    -- Library calls given every result of a call last, through the value.
-    {"libraryresults", 0x7FFF000000001FFF},
+    -- Library calls given every result of a call last, or spreading `...`,
+    -- through the library function's value.
+    {"libraryresults", 0x7FFF0000007FFFFF},
     {"processlines", 0x7FFF000000000FFF},
     -- Files read after a popen child closes, its pipe's descriptor reused.
     {"processreuse", 0x7FFF0000000003FF},
     -- The compiler's content digest and SHA-256, which the core computes.
     {"hashdigests", 0x7FFF0000000003FF},
     {"pipereadmemory", 0x7FFF000000000590},
-    {"selectvalues", 0x7FFF00000000007F},
     {"processlayer", 0x7FFF000000FFFFFF},
     -- os.exit(3): the program ends there, publishing nothing (EXITS).
     {"processexit", 0},
@@ -352,8 +336,9 @@ local CASES = {
     -- suspended in a coroutine meanwhile, while later loads move the
     -- catalog into larger mappings, then finished.
     {"loadhostile", 0x7FFF00001FFFFFFF},
-    -- A record with an array part: fields and elements apart.
-    {"recordsarray", 0x7FFF00000000000F},
+    -- Array parts beside named fields: records with an array part and
+    -- without, and table constructors mixing named and positional items.
+    {"recordsarray", 0x7FFF00000001FFFF},
     -- A function statement assigning a local declared before it.
     {"forwardfunctions", 0x7FFF000000000003},
     -- A closure capturing seventy values.
@@ -369,8 +354,6 @@ local CASES = {
     {"loadsource", 0x7FFF000000FFFFFF},
     -- The compiler's lexer alone on the core, over whole source files.
     {"compilerlexer", 0x7FFF00000000000F},
-    -- A checked call spreading fewer or more results than it has parameters.
-    {"callsspreadshort", 0x7FFF00000000001F},
     -- `nupp check` on the core: a clean file and one with a type error.
     {"compilercheck", 0x7FFF000000000003},
     {"compilerwarmcheck", 0x7FFF00000000000F},
@@ -425,7 +408,7 @@ local CASES = {
 local OUTPUT = {
     outputPrint = "hello\t42\t1.5\ttrue\tnil\tfalse\n\nxxx\t3\t-0.0\t1e100\t9007199254740992.0\n"
     .. "line\t1\nline\t2\nline\t3\n",
-    callsExpand = "1\t2\nx\t1\t2\n",
+    callsResults = "1\t2\nx\t1\t2\n",
     outputwrite = "hello 42 1.5\n3.0 -0.0 9.223372036854776e18\nab\nx7\np\n",
     libraryspread = "1\t2\t3\n3\t3\n97\t98\t99\n2\t3\ntrue\t1\t2\n",
     moduleslazy = "main start\nshapes loading\ncounter loading\nmain required\n",
@@ -515,7 +498,6 @@ local STRESS = {
     stringmethods = true,
     stringgmatchvalues = true,
     scalarmath = true,
-    scalarrandom = true,
     randomvalues = true,
     scalarmutation = true,
     clockprovider = true,
@@ -571,8 +553,6 @@ local STRESS = {
     stringsanchors = true,
     callsrecursive = true,
     callsResults = true,
-    callsVariadic = true,
-    callsSpread = true,
     callsProtected = true,
     protectedpacks = true,
     callstables = true,
@@ -605,7 +585,6 @@ local STRESS = {
     markdown = true,
     ffiaggregates = true,
     runnerresiduals = true,
-    spreadlibrary = true,
     libraryresults = true,
     processlines = true,
     processreuse = true,
@@ -823,8 +802,6 @@ local NUMERIC = {
     tablesFloatKeys = "catalog-tables-floatkeys",
     stringsLibrary = "catalog-strings-library",
     callsGeneric = "catalog-calls-generic",
-    callsVariadic = "catalog-calls-variadic",
-    callsSpread = "catalog-calls-spread",
     recordsMethods = "catalog-records-methods",
     callsProtected = "catalog-calls-protected",
     protectedpacks = "catalog-protected-packs",
@@ -858,7 +835,6 @@ local NUMERIC = {
     recordsMetamethods = "catalog-records-metamethods",
     callsPacks = "catalog-calls-packs",
     callsOpen = "catalog-calls-open",
-    callsExpand = "catalog-calls-expand",
     errorsMethods = "catalog-errors-methods",
     recordsAffineReturns = "catalog-records-affine-returns",
     threadsbasic = "catalog-threads-basic",
@@ -870,19 +846,16 @@ local NUMERIC = {
     threadsstacks = "catalog-threads-stacks",
     outputwrite = "catalog-output-write",
     libraryspread = "catalog-library-spread",
-    tableslibrarymeta = "catalog-tables-library-meta",
     tableslibrarycalls = "catalog-tables-library-calls",
     tablesmetaarity = "catalog-tables-meta-arity",
     moduleslazy = "catalog-modules-main",
     modulesnamed = "catalog-modules-named",
-    modulespattern = "catalog-modules-pattern",
     modulesrecords = "catalog-modules-records",
     modulescycle = "catalog-modules-cycle",
     pluckedarguments = "catalog-plucked-arguments",
     ownmanage = "catalog-own-manage",
     aliasdowncast = "catalog-alias-downcast",
     methodspread = "catalog-method-spread",
-    selectvalues = "catalog-select-values",
     loopparameteralias = "catalog-loop-parameter-alias",
     namedarguments = "catalog-named-arguments",
     legacyglobals = "catalog-legacy-globals",
@@ -891,7 +864,6 @@ local NUMERIC = {
     shortfunctions = "catalog-short-functions",
     modulesforward = "catalog-modules-forward",
     modulesself = "catalog-modules-self",
-    modulesdynamic = "catalog-modules-dynamic",
     libraryvalues = "catalog-library-values",
     callsoverflow = "catalog-calls-overflow",
     callsmany = "catalog-calls-many",

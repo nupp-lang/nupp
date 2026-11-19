@@ -40,28 +40,6 @@ local vector = table.concat({"local record Vec3", "   x: number", "   y: number"
 
 local M = {}
 
-function M.finalProtocolOrderKeepsCoroutineExecution()
-    for _, signature in ipairs({"yields(number) resumes(boolean): string",}) do
-        local answer = run(
-            (
-                [[
-local function worker(start: number) %s
-    local again: boolean = coroutine.yield(start)
-    return tostring(again)
-end
-local co = coroutine.create(worker)
-local ok, first = coroutine.resume(co, 3)
-assert(ok)
-local done, final = coroutine.resume(co, true)
-assert(done)
-return tostring(first) .. tostring(final)
-]]
-            ):format(signature)
-        )
-        testAssert.eq(answer, "3true")
-    end
-end
-
 function M.aFinalFunctionLiteralBindsAnExplicitConstructorCallback()
     local answer = run(
         [[
@@ -190,22 +168,6 @@ function M.aPluckIsSugarForReadingTheFieldTheParameterNames()
     testAssert.eq(answer, "12r")
 end
 
-function M.aGroupBindsWhatTheSingleFormBinds()
-    local answer = run(
-        vector .. "\n" .. table.concat(
-            {
-                "local function draw(x: number, y: number, color: string?): string",
-                "   return tostring(x) .. tostring(y) .. (color or '')",
-                "end",
-                "local position = Vec3(x = 1, y = 2, z = 3)",
-                "return draw({x, y} = position, color = 'r')",
-            },
-            "\n"
-        )
-    )
-    testAssert.eq(answer, "12r")
-end
-
 -- The names of a group are a set. Every read is a field of one path, so no
 -- order among them is observable and the group binds in parameter order.
 function M.aGroupsNamesAreUnordered()
@@ -231,24 +193,6 @@ function M.aGroupsNamesAreUnordered()
     )
     testAssert.eq(answer, 12)
     testAssert.eq(reversed, straight, "a reordered group generates the same call")
-end
-
-function M.aPluckReachesAnyRecordWithTheField()
-    clean(
-        table.concat(
-            {
-                "local record Reading",
-                "   x: number",
-                "   y: number",
-                "   celsius: number",
-                "end",
-                "local function draw(x: number, y: number): nil end",
-                "local reading = Reading(x = 1, y = 2, celsius = 20)",
-                "draw({x, y} = reading)",
-            },
-            "\n"
-        )
-    )
 end
 
 function M.dottedPathPluckLowersThroughEmbeddedRecords()
@@ -322,58 +266,6 @@ function M.sharedPrefixesAreBoundWithoutOneUseLeafTemporaries()
         )
     )
     testAssert.eq(answer, "HBPSxyWHTU")
-end
-
-function M.nestedPluckBindsThePathInsideTheGuardWithoutAWrapper()
-    local answer = run(
-        vector .. "\n" .. table.concat(
-            {
-                "local record Entity",
-                "   position: Vec3",
-                "end",
-                "local reads = 0",
-                "local position = Vec3(x = 1, y = 2, z = 3)",
-                "local entity = setmetatable({}, {__index = function(_, _)",
-                "   reads = reads + 1",
-                "   return position",
-                "end}) as Entity",
-                "local function draw(x: number, y: number): boolean return true end",
-                "local enabled = false",
-                "local skipped = enabled and draw({x, y} = entity.position)",
-                "enabled = true",
-                "local called = enabled and draw({x, y} = entity.position)",
-                "return reads",
-            },
-            "\n"
-        )
-    )
-    testAssert.eq(answer, 1)
-end
-
-function M.nestedSafePluckBindsThePathInsideTheGuardWithoutAWrapper()
-    local answer = run(
-        vector .. "\n" .. table.concat(
-            {
-                "local record Entity",
-                "   position: Vec3",
-                "end",
-                "local reads = 0",
-                "local position = Vec3(x = 1, y = 2, z = 3)",
-                "local entity = setmetatable({}, {__index = function(_, _)",
-                "   reads = reads + 1",
-                "   return position",
-                "end}) as Entity",
-                "local function add(x: number, y: number): number return x + y end",
-                "local maybe: function(x: number, y: number) | nil = nil",
-                "local skipped = maybe?.({x, y} = entity.position)",
-                "maybe = add",
-                "local called = maybe?.({x, y} = entity.position)",
-                "return tostring(reads) .. tostring(skipped) .. tostring(called)",
-            },
-            "\n"
-        )
-    )
-    testAssert.eq(answer, "1nil3")
 end
 
 local nestedFixture = vector
@@ -745,41 +637,6 @@ function M.namedArgumentsCanFillAnOptionalGap()
         )
     )
     testAssert.eq(answer, "nil2!")
-end
-
--- A record carrying more fields than the call needs is the ordinary case: the
--- callee picks the subset, and the extra field is simply never read.
-function M.aCalleePicksTheSubsetItNeeds()
-    local answer = run(
-        vector .. "\n" .. table.concat(
-            {
-                "local function consume(x: number, y: number, tag: string): string",
-                "   return tostring(x) .. tostring(y) .. tag",
-                "end",
-                "local position = Vec3(x = 1, y = 2, z = 3)",
-                "return consume({x, y} = position, tag = 'k')",
-            },
-            "\n"
-        )
-    )
-    testAssert.eq(answer, "12k")
-end
-
-function M.aTrailingOrdinaryCallStillSuppliesItsResultPack()
-    local answer = run(
-        vector .. "\n" .. table.concat(
-            {
-                "local function pair(): number, number return 3, 4 end",
-                "local function total(x: number, y: number, c: number, d: number): number",
-                "   return x + y + c + d",
-                "end",
-                "local position = Vec3(x = 1, y = 2, z = 9)",
-                "return total(position.x, position.y, pair())",
-            },
-            "\n"
-        )
-    )
-    testAssert.eq(answer, 10)
 end
 
 -- A call keeps its several results only as the last argument, so one ahead of a

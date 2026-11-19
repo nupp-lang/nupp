@@ -668,12 +668,6 @@
       "reason": "test runner, not a test"
     },
     {
-      "suite": "homesampletest",
-      "class": "portable",
-      "facilities": "getinfo,spawn",
-      "reason": "pure Lua against compiler modules within the subset"
-    },
-    {
       "suite": "hostbinarytest",
       "class": "retired",
       "facilities": "jit,getinfo,spawn",

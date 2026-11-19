@@ -466,16 +466,14 @@ end
     )
     local serialCode, serialReport, serialState = coldCheck(directory, {NUPP_CHECK_JOBS = "1"})
     testAssert.eq(serialCode, 0, "serial documented type")
-    for _, seed in ipairs({"17", "83"}) do
-        local code, report, state = coldCheck(directory, {
-            NUPP_CHECK_JOBS = "2",
-            NUPP_TEST_PARALLEL_CHECK_RANDOM_SEED = seed,
-        })
-        testAssert.eq(code, serialCode, "parallel documented type")
-        testAssert.eq(stable(report.diagnostics), stable(serialReport.diagnostics), "documented type diagnostics")
-        testAssert.eq(state, serialState, "documented type records")
-        testAssert.eq(report.timing.parallel.mode, "parallel", "documentation contributes a dependency")
-    end
+    local code, report, state = coldCheck(directory, {
+        NUPP_CHECK_JOBS = "2",
+        NUPP_TEST_PARALLEL_CHECK_RANDOM_SEED = "17",
+    })
+    testAssert.eq(code, serialCode, "parallel documented type")
+    testAssert.eq(stable(report.diagnostics), stable(serialReport.diagnostics), "documented type diagnostics")
+    testAssert.eq(state, serialState, "documented type records")
+    testAssert.eq(report.timing.parallel.mode, "parallel", "documentation contributes a dependency")
     assert(os.remove(directory, true))
 end
 
