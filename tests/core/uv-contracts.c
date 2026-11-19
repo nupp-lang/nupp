@@ -68,11 +68,11 @@ static void files (void) {
   assert(lseek(fd, 0, SEEK_SET) == 0);
   ticket = nuppiosubmit(2, (uint64_t)fd, 0, 8);
 
-  for (unsigned i = 0; !service->finished && i < 10000; ++i) {
+  for (unsigned i = 0; !service->files.finished && i < 10000; ++i) {
     assert(!pump(UV_RUN_ONCE, 100000000, NULL));
   }
 
-  assert(service->finished);
+  assert(service->files.finished);
   assert(nuppiotake() == ticket);
   char out[8] = {0};
   assert(nuppiofinish(ticket, (uintptr_t)out, sizeof(out)) == 5);
@@ -83,7 +83,8 @@ static void files (void) {
   int64_t first_fd = (int64_t)nuppiosettle(first);
   assert(first_fd >= 0);
 
-  for (unsigned attempt = 0; !service->finished && attempt < 100; ++attempt) {
+  for (unsigned attempt = 0; !service->files.finished && attempt < 100;
+       ++attempt) {
     assert(!pump(UV_RUN_ONCE, 100000000, NULL));
   }
 
@@ -131,7 +132,7 @@ static void files (void) {
   }
 
   assert(!nuppiotake());
-  assert(!service->jobs_count && !service->bytes);
+  assert(!service->files.count && !service->files.bytes);
 
   uint64_t tickets[MAX_JOBS];
 
@@ -148,7 +149,7 @@ static void files (void) {
   }
 
   assert((int64_t)nuppiosubmit(2, 0, 0, MAX_BYTES + 1) == -EAGAIN);
-  assert(!service->jobs_count && !service->bytes);
+  assert(!service->files.count && !service->files.bytes);
   unlink(path);
 }
 

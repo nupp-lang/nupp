@@ -13,6 +13,7 @@
 
 #include "transport.h"
 #include "reactor.h"
+#include "filetickets.h"
 #include "transport.h"
 #if !defined(_WIN32) || defined(NUPP_WIN64_PROCESS)
 #include "process.h"
@@ -79,15 +80,12 @@ struct Timer {
 };
 
 struct Job {
+  FileTicket ticket; /* Initial member so ticket links can recover the job. */
   uv_fs_t request;
   uv_buf_t buffer;
-  uint64_t ticket, kind, word;
-  int64_t result;
-  size_t count;
+  uint64_t kind, word;
   unsigned char *bytes;
   int descriptor, descriptor_error;
-  int submitted, done, taken;
-  Job *next, *finished;
 };
 
 typedef struct Service {
@@ -99,9 +97,8 @@ typedef struct Service {
   Poller *pollers;
   Timer *timers;
   Watch *watches;
-  Job *jobs, *finished, **finished_tail;
-  size_t jobs_count, active_jobs, active_limit, bytes, watches_count,
-      subscriptions_count;
+  FileTickets files;
+  size_t active_limit, watches_count, subscriptions_count;
   size_t adapter_count, closing_timers, closing_watches;
   int wake[2], running, shutting_down;
 } Service;
@@ -249,7 +246,7 @@ static int ensure (void) {
     return status;
   }
 
-  s->finished_tail = &s->finished;
+  fileticketsinit(&s->files);
   service = s;
 
   return 0;
@@ -930,22 +927,7 @@ int nupp_uv_timer_close (uint64_t token) {
   return 0;
 }
 
-static Job **find (uint64_t ticket) {
-  Job **at = &service->jobs;
-
-  while (*at && (*at)->ticket != ticket) {
-    at = &(*at)->next;
-  }
-
-  return at;
-}
-
-static void dispose (Job **at) {
-  Job *job = *at;
-  *at = job->next;
-  service->jobs_count--;
-  service->bytes -= job->count;
-
+static void dispose (Job *job) {
   if (job->descriptor >= 0) {
     close_descriptor(job->descriptor);
   }
@@ -955,13 +937,8 @@ static void dispose (Job **at) {
 }
 
 static void finish_job (Job *job, int64_t result) {
-  job->result = result;
-
-  /* The ticket owns its duplicate and bytes until dispose at collection. */
-  service->active_jobs--;
-  job->done = 1;
-  *service->finished_tail = job;
-  service->finished_tail = &job->finished;
+  /* The ticket owns its duplicate and bytes until disposal at collection. */
+  fileticketcomplete(&service->files, &job->ticket, result);
 
 #ifndef _WIN32
   const unsigned char byte = 1;
@@ -1078,8 +1055,11 @@ void nupp_uv_preserve_file (uint64_t descriptor) {
 
   /* Usually capture at dispatch. Closing early must capture before the
    * descriptor can be recycled, even if the job hasn't reached libuv. */
-  for (Job *job = service ? service->jobs : NULL; job; job = job->next) {
-    if (!job->submitted && job->word == descriptor) {
+  for (FileTicket *ticket = service ? service->files.jobs : NULL; ticket;
+       ticket = ticket->next) {
+    Job *job = (Job *)ticket;
+
+    if (!ticket->submitted && job->word == descriptor) {
       hold_descriptor(job);
     }
   }
@@ -1130,18 +1110,20 @@ static int file_open_flags (uint32_t flags) {
 #endif
 
 static void submit_jobs (void) {
-  for (Job *job = service->jobs; job; job = job->next) {
-    if (service->active_jobs == service->active_limit) {
+  for (FileTicket *ticket = service->files.jobs; ticket;
+       ticket = ticket->next) {
+    Job *job = (Job *)ticket;
+
+    if (service->files.active == service->active_limit) {
       break;
     }
 
-    if (job->submitted) {
+    if (ticket->submitted) {
       continue;
     }
 
     hold_descriptor(job);
-    job->submitted = 1;
-    service->active_jobs++;
+    fileticketsubmit(&service->files, ticket);
     job->request.data = job;
     int status;
 
@@ -1246,7 +1228,7 @@ int nupp_uv_owner_active (void) {
 static int poller_ready (Poller *poller) {
 #ifdef _WIN32
 
-  if (poller->file_completion && service->finished) {
+  if (poller->file_completion && service->files.finished) {
     return 1;
   }
 
@@ -1332,7 +1314,7 @@ int nupp_uv_nowait (void) {
 static int64_t event (Poller *p) {
 #ifdef _WIN32
 
-  if (p->file_completion && service->finished) {
+  if (p->file_completion && service->files.finished) {
     p->file_completion = 0;
 
     return (NUPP_UV_FILE_COMPLETION << 5) | 1;
@@ -1517,7 +1499,8 @@ uint64_t nuppiosubmit (uint64_t kind, uint64_t word, uint64_t base,
     return failed(ECANCELED);
   }
 
-  if (service->jobs_count >= MAX_JOBS || bytes > MAX_BYTES - service->bytes) {
+  if (service->files.count >= MAX_JOBS ||
+      bytes > MAX_BYTES - service->files.bytes) {
     return failed(EAGAIN);
   }
 
@@ -1552,15 +1535,13 @@ uint64_t nuppiosubmit (uint64_t kind, uint64_t word, uint64_t base,
 
   job->kind = kind;
   job->word = word;
-  job->count = (size_t)bytes;
+  job->ticket.count = (size_t)bytes;
   job->descriptor = -1;
   job->buffer = uv_buf_init((char *)job->bytes, (unsigned)bytes);
-  job->ticket = ticket;
-  *find(0) = job; /* Ticket zero finds the FIFO append position. */
-  service->jobs_count++;
-  service->bytes += bytes;
+  job->ticket.id = ticket;
+  fileticketadmit(&service->files, &job->ticket);
 
-  return job->ticket;
+  return ticket;
 }
 
 uint64_t nuppiotake (void) {
@@ -1574,22 +1555,9 @@ uint64_t nuppiotake (void) {
     return (uint64_t)(int64_t)status;
   }
 
-  Job *job = service->finished;
+  FileTicket *ticket = filetickettake(&service->files);
 
-  if (!job) {
-    return 0;
-  }
-
-  service->finished = job->finished;
-  job->finished = NULL;
-
-  if (!service->finished) {
-    service->finished_tail = &service->finished;
-  }
-
-  job->taken = 1;
-
-  return job->ticket;
+  return ticket ? ticket->id : 0;
 }
 
 uint64_t nuppiofinish (uint64_t ticket, uint64_t out, uint64_t room) {
@@ -1597,20 +1565,21 @@ uint64_t nuppiofinish (uint64_t ticket, uint64_t out, uint64_t room) {
     return failed(EINVAL);
   }
 
-  Job **at = find(ticket), *job = *at;
+  FileTicket **at = fileticketfind(&service->files, ticket);
+  Job *job = (Job *)fileticketcollect(&service->files, at, 1);
 
-  if (!job || !job->done || !job->taken) {
+  if (!job) {
     return failed(EINVAL);
   }
 
-  uint64_t result = (uint64_t)job->result;
+  uint64_t result = (uint64_t)job->ticket.result;
 
-  if (out && job->kind == 2 && job->result > 0) {
+  if (out && job->kind == 2 && job->ticket.result > 0) {
     memcpy((void *)(uintptr_t)out, job->bytes,
            result < room ? (size_t)result : (size_t)room);
   }
 
-  dispose(at);
+  dispose(job);
 
   return result;
 }
@@ -1620,20 +1589,19 @@ uint64_t nuppiocancel (uint64_t ticket) {
     return 0;
   }
 
-  Job **at = find(ticket), *job = *at;
+  FileTicket **at = fileticketfind(&service->files, ticket);
+  Job *job = (Job *)fileticketcancel(&service->files, at);
 
-  if (!job) {
-    return 0;
-  }
-
-  if (!job->submitted) {
-    dispose(at);
+  if (job) {
+    dispose(job);
 
     return 1;
   }
 
   /* Successful uv_cancel still owes a callback: take/finish must drain it. */
-  if (!job->done) {
+  job = (Job *)*at;
+
+  if (job && !job->ticket.done) {
     (void)uv_cancel((uv_req_t *)&job->request);
   }
 
@@ -1645,13 +1613,14 @@ uint64_t nuppiosettle (uint64_t ticket) {
     return failed(EINVAL);
   }
 
-  Job **at = find(ticket), *job = *at;
+  FileTicket **at = fileticketfind(&service->files, ticket);
+  FileTicket *pending = *at;
 
-  if (!job) {
+  if (!pending) {
     return failed(EINVAL);
   }
 
-  while (!job->done) {
+  while (!pending->done) {
     int status = pump(UV_RUN_ONCE, UINT64_MAX, NULL);
 
     if (status) {
@@ -1659,22 +1628,9 @@ uint64_t nuppiosettle (uint64_t ticket) {
     }
   }
 
-  if (!job->taken) {
-    Job **queued = &service->finished;
-
-    while (*queued != job) {
-      queued = &(*queued)->finished;
-    }
-
-    *queued = job->finished;
-
-    if (!*queued) {
-      service->finished_tail = queued;
-    }
-  }
-
-  uint64_t result = (uint64_t)job->result;
-  dispose(at);
+  Job *job = (Job *)fileticketcollect(&service->files, at, 0);
+  uint64_t result = (uint64_t)job->ticket.result;
+  dispose(job);
 
   return result;
 }
@@ -1744,13 +1700,13 @@ int64_t nupp_uv_shutdown (void) {
   }
 
   /* Retire queued work before closing watchers drives another loop turn. */
-  Job *queued = service->jobs;
+  FileTicket *queued = service->files.jobs;
 
   while (queued) {
-    Job *next = queued->next;
+    FileTicket *next = queued->next;
 
     if (!queued->submitted) {
-      nuppiocancel(queued->ticket);
+      nuppiocancel(queued->id);
     }
 
     queued = next;
@@ -1781,8 +1737,9 @@ int64_t nupp_uv_shutdown (void) {
     }
   }
 
-  while (service->jobs) {
-    uint64_t ticket = service->jobs->ticket, kind = service->jobs->kind;
+  while (service->files.jobs) {
+    const Job *job = (const Job *)service->files.jobs;
+    uint64_t ticket = job->ticket.id, kind = job->kind;
 
     if (nuppiocancel(ticket)) {
       continue;
@@ -1790,7 +1747,7 @@ int64_t nupp_uv_shutdown (void) {
 
     int64_t result = (int64_t)nuppiosettle(ticket);
 
-    if (service->jobs && service->jobs->ticket == ticket) {
+    if (service->files.jobs && service->files.jobs->id == ticket) {
       return result;
     }
 
