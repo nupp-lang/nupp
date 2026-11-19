@@ -379,7 +379,10 @@ local function compileOwner(fn: any, options: any, profile: any, site: any): any
             return exitSuffix(node, expected)
         elseif node.kind == "switchExpr" then
             need(profile.switchCase, "numeric switch profile required")
-            need(node.elseCase and #node.cases > 0, "numeric switch requires an else arm")
+            need(
+                #node.cases > 0 and (profile.switchGuards or node.elseCase ~= nil),
+                "numeric switch requires an else arm"
+            )
             local selectorKind = profile.kind(node.selector.inferredType)
             local resultKind = profile.kind(node.inferredType)
             need(expected == nil or expected == resultKind, "switch changes exact result kind")
@@ -391,7 +394,16 @@ local function compileOwner(fn: any, options: any, profile: any, site: any): any
             local done = branch(resultKind)
 
             local function armValue(arm: any): integer?
-                local value = need(arm.expr, "numeric switch arm needs an expression")
+                if arm == node then
+                    return invoke("missingLocal", node, resultKind)
+                end
+                local value = need(
+                    arm.expr
+                    or profile.switchGuards
+                    and arm.body
+                    and {kind = "doExpr", body = arm.body, inferredType = node.inferredType, arm},
+                    "numeric switch arm needs an expression"
+                )
                 -- A `do` arm is a do expression, whose body may be any statements;
                 -- a function owning values keeps the call-only form below.
                 if value.kind ~= "doExpr" or not cleanupEnabled then
@@ -430,8 +442,9 @@ local function compileOwner(fn: any, options: any, profile: any, site: any): any
 
             for _, arm in ipairs(node.cases) do
                 need(
-                    arm.patternKind == "static" and not arm.guard and #arm.values >= 1,
-                    "numeric switch admits unguarded static values"
+                    arm.patternKind == "static" and (profile.switchGuards or not arm.guard) and #arm.values >= 1,
+                    profile.switchGuards and "unsupported switch pattern"
+                    or "numeric switch admits unguarded static values"
                 )
                 context()
                 local matched = profile.switchCase(ctx, arm.values[1], ctx.readHeld(handle), selectorKind)
@@ -448,10 +461,25 @@ local function compileOwner(fn: any, options: any, profile: any, site: any): any
                 local yes, no = branch(), branch()
                 parent.term = {kind = "branch", value = matched, edges = {yes.edge, no.edge}, pos = position(arm)}
                 resume(yes)
-                complete(arm)
+                if arm.guard then
+                    local condition = expression(arm.guard.expr, profile.booleanKind)
+                    if block then
+                        local body = branch()
+                        block.term = {
+                            kind = "branch",
+                            value = condition,
+                            edges = {body.edge, currentEdge(no)},
+                            pos = position(arm.guard)
+                        }
+                        resume(body)
+                    end
+                end
+                if block then
+                    complete(arm)
+                end
                 resume(no)
             end
-            complete(node.elseCase)
+            complete(node.elseCase or node)
             resume(done)
             ctx.release(handle)
             context()

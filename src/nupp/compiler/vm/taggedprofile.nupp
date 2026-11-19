@@ -676,6 +676,7 @@ export function forVersion(version: integer): any
     end
     -- v8 tables: empty constructors, keyed reads and writes, and length.
     if version >= 8 then
+        profile.switchGuards = true
         profile.scalarVectorFallback = true
         profile.initialize = function(fn: any, options: any): any
             return setup(fn, options, true)
