@@ -1,0 +1,66 @@
+-- Each bound includes the exit check for the longest loop in its harness.
+const proofs: {[string]: {
+    file: string,
+    unwind: string
+}} = {
+    ["bundle-header"] = {file = "bundleheaderproof.c", unwind = "73"},
+    ["ring-buffer"] = {file = "ringbufferproof.c", unwind = "9"},
+    ["markdown-allocator"] = {file = "markdownallocatorproof.c", unwind = "1"},
+}
+
+local names: {string} = {}
+for name in pairs(proofs) do
+    names[#names + 1] = name
+end
+table.sort(names)
+
+local selected: {string} = {}
+for _, name in ipairs(io.cli.args) do
+    if proofs[name] == nil then
+        io.stderr:write("proofs: unknown proof " .. name .. "\n")
+        io.stderr:write("Available proofs: " .. table.concat(names, ", ") .. "\n")
+        os.exit(2)
+    end
+    selected[#selected + 1] = name
+end
+if #selected == 0 then
+    selected = names
+end
+
+const override = os.getenv("CBMC")
+const executable = override and override ~= "" and override or "cbmc"
+local exitCode: integer = 0
+for _, name in ipairs(selected) do
+    const proof = assert(proofs[name])
+    print("Proof " .. name)
+    io.stdout:flush()
+    local child, problem = io.popen(
+        {
+            executable,
+            "tests/core/" .. proof.file,
+            "--arch",
+            "arm64",
+            "--unwind",
+            proof.unwind,
+            "--unwinding-assertions",
+            "--bounds-check",
+            "--pointer-check",
+            "--pointer-overflow-check",
+            "--unsigned-overflow-check",
+            "--verbosity",
+            "4",
+        },
+        {stdout = "inherit"}
+    )
+    local code: integer = 1
+    if child == nil then
+        io.stderr:write("proofs: " .. (problem or "could not start CBMC") .. "\n")
+    else
+        const ok, _, status = child:close()
+        code = ok and 0 or status or 1
+    end
+    if exitCode == 0 and code ~= 0 then
+        exitCode = code
+    end
+end
+os.exit(exitCode)

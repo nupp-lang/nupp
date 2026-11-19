@@ -2,9 +2,12 @@
  * @file
  * @brief CBMC proof of the core bridge's ARM64 bundle header contract.
  *
- * Run with `nupp task prove-bundle-header`. The stream model supplies arbitrary
- * header bytes and read lengths. The validator and decoder are production C.
+ * Run with `nupp task proofs bundle-header`. The stream model supplies
+ * arbitrary header bytes and read lengths. The validator and decoder are
+ * production C.
  */
+
+#include "proofintrinsics.h"
 
 #include <stddef.h>
 #include <stdint.h>
@@ -21,18 +24,6 @@ static int proofprint (FILE *stream, const char *format, ...);
 #undef main
 #undef fprintf
 #undef fread
-
-/* CBMC models calls to these functions as independent arbitrary values. */
-extern unsigned char nondet_byte (void);
-extern size_t nondet_size (void);
-extern int64_t nondet_filesize (void);
-
-/* CBMC recognizes these intrinsics. Declare them for ordinary C linting. */
-/* NOLINTNEXTLINE(bugprone-reserved-identifier,cert-dcl37-c) */
-extern void __CPROVER_assume (_Bool condition);
-
-/* NOLINTNEXTLINE(bugprone-reserved-identifier,cert-dcl37-c) */
-extern void __CPROVER_assert (_Bool condition, const char *description);
 
 static unsigned char input[HEADER_BYTES];
 static size_t readable;

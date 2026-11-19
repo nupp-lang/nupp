@@ -212,8 +212,9 @@ identifiers as Lua does: lowercase and run together, with no underscores or
 hyphens (`definitionlist.c`, `nuppmarkdownrender`, `storele64`), and
 UPPERCASE for constants and macros.
 
-`./bin/nupp task prove-bundle-header` runs the ARM64 bundle header proof with CBMC.
-It looks for `cbmc` on `PATH` or uses the executable named by `CBMC`.
+`./bin/nupp task proofs` runs the CBMC proofs. Pass one or more names to select
+`bundle-header`, `ring-buffer`, or `markdown-allocator`. The task finds `cbmc`
+on `PATH` or uses the executable named by `CBMC`.
 
 - `./bin/nupp test [SUITE...]` runs the test suite, or only the named suites:
   `./bin/nupp test doctest` finishes in seconds where the whole suite takes

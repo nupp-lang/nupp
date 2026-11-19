@@ -595,8 +595,6 @@ for _, tree in ipairs({
     TEST_RUNNER_SOURCES[#TEST_RUNNER_SOURCES + 1] = tree .. "/**.nupp"
 end
 
-local CBMC = os.getenv("CBMC")
-
 return {
     include = {"src", "tests/tools/test/runner", "evals/lib"},
 
@@ -701,24 +699,9 @@ return {
             description = "Build the native interpreter core object from the handler sources",
             argv = {"python3", "scripts/vm-cli", "runtime"},
         },
-        ["prove-bundle-header"] = {
-            description = "Prove the ARM64 bundle header contract with CBMC",
-            argv = {
-                CBMC and CBMC ~= "" and CBMC or "cbmc",
-                "tests/core/bundleheaderproof.c",
-                "--arch",
-                "arm64",
-                -- The extra iteration checks that the 72-byte walk terminates.
-                "--unwind",
-                "73",
-                "--unwinding-assertions",
-                "--bounds-check",
-                "--pointer-check",
-                "--pointer-overflow-check",
-                "--unsigned-overflow-check",
-                "--verbosity",
-                "4",
-            },
+        proofs = {
+            description = "Run all CBMC proofs or the named proofs",
+            argv = {"sh", "bin/nupp", "run", "tests/core/proofs.nupp"},
         },
         [
             "docs-serve"
