@@ -694,6 +694,7 @@ local coreLibrary: {[string]: boolean} = {
     ["hostcalls.uservalue"] = true,
     ["hostcalls.install"] = true,
     ["hostcalls.start"] = true,
+    ["foreigncalls.invoke"] = true,
     pcall = true,
     xpcall = true,
     error = true,
@@ -1107,6 +1108,7 @@ local corecallmodules: {
     ["nupp.runtime.storagecalls"] = "storagecalls",
     ["nupp.runtime.hostcalls"] = "hostcalls",
     ["nupp.runtime.buffercalls"] = "buffercalls",
+    ["nupp.runtime.foreigncalls"] = "foreigncalls",
     ["nupp.runtime.scalarcalls"] = "scalarcalls"
 }
 

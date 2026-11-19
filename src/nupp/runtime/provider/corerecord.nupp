@@ -61,6 +61,10 @@ local function admits(owner: any, spec: any, domains: any, value: any): boolean
 end
 
 export function create(owner: any, spec: any): any
+    if spec.blueprint ~= nil then
+        owner["\0nupp:reflection"] = {blueprint = spec.blueprint, references = spec.references}
+    end
+
     local function construct(_: any, ...: any): any
         local count = select("#", ...)
         local chosen = 1

@@ -1,0 +1,8 @@
+@!internal
+
+local record ForeignCalls
+    invoke: function(descriptor: string, arguments: any): any
+end
+
+local calls: ForeignCalls
+return calls

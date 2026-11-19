@@ -18,6 +18,7 @@ local forwardedexports = require("nupp.compiler.vm.forwardedexports")
 local derivedrecipes = require("nupp.compiler.vm.derivedrecipes")
 local managedcalls = require("nupp.compiler.vm.managedcalls")
 local recordcallables = require("nupp.compiler.vm.recordcallables")
+local typewitness = require("nupp.compiler.typewitness")
 local indexedaccess = require("nupp.compiler.vm.indexedaccess")
 local namedarguments = require("nupp.compiler.vm.namedarguments")
 local aliasdowncast = require("nupp.compiler.vm.aliasdowncast")
@@ -56,13 +57,17 @@ local typeSyntax = {
     annotationApply = true,
 }
 
-local function bindingMode(definition: any): string
+local function bindingMode(definition: any, foreignValues: any): string
     -- bindType/bindPack create lexical definitions too. Only bindVar records
     -- a function depth, including a nominal declaration's runtime value.
-    -- A `cdef function` has none: its calls name it (taggedforeign).
-    if definition.functionDepth == nil or definition.cdef and definition.cdefIdentity ~= nil then
+    -- Direct foreign calls carry their signature, not a lexical callee.
+    local identity = definition.cdefIdentity
+    if definition.functionDepth == nil
+        or identity and identity:sub(1, 9) == "function\0" and not foreignValues[definition]
+    then
         return "type"
     end
+
     return definition.constant and "value" or "cell"
 end
 
@@ -572,6 +577,9 @@ export function describe(modules: {any}, entryModule: string, options: any?): an
         scalartypes = {imports = {}, definitions = {}, witnesses = {}},
         callables = {},
         recordFactories = {},
+        reflected = {},
+        foreignValues = {},
+        foreignFactories = {},
         classCells = {},
         -- Executable references the checker resolved to no declaration.
         unresolved = {},
@@ -637,6 +645,11 @@ export function describe(modules: {any}, entryModule: string, options: any?): an
         end
         local parsed = need(input.parsed, "checked parse required")
         need(parsed.root and parsed.symbols and parsed.moduleName == input.name, "checked module identity required")
+        if p.chunk then
+            for _, witness in ipairs(typewitness.collect(parsed.root, parsed.moduleExports).ordered) do
+                p.reflected[witness.node] = true
+            end
+        end
         -- Once per check of a tree: a project shares its trees across
         -- programs, and checking one again declares its names anew.
         if parsed.forwardSymbols ~= parsed.symbols then
@@ -713,7 +726,7 @@ export function describe(modules: {any}, entryModule: string, options: any?): an
                 definition = definition,
                 token = token,
                 owner = owner.id,
-                mode = bindingMode(definition)
+                mode = bindingMode(definition, p.foreignValues)
             }
             p.bindings[#p.bindings + 1], p.byDefinition[definition] = b, b
         end
@@ -765,6 +778,9 @@ export function describe(modules: {any}, entryModule: string, options: any?): an
         end
         if node.kind == "recordDecl" then
             p.recordDecls[node] = true
+        end
+        if p.chunk and node.kind == "cdefFunc" and (node.countedAbi or node.name.cleanupRegistrations) then
+            p.foreignValues[node.name.definition] = true
         end
         local base = node.kind == "funcStmt" and node.name and node.name.base
         if base and base.definition and base.definition.token ~= base then
@@ -1463,6 +1479,14 @@ export function describe(modules: {any}, entryModule: string, options: any?): an
         if graph.coreLibraryField(node) then
             loopForms[node] = true
         end
+        if p.chunk and (node.cheaderCdef or node.kind == "cdefFunc" and p.foreignValues[node.name.definition]) then
+            local call = {kind = "call", args = {kind = "args", exprs = {{kind = "nil", inferredType = types.any}}}}
+            local site = {id = #p.calls, owner = owner.id, node = call, foreign = node}
+            p.calls[#p.calls + 1], p.callByNode[call], p.foreignFactories[node] = site, site, site
+            if node.cheaderCdef then
+                return
+            end
+        end
 
         -- An affine local runs its record's destructor at
         -- scope exit, reached through the table the record's name holds: a
@@ -1641,15 +1665,17 @@ export function describe(modules: {any}, entryModule: string, options: any?): an
                     id = #p.calls,
                     owner = owner.id,
                     node = made.call,
-                    definition = made.target.definition,
+                    definition = made.target and made.target.definition,
                     derived = plan
                 }
                 p.calls[#p.calls + 1], p.callByNode[made.call] = site, site
             end
-            local load = {kind = "qualifiedLoad", qualifiedModule = derivedrecipes.MODULE, cst.firstToken(node)}
-            local module = need(moduleNames[derivedrecipes.MODULE], "derive factory module is missing")
-            plan.loader = qualifiedload(owner, module, load)
-            plan.loader.derived = plan
+            if not p.chunk then
+                local load = {kind = "qualifiedLoad", qualifiedModule = derivedrecipes.MODULE, cst.firstToken(node)}
+                local module = need(moduleNames[derivedrecipes.MODULE], "derive factory module is missing")
+                plan.loader = qualifiedload(owner, module, load)
+                plan.loader.derived = plan
+            end
         end
         if node.kind == "localStmt" and node.automaticOwners then
             for index, automatic in pairs(node.automaticOwners) do
@@ -2313,7 +2339,7 @@ export function verify(p: any): boolean
             and p.byDefinition[b.definition] == b,
             "binding identity mismatch"
         )
-        need(b.mode == (b.pack and "value" or bindingMode(b.definition)), "binding mode mismatch")
+        need(b.mode == (b.pack and "value" or bindingMode(b.definition, p.foreignValues)), "binding mode mismatch")
         need(b.storage == storage[b.definition], "binding storage mismatch")
     end
     for index, owner in ipairs(p.owners) do
@@ -2496,6 +2522,18 @@ export function verify(p: any): boolean
                 "indexed span callsite identity mismatch"
             )
             indexedaccess.verify(access, access.node, item.owner)
+        elseif item.foreign then
+            local source = item.foreign
+            need(
+                p.chunk
+                and (source.cheaderCdef or source.kind == "cdefFunc" and p.foreignValues[source.name.definition])
+                and p.foreignFactories[source] == item
+                and p.callByNode[node] == item
+                and item.definition == nil
+                and node.kind == "call"
+                and #node.args.exprs == 1,
+                "foreign factory callsite identity mismatch"
+            )
         elseif item.callable then
             ownedcallables.verify(p, item.callable)
         elseif item.forward then

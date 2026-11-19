@@ -34,6 +34,8 @@ local function argument(spec: any, entry: any, given: any): any
         return given[1]
     elseif kind == "entry" then
         return entry
+    elseif kind == "witness" then
+        return entry.mt
     elseif kind == "argument" then
         return given[spec.position]
     elseif kind == "field" then

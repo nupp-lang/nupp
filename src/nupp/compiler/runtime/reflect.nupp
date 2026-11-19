@@ -152,6 +152,13 @@ export function install(namespace: any): any
             return prior
         end
         local declared = blueprints[typeObject]
+        if declared == nil and type(typeObject) == "table" then
+            local carrier: any = rawget(typeObject, "\0nupp:reflection")
+            if carrier ~= nil then
+                declared = carrier.blueprint
+                blueprints[typeObject], references[typeObject] = declared, carrier.references
+            end
+        end
         if not declared then
             error("nupp: type has no reflection blueprint", 2)
         end

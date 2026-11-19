@@ -224,7 +224,8 @@ export function prepare(p: any, node: any, owner: any, reference: any): any
         owner = owner.id,
         target = selected,
         call = ownedcallables.factoryCall(selected, cst.firstToken(node)),
-        witnesses = {}
+        witnesses = {},
+        reflected = p.reflected[node] or node.resolvedType.runtimeReflectionNeeded,
     }
     if p.localRecordFactory then
         plan.factoryToken = tokenAt(selected.definition, cst.firstToken(node))
@@ -396,6 +397,11 @@ local function spec(plan: any): any
     local node = plan.node
     local nominal = node.resolvedType
     local made: any = {fields = {}, positions = {}, defaulted = {}, defaults = {}, constructors = {}}
+    if plan.reflected then
+        local reflection = require("nupp.compiler.reflection")
+        made.blueprint = reflection.describe(nominal, nominal.runtimePath or nominal.name)
+        made.references = reflection.runtimeReferences(nominal)
+    end
     for position, field in ipairs(nominal.fieldOrder or {}) do
         local declared = nominal.byname and nominal.byname[field]
         if not (declared and (declared.tag == "func" or declared.tag == "typeobject")) then

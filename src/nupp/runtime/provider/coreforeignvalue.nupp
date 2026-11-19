@@ -1,0 +1,45 @@
+@!internal
+module nupp.runtime.provider.coreforeignvalue
+
+export function bind(spec: any): any
+    local foreign = require("nupp.runtime.foreigncalls")
+    return function(...: any): any
+        if spec.problem ~= nil then
+            error(spec.problem, 2)
+        end
+        if select("#", ...) ~= spec.arguments then
+            error("wrong number of foreign arguments", 2)
+        end
+        local given: any = {...}
+        local pack: any = {[0] = spec.physical}
+        for _, pointer in ipairs(spec.pointers or {}) do
+            local span = given[pointer.argument]
+            local address, length = span:ref()
+            if length < 0 or pointer.limit and length > pointer.limit then
+                error("counted C argument length is outside its count type", 2)
+            end
+            local count = pack[pointer.count]
+            if count ~= nil and count ~= length then
+                error("counted C arguments sharing a count must have the same length", 2)
+            end
+            pack[pointer.index], pack[pointer.count] = address, length
+        end
+        for _, plain in ipairs(spec.plain) do
+            pack[plain.index] = given[plain.argument]
+        end
+
+        return foreign.invoke(spec.descriptor, pack)
+    end
+end
+
+export function namespace(spec: any): any
+    local result: any = {}
+    for name, value in pairs(spec.constants) do
+        result[name] = value
+    end
+    for name, declaration in pairs(spec.functions) do
+        result[name] = bind(declaration)
+    end
+
+    return result
+end

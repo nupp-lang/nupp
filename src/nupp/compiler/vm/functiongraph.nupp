@@ -2121,6 +2121,16 @@ local function compileOwner(fn: any, options: any, profile: any, site: any): any
                 and profile.recordValue
             then
                 declareRecord(stat)
+            elseif stat.kind == "cdefStruct" and profile.structValue then
+                local key = stat.name.definition
+                local value = invoke("structValue", stat, nil)
+                ctx.bind(key, initializeBinding(stat, key, value))
+            elseif stat.kind == "cdefFunc" and profile.foreignValue then
+                local key = stat.name.definition
+                local value = invoke("foreignValue", stat, nil)
+                if value ~= nil and block then
+                    ctx.bind(key, initializeBinding(stat, key, value))
+                end
             elseif stat.kind == "moduleStmt"
                 or stat.kind == "typeAlias"
                 or stat.kind == "recordDecl"

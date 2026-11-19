@@ -18,6 +18,7 @@ local taggedstructs = require("nupp.compiler.vm.taggedstructs")
 local exportforwarders = require("nupp.compiler.vm.exportforwarders")
 local derivedmembers = require("nupp.compiler.vm.derivedmembers")
 local recordcallables = require("nupp.compiler.vm.recordcallables")
+local taggedforeign = require("nupp.compiler.vm.taggedforeign")
 local scalarcapabilities = require("nupp.compiler.vm.scalarcapabilities")
 export const booleanKind = "tagged"
 local binding = taggedvalues.binding
@@ -813,6 +814,15 @@ export function forVersion(version: integer): any
         -- Records lower onto core tables keyed by their field names, as a
         -- record with an array part already is. Records are identity objects,
         -- so this is exact; a dedicated record layout is a later optimization.
+        profile.structValue = function(ctx: any, node: any): integer
+            return ctx.emit(node, "NewTable", {}, "tagged")
+        end
+        profile.foreignValue = function(ctx: any, node: any): integer?
+            if catalog(ctx).foreignValues[node.name.definition] then
+                return taggedforeign.declare(ctx, node)
+            end
+            return nil
+        end
         profile.construction = function(ctx: any, node: any, expected: string?): integer
             need(expected == nil or expected == "tagged", "record requires tagged destination")
             local origin = recordOrigin(node.inferredType)
@@ -1717,6 +1727,9 @@ export function forVersion(version: integer): any
             return value
         end
         libraryCallOrCall = function(ctx: any, node: any, expected: string?): integer?
+            if node.cheaderCdef and catalog(ctx).chunk then
+                return taggedforeign.header(ctx, node)
+            end
             if scalarwitness(ctx, node) then
                 return call(ctx, node, expected)
             end

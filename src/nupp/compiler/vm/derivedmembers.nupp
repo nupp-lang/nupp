@@ -12,6 +12,7 @@ local derivedrecipes = require("nupp.compiler.vm.derivedrecipes")
 local graphimage = require("nupp.compiler.vm.graphimage")
 local values = require("nupp.compiler.vm.taggedvalues")
 local calls = require("nupp.compiler.vm.graphcalls")
+local corelibrary = require("nupp.compiler.vm.corelibrary")
 local need = values.need
 
 local function constant(ctx: any, node: any, kind: string, value: any): integer
@@ -82,6 +83,9 @@ end
 -- A forwarding argument as the factory evaluates it: an argument by its
 -- position among the member's parameters, as main maps it.
 local function argument(spec: any, member: any): any
+    if spec.kind == "witness" then
+        return {kind = "witness"}
+    end
     if spec.kind == "argument" then
         for position, name in ipairs(member.paramNames or {}) do
             if name == spec.name then
@@ -130,17 +134,19 @@ export function emit(ctx: any, stat: any, owner: any): boolean
     end
     derivedrecipes.verify(p, plan)
     need(plan.owner == ctx.fn.id, "derived record belongs to another owner")
-    local module = ctx.hold(ctx.emit(stat, "Require", {values.pool(ctx, "str", derivedrecipes.MODULE)}, "tagged"))
+    local module: any
+    if p.chunk then
+        local name = constant(ctx, stat, "str", derivedrecipes.MODULE)
+        module = ctx.hold(ctx.emit(stat, "LibCall", {corelibrary.id("MODULE_REQUIRE"), name}, "tagged"))
+    else
+        module = ctx.hold(ctx.emit(stat, "Require", {values.pool(ctx, "str", derivedrecipes.MODULE)}, "tagged"))
+    end
 
     local function make(made: any, first: integer, spec: integer): integer?
         local held = ctx.hold(spec)
-        local callee = ctx.emit(
-            stat,
-            "GetIdx",
-            {ctx.readHeld(module), constant(ctx, stat, "str", made.target.name)},
-            "tagged"
-        )
-        local contract = calls.invokeContract(made.target, made.call)
+        local callee = ctx.emit(stat, "GetIdx", {ctx.readHeld(module), constant(ctx, stat, "str", made.name)}, "tagged")
+        local contract = p.chunk and calls.dynamicInvokeContract(made.call, 1)
+            or calls.invokeContract(made.target, made.call)
         local answer = ctx.invoke(stat, callee, {first, ctx.readHeld(held)}, contract, true)
         ctx.release(held)
         if answer == nil or ctx.block == nil then

@@ -23,6 +23,8 @@ local writer = require("nupp.compiler.vm.coreartifact")
 local lexer = require("nupp.compiler.syntax.lexer")
 local recordcallables = require("nupp.compiler.vm.recordcallables")
 local recordruntime = require("nupp.runtime.provider.corerecord")
+local deriveruntime = require("nupp.runtime.provider.corederive")
+local foreignruntime = require("nupp.runtime.provider.coreforeignvalue")
 local fs = require("nupp.compiler.fs")
 local builtinextensions = require("nupp.compiler.builtinextensions")
 
@@ -474,6 +476,8 @@ export function describeModule(
         assert(factory ~= nil, "record factory opening lost its declaration")
     end
     local diagnostics = checked(tree, path, name as string, true)
+    assert(type(deriveruntime.register) == "function", "derive factory implementation missing")
+    assert(type(foreignruntime.bind) == "function", "foreign factory implementation missing")
     for _, diagnostic in ipairs(diagnostics) do
         if diagnostic.severity == "error" then
             return nil, positioned(display, diagnostic.line, diagnostic.msg)
