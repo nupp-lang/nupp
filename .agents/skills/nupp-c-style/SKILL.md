@@ -14,6 +14,9 @@ same line and `else` on the line after the closing brace. Write `if (ready)`,
 Preserve existing names and ABI. Use one statement per line, brace every
 control body, and leave blank lines between definitions and major steps.
 
+Name new Nupp-owned `.c` and `.h` files in luacase. Join words directly in
+lowercase, as in `definitionlist.c` and `definitionlist.h`.
+
 ## Doxygen comments
 
 Open a `.c` or `.h` file with a Doxygen block containing `@file` and a brief
