@@ -1,0 +1,464 @@
+-- Access spike: walk `insts[i].kind` and `insts[i].a` over N IR-shaped
+-- instructions held several ways, and report build time, walk time and heap
+-- bytes per instruction for each.
+--
+--   SOA_N      instructions (default 200000)
+--   SOA_REPS   walks timed (default 5)
+--   SOA_WHICH  comma-separated variants (default all)
+local array = table.Array
+
+local n: integer = math.tointeger(tonumber(os.getenv("SOA_N") or "200000")) or 200000
+local reps: integer = math.tointeger(tonumber(os.getenv("SOA_REPS") or "5")) or 5
+local which = os.getenv("SOA_WHICH") or "tables,records,cstructs,columns,columns32,typed,packed"
+
+-- The instruction shape the brief names.
+cdef struct Inst
+    kind: uint8
+    flags: uint8
+    a: uint32
+    b: uint32
+    ty: uint32
+    span: uint32
+end
+
+local record InstRecord
+    kind: integer
+    flags: integer
+    a: integer
+    b: integer
+    ty: integer
+    span: integer
+end
+
+local type InstTable = {
+    kind: integer,
+    flags: integer,
+    a: integer,
+    b: integer,
+    ty: integer,
+    span: integer
+}
+
+local function heapKb(): number
+    collectgarbage("collect")
+    collectgarbage("collect")
+    return collectgarbage("count")
+end
+
+local function report(name: string, buildSeconds: number, walkSeconds: number, bytes: number, sum: number): nil
+    print(
+        (
+            "%-9s n=%d build=%.1fms (%.1fns/row) walk=%.2fns/row bytes/row=%.1f sum=%.0f"
+        ):format(name, n, buildSeconds * 1000, buildSeconds * 1e9 / n, walkSeconds * 1e9 / (n * reps), bytes / n, sum)
+    )
+end
+
+local function kindOf(i: integer): integer
+    return i % 7
+end
+
+local function runTables(): nil
+    local before = heapKb()
+    local t0 = os.clock()
+    local insts: {InstTable} = {}
+    for i = 1, n do
+        insts[i] = {kind = kindOf(i), flags = 0, a = i, b = i + 1, ty = 3, span = i}
+    end
+    local t1 = os.clock()
+    local after = heapKb()
+    local sum: number = 0
+    local t2 = os.clock()
+    for _ = 1, reps do
+        for i = 1, n do
+            local inst = insts[i]
+            if inst.kind == 3 then
+                sum = sum + inst.a
+            end
+        end
+    end
+    local t3 = os.clock()
+    report("tables", t1 - t0, t3 - t2, (after - before) * 1024, sum)
+end
+
+local function runRecords(): nil
+    local before = heapKb()
+    local t0 = os.clock()
+    local insts: {InstRecord} = {}
+    for i = 1, n do
+        insts[i] = InstRecord(kind = kindOf(i), flags = 0, a = i, b = i + 1, ty = 3, span = i)
+    end
+    local t1 = os.clock()
+    local after = heapKb()
+    local sum: number = 0
+    local t2 = os.clock()
+    for _ = 1, reps do
+        for i = 1, n do
+            local inst = insts[i]
+            if inst.kind == 3 then
+                sum = sum + inst.a
+            end
+        end
+    end
+    local t3 = os.clock()
+    report("records", t1 - t0, t3 - t2, (after - before) * 1024, sum)
+end
+
+-- One C-layout struct per instruction, held in a Lua array.
+local function runCStructs(): nil
+    local before = heapKb()
+    local t0 = os.clock()
+    local insts: {Inst} = {}
+    for i = 1, n do
+        insts[i] = Inst(kindOf(i), 0, i, i + 1, 3, i)
+    end
+    local t1 = os.clock()
+    local after = heapKb()
+    local sum: number = 0
+    local t2 = os.clock()
+    for _ = 1, reps do
+        for i = 1, n do
+            local inst = insts[i]
+            if inst.kind == 3 then
+                local a: integer = inst.a
+                sum = sum + a
+            end
+        end
+    end
+    local t3 = os.clock()
+    report("cstructs", t1 - t0, t3 - t2, (after - before) * 1024, sum)
+end
+
+-- Structure of arrays over Lua arrays: one `{integer}` per field.
+local function runColumns(): nil
+    local before = heapKb()
+    local t0 = os.clock()
+    local kind: {integer} = {}
+    local flags: {integer} = {}
+    local a: {integer} = {}
+    local b: {integer} = {}
+    local ty: {integer} = {}
+    local span: {integer} = {}
+    for i = 1, n do
+        kind[i] = kindOf(i)
+        flags[i] = 0
+        a[i] = i
+        b[i] = i + 1
+        ty[i] = 3
+        span[i] = i
+    end
+    local t1 = os.clock()
+    local after = heapKb()
+    local sum: number = 0
+    local t2 = os.clock()
+    for _ = 1, reps do
+        for i = 1, n do
+            if kind[i] == 3 then
+                sum = sum + a[i]
+            end
+        end
+    end
+    local t3 = os.clock()
+    report("columns", t1 - t0, t3 - t2, (after - before) * 1024, sum)
+end
+
+-- Structure of arrays over packed Lua arrays: one `{uint32}` per field,
+-- which the core stores as raw 32-bit elements (Decision 15).
+local function runColumns32(): nil
+    local before = heapKb()
+    local t0 = os.clock()
+    local kind: {uint32} = {}
+    local flags: {uint32} = {}
+    local a: {uint32} = {}
+    local b: {uint32} = {}
+    local ty: {uint32} = {}
+    local span: {uint32} = {}
+    for i = 1, n do
+        kind[i] = math.u32.wrap(kindOf(i))
+        flags[i] = 0
+        a[i] = math.u32.wrap(i)
+        b[i] = math.u32.wrap(i + 1)
+        ty[i] = 3
+        span[i] = math.u32.wrap(i)
+    end
+    local t1 = os.clock()
+    local after = heapKb()
+    local sum: number = 0
+    local t2 = os.clock()
+    for _ = 1, reps do
+        for i = 1, n do
+            if kind[i] == 3 then
+                local value: integer = a[i]
+                sum = sum + value
+            end
+        end
+    end
+    local t3 = os.clock()
+    report("columns32", t1 - t0, t3 - t2, (after - before) * 1024, sum)
+end
+
+-- Structure of arrays over typed storage: one table.Array per field.
+local function runTyped(): nil
+    local before = heapKb()
+    local t0 = os.clock()
+    local kindColumn = array.scalar(array.uint32, n)
+    local aColumn = array.scalar(array.uint32, n)
+    local bColumn = array.scalar(array.uint32, n)
+    local tyColumn = array.scalar(array.uint32, n)
+    local spanColumn = array.scalar(array.uint32, n)
+    do
+        local kind = kindColumn:write()
+        local a = aColumn:write()
+        local b = bColumn:write()
+        local ty = tyColumn:write()
+        local span = spanColumn:write()
+        for i = 1, n do
+            kind[i] = math.u32.wrap(kindOf(i))
+            a[i] = math.u32.wrap(i)
+            b[i] = math.u32.wrap(i + 1)
+            ty[i] = 3
+            span[i] = math.u32.wrap(i)
+        end
+    end
+    local t1 = os.clock()
+    local after = heapKb()
+    local sum: number = 0
+    local t2 = os.clock()
+    do
+        local kind = kindColumn:read()
+        local a = aColumn:read()
+        for _ = 1, reps do
+            for i = 1, n do
+                if kind[i] == 3 then
+                    local value: integer = a[i]
+                    sum = sum + value
+                end
+            end
+        end
+    end
+    local t3 = os.clock()
+    report("typed", t1 - t0, t3 - t2, (after - before) * 1024, sum)
+end
+
+-- Array of structures by hand: five uint32 words a row in one typed array.
+local function runPacked(): nil
+    local before = heapKb()
+    local t0 = os.clock()
+    local words = array.scalar(array.uint32, n * 5)
+    do
+        local w = words:write()
+        for i = 1, n do
+            local at = (i - 1) * 5
+            w[at + 1] = math.u32.wrap(kindOf(i))
+            w[at + 2] = math.u32.wrap(i)
+            w[at + 3] = math.u32.wrap(i + 1)
+            w[at + 4] = 3
+            w[at + 5] = math.u32.wrap(i)
+        end
+    end
+    local t1 = os.clock()
+    local after = heapKb()
+    local sum: number = 0
+    local t2 = os.clock()
+    do
+        local w = words:read()
+        for _ = 1, reps do
+            for i = 1, n do
+                local at = (i - 1) * 5
+                if w[at + 1] & 0xff == 3 then
+                    local value: integer = w[at + 2]
+                    sum = sum + value
+                end
+            end
+        end
+    end
+    local t3 = os.clock()
+    report("packed", t1 - t0, t3 - t2, (after - before) * 1024, sum)
+end
+
+-- A fixed permutation of 1..n (an LCG-driven Fisher-Yates), so a walk can
+-- visit rows out of allocation order and expose cache misses.
+local function permutation(): {integer}
+    local order: {integer} = {}
+    for i = 1, n do
+        order[i] = i
+    end
+    local state: integer = 12345
+    for i = n, 2, -1 do
+        state = (state * 1103515245 + 12345) % 2147483648
+        local j: integer = state % i + 1
+        order[i], order[j] = order[j], order[i]
+    end
+
+    return order
+end
+
+-- Tables walked in a shuffled order: the same work as runTables with every
+-- row a likely cache miss.
+local function runTablesShuffled(): nil
+    local insts: {InstTable} = {}
+    for i = 1, n do
+        insts[i] = {kind = kindOf(i), flags = 0, a = i, b = i + 1, ty = 3, span = i}
+    end
+    local order = permutation()
+    local sum: number = 0
+    local t0 = os.clock()
+    for _ = 1, reps do
+        for i = 1, n do
+            local inst = insts[order[i]]
+            if inst.kind == 3 then
+                sum = sum + inst.a
+            end
+        end
+    end
+    local t1 = os.clock()
+    report("tablesShuffled", 0, t1 - t0, 0, sum)
+end
+
+local function runColumnsShuffled(): nil
+    local kind: {integer} = {}
+    local a: {integer} = {}
+    for i = 1, n do
+        kind[i] = kindOf(i)
+        a[i] = i
+    end
+    local order = permutation()
+    local sum: number = 0
+    local t0 = os.clock()
+    for _ = 1, reps do
+        for i = 1, n do
+            local at = order[i]
+            if kind[at] == 3 then
+                sum = sum + a[at]
+            end
+        end
+    end
+    local t1 = os.clock()
+    report("columnsShuffled", 0, t1 - t0, 0, sum)
+end
+
+-- The cost of one operation: a loop of n*reps iterations with an empty body,
+-- then with one read of each kind, reported per iteration.
+local function runOps(): nil
+    local general: {integer} = {}
+    local packed: {int32} = {}
+    for i = 1, n do
+        general[i] = i
+        packed[i] = math.i32.wrap(i)
+    end
+    local record_ = InstRecord(kind = 1, flags = 0, a = 2, b = 3, ty = 4, span = 5)
+    local hashed: InstTable = {kind = 1, flags = 0, a = 2, b = 3, ty = 4, span = 5}
+    local total = n * reps
+    local x: integer = 0
+    local t0 = os.clock()
+    for i = 1, total do
+        x = i
+    end
+    local empty = os.clock() - t0
+    t0 = os.clock()
+    for i = 1, total do
+        x = general[(i % n) + 1]
+    end
+    local tGeneral = os.clock() - t0
+    t0 = os.clock()
+    for i = 1, total do
+        x = packed[(i % n) + 1]
+    end
+    local tPacked = os.clock() - t0
+    t0 = os.clock()
+    for i = 1, total do
+        x = (i % n) + 1
+    end
+    local tIndex = os.clock() - t0
+    t0 = os.clock()
+    for _ = 1, total do
+        x = record_.a
+    end
+    local tRecord = os.clock() - t0
+    t0 = os.clock()
+    for _ = 1, total do
+        x = hashed.a
+    end
+    local tHashed = os.clock() - t0
+
+    local function per(seconds: number): number
+        return seconds * 1e9 / total
+    end
+
+    print(
+        (
+            "ops       loop=%.1fns index=%.1fns general[i]=%.1fns packed[i]=%.1fns record.a=%.1fns table.a=%.1fns (x=%d)"
+        ):format(per(empty), per(tIndex), per(tGeneral), per(tPacked), per(tRecord), per(tHashed), x)
+    )
+end
+
+-- What a library call and a guest call cost beside an add, per iteration,
+-- for SOA_OP = loop | add | wrap | abs | call | packedstore | generalstore.
+local function runOp(): nil
+    local op = os.getenv("SOA_OP") or "loop"
+    local total = n * reps
+    local x: integer = 0
+    local y: int32 = 0
+    local general: {integer} = {}
+    local packed: {int32} = {}
+    for i = 1, 1024 do
+        general[i] = i
+        packed[i] = math.i32.wrap(i)
+    end
+    local t0 = os.clock()
+    if op == "loop" then
+        for i = 1, total do
+            x = i
+        end
+    elseif op == "add" then
+        for i = 1, total do
+            x = i + 7
+        end
+    elseif op == "wrap" then
+        for i = 1, total do
+            y = math.i32.wrap(i)
+        end
+    elseif op == "abs" then
+        for i = 1, total do
+            x = math.tointeger(math.abs(i)) or 0
+        end
+    elseif op == "call" then
+        for i = 1, total do
+            x = kindOf(i)
+        end
+    elseif op == "packedstore" then
+        for i = 1, total do
+            packed[(i & 1023) + 1] = y
+        end
+    elseif op == "generalstore" then
+        for i = 1, total do
+            general[(i & 1023) + 1] = x
+        end
+    end
+    print(("op %-12s %.1fns/iteration (x=%d y=%d)"):format(op, (os.clock() - t0) * 1e9 / total, x, y))
+end
+
+for name in which:gmatch("[^,]+") do
+    if name == "tables" then
+        runTables()
+    elseif name == "records" then
+        runRecords()
+    elseif name == "cstructs" then
+        runCStructs()
+    elseif name == "columns" then
+        runColumns()
+    elseif name == "columns32" then
+        runColumns32()
+    elseif name == "typed" then
+        runTyped()
+    elseif name == "packed" then
+        runPacked()
+    elseif name == "tablesShuffled" then
+        runTablesShuffled()
+    elseif name == "columnsShuffled" then
+        runColumnsShuffled()
+    elseif name == "ops" then
+        runOps()
+    elseif name == "op" then
+        runOp()
+    end
+end

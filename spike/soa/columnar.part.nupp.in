@@ -1,0 +1,417 @@
+------------------------------------------------------------------------
+-- Columns@SFX@: every graph of the module in one set of @COL@ columns, with
+-- blocks, instructions, edges and operand lists named by index. Scratch
+-- columns are sized once and stamped per graph instead of cleared.
+------------------------------------------------------------------------
+
+local record Module@SFX@
+    -- Graphs.
+    gBlockFirst: @COL@
+    gBlockCount: @COL@
+    gValues: @COL@
+    -- Blocks: parameter, instruction, terminator-use and edge ranges.
+    bParamFirst: @COL@
+    bParamCount: @COL@
+    bInstFirst: @COL@
+    bInstCount: @COL@
+    bUsedFirst: @COL@
+    bUsedCount: @COL@
+    bEdgeFirst: @COL@
+    bEdgeCount: @COL@
+    bOffset: @COL@
+    -- Instructions and edges: a result and an operand range.
+    iDst: @COL@
+    iArgFirst: @COL@
+    iArgCount: @COL@
+    eTarget: @COL@
+    eArgFirst: @COL@
+    eArgCount: @COL@
+    -- Pools the ranges index.
+    params: @COL@
+    operands: @COL@
+    used: @COL@
+    -- The largest per-graph sizes, for the scratch columns.
+    maxValues: integer
+    maxBlocks: integer
+    maxFeeders: integer
+    maxEdges: integer
+end
+
+local function emptyModule@SFX@(): Module@SFX@
+    return Module@SFX@(
+        gBlockFirst = {},
+        gBlockCount = {},
+        gValues = {},
+        bParamFirst = {},
+        bParamCount = {},
+        bInstFirst = {},
+        bInstCount = {},
+        bUsedFirst = {},
+        bUsedCount = {},
+        bEdgeFirst = {},
+        bEdgeCount = {},
+        bOffset = {},
+        iDst = {},
+        iArgFirst = {},
+        iArgCount = {},
+        eTarget = {},
+        eArgFirst = {},
+        eArgCount = {},
+        params = {},
+        operands = {},
+        used = {},
+        maxValues = 0,
+        maxBlocks = 0,
+        maxFeeders = 0,
+        maxEdges = 0
+    )
+end
+
+local function buildColumns@SFX@(toks: {integer}): Module@SFX@
+    local m = emptyModule@SFX@()
+    local ng: integer, nb: integer, ni: integer, ne: integer = 0, 0, 0, 0
+    local np: integer, nop: integer, nu: integer = 0, 0, 0
+    local at: integer = 1
+    local n = #toks
+    local firstBlock: integer = 1
+    local graphFeeders: integer, graphEdges: integer = 0, 0
+
+    local function closeGraph(): nil
+        if ng > 0 then
+            local blocks = nb - firstBlock + 1
+            m.gBlockCount[ng] = @W@(blocks)
+            if blocks > m.maxBlocks then
+                m.maxBlocks = blocks
+            end
+            if graphFeeders > m.maxFeeders then
+                m.maxFeeders = graphFeeders
+            end
+            if graphEdges > m.maxEdges then
+                m.maxEdges = graphEdges
+            end
+        end
+    end
+
+    while at <= n do
+        local mark = toks[at]
+        if mark == MARK_G then
+            closeGraph()
+            ng = ng + 1
+            firstBlock = nb + 1
+            graphFeeders, graphEdges = 0, 0
+            m.gBlockFirst[ng] = @W@(nb + 1)
+            m.gBlockCount[ng] = 0
+            local values = toks[at + 2]
+            m.gValues[ng] = @W@(values)
+            if values > m.maxValues then
+                m.maxValues = values
+            end
+            at = at + 3
+        elseif mark == MARK_B then
+            local count = toks[at + 2]
+            nb = nb + 1
+            m.bParamFirst[nb] = @W@(np + 1)
+            m.bParamCount[nb] = @W@(count)
+            graphFeeders = graphFeeders + count
+            for i = 1, count do
+                np = np + 1
+                m.params[np] = @W@(toks[at + 2 + i])
+            end
+            m.bInstFirst[nb] = @W@(ni + 1)
+            m.bInstCount[nb] = 0
+            at = at + 3 + count
+        elseif mark == MARK_I then
+            local count = toks[at + 2]
+            ni = ni + 1
+            m.iDst[ni] = @W@(toks[at + 1])
+            m.iArgFirst[ni] = @W@(nop + 1)
+            m.iArgCount[ni] = @W@(count)
+            for i = 1, count do
+                nop = nop + 1
+                m.operands[nop] = @W@(toks[at + 2 + i])
+            end
+            m.bInstCount[nb] = @W@(ni - m.bInstFirst[nb] + 1)
+            at = at + 3 + count
+        elseif mark == MARK_T then
+            m.bOffset[nb] = @W@(toks[at + 1])
+            local count = toks[at + 2]
+            m.bUsedFirst[nb] = @W@(nu + 1)
+            m.bUsedCount[nb] = @W@(count)
+            for i = 1, count do
+                nu = nu + 1
+                m.used[nu] = @W@(toks[at + 2 + i])
+            end
+            at = at + 3 + count
+            local nedges = toks[at]
+            at = at + 1
+            m.bEdgeFirst[nb] = @W@(ne + 1)
+            m.bEdgeCount[nb] = @W@(nedges)
+            graphEdges = graphEdges + nedges
+            for _ = 1, nedges do
+                local nargs = toks[at + 1]
+                ne = ne + 1
+                m.eTarget[ne] = @W@(toks[at])
+                m.eArgFirst[ne] = @W@(nop + 1)
+                m.eArgCount[ne] = @W@(nargs)
+                for i = 1, nargs do
+                    nop = nop + 1
+                    m.operands[nop] = @W@(toks[at + 1 + i])
+                end
+                at = at + 2 + nargs
+            end
+        else
+            at = at + 1
+        end
+    end
+    closeGraph()
+
+    return m
+end
+
+-- A scratch column of `size` zeros, filled in order so it stays packed.
+local function scratch@SFX@(size: integer): @COL@
+    local column: @COL@ = {}
+    for i = 1, size + 1 do
+        column[i] = 0
+    end
+
+    return column
+end
+
+local function pruneColumns@SFX@(m: Module@SFX@): integer
+    local mark = scratch@SFX@(m.maxValues)
+    local headStamp = scratch@SFX@(m.maxValues)
+    local head = scratch@SFX@(m.maxValues)
+    local feedNext = scratch@SFX@(m.maxFeeders)
+    local feedValue = scratch@SFX@(m.maxFeeders)
+    local pending = scratch@SFX@(m.maxValues)
+    local gBlockFirst, gBlockCount = m.gBlockFirst, m.gBlockCount
+    local bInstFirst, bInstCount, bUsedFirst, bUsedCount = m.bInstFirst, m.bInstCount, m.bUsedFirst, m.bUsedCount
+    local bParamFirst, bParamCount, bEdgeFirst, bEdgeCount, bOffset = m.bParamFirst,
+        m.bParamCount,
+        m.bEdgeFirst,
+        m.bEdgeCount,
+        m.bOffset
+    local iArgFirst, iArgCount, eTarget, eArgFirst = m.iArgFirst, m.iArgCount, m.eTarget, m.eArgFirst
+    local params, operands, used = m.params, m.operands, m.used
+    local total: integer = 0
+    for gi = 1, #gBlockFirst do
+        local stamp = @W@(gi)
+        local count: integer = 0
+        local firstBlock: integer = gBlockFirst[gi]
+        local lastBlock: integer = firstBlock + gBlockCount[gi] - 1
+        for bi = firstBlock, lastBlock do
+            local firstInst: integer = bInstFirst[bi]
+            for ii = firstInst, firstInst + bInstCount[bi] - 1 do
+                local first: integer = iArgFirst[ii]
+                for k = first, first + iArgCount[ii] - 1 do
+                    local v = operands[k]
+                    if mark[v] ~= stamp then
+                        mark[v] = stamp
+                        count = count + 1
+                    end
+                end
+            end
+            local firstUsed: integer = bUsedFirst[bi]
+            for k = firstUsed, firstUsed + bUsedCount[bi] - 1 do
+                local v = used[k]
+                if mark[v] ~= stamp then
+                    mark[v] = stamp
+                    count = count + 1
+                end
+            end
+        end
+        local feeders: integer = 0
+        for bi = firstBlock, lastBlock do
+            local offset: integer = bOffset[bi]
+            local firstEdge: integer = bEdgeFirst[bi]
+            for e = firstEdge, firstEdge + bEdgeCount[bi] - 1 do
+                local target: integer = firstBlock + eTarget[e] - 1
+                local firstParam: integer = bParamFirst[target]
+                local firstArg: integer = eArgFirst[e]
+                for i = offset + 1, bParamCount[target] do
+                    local p = params[firstParam + i - 1]
+                    feeders = feeders + 1
+                    feedValue[feeders] = @W@(operands[firstArg + i - offset - 1])
+                    if headStamp[p] ~= stamp then
+                        headStamp[p] = stamp
+                        feedNext[feeders] = 0
+                    else
+                        feedNext[feeders] = @W@(head[p])
+                    end
+                    head[p] = @W@(feeders)
+                end
+            end
+        end
+        local top: integer = 0
+        for bi = firstBlock, lastBlock do
+            local firstParam: integer = bParamFirst[bi]
+            for k = firstParam, firstParam + bParamCount[bi] - 1 do
+                local p = params[k]
+                if headStamp[p] == stamp and mark[p] == stamp then
+                    top = top + 1
+                    pending[top] = @W@(p)
+                end
+            end
+        end
+        while top > 0 do
+            local v = pending[top]
+            top = top - 1
+            if headStamp[v] == stamp then
+                local k: integer = head[v]
+                while k ~= 0 do
+                    local f = feedValue[k]
+                    if mark[f] ~= stamp then
+                        mark[f] = stamp
+                        count = count + 1
+                        top = top + 1
+                        pending[top] = @W@(f)
+                    end
+                    k = feedNext[k]
+                end
+            end
+        end
+        total = total + count
+    end
+
+    return total
+end
+
+local function dominatorsColumns@SFX@(m: Module@SFX@): integer
+    local size = m.maxBlocks
+    local predHead = scratch@SFX@(size)
+    local predNext = scratch@SFX@(m.maxEdges)
+    local predValue = scratch@SFX@(m.maxEdges)
+    local order = scratch@SFX@(size)
+    local rpo = scratch@SFX@(size)
+    local idom = scratch@SFX@(size)
+    local stackBlock = scratch@SFX@(size)
+    local stackEdge = scratch@SFX@(size)
+    local gBlockFirst, gBlockCount = m.gBlockFirst, m.gBlockCount
+    local bEdgeFirst, bEdgeCount, eTarget = m.bEdgeFirst, m.bEdgeCount, m.eTarget
+    local total: integer = 0
+    for gi = 1, #gBlockFirst do
+        local base: integer = gBlockFirst[gi] - 1
+        local nb: integer = gBlockCount[gi]
+        for b = 1, nb do
+            predHead[b], order[b], idom[b] = 0, 0, 0
+        end
+        local npred: integer = 0
+        for b = 1, nb do
+            local firstEdge: integer = bEdgeFirst[base + b]
+            for e = firstEdge, firstEdge + bEdgeCount[base + b] - 1 do
+                local target = eTarget[e]
+                npred = npred + 1
+                predValue[npred] = @W@(b)
+                predNext[npred] = @W@(predHead[target])
+                predHead[target] = @W@(npred)
+            end
+        end
+        -- Postorder by an explicit stack; order[b] ~= 0 marks it seen.
+        local post: integer = 0
+        local top: integer = 1
+        stackBlock[1], stackEdge[1] = 1, 0
+        order[1] = -1
+        while top > 0 do
+            local b: integer = stackBlock[top]
+            local ei: integer = stackEdge[top]
+            if ei < bEdgeCount[base + b] then
+                stackEdge[top] = @W@(ei + 1)
+                local target: integer = eTarget[bEdgeFirst[base + b] + ei]
+                if order[target] == 0 then
+                    order[target] = -1
+                    top = top + 1
+                    stackBlock[top], stackEdge[top] = @W@(target), 0
+                end
+            else
+                top = top - 1
+                post = post + 1
+                order[b] = @W@(post)
+                rpo[post] = @W@(b)
+            end
+        end
+        idom[1] = 1
+        local changed = true
+        while changed do
+            changed = false
+            for k = post - 1, 1, -1 do
+                local b = rpo[k]
+                local chosen: integer = 0
+                local edge: integer = predHead[b]
+                while edge ~= 0 do
+                    local p: integer = predValue[edge]
+                    if idom[p] ~= 0 then
+                        if chosen == 0 then
+                            chosen = p
+                        else
+                            local x, y = p, chosen
+                            while x ~= y do
+                                while order[x] < order[y] do
+                                    x = idom[x]
+                                end
+                                while order[y] < order[x] do
+                                    y = idom[y]
+                                end
+                            end
+                            chosen = x
+                        end
+                    end
+                    edge = predNext[edge]
+                end
+                if idom[b] ~= chosen then
+                    idom[b] = @W@(chosen)
+                    changed = true
+                end
+            end
+        end
+        for b = 1, nb do
+            local d: integer = idom[b]
+            if d ~= 0 then
+                total = total + b * d
+            end
+        end
+    end
+
+    return total
+end
+
+local function operandsColumns@SFX@(m: Module@SFX@): integer
+    local sum: integer = 0
+    local iArgFirst, iArgCount, operands = m.iArgFirst, m.iArgCount, m.operands
+    for i = 1, #m.iDst do
+        local first: integer = iArgFirst[i]
+        for j = first, first + iArgCount[i] - 1 do
+            local value: integer = operands[j]
+            sum = sum + value
+        end
+    end
+
+    return sum
+end
+
+local function runColumns@SFX@(toks: {integer}): nil
+    local name = "columns@SFX@"
+    local before = heapKb()
+    local t0 = os.clock()
+    local m = buildColumns@SFX@(toks)
+    local t1 = os.clock()
+    local after = heapKb()
+    print(("%-9s heap %.1f MB"):format(name, (after - before) / 1024))
+    report(name, "build", t1 - t0, #m.gBlockFirst)
+    local sum: integer = 0
+    local t2 = os.clock()
+    for _ = 1, reps do
+        sum = operandsColumns@SFX@(m)
+    end
+    report(name, "operands", (os.clock() - t2) / reps, sum)
+    local t3 = os.clock()
+    for _ = 1, reps do
+        sum = pruneColumns@SFX@(m)
+    end
+    report(name, "prune", (os.clock() - t3) / reps, sum)
+    local t4 = os.clock()
+    for _ = 1, reps do
+        sum = dominatorsColumns@SFX@(m)
+    end
+    report(name, "dominate", (os.clock() - t4) / reps, sum)
+end

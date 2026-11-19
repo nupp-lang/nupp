@@ -1,0 +1,443 @@
+-- Pass spike: the closed-block graphs the core's tagged profile built for a
+-- real module closure (dumpgraphs.lua), held as the compiler holds them
+-- (a table per block, per instruction's operand list, per edge) and as
+-- module-wide columns with index references, and two real passes over each:
+-- graphprune's used-value walk and Cooper-Harvey-Kennedy dominators.
+--
+--   SOA_GRAPHS  the dump (default build/soa/parser.graphs)
+--   SOA_REPR    tables | columns | columns32 | arena | none (default all four)
+--   SOA_REPS    passes timed (default 3)
+--
+-- Generated from pass.template.nupp.in by gen.sh: the columnar code appears
+-- twice, over `{integer}` (general values) and over `{int32}` (packed).
+local array = table.Array
+
+local path = os.getenv("SOA_GRAPHS") or "build/soa/parser.graphs"
+local which = os.getenv("SOA_REPR") or "tables,columns,columns32,arena"
+local reps: integer = math.tointeger(tonumber(os.getenv("SOA_REPS") or "3")) or 3
+
+local function heapKb(): number
+    collectgarbage("collect")
+    collectgarbage("collect")
+    return collectgarbage("count")
+end
+
+-- Record markers in the token stream.
+const MARK_G = -1
+const MARK_B = -2
+const MARK_I = -3
+const MARK_T = -4
+const MARK_E = -5
+
+local function tokens(): {integer}
+    local file = assert(io.open(path, "rb"))
+    local text = file:read("a") as string
+    file:close()
+    local toks: {integer} = {}
+    local count: integer = 0
+    for line in text:gmatch("[^\n]+") do
+        local head = line:sub(1, 1)
+        count = count + 1
+        if head == "G" then
+            toks[count] = MARK_G
+        elseif head == "B" then
+            toks[count] = MARK_B
+        elseif head == "I" then
+            toks[count] = MARK_I
+        elseif head == "T" then
+            toks[count] = MARK_T
+        else
+            toks[count] = MARK_E
+        end
+        for word in line:sub(3):gmatch("%d+") do
+            count = count + 1
+            toks[count] = math.tointeger(tonumber(word)) or 0
+        end
+    end
+
+    return toks
+end
+
+local function report(name: string, phase: string, seconds: number, checksum: integer): nil
+    print(("%-9s %-8s %9.1f ms  checksum=%d"):format(name, phase, seconds * 1000, checksum))
+end
+
+------------------------------------------------------------------------
+-- Tables: the compiler's own shape (src/nupp/compiler/vm/graph.nupp).
+------------------------------------------------------------------------
+
+local type TEdge = {
+    target: integer,
+    args: {integer}
+}
+local type TTerm = {
+    offset: integer,
+    used: {integer},
+    edges: {TEdge}
+}
+local type TBlock = {
+    id: integer,
+    params: {integer},
+    dst: {integer},
+    args: {{integer}},
+    term: TTerm
+}
+local type TGraph = {
+    nparams: integer,
+    nvalues: integer,
+    blocks: {TBlock}
+}
+
+local function buildTables(toks: {integer}): {TGraph}
+    local graphs: {TGraph} = {}
+    local at: integer = 1
+    local n = #toks
+    local g: TGraph? = nil
+    local b: TBlock? = nil
+    while at <= n do
+        local mark = toks[at]
+        if mark == MARK_G then
+            g = {nparams = toks[at + 1], nvalues = toks[at + 2], blocks = {}}
+            graphs[#graphs + 1] = g as TGraph
+            at = at + 3
+        elseif mark == MARK_B then
+            local count = toks[at + 2]
+            local params: {integer} = {}
+            for i = 1, count do
+                params[i] = toks[at + 2 + i]
+            end
+            b = {id = toks[at + 1], params = params, dst = {}, args = {}, term = {offset = 0, used = {}, edges = {}}}
+            local blocks = (g as TGraph).blocks
+            blocks[#blocks + 1] = b as TBlock
+            at = at + 3 + count
+        elseif mark == MARK_I then
+            local count = toks[at + 2]
+            local args: {integer} = {}
+            for i = 1, count do
+                args[i] = toks[at + 2 + i]
+            end
+            local block = b as TBlock
+            local index = #block.dst + 1
+            block.dst[index] = toks[at + 1]
+            block.args[index] = args
+            at = at + 3 + count
+        elseif mark == MARK_T then
+            local offset = toks[at + 1]
+            local count = toks[at + 2]
+            local used: {integer} = {}
+            for i = 1, count do
+                used[i] = toks[at + 2 + i]
+            end
+            at = at + 3 + count
+            local nedges = toks[at]
+            at = at + 1
+            local edges: {TEdge} = {}
+            for e = 1, nedges do
+                local target = toks[at]
+                local nargs = toks[at + 1]
+                local args: {integer} = {}
+                for i = 1, nargs do
+                    args[i] = toks[at + 1 + i]
+                end
+                edges[e] = {target = target, args = args}
+                at = at + 2 + nargs
+            end
+            (b as TBlock).term = {offset = offset, used = used, edges = edges}
+        else
+            at = at + 1
+        end
+    end
+
+    return graphs
+end
+
+-- graphprune.prune's analysis: the values an instruction or terminator uses,
+-- then back through block parameters to the edge arguments feeding them.
+local function pruneTables(graphs: {TGraph}): integer
+    local total: integer = 0
+    for _, g in ipairs(graphs) do
+        local blocks = g.blocks
+        local used: {[integer]: boolean} = {}
+        for bi = 1, #blocks do
+            local b = blocks[bi]
+            local allArgs = b.args
+            for i = 1, #allArgs do
+                local args = allArgs[i]
+                for j = 1, #args do
+                    used[args[j]] = true
+                end
+            end
+            for _, value in ipairs(b.term.used) do
+                used[value] = true
+            end
+        end
+        local feeders: {[integer]: {integer}} = {}
+        for bi = 1, #blocks do
+            local term = blocks[bi].term
+            local offset = term.offset
+            local edges = term.edges
+            for ei = 1, #edges do
+                local e = edges[ei]
+                local params, args = blocks[e.target].params, e.args
+                for i = offset + 1, #params do
+                    local list = feeders[params[i]]
+                    if list == nil then
+                        list = {}
+                        feeders[params[i]] = list
+                    end
+                    list[#list + 1] = args[i - offset]
+                end
+            end
+        end
+        local pending: {integer} = {}
+        local none: {integer} = {}
+        for parameter in pairs(feeders) do
+            if used[parameter] then
+                pending[#pending + 1] = parameter
+            end
+        end
+        while #pending > 0 do
+            local value = table.remove(pending) as integer
+            for _, feeder in ipairs(feeders[value] or none) do
+                if not used[feeder] then
+                    used[feeder] = true
+                    pending[#pending + 1] = feeder
+                end
+            end
+        end
+        for _ in pairs(used) do
+            total = total + 1
+        end
+    end
+
+    return total
+end
+
+-- Cooper, Harvey and Kennedy's iterative dominators over a reverse postorder.
+local function dominatorsTables(graphs: {TGraph}): integer
+    local total: integer = 0
+    for _, g in ipairs(graphs) do
+        local blocks = g.blocks
+        local nblocks = #blocks
+        local preds: {{integer}} = {}
+        for bi = 1, nblocks do
+            preds[bi] = {}
+        end
+        for bi = 1, nblocks do
+            for _, e in ipairs(blocks[bi].term.edges) do
+                local list = preds[e.target]
+                list[#list + 1] = bi
+            end
+        end
+        -- Postorder by an explicit stack: block, next edge.
+        local order: {[integer]: integer} = {}
+        local rpo: {integer} = {}
+        local seen: {[integer]: boolean} = {[1] = true}
+        local stackBlock: {integer} = {1}
+        local stackEdge: {integer} = {1}
+        local post: integer = 0
+        while #stackBlock > 0 do
+            local top = #stackBlock
+            local bi = stackBlock[top]
+            local edges = blocks[bi].term.edges
+            local ei = stackEdge[top]
+            if ei <= #edges then
+                stackEdge[top] = ei + 1
+                local target = edges[ei].target
+                if not seen[target] then
+                    seen[target] = true
+                    stackBlock[top + 1] = target
+                    stackEdge[top + 1] = 1
+                end
+            else
+                stackBlock[top] = nil
+                stackEdge[top] = nil
+                post = post + 1
+                order[bi] = post
+                rpo[post] = bi
+            end
+        end
+        local idom: {[integer]: integer} = {[1] = 1}
+        local changed = true
+        while changed do
+            changed = false
+            for k = post - 1, 1, -1 do
+                local bi = rpo[k]
+                local chosen: integer = 0
+                for _, p in ipairs(preds[bi]) do
+                    if idom[p] ~= nil then
+                        if chosen == 0 then
+                            chosen = p
+                        else
+                            local x, y = p, chosen
+                            while x ~= y do
+                                while order[x] < order[y] do
+                                    x = idom[x]
+                                end
+                                while order[y] < order[x] do
+                                    y = idom[y]
+                                end
+                            end
+                            chosen = x
+                        end
+                    end
+                end
+                if idom[bi] ~= chosen then
+                    idom[bi] = chosen
+                    changed = true
+                end
+            end
+        end
+        for bi, d in pairs(idom) do
+            total = total + bi * d
+        end
+    end
+
+    return total
+end
+
+local function runTables(toks: {integer}): nil
+    local before = heapKb()
+    local t0 = os.clock()
+    local graphs = buildTables(toks)
+    local t1 = os.clock()
+    local after = heapKb()
+    print(("tables    heap %.1f MB"):format((after - before) / 1024))
+    report("tables", "build", t1 - t0, #graphs)
+    local sum: integer = 0
+    local t1b = os.clock()
+    for _ = 1, reps do
+        sum = 0
+        for _, g in ipairs(graphs) do
+            for _, b in ipairs(g.blocks) do
+                local allArgs = b.args
+                for i = 1, #allArgs do
+                    local args = allArgs[i]
+                    for j = 1, #args do
+                        sum = sum + args[j]
+                    end
+                end
+            end
+        end
+    end
+    report("tables", "operands", (os.clock() - t1b) / reps, sum)
+    local t2 = os.clock()
+    for _ = 1, reps do
+        sum = pruneTables(graphs)
+    end
+    report("tables", "prune", (os.clock() - t2) / reps, sum)
+    local t3 = os.clock()
+    for _ = 1, reps do
+        sum = dominatorsTables(graphs)
+    end
+    report("tables", "dominate", (os.clock() - t3) / reps, sum)
+end
+
+-- @COLUMNAR@
+
+------------------------------------------------------------------------
+-- Arena: the instruction columns as table.Array<int32> slabs that grow by
+-- doubling and copyfrom, the shape a Zig-style arena takes over Nupp's
+-- typed storage.
+------------------------------------------------------------------------
+
+local record Column
+    data: table.Array<int32>
+    count: integer
+    capacity: integer
+
+    function push(self, value: integer): integer
+        if self.count == self.capacity then
+            local capacity = self.capacity * 2
+            local grown = array.scalar(array.int32, capacity)
+            do
+                local target = grown:write()
+                target:copyfrom(1, self.data:read(), 1, self.count)
+            end
+            self.data = grown
+            self.capacity = capacity
+        end
+        self.count = self.count + 1
+        local rows = self.data:write()
+        rows[self.count] = math.i32.wrap(value)
+
+        return self.count
+    end
+end
+
+local function column(): Column
+    return Column(data = array.scalar(array.int32, 16), count = 0, capacity = 16)
+end
+
+local function runArena(toks: {integer}): nil
+    local before = heapKb()
+    local t0 = os.clock()
+    local dst = column()
+    local argFirst = column()
+    local argCount = column()
+    local operands = column()
+    local n = #toks
+    local at: integer = 1
+    while at <= n do
+        local mark = toks[at]
+        if mark == MARK_G then
+            at = at + 3
+        elseif mark == MARK_B then
+            at = at + 3 + toks[at + 2]
+        elseif mark == MARK_I then
+            local count = toks[at + 2]
+            dst:push(toks[at + 1])
+            argFirst:push(operands.count + 1)
+            argCount:push(count)
+            for i = 1, count do
+                operands:push(toks[at + 2 + i])
+            end
+            at = at + 3 + count
+        elseif mark == MARK_T then
+            at = at + 3 + toks[at + 2]
+            local nedges = toks[at]
+            at = at + 1
+            for _ = 1, nedges do
+                at = at + 2 + toks[at + 1]
+            end
+        else
+            at = at + 1
+        end
+    end
+    local t1 = os.clock()
+    local after = heapKb()
+    print(("arena     heap %.1f MB"):format((after - before) / 1024))
+    report("arena", "build", t1 - t0, dst.count)
+    -- The operand walk at the heart of prune: every instruction's operands.
+    local t2 = os.clock()
+    local sum: integer = 0
+    for _ = 1, reps do
+        sum = 0
+        local firsts = argFirst.data:read()
+        local counts = argCount.data:read()
+        local values = operands.data:read()
+        for i = 1, dst.count do
+            local first: integer = firsts[i]
+            local count: integer = counts[i]
+            for j = first, first + count - 1 do
+                local value: integer = values[j]
+                sum = sum + value
+            end
+        end
+    end
+    report("arena", "operands", (os.clock() - t2) / reps, sum)
+end
+
+local toks = tokens()
+print(("tokens %d from %s"):format(#toks, path))
+for name in which:gmatch("[^,]+") do
+    if name == "tables" then
+        runTables(toks)
+    elseif name == "columns" then
+        runColumns(toks)
+    elseif name == "columns32" then
+        runColumns32(toks)
+    elseif name == "arena" then
+        runArena(toks)
+    end
+end

@@ -1,0 +1,23 @@
+-- A local initialized from a bare literal accumulates uint32 struct fields
+-- read through a table.Array row view.
+local soa = table.Array
+
+local struct Row
+    a: uint32
+end
+
+local rows = soa.alloc(ffi.typeof<Row>(), 3)
+do
+    local w = rows:write()
+    for i = 1, 3 do
+        w[i].a = 0xF0000000
+    end
+end
+local sum = 0
+do
+    local r = rows:read()
+    for i = 1, 3 do
+        sum = sum + r[i].a
+    end
+end
+print(sum, 3 * 0xF0000000)

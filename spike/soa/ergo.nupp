@@ -1,0 +1,73 @@
+-- Ergonomics probes: which of these the checker accepts (see README).
+local soa = table.Array
+
+local struct Inst
+    kind: uint32
+    a: uint32
+end
+
+-- 1. Distinct index types: constrained aliases are not brands.
+local type InstId = types.range(integer, 1, 1000000000)
+local type TypeId = types.range(integer, 1, 1000000000)
+
+local function typeOf(id: TypeId): integer
+    return id
+end
+
+local inst: InstId = types.admit(5)
+print(typeOf(inst)) -- accepted: an InstId is a TypeId
+
+-- 2. A phantom-parameter alias erases to its body.
+local type Id<T> = integer
+
+local function instOnly(id: Id<Inst>): integer
+    return id
+end
+
+local other: Id<string> = 3
+print(instOnly(other)) -- accepted: Id<string> is Id<Inst>
+
+-- 3. An arena record owning an affine columnar array, passed to a pass.
+local record Arena
+    insts: affine(table.Array<Inst, "columnar">, table.Array.destroy)
+    count: integer
+end
+
+local function walk(borrows arena: Arena): number
+    local rows = arena.insts:read()
+    local sum: number = 0
+    for i = 1, arena.count do
+        if rows[i].kind == 3 then
+            sum = sum + rows[i].a
+        end
+    end
+
+    return sum
+end
+
+-- 4. Growth returns a new owner instead of storing through a reference.
+local function grown(
+    takes old: affine(table.Array<Inst, "columnar">, table.Array.destroy),
+    count: integer
+): affine(table.Array<Inst, "columnar">, table.Array.destroy)
+    local bigger = soa.alloc(ffi.typeof<Inst>(), count * 2, "columnar")
+    do
+        local target = bigger:write()
+        target:copyfrom(1, old:read(), 1, count)
+    end
+    own.drop(old)
+
+    return bigger
+end
+
+local insts = soa.alloc(ffi.typeof<Inst>(), 4, "columnar")
+do
+    local rows = insts:write()
+    for i = 1, 4 do
+        rows[i].kind = 3
+        rows[i].a = math.u32.wrap(i)
+    end
+end
+insts = grown(insts, 4)
+local arena = Arena(insts = insts, count = 4)
+print(walk(arena))
