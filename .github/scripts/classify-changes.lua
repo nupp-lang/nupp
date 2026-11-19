@@ -1,10 +1,8 @@
 -- Which correctness obligations a change actually has.
 --
 -- Returns, for a list of changed paths, the jobs that can observe their effects.
--- The rule that makes this safe is that an unrecognised path selects everything:
--- a file nobody has classified is a file whose blast radius nobody knows, and
--- the cost of running too much is runner minutes while the cost of running too
--- little is a defect reaching `main` with a green tick beside it.
+-- An unclassified path selects the general jobs because its reach is unknown.
+-- The C proofs require an explicit match to a covered C input.
 --
 -- Plain Lua 5.1 with no dependencies, because this runs in the cheap gate before any
 -- toolchain is provisioned, and because
@@ -110,6 +108,20 @@ local rules = {
     {"^src/package/nupp/", {"compiler", "library", "browser", "native"}},
     {"^src/nupp/", {"library"}},
 
+    -- The C inputs to the CBMC harnesses and their production callers.
+    {"^native/core%-bridge/main%.c$", {"proofs"}},
+    {"^native/core%-bridge/reactor%.h$", {"proofs"}},
+    {"^native/core%-bridge/transport%.h$", {"proofs"}},
+    {"^native/http%-curl/uri%-idna%.h$", {"proofs"}},
+    {"^native/http%-curl/transport%.c$", {"proofs"}},
+    {"^native/http%-curl/transport%.h$", {"proofs"}},
+    {"^native/http%-curl/ringbuffer%.h$", {"proofs"}},
+    {"^native/http%-curl/replyheaders%.h$", {"proofs"}},
+    {"^native/markdown/markdown%.c$", {"proofs"}},
+    {"^native/markdown/allocationbudget%.h$", {"proofs"}},
+    {"^tests/core/[^/]+proof%.c$", {"proofs"}},
+    {"^tests/core/proofintrinsics%.h$", {"proofs"}},
+
     {"^native/", {"native"}},
     {"^runtime/wasm/", {"browser"}},
     {"^runtime/", {"native"}},
@@ -178,6 +190,7 @@ classifier.jobs = {
     "gpu-linux",
     "gpu-windows",
     "fixpoint",
+    "proofs",
 }
 
 --- Which surfaces a path belongs to, and `unclassified` when no rule claims it.
@@ -218,14 +231,17 @@ function classifier.classify(paths)
     end
 
     -- A change with no paths at all is a manual dispatch or a tag: it has no
-    -- diff to narrow, so it gets everything.
+    -- diff to narrow, so it gets the general jobs.
     if #paths == 0 then
         surfaces.everything = true
     end
 
     local function everything(why)
         for _, name in ipairs(classifier.jobs) do
-            select(jobs, name, why, reasons)
+            -- Proofs require a matching C path even on an otherwise full run.
+            if name ~= "proofs" then
+                select(jobs, name, why, reasons)
+            end
         end
     end
 
@@ -234,6 +250,10 @@ function classifier.classify(paths)
     end
     if surfaces.unclassified then
         everything("a path no rule classifies changed")
+    end
+
+    if surfaces.proofs then
+        select(jobs, "proofs", "C inputs to the proofs changed", reasons)
     end
 
     if surfaces.docs then

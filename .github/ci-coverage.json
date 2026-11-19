@@ -247,6 +247,16 @@
         }
       ]
     },
+    "proofs": {
+      "platforms": ["linux"],
+      "selectedBy": "proofs",
+      "steps": [
+        {
+          "name": "Run the C proofs",
+          "guarantees": ["CBMC verifies the bounded contracts for the bundle header, HTTP ring and response-header packer, and Markdown allocation budget"]
+        }
+      ]
+    },
     "required-ci": {
       "platforms": ["linux"],
       "selectedBy": "always",

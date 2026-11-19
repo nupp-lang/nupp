@@ -33,9 +33,16 @@ local function doesNotSelect(path, unexpected)
     end
 end
 
---- Every job the classifier knows about.
-local function everyJob()
-    return classifier().jobs
+--- Jobs selected even without a specific matching source path.
+local function broadJobs()
+    local jobs = {}
+    for _, name in ipairs(classifier().jobs) do
+        if name ~= "proofs" then
+            jobs[#jobs + 1] = name
+        end
+    end
+
+    return jobs
 end
 
 function M.compilerChangeSelectsEveryPlatformAndFixpoint()
@@ -155,7 +162,7 @@ function M.nativeStorageInputsRemainAnExplicitSimdSurface()
 end
 
 function M.simdSurfaceHasNoChangeTriggeredGitHubJob()
-    for _, name in ipairs(everyJob()) do
+    for _, name in ipairs(classifier().jobs) do
         test(name ~= "simd-conformance", "the SIMD fleet must stay out of change-triggered CI")
     end
 end
@@ -280,6 +287,7 @@ end
 -- on; no other platform carries it yet.
 function M.theCoreLegsRunOnlyOnMacosWhenTheCoreIsSelected()
     local composer = dofile(".github/scripts/compose-integration-matrix.lua")
+
     local function coreLegs(platform, full, core)
         local legs = {}
         for _, entry in ipairs(composer.compose(platform, full, core)) do
@@ -290,6 +298,7 @@ function M.theCoreLegsRunOnlyOnMacosWhenTheCoreIsSelected()
 
         return legs
     end
+
     for _, platform in ipairs(composer.platforms) do
         if platform.key == "macos" then
             test.eq(#coreLegs(platform, false, false), 0)
@@ -332,7 +341,7 @@ function M.toolchainAndWorkflowChangesSelectEverything()
         "Cargo.lock",
         "rust-toolchain.toml"
     }) do
-        selects(path, everyJob())
+        selects(path, broadJobs())
     end
 end
 
@@ -341,15 +350,43 @@ end
 function M.anUnclassifiedPathSelectsEverything()
     local selection = classifier().classify({"some/place/nobody/described.txt"})
     test(selection.surfaces.unclassified, "an unknown path should be reported as unclassified")
-    selects("some/place/nobody/described.txt", everyJob())
+    selects("some/place/nobody/described.txt", broadJobs())
 end
 
--- A tag, a schedule and a manual dispatch have no diff to narrow.
+-- A tag, a schedule and a manual dispatch select the broad jobs.
 function M.anEmptyChangeSelectsEverything()
     local jobs = classifier().classify({}).jobs
-    for _, name in ipairs(everyJob()) do
+    for _, name in ipairs(broadJobs()) do
         test(jobs[name], ("an empty change should select %s"):format(name))
     end
+    test(not jobs.proofs, "an empty change should skip C proofs")
+end
+
+function M.proofsRequireCoveredCChanges()
+    for _, path in ipairs({
+        "native/core-bridge/main.c",
+        "native/core-bridge/reactor.h",
+        "native/http-curl/transport.c",
+        "native/http-curl/replyheaders.h",
+        "native/http-curl/ringbuffer.h",
+        "native/markdown/markdown.c",
+        "native/markdown/allocationbudget.h",
+        "tests/core/replyheadersproof.c",
+        "tests/core/proofintrinsics.h"
+    }) do
+        selects(path, {"proofs"})
+    end
+    for _, path in ipairs({
+        "native/core-bridge/tcp.c",
+        "native/markdown/CMakeLists.txt",
+        "tests/core/proofs.nupp",
+        ".github/workflows/compiler.yml",
+        "some/unclassified/file",
+        "AGENTS.md"
+    }) do
+        doesNotSelect(path, {"proofs"})
+    end
+    test(jobsFor("AGENTS.md", "tests/core/replyheadersproof.c").proofs)
 end
 
 function M.documentationOnlyChangesProvisionNoPlatform()
@@ -375,9 +412,9 @@ function M.aMixedChangeTakesTheUnionOfItsPaths()
     test(jobs["gpu-linux"], "the GPU obligation should survive")
 end
 
-function M.everyJobTheClassifierKnowsIsSelectableByEverything()
+function M.eachBroadJobRecordsWhyItWasSelected()
     local selection = classifier().classify({})
-    for _, name in ipairs(everyJob()) do
+    for _, name in ipairs(broadJobs()) do
         test(selection.reasons[name], ("%s should record why it was selected"):format(name))
     end
 end

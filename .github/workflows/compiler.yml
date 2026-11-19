@@ -110,6 +110,7 @@ jobs:
       gpu-linux: ${{ steps.classify.outputs.gpu-linux }}
       gpu-windows: ${{ steps.classify.outputs.gpu-windows }}
       fixpoint: ${{ steps.classify.outputs.fixpoint }}
+      proofs: ${{ steps.classify.outputs.proofs }}
       linux-legs: ${{ steps.matrix.outputs.linux-legs }}
       macos-legs: ${{ steps.matrix.outputs.macos-legs }}
       windows-legs: ${{ steps.matrix.outputs.windows-legs }}
@@ -231,7 +232,7 @@ jobs:
           # which the classifier decides rather than this shell.
           if usable "$base"; then
             echo "comparing against $base"
-            git diff --name-only "$base" "$HEAD_SHA" > changed-paths.txt
+            git diff --name-only --no-renames "$base" "$HEAD_SHA" > changed-paths.txt
           else
             : > changed-paths.txt
           fi
@@ -1012,6 +1013,33 @@ jobs:
           path: build/wgpu-conformance/*.json
           if-no-files-found: warn
 
+  proofs:
+    name: C proofs
+    needs: classify
+    if: needs.classify.outputs.proofs == 'true'
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 10
+    steps:
+      - name: Check out the repository
+        uses: actions/checkout@v5
+
+      - name: Install CBMC
+        run: |
+          package="$RUNNER_TEMP/cbmc.deb"
+          curl --fail --silent --show-error --location --output "$package" \
+            https://github.com/diffblue/cbmc/releases/download/cbmc-6.11.0/ubuntu-24.04-arm64-cbmc-6.11.0-Linux.deb
+          echo "9eb8f41a7dcda8eac6338b8367d77831431f767691e4535209925bd85e315ae7  $package" | sha256sum --check
+          dpkg-deb --extract "$package" "$RUNNER_TEMP/cbmc"
+          echo "$RUNNER_TEMP/cbmc/usr/bin" >> "$GITHUB_PATH"
+
+      - name: Run the C proofs
+        run: |
+          if [ "$(./scripts/stage0-runtime)" = vm ]; then
+            seed=$(./scripts/toolchain stage0-seed)
+            export NUPP_VM_BINARY="$seed/runtime" NUPP_VM_CLI_IMAGE="$seed/compiler.image"
+          fi
+          ./bin/nupp task proofs
+
   # The one status a ruleset should require. Its meaning does not change when
   # the jobs above are reorganized, renamed, or split, and it cannot pass by a
   # job being skipped: a job the classifier selected and that did not succeed
@@ -1039,6 +1067,7 @@ jobs:
       - docs-site
       - gpu-conformance
       - gpu-conformance-windows
+      - proofs
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     # The run's queue delay and its per-job durations are only on the API, and
