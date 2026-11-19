@@ -453,44 +453,67 @@ end
 const SOURCE_TEMPLATES: {string} = {"src/?.nupp", "src/?/init.nupp", "src/?.lua", "src/?/init.lua"}
 const NUPP_SUFFIX = ".nupp"
 
--- Module `name` from its source under the checkout's src/, which the image
--- does not carry: its kept chunk, else compiled on the core, Nupp source as
--- a module instance whose requires go through the program's `require`.
--- Answers what it settles as, and the file; nil where there is no source.
+-- Where module `name`'s source is and its text: under the checkout's src/,
+-- else under an include root of the project the compiler checks module
+-- instances in (corechunk.sourceRoots), its own root among them, as the
+-- VM's loader looks; nil where neither holds it.
+local function sourcefile(name: string): (string?, string?)
+    local file = name:gsub("%.", "/")
+    local root = checkout()
+    for _, template in ipairs(SOURCE_TEMPLATES) do
+        local relative = template:gsub("%?", file)
+        local text = contents(relative)
+        if text ~= nil then
+            return relative, text
+        end
+        if root ~= nil then
+            text = contents(root .. "/" .. relative)
+            if text ~= nil then
+                return root .. "/" .. relative, text
+            end
+        end
+    end
+    local found = textCompiler()
+    for _, directory in ipairs(found ~= nil and found.sourceRoots() or {}) do
+        for _, template in ipairs(SOURCE_TEMPLATES) do
+            local path = directory .. "/" .. template:sub(#"src/" + 1):gsub("%?", file)
+            local text = contents(path)
+            if text ~= nil then
+                return path, text
+            end
+        end
+    end
+
+    return nil, nil
+end
+
+-- Module `name` from its source (sourcefile), which the image does not
+-- carry: its kept chunk, else compiled on the core, Nupp source as a module
+-- instance whose requires go through the program's `require`. Answers what
+-- it settles as, and the file; nil where there is no source.
 local function sourcemodule(name: string): (any, string?)
     if compiler == false then
         -- The compiler itself, while it loads, or a program without it.
         return nil, nil
     end
-    local file = name:gsub("%.", "/")
-    local root = checkout()
-    for _, template in ipairs(SOURCE_TEMPLATES) do
-        local relative = template:gsub("%?", file)
-        local path = relative
-        local text = contents(path)
-        if text == nil and root ~= nil then
-            path = root .. "/" .. relative
-            text = contents(path)
-        end
-        if text ~= nil then
-            local module = relative:sub(-#NUPP_SUFFIX) == NUPP_SUFFIX
-            local bytes, problem = compiled(text, "@" .. path, path, module)
-            if bytes == nil then
-                error("error loading module '" .. name .. "' from file '" .. path .. "':\n\t" .. tostring(problem), 3)
-            end
-            local value: any = nil
-            if module then
-                value = started(bytes, "@" .. path, libraryvalues.functions._G)
-            else
-                local chunk: any = started(bytes, "@" .. path, nil)
-                value = chunk(name, path)
-            end
-
-            return libraryvalues.settle(name, value), path
-        end
+    local path, text = sourcefile(name)
+    if path == nil or text == nil then
+        return nil, nil
+    end
+    local module = path:sub(-#NUPP_SUFFIX) == NUPP_SUFFIX
+    local bytes, problem = compiled(text, "@" .. path, path, module)
+    if bytes == nil then
+        error("error loading module '" .. name .. "' from file '" .. path .. "':\n\t" .. tostring(problem), 3)
+    end
+    local value: any = nil
+    if module then
+        value = started(bytes, "@" .. path, libraryvalues.functions._G)
+    else
+        local chunk: any = started(bytes, "@" .. path, nil)
+        value = chunk(name, path)
     end
 
-    return nil, nil
+    return libraryvalues.settle(name, value), path
 end
 
 -- Lua's `require` for chunks: the program's (package.loaded, package.preload,

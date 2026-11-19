@@ -152,6 +152,15 @@ export function useEnvironment(env: any): nil
     held.source = env
 end
 
+--- The directories a module's source is looked for in, beside the checkout's
+--- src: the include roots of the project whose environment checks module
+--- instances (useEnvironment), its own root among them; none before one does.
+export function sourceRoots(): {string}
+    local env = held.source
+
+    return env ~= nil and env.roots or {}
+end
+
 --- Checks chunk sources against the modules under `path` too, beside the
 --- checkout's: a guest build's staged fixtures, which its module instance
 --- fixtures require.
