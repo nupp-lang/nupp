@@ -202,6 +202,7 @@ export const dynamicInvokeContract = graphcalls.dynamicInvokeContract
 export const expandsResults = graphcalls.expandsResults
 export const spreadsLast = graphcalls.spreadsLast
 export const callbackArgument = graphcalls.callbackArgument
+export const indexedReplacement = graphcalls.indexedReplacement
 export const callbackInvokeContract = graphcalls.callbackInvokeContract
 export const protectedInvokeContract = graphcalls.protectedInvokeContract
 export const constructContract = graphcalls.constructContract

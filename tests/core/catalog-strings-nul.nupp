@@ -11,4 +11,22 @@ end
 if ("a\0b\0c"):gsub("%z", "-") == "a-b-c" then
     score = score | 2
 end
+-- A set whose range starts at NUL, as lunajson's string escape is.
+if ("a\0b"):find("[\0-\31\"\\]") == 2 and ("a\0b"):gsub("[\0-\31]", "-") == "a-b" then
+    score = score | 4
+end
+-- A replacement table answering the bytes it lacks through __index, which
+-- gsub consults as Lua's does: as a method, through the library's value,
+-- and called directly.
+local escapes = setmetatable({["\n"] = "\\n"}, {
+    __index = function(_, c: string): string
+        return string.format("\\u%04x", string.byte(c))
+    end
+})
+if ("a\0b\n"):gsub("[\0-\31]", escapes) == "a\\u0000b\\n" then
+    score = score | 8
+end
+if string.gsub("\0\n", "[\0-\31]", escapes) == "\\u0000\\n" then
+    score = score | 16
+end
 export const result = score

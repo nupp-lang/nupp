@@ -1594,6 +1594,28 @@ export function callbackArgument(call: any): integer?
     return nil
 end
 
+-- Table types a value can carry a metatable under.
+const INDEXED_REPLACEMENTS = {table = true, map = true, array = true, shape = true, metatable = true}
+
+-- The argument string.gsub reads its matches' replacements from, by its
+-- index, when that is a table: read as Lua reads it, through an __index the
+-- table's metatable names, which the core's own replacement read does not
+-- consult. Nil for any other call.
+export function indexedReplacement(call: any): integer?
+    local exprs = call and call.args and call.args.exprs
+    if coreLibraryCall(call) ~= "string.gsub" or not exprs then
+        return nil
+    end
+    local index = call.kind == "methodCall" and 2 or 3
+    local replacement = exprs[index]
+    local t = replacement and replacement.inferredType
+    if t and INDEXED_REPLACEMENTS[t.tag] then
+        return index
+    end
+
+    return nil
+end
+
 -- The contract of a library call's call of its callback with `given` values,
 -- or with `spread` a pack of them.
 export function callbackInvokeContract(call: any, given: integer, spread: boolean?): any

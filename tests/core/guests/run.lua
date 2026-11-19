@@ -105,8 +105,9 @@ local CASES = {
     {"stringdynamic", 0x7FFF000000000001},
     -- Concatenation of floats and integers through dynamic values.
     {"concatnumbers", 0x7FFF000000000007},
-    -- NUL bytes in strings: the %z pattern class.
-    {"stringsnul", 0x7FFF000000000003},
+    -- NUL bytes in strings: the %z pattern class, sets ranging from NUL
+    -- and a replacement table read through __index.
+    {"stringsnul", 0x7FFF00000000001F},
     -- Results led by nils, directly, through tail calls and function values.
     {"callsleadingnils", 0x7FFF00000000000F},
     -- A record with an array part: iteration and absent fields.
@@ -269,7 +270,7 @@ local CASES = {
     -- library and the collector; then what Lua sees of them, as a checksum.
     {"tablespacked", 0x7FFF0000000007FF},
     {"tablespackedsemantics", 0x7FFF00000DEDBD01},
-    {"serdejson", 0x7FFF000000000003},
+    {"serdejson", 0x7FFF000000000007},
     {"modulesretry", 0x7FFF00000000007F},
     {"errorsruntime", 0x7FFF00000000001F},
     {"hostlibrary", 0x7FFF0000000000FF},

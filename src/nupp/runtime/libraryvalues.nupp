@@ -325,6 +325,9 @@ export const functions: {[string]: any} = {
     ["string.gsub"] = function(s: string, pattern: string, replacement: any, n: integer?): (string, integer)
         if type(replacement) == "function" then
             return string.gsub(s, pattern, replacement as function(...: string): any, n)
+        elseif type(replacement) == "table" then
+            -- Read through its __index, as Lua reads it.
+            return string.gsub(s, pattern, replacement as {[string]: string}, n)
         end
 
         return string.gsub(s, pattern, replacement as string | {[string]: string}, n)

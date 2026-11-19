@@ -39,7 +39,7 @@ export function packSpec(library: string?): integer?
     return corelibrary.packed(library)
 end
 
-local gsubWith: function(any, any, any, boolean): integer
+local gsubWith: function(any, any, any, boolean, boolean): integer
 
 local packedCall: function(any, any, any, integer): integer
 
@@ -166,11 +166,15 @@ end
 
 -- A core library call (guestlib): its arguments staged as values.
 export function libraryCall(ctx: any, node: any, id: integer, arguments: any): integer
-    -- gsub with a function replacement calls it, so it is a loop.
-    if (id == corelibrary.id("STRING_GSUB") or id == corelibrary.id("STRING_GSUB_ALL"))
-        and graph.callbackArgument(node) ~= nil
-    then
-        return gsubWith(ctx, node, arguments, id == corelibrary.id("STRING_GSUB_ALL"))
+    -- gsub with a function replacement calls it, and with a table one may
+    -- call its __index, so each is a loop.
+    if id == corelibrary.id("STRING_GSUB") or id == corelibrary.id("STRING_GSUB_ALL") then
+        local all = id == corelibrary.id("STRING_GSUB_ALL")
+        if graph.callbackArgument(node) ~= nil then
+            return gsubWith(ctx, node, arguments, all, false)
+        elseif graph.indexedReplacement(node) ~= nil then
+            return gsubWith(ctx, node, arguments, all, true)
+        end
     end
     -- string.format and table.move past four arguments, or spreading a
     -- `...` or a call's results last, take the rest packed.
@@ -882,13 +886,16 @@ end
 
 -- string.gsub(s, p, f [, n]): the gsub step advances to each match and
 -- leaves its captures as a pack, f is called with them, and its answer
--- replaces the match. The finished string comes alone or, with `all`, in a
--- pack with the count.
-gsubWith = function(ctx: any, node: any, arguments: any, all: boolean): integer
-    local p = catalog(ctx)
-    local site = need(p.callByNode[node], "gsub lacks its function's callsite")
-    need(site.field and site.owner == ctx.fn.id, "gsub callsite belongs to another owner")
-    need(#arguments == 3 or #arguments == 4, "gsub takes a subject, pattern, function and an optional count")
+-- replaces the match. With `indexed`, f is a table, read at the first
+-- capture through its __index as Lua reads it. The finished string comes
+-- alone or, with `all`, in a pack with the count.
+gsubWith = function(ctx: any, node: any, arguments: any, all: boolean, indexed: boolean): integer
+    if not indexed then
+        local p = catalog(ctx)
+        local site = need(p.callByNode[node], "gsub lacks its function's callsite")
+        need(site.field and site.owner == ctx.fn.id, "gsub callsite belongs to another owner")
+    end
+    need(#arguments == 3 or #arguments == 4, "gsub takes a subject, pattern, replacement and an optional count")
     local kinds = {}
     for index = 1, #arguments do
         kinds[index] = "tagged"
@@ -899,7 +906,7 @@ gsubWith = function(ctx: any, node: any, arguments: any, all: boolean): integer
     end
     table.insert(operands, 1, corelibrary.id("STRING_GSUB_BEGIN"))
     local state = ctx.hold(ctx.emit(node, "LibCall", operands, "tagged"))
-    local contract = graph.callbackInvokeContract(node, 0, true)
+    local contract = not indexed and graph.callbackInvokeContract(node, 0, true) or nil
     ctx.loop(
         node,
         function(c: any, n: any): integer
@@ -910,12 +917,18 @@ gsubWith = function(ctx: any, node: any, arguments: any, all: boolean): integer
             local fn = c.emit(n, "GetIdx", {c.readHeld(state), fnKey}, "tagged")
             local packKey = c.emit(n, "K", {pool(c, "int64", tostring(corelibrary.key("GSUB", "CAPTURES")))}, "tagged")
             local captures = c.emit(n, "GetIdx", {c.readHeld(state), packKey}, "tagged")
-            if cleanupGraphs[c.g] then
-                c.beforeCall(n)
-            end
-            local answer = landed(c, n, c.invoke(n, fn, {}, contract, true, captures))
-            if c.block == nil then
-                return
+            local answer
+            if indexed then
+                local first = c.emit(n, "K", {pool(c, "int64", "1")}, "tagged")
+                answer = c.emit(n, "GetIdx", {fn, c.emit(n, "GetIdx", {captures, first}, "tagged")}, "tagged")
+            else
+                if cleanupGraphs[c.g] then
+                    c.beforeCall(n)
+                end
+                answer = landed(c, n, c.invoke(n, fn, {}, contract, true, captures))
+                if c.block == nil then
+                    return
+                end
             end
             local key = c.emit(n, "K", {pool(c, "int64", tostring(corelibrary.key("GSUB", "ANSWER")))}, "tagged")
             c.emit(n, "SetIdx", {c.readHeld(state), key, answer}, nil)
