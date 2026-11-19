@@ -23,6 +23,10 @@
           "guarantees": ["adopted Nupp C sources and headers match the pinned formatters"]
         },
         {
+          "name": "Lint C",
+          "guarantees": ["adopted Nupp C sources and headers pass the pinned clang-tidy"]
+        },
+        {
           "name": "Classify the affected surfaces",
           "guarantees": ["every change selects the jobs that can observe it"]
         },
@@ -147,6 +151,13 @@
           "groups": ["native-runtime"],
           "guarantees": [
             "the handler sources lower, compile and pass the native contract tests"
+          ]
+        },
+        {
+          "name": "Run the bridge under the sanitizers",
+          "platforms": ["macos"],
+          "guarantees": [
+            "the core bridge's C passes its contracts and representative guests under ASan and UBSan"
           ]
         },
         {

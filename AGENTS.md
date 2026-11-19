@@ -192,7 +192,13 @@ braced block, even a single statement. Within a function, a blank line goes befo
 statements, except where the statement opens or closes its block
 (`.uncrustify.cfg`). `scripts/format-c --write` writes both, the hook refuses a
 push carrying C it would rewrite, and CI's first job checks the same whenever
-C or the formatting setup changed. No tool
+C or the formatting setup changed. `scripts/lint-c` holds the same files to a
+pinned clang-tidy (`.clang-tidy`, which gives the reason for each check it
+leaves out), in that job and in the hook for the C a push changes; suppress a
+false positive where it stands, `/* NOLINT(check) */` with the reason.
+`scripts/core-bridge --sanitize --test` builds the bridge, guard and
+contracts under ASan and UBSan and runs the contracts, which the macOS
+core-guest leg does with a few guests. No tool
 places the blank lines around a file's preprocessor groups, so write them as
 Lua does: a blank line before and after each run of `#define`s, `#include`s or
 conditionals, with a comment that documents a macro kept directly above it.

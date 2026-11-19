@@ -238,15 +238,16 @@ jobs:
           echo "--- changed paths ---"
           cat changed-paths.txt
 
-      # C is checked only when something that decides its formatting changed:
-      # a C source or header, its CMake, the formatters' configuration, their pins or the
-      # script that runs them. An empty list is "everything", as it is for the
-      # classifier, so a run with no diff still checks.
+      # C is checked only when something that decides its formatting or its
+      # lint changed: a C source or header, its CMake, the tools'
+      # configuration, their pins or the scripts that run them. An empty list
+      # is "everything", as it is for the classifier, so a run with no diff
+      # still checks.
       - name: Name the C changes
         id: c-changed
         run: |
           if [ ! -s changed-paths.txt ] || grep -Eq \
-              '\.(c|h|cmake)$|(^|/)CMakeLists\.txt$|^\.(clang-format|uncrustify\.cfg|gersemirc)$|^scripts/format-c$|^scripts/toolchain(\.pins)?$' \
+              '\.(c|h|cmake)$|(^|/)CMakeLists\.txt$|^\.(clang-format|clang-tidy|uncrustify\.cfg|gersemirc)$|^scripts/(format-c|lint-c)$|^scripts/toolchain(\.pins)?$' \
               changed-paths.txt; then
             echo "check=true" >> "$GITHUB_OUTPUT"
           else
@@ -267,6 +268,21 @@ jobs:
       - name: Check C formatting
         if: steps.c-changed.outputs.check == 'true'
         run: ./scripts/format-c --check
+
+      # The upstream headers the lint compiles against, unpacked and
+      # configured once per pin (scripts/lint-c).
+      - name: Cache the C lint's headers
+        if: steps.c-changed.outputs.check == 'true'
+        uses: actions/cache@v4
+        with:
+          path: build/c-lint/sources
+          key: >-
+            nupp-c-lint-${{ runner.os }}-${{ runner.arch }}-${{
+            hashFiles('scripts/toolchain.pins', 'scripts/lint-c') }}
+
+      - name: Lint C
+        if: steps.c-changed.outputs.check == 'true'
+        run: ./scripts/lint-c
 
       - name: Classify the affected surfaces
         id: classify
@@ -688,6 +704,20 @@ jobs:
           .github/scripts/run-suite-shard.sh
           ${{ matrix.shard }} ${{ matrix.shards }} ${{ matrix.batch }} ${{ matrix.jobs }}
           ${{ matrix.select }}
+
+      # The bridge's own C under AddressSanitizer and UndefinedBehaviorSanitizer:
+      # its contracts, then the guest cases that reach the most of it -- C
+      # calls through the bridge's imports, aggregates through libffi, an
+      # interposed getentropy failing, and Markdown through a C library. One
+      # shard runs it; the guests' generated code is not instrumented
+      # (scripts/core-bridge).
+      - name: Run the bridge under the sanitizers
+        if: matrix.kind == 'core' && matrix.shard == 1
+        shell: bash
+        run: |
+          ./scripts/core-bridge --sanitize --test
+          NUPP_CORE_BRIDGE_SANITIZE=1 ./bin/nupp run tests/core/guests/acceptance.nupp \
+            --target aarch64-apple-darwin cbridge ffiaggregates entropyfailure markdown
 
       # The native core's own guest programs and runtime units, run on the core
       # through the C bridge in normal and spill mode, against the committed

@@ -100,6 +100,9 @@ local rules = {
     {"^src/nupp/compiler/vm/", {"core"}},
     {"^src/nupp/compiler/s0/", {"core"}},
     {"^tests/core/", {"core"}},
+    -- The C bridge the guests run through, which that leg also runs under
+    -- the sanitizers.
+    {"^native/core%-bridge/", {"core"}},
     -- The host facility's browser and native providers both implement it.
     {"^src/os/host%.nupp$", {"library", "browser", "native"}},
     {"^src/math/random%.nupp$", {"library", "browser"}},
