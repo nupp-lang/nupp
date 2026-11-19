@@ -11,6 +11,9 @@
 #include "reactor.h"
 #include "tcp.h"
 #include "udp.h"
+#ifdef NUPP_CORE_TLS
+#include "tlsbio.h"
+#endif
 #include <inttypes.h>
 #include <limits.h>
 #ifndef _WIN32
@@ -22,7 +25,7 @@
 
 enum { MAX_ENDPOINTS = 512, MAX_DNS = 32, HOST_ROOM = 256 };
 
-enum { LISTENER, CONNECT, STREAM, DATAGRAM };
+enum { LISTENER, CONNECT, STREAM, DATAGRAM, ENCRYPTED };
 
 typedef union {
   struct sockaddr base;
@@ -36,6 +39,9 @@ typedef struct Endpoint {
   uint64_t key, deadline;
   NuppTcp *tcp;
   NuppUdp *udp;
+#ifdef NUPP_CORE_TLS
+  NuppTls *tls;
+#endif
   uv_getaddrinfo_t lookup;
   struct addrinfo *addresses, *candidate;
   int kind, local, resolving, retiring, retrying, laststatus;
@@ -80,6 +86,11 @@ static int allocate (void *scope, int kind, Endpoint **out) {
 static void retire (Endpoint *endpoint) {
   endpoint->retiring = 1;
   endpoint->scope = NULL;
+
+#ifdef NUPP_CORE_TLS
+  nupptlsfree(endpoint->tls);
+  endpoint->tls = NULL;
+#endif
 
   if (endpoint->resolving) {
     uv_cancel((uv_req_t *)&endpoint->lookup);
@@ -135,6 +146,9 @@ void nuppnetshutdown (void) {
   }
 
   nuppnetsweep();
+#ifdef NUPP_CORE_TLS
+  nupptlsclear();
+#endif
 }
 
 int nuppnetpending (void) {
@@ -642,6 +656,244 @@ static int datagram (NuppUdp *udp, uint64_t op, void *bytes, uint64_t size,
   }
 }
 
+#ifdef NUPP_CORE_TLS
+enum {
+  TLS_CONFIG_LIMIT = 1048576,
+  TLS_SERVER = 1,
+  TLS_VERIFY = 2,
+  TLS_AUTHORITY = 4
+};
+
+static const char *counted_field (const char *at, const char *end,
+                                  NuppTlsBytes *value) {
+  if (!at || at == end || *at < '0' || *at > '9') {
+    return NULL;
+  }
+
+  size_t size = 0;
+  unsigned digits = 0;
+
+  while (at < end && *at != '\n') {
+    if (++digits > 7 || *at < '0' || *at > '9') {
+      return NULL;
+    }
+
+    size = size * 10 + (unsigned)(*at++ - '0');
+  }
+
+  if (at == end || size > (size_t)(end - at - 1)) {
+    return NULL;
+  }
+
+  *value = (NuppTlsBytes){at + 1, size};
+
+  return at + 1 + size;
+}
+
+static int64_t wrap (Endpoint *endpoint, const char *bytes, uint64_t size) {
+  if (endpoint->kind != STREAM) {
+    return UV_EINVAL;
+  }
+
+  if (!bytes || size < 2 || size > TLS_CONFIG_LIMIT || issued == INT64_MAX) {
+    retire(endpoint);
+
+    return UV_EINVAL;
+  }
+
+  const char *end = bytes + size;
+  unsigned flags = (unsigned char)*bytes++;
+  char hostname[HOST_ROOM];
+  const char *at = field(bytes, end, hostname, sizeof(hostname));
+  NuppTlsOptions options = {.hostname = hostname,
+                            .server = flags & TLS_SERVER,
+                            .verify = flags & TLS_VERIFY};
+  at = counted_field(at, end, &options.certificate);
+  at = counted_field(at, end, &options.private_key);
+  at = counted_field(at, end, &options.authority);
+  at = counted_field(at, end, &options.protocols);
+
+  if (!(flags & TLS_AUTHORITY)) {
+    options.authority = (NuppTlsBytes){NULL, 0};
+  }
+
+  if (at != end || flags > (TLS_SERVER | TLS_VERIFY | TLS_AUTHORITY) ||
+      (!options.server && !hostname[0] &&
+       (options.verify || endpoint->local))) {
+    retire(endpoint);
+
+    return UV_EINVAL;
+  }
+
+  if (!options.server && !endpoint->local) {
+    struct sockaddr_storage peer;
+    int length = sizeof(peer);
+    char numeric[HOST_ROOM];
+
+    if (nupptcppeer(endpoint->tcp, (struct sockaddr *)&peer, &length) < 0 ||
+        formataddress((struct sockaddr *)&peer, numeric, &options.port) < 0) {
+      retire(endpoint);
+
+      return UV_ENOTCONN;
+    }
+  }
+
+  char error[HOST_ROOM];
+  endpoint->tls = nupptlsopen(&options, error, sizeof(error));
+
+  if (!endpoint->tls) {
+    retire(endpoint);
+
+    return UV_EINVAL;
+  }
+
+  endpoint->kind = ENCRYPTED;
+  endpoint->key = ++issued;
+  endpoint->deadline = 0;
+
+  return (int64_t)endpoint->key;
+}
+
+static int receive_ciphertext (Endpoint *endpoint) {
+  size_t room = nupptlsroom(endpoint->tls);
+
+  if (!room) {
+    return 0;
+  }
+
+  char bytes[NUPP_TLS_WINDOW];
+  int count = nupptcpreceive(endpoint->tcp, bytes,
+                             room < sizeof(bytes) ? room : sizeof(bytes));
+
+  if (count == UV_EAGAIN) {
+    return 0;
+  }
+
+  if (count == 0) {
+    nupptlseof(endpoint->tls);
+  }
+  else if (count > 0 &&
+           nupptlsfeed(endpoint->tls, bytes, (size_t)count) != count) {
+    return UV_EIO;
+  }
+
+  return count < 0 ? count : 0;
+}
+
+static int send_ciphertext (Endpoint *endpoint) {
+  const char *bytes;
+  size_t size = nupptlsoutput(endpoint->tls, &bytes);
+
+  if (!size) {
+    return 0;
+  }
+
+  int count = nupptcpsend(endpoint->tcp, bytes, size);
+
+  if (count == UV_EAGAIN) {
+    return 0;
+  }
+
+  if (count < 0) {
+    return count;
+  }
+
+  return nupptlsconsumed(endpoint->tls, (size_t)count) ? 0 : UV_EIO;
+}
+
+static int operate_tls (Endpoint *endpoint, uint64_t op, void *bytes,
+                        uint64_t size) {
+  NuppTls *tls = endpoint->tls;
+  int result;
+
+  switch (op) {
+    case NUPP_NET_TLS_READY:
+      return nupptlsready(tls);
+    case NUPP_NET_TLS_VERIFIED:
+      return nupptlsverified(tls);
+    case NUPP_NET_TLS_RESUMED:
+      return nupptlsresumed(tls);
+    case NUPP_NET_TLS_PROTOCOL: {
+      NuppTlsBytes protocol = nupptlsprotocol(tls);
+
+      if (protocol.size > size) {
+        return UV_ENOBUFS;
+      }
+
+      if (protocol.size) {
+        memcpy(bytes, protocol.data, protocol.size);
+      }
+
+      return (int)protocol.size;
+    }
+    case NUPP_NET_TLS_ERROR: {
+      int written = snprintf(bytes, (size_t)size, "%s", nupptlswhy(tls));
+
+      return written >= 0 && (uint64_t)written < size ? written : UV_ENOBUFS;
+    }
+    default:
+      break;
+  }
+
+  int status = receive_ciphertext(endpoint);
+
+  if (status) {
+    return status;
+  }
+
+  switch (op) {
+    case NUPP_NET_TLS_HANDSHAKE:
+      result = nupptlshandshake(tls);
+      break;
+    case NUPP_NET_TLS_READ:
+      result = nupptlsread(tls, bytes, (size_t)size);
+      break;
+    case NUPP_NET_TLS_WRITE:
+      result = nupptlswrite(tls, bytes, (size_t)size);
+      break;
+    case NUPP_NET_TLS_CLOSE:
+
+      if (!nupptlsready(tls)) {
+        return 1;
+      }
+
+      if (!endpoint->deadline) {
+        endpoint->deadline = uv_hrtime() + UINT64_C(1000000000);
+      }
+
+      result = nupptlsclose(tls);
+      break;
+    case NUPP_NET_TLS_FLUSHED:
+      result = nupptlsflushed(tls);
+      break;
+    default:
+      return UV_EINVAL;
+  }
+
+  status = send_ciphertext(endpoint);
+
+  if (result == NUPP_TLS_ERROR) {
+    return result;
+  }
+
+  if (status) {
+    return status;
+  }
+
+  if (op == NUPP_NET_TLS_CLOSE && uv_hrtime() >= endpoint->deadline) {
+    return 1;
+  }
+
+  if (op == NUPP_NET_TLS_FLUSHED || op == NUPP_NET_TLS_CLOSE) {
+    int waiting = nupptcppending(endpoint->tcp);
+
+    return waiting < 0 ? waiting : (result == 1 && !waiting);
+  }
+
+  return result;
+}
+#endif
+
 int64_t nuppnetcall (void *scope, uint64_t op, uint64_t key, void *bytes,
                      uint64_t size, uint64_t option) {
   if (!scope || (!bytes && size)) {
@@ -680,6 +932,20 @@ int64_t nuppnetcall (void *scope, uint64_t op, uint64_t key, void *bytes,
 
     return 0;
   }
+
+#ifdef NUPP_CORE_TLS
+
+  if (op == NUPP_NET_TLS_WRAP) {
+    return wrap(endpoint, bytes, size);
+  }
+
+  if (endpoint->kind == ENCRYPTED) {
+    return op >= NUPP_NET_TLS_HANDSHAKE && op <= NUPP_NET_TLS_ERROR
+               ? operate_tls(endpoint, op, bytes, size)
+               : UV_EBADF;
+  }
+
+#endif
 
   if (op == NUPP_NET_ACCEPT && endpoint->kind == LISTENER) {
     return acceptpeer(endpoint);

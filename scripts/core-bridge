@@ -45,6 +45,8 @@ if [ "$win64_mode" = --win64-contracts ] || [ "$win64_mode" = --win64-http-link 
     fi
     if [ "$win64_mode" = --win64-http-link ]; then
         . "$ROOT/scripts/core-http-windows-sdk.sh"
+        ssl=$(NUPP_NATIVE_TARGET=x86_64-pc-windows-msvc NUPP_CC=cl \
+            sh "$ROOT/scripts/native-libraries" openssl)
     fi
     uv=$(NUPP_NATIVE_TARGET=x86_64-pc-windows-msvc NUPP_CC=cl \
         sh "$ROOT/scripts/native-libraries" libuv)
@@ -72,16 +74,18 @@ if [ "$win64_mode" = --win64-contracts ] || [ "$win64_mode" = --win64-http-link 
         for notice in $curl_notices; do cp -P "$curl/notices/$notice" "$stage/notices/"; done
         curl_headers=$(cygpath -m "$curl/include")
         curl_lib=$(cygpath -m "$curl_import")
+        ssl_native=$(cygpath -m "$ssl")
         icu_headers=$(cygpath -m "$icu_include")
         icu_lib=$(cygpath -m "$icu_import")
         http="$root_native/native/httpcurl"
         # LINK accepts -DEF, which avoids a slash-prefixed MSYS argument.
-        compile_win64 -DNUPP_CORE_HTTP -DNUPP_WIN64_HTTP_SYSTEM_ICU=1 -DNUPP_WIN64_PROCESS -DNUPP_CORE_NET \
-            -iquote "$common" -I"$curl_headers" -I"$icu_headers" \
+        compile_win64 -DNUPP_CORE_HTTP -DNUPP_WIN64_HTTP_SYSTEM_ICU=1 -DNUPP_WIN64_PROCESS -DNUPP_CORE_NET -DNUPP_CORE_TLS \
+            -iquote "$common" -I"$curl_headers" -I"$icu_headers" -I"$ssl_native/include" \
             "$common/main.c" "$common/uv.c" "$http/transport.c" "$http/uriidna.c" \
             "$common/process.c" "$common/winpipe.c" "$common/streamio.c" \
-            "$common/netbridge.c" "$common/tcp.c" "$common/udp.c" \
-            "$curl_lib" "$icu_lib" -Xlinker "-DEF:$common/http-win64.def" \
+            "$common/netbridge.c" "$common/tcp.c" "$common/udp.c" "$common/tlsbio.c" \
+            "$curl_lib" "$icu_lib" "$ssl_native/lib/libssl.lib" "$ssl_native/lib/libcrypto.lib" -lcrypt32 \
+            -Xlinker "-DEF:$common/http-win64.def" \
             -o "$stage_native/nupp-core.exe"
         printf '%s\n' "$stage"
         exit 0
@@ -141,6 +145,7 @@ esac
 
 # The deployment floor and SDK above select normal pinned cache entries.
 uv=$(sh "$ROOT/scripts/native-libraries" libuv)
+ssl=$(sh "$ROOT/scripts/native-libraries" openssl)
 common="$ROOT/native/corebridge"
 http="$ROOT/native/httpcurl"
 mkdir -p "$OUT"
@@ -181,18 +186,21 @@ compile() {
     fi
     "$CC" \
         $flags \
-        -DNUPP_CORE_HTTP -DNUPP_CORE_NET -I"$common" -I"$uv/include" -I"$curl/include" "$@"
+        -DNUPP_CORE_HTTP -DNUPP_CORE_NET -DNUPP_CORE_TLS \
+        -I"$common" -I"$uv/include" -I"$curl/include" -I"$ssl/include" "$@"
 }
 link_bridge() {
     if [ "$platform" != Darwin:arm64 ]; then
         # The bridge's ELF RPATH also covers dependencies of its sidecars.
         set -- "$@" -Wl,--disable-new-dtags -Wl,-rpath-link,"$stage/lib" -ldl
+    else
+        set -- "$@" -framework Security -framework CoreFoundation
     fi
     compile "$export_flag" -Wl,-rpath,"$rpath" "$@" "$common/process.c" \
-        "$common/netbridge.c" "$common/tcp.c" "$common/streamio.c" "$common/udp.c" \
+        "$common/netbridge.c" "$common/tcp.c" "$common/streamio.c" "$common/udp.c" "$common/tlsbio.c" \
         ${defaults:+"$defaults"} \
         "$http/transport.c" "$stage/uriidna.o" "$stage/lib/libcurl.$shared_suffix" \
-        "$icu" "$stage/lib/$uv_name"
+        "$icu" "$stage/lib/$uv_name" "$stage/lib/libssl.$shared_suffix" "$stage/lib/libcrypto.$shared_suffix"
 }
 if [ "$platform" = Darwin:arm64 ]; then
     compile -c "$http/uriidna.c" -o "$stage/uriidna.o"
@@ -232,5 +240,12 @@ if [ "$test" = 1 ]; then
     check_floor "$OUT/nupp-net-contracts$pending"
     mv "$OUT/nupp-net-contracts$pending" "$OUT/nupp-net-contracts"
     "$OUT/nupp-net-contracts" >&2
+    link_bridge "$ROOT/tests/core/tlsbiocontracts.c" "$common/uv.c" \
+        -o "$OUT/nupp-tls-bio-contracts$pending"
+    check_floor "$OUT/nupp-tls-bio-contracts$pending"
+    mv "$OUT/nupp-tls-bio-contracts$pending" "$OUT/nupp-tls-bio-contracts"
+    fixtures="$ROOT/tests/stdlib/io/net/fixtures"
+    (unset SSL_CERT_FILE SSL_CERT_DIR
+        "$OUT/nupp-tls-bio-contracts" "$fixtures/localhost-cert.pem" "$fixtures/localhost-key.pem") >&2
 fi
 printf '%s\n' "$OUT"

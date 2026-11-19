@@ -1,0 +1,93 @@
+module nupp.core.catalogtls
+
+const net = require("nupp.vm.net")
+
+local function fixture(name: string): string
+    const input = assert(io.open("tests/stdlib/io/net/fixtures/" .. name, "rb"))
+    const bytes = assert(input:read("*a"))
+    assert(input:close())
+
+    return bytes
+end
+
+local function roundTrip(cert: string, key: string): integer
+    const listener = assert(net.listen("127.0.0.1", 0, 2, false))
+    const request = assert(net.connect("127.0.0.1", net.listenerPort(listener), 2000))
+    local client: integer? = nil
+    local server: integer? = nil
+    for _ = 1, 500 do
+        if client == nil then
+            local ready, problem = net.connectPoll(request)
+            assert(problem == nil, problem)
+            client = ready
+        end
+        if server == nil then
+            local accepted, problem = net.accept(listener)
+            assert(problem == nil, problem)
+            server = accepted
+        end
+        if client ~= nil and server ~= nil then
+            break
+        end
+        net.sleep(2)
+    end
+    const clientSocket = assert(client)
+    const serverSocket = assert(server)
+    net.closeListener(listener)
+    net.closeConnect(request)
+    const protocols = "\2h2"
+    const initiator = assert(net.tlsWrap(clientSocket, false, "localhost", "", "", cert, protocols, true))
+    const other = assert(net.tlsWrap(serverSocket, true, "", cert, key, nil, protocols, false))
+    assert(initiator ~= clientSocket and other ~= serverSocket)
+    assert(net.write(clientSocket, "spent") == nil)
+    for _ = 1, 500 do
+        local peer, serverWhy = net.tlsHandshake(other)
+        local ready, clientWhy = net.tlsHandshake(initiator)
+        assert(peer ~= nil, serverWhy)
+        assert(ready ~= nil, clientWhy)
+        if peer and ready then
+            break
+        end
+        net.sleep(2)
+    end
+    assert(net.tlsConnected(initiator) and net.tlsConnected(other))
+    assert(net.tlsVerified(initiator) and not net.tlsVerified(other))
+    assert(net.tlsProtocol(initiator) == "h2" and net.tlsProtocol(other) == "h2")
+    assert(net.tlsWrite(initiator, "tls\0record") == 10)
+    local got = ""
+    for _ = 1, 500 do
+        local drained, problem = net.tlsFlushed(initiator)
+        assert(problem == nil, problem)
+        local received, why = net.tlsRead(other, 16)
+        assert(why == nil, why)
+        if received ~= nil then
+            got = got .. received
+        end
+        if drained and #got == 10 then
+            break
+        end
+        net.sleep(2)
+    end
+    assert(got == "tls\0record")
+    local ended = false
+    for _ = 1, 500 do
+        local sent, problem = net.tlsCloseNotify(initiator)
+        assert(problem == nil, problem)
+        local eof, why = net.tlsRead(other, 16)
+        assert(why == nil, why)
+        if sent and eof == "" then
+            ended = true
+            break
+        end
+        net.sleep(2)
+    end
+    assert(ended)
+    net.tlsDestroy(initiator)
+    net.tlsDestroy(other)
+
+    return 7
+end
+
+const certificate = fixture("localhost-cert.pem")
+const privateKey = fixture("localhost-key.pem")
+export const result = roundTrip(certificate, privateKey)

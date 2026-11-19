@@ -29,7 +29,19 @@ const JOIN = 22
 const LEAVE = 23
 const LISTEN_LOCAL = 24
 const CONNECT_LOCAL = 25
+const TLS_WRAP = 26
+const TLS_HANDSHAKE = 27
+const TLS_READ = 28
+const TLS_WRITE = 29
+const TLS_FLUSHED = 30
+const TLS_CLOSE = 31
+const TLS_READY = 32
+const TLS_VERIFIED = 33
+const TLS_RESUMED = 34
+const TLS_PROTOCOL = 35
+const TLS_ERROR = 36
 const AGAIN = -2147483648
+const TLS_FAILED = -2147483647
 const MAX_WAIT_MS = 2147483647
 const NANOS_PER_MS = 1000000
 
@@ -239,6 +251,10 @@ export function membership(socket: integer, group: string, interface: string, jo
     return changed(netcalls.send(join and JOIN or LEAVE, socket, group .. "\n" .. interface .. "\n"))
 end
 
+local function counted(value: string): string
+    return tostring(#value) .. "\n" .. value
+end
+
 export function tlsWrap(
     stream: integer,
     server: boolean,
@@ -249,7 +265,106 @@ export function tlsWrap(
     protocols: string,
     verify: boolean
 ): (integer?, string?)
-    close(stream)
+    if hostname:find("\n", 1, true) ~= nil or hostname:find("\0", 1, true) ~= nil then
+        close(stream)
 
-    return nil, "TLS streams are unavailable on the core"
+        return nil, "invalid TLS hostname"
+    end
+    const flags = (server and 1 or 0) | (verify and 2 or 0) | (authority ~= nil and 4 or 0)
+    const settings = string.char(
+        flags
+    ) .. hostname .. "\n" .. counted(
+        certificate
+    ) .. counted(privateKey) .. counted(authority or "") .. counted(protocols)
+    const session = netcalls.send(TLS_WRAP, stream, settings)
+    if session < 0 then
+        close(stream)
+
+        return nil, "TLS configuration was refused: " .. reason(session)
+    end
+
+    return session
 end
+
+local function tlsReason(session: integer, code: integer): string
+    if code == TLS_FAILED then
+        const message = netcalls.receive(TLS_ERROR, session, 0)
+
+        return type(message) == "string" and message as string or "TLS engine failure"
+    end
+
+    return reason(code)
+end
+
+export function tlsHandshake(session: integer): (boolean?, string?)
+    const result = netcalls.number(TLS_HANDSHAKE, session, 0)
+    if result == AGAIN then
+        return false
+    elseif result < 0 then
+        return nil, tlsReason(session, result)
+    end
+
+    return result == 1
+end
+
+export function tlsRead(session: integer, wanted: integer): (string?, string?)
+    const result = netcalls.receive(TLS_READ, session, wanted)
+    if type(result) == "string" then
+        return result as string
+    elseif result == AGAIN then
+        return nil
+    end
+
+    return nil, tlsReason(session, result as integer)
+end
+
+export function tlsWrite(session: integer, bytes: string): (integer?, string?)
+    const result = netcalls.send(TLS_WRITE, session, bytes)
+    if result == AGAIN then
+        return nil
+    elseif result < 0 then
+        return nil, tlsReason(session, result)
+    end
+
+    return result
+end
+
+local function tlsProgress(operation: integer, session: integer): (boolean, string?)
+    const result = netcalls.number(operation, session, 0)
+    if result < 0 and result ~= AGAIN then
+        return false, tlsReason(session, result)
+    end
+
+    return result == 1
+end
+
+export function tlsFlushed(session: integer): (boolean, string?)
+    return tlsProgress(TLS_FLUSHED, session)
+end
+
+export function tlsCloseNotify(session: integer): (boolean, string?)
+    return tlsProgress(TLS_CLOSE, session)
+end
+
+export function tlsConnected(session: integer): boolean
+    return netcalls.number(TLS_READY, session, 0) == 1
+end
+
+export function tlsVerified(session: integer): boolean
+    return netcalls.number(TLS_VERIFIED, session, 0) == 1
+end
+
+export function tlsResumed(session: integer): boolean
+    return netcalls.number(TLS_RESUMED, session, 0) == 1
+end
+
+export function tlsProtocol(session: integer): string?
+    const result = netcalls.receive(TLS_PROTOCOL, session, 0)
+    if type(result) == "string" and result ~= "" then
+        return result as string
+    end
+
+    return nil
+end
+
+export const tlsDestroy = close

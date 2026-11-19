@@ -369,6 +369,7 @@ local CASES: {[string]: {
     },
     cataloghttpcurl = {fixture = "cataloghttpcurl", version = 8, follow = true},
     catalognet = {fixture = "catalognet", version = 8, follow = true},
+    catalogtls = {fixture = "catalogtls", version = 8, follow = true},
     -- Processes: Lua's os.execute, io.popen and os.exit, io.popen's process
     -- handle, and the process layer under them, scheduled and not.
     processexecute = {fixture = "catalog-process-execute", version = 8},

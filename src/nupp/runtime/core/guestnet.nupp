@@ -29,6 +29,11 @@ const JOIN: uint64 = 22ULL
 const LEAVE: uint64 = 23ULL
 const LISTEN_LOCAL: uint64 = 24ULL
 const CONNECT_LOCAL: uint64 = 25ULL
+const TLS_WRAP: uint64 = 26ULL
+const TLS_READ: uint64 = 28ULL
+const TLS_WRITE: uint64 = 29ULL
+const TLS_PROTOCOL: uint64 = 35ULL
+const TLS_ERROR: uint64 = 36ULL
 const WINDOW: uint64 = 16384ULL
 const DATAGRAM_WINDOW: uint64 = 65536ULL
 const TEXT_ROOM: uint64 = 272ULL
@@ -53,7 +58,14 @@ export function call(ctx: voidptr, method: uint64, a: uint64, b: uint64, payload
             return ints.make(h, native.word(nuppnetcall(scope, op, key, absent, 0ULL, word(payload))))
         elseif method == layouts.NET_SEND then
             local opening = op <= OPEN_LAST or op == BIND_DATAGRAM or op == LISTEN_LOCAL or op == CONNECT_LOCAL
-            if not opening and op ~= WRITE and op ~= SEND_DATAGRAM and op ~= JOIN and op ~= LEAVE then
+            if not opening
+                and op ~= WRITE
+                and op ~= SEND_DATAGRAM
+                and op ~= JOIN
+                and op ~= LEAVE
+                and op ~= TLS_WRAP
+                and op ~= TLS_WRITE
+            then
                 error("socket host calls: invalid send operation")
             end
             local input = strings.header(payload)
@@ -71,7 +83,7 @@ export function call(ctx: voidptr, method: uint64, a: uint64, b: uint64, payload
 
         local option = word(payload)
         local room: uint64 = TEXT_ROOM
-        if op == READ then
+        if op == READ or op == TLS_READ then
             room = WINDOW
             if option < WINDOW then
                 room = option
@@ -81,7 +93,7 @@ export function call(ctx: voidptr, method: uint64, a: uint64, b: uint64, payload
             if option < DATAGRAM_WINDOW then
                 room = TEXT_ROOM + option
             end
-        elseif op ~= ADDRESS and op ~= ERROR then
+        elseif op ~= ADDRESS and op ~= ERROR and op ~= TLS_PROTOCOL and op ~= TLS_ERROR then
             error("socket host calls: invalid receive operation")
         end
         local output = strings.open(h, state as strings.Builder*)
