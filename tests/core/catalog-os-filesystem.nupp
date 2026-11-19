@@ -183,7 +183,8 @@ end
 -- Removing: a directory with children refuses; a recursive removal does not.
 do
     local refused, refusedMessage, refusedCode = os.remove(base .. "/a")
-    check(refused == nil and ends(refusedMessage, "/a: Directory not empty") and refusedCode == 66)
+    local notEmpty = os.info().platform == "linux" and 39 or 66
+    check(refused == nil and ends(refusedMessage, "/a: Directory not empty") and refusedCode == notEmpty)
     check(os.remove(base, true) == true and os.exists(base) == false)
 end
 
