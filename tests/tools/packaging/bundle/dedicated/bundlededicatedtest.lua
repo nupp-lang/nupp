@@ -2,7 +2,6 @@ local fixture = require("helpers.bundlefixture")
 local NUPP = fixture.NUPP
 local tempProject = fixture.tempProject
 local run = fixture.run
-local stampRustHost = fixture.stampRustHost
 
 local test = require("helpers.bundlefixture").test
 local EXECUTABLE = require("helpers.bundlefixture").EXECUTABLE
@@ -71,8 +70,7 @@ local channels = require("nupp.runtime.provider.channels") as any
 local provider = require("nupp.runtime.workersprovider").provider as any
 local native = require("nupp.workers.native") as any
 local time = require("coroutine")
-local ffi = require("ffi")
-ffi.cdef("int usleep(unsigned int usec);")
+local clock = require("nupp.vm.clock")
 
 -- The public API preserves both endpoint owners and the child's scope loan.
 for _ = 1, 3 do
@@ -89,7 +87,7 @@ for _ = 1, 3 do
     events:close()
     assert(child:await() == 100)
     -- Let the thread end without polling: scope cleanup must still drive its join.
-    ffi.C.usleep(2000)
+    clock.sleep(2)
 end
 
 do
@@ -141,8 +139,8 @@ for _ = 1, 3 do
     events:close()
     assert(child:await() == 100)
     services:close()
-    assert(services._scheduler.dedicated == 0)
-    assert(#services._scheduler.lanes == 0)
+    assert(provider.__registered(services) == 0)
+    assert(#services.tasks == 0 and services.closed)
 end
 
 -- A blocked event publisher cannot prevent cancellation or its control reply.
@@ -162,7 +160,7 @@ do
     assert(events:receive() == "closed")
     events:close()
     services:close()
-    assert(services._scheduler.dedicated == 0)
+    assert(provider.__registered(services) == 0 and services.closed)
 end
 
 -- The public guard also owns arguments when admission fails before handoff.
@@ -233,24 +231,22 @@ for _, count in ipairs({0, 1, 31}) do
     own.drop(values)
 end
 
--- Refuse the native handoff after it takes the array, then reuse the same lane.
+-- Refuse a handoff after it takes the array, then reuse the same worker scope.
 do
-    local closed = native.channelCreate()
-    native.channelClose(closed)
-    local push = native.channelPushBufferTask
-    native.channelPushBufferTask = function(handle: any, id: integer, moduleName: string,
-        member: string, count: number, bytes: string, attachments: any): boolean
-        return push(closed, id, moduleName, member, count, bytes, attachments)
-    end
     local services = provider.openscope(nil, nil)
+    local fork = services.raw.fork
+    services.raw.fork = function(_: any, _: any, value: any): never
+        local pending = native.messagePrepare(value)
+        native.messageClose(pending)
+        error("refused transfer")
+    end
     local values = table.Array.alloc(ffi.typeof<int32>(), 4)
     local raw: any = @unsafe own.release(values)
     local accepted = pcall(services.spawn, services, jobs.bounceArray, raw)
-    native.channelPushBufferTask = push
+    services.raw.fork = fork
     assert(not accepted and raw.closed)
     assert(services:spawn(jobs.echo, 17):await() == 17)
     services:close()
-    native.channelDestroy(closed)
 end
 
 print("services-ok")
@@ -258,7 +254,7 @@ print("services-ok")
     })
     local built, builtOk = run(dir, "'" .. NUPP .. "' build")
     assert(builtOk, "the service binary builds: " .. built)
-    local output, ranOk = run(dir, stampRustHost(dir, dir .. "/build/app.payload.lua"))
+    local output, ranOk = run(dir, EXECUTABLE)
     assert(ranOk and output == "services-ok\n", "dedicated channels move, communicate and settle: " .. output)
     os.execute("rm -rf '" .. dir .. "'")
 end
