@@ -2168,8 +2168,9 @@ export function forVersion(version: integer): any
         end
         local withCleanup: any = nil
         profile.forOwner = function(p: any, owner: any): any
-            -- A chunk is plain Lua: its values own nothing, as Lua's do.
-            if p.chunk or not (p.cleanupOwners and p.cleanupOwners[owner.id]) then
+            -- Plain Lua chunks have no checked ownership. A checked Nupp
+            -- module instance keeps the same cleanups as a linked module.
+            if (p.chunk and not p.chunkModule) or not (p.cleanupOwners and p.cleanupOwners[owner.id]) then
                 return profile
             end
             withCleanup = withCleanup or cleanupProfile(profile)
