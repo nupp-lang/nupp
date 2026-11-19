@@ -15,6 +15,7 @@ const uv = require("nupp.runtime.core.hostuv")
 
 cdef function nupp_http_scope_attach(scope: voidptr): int32
 cdef function nupp_http_scope_detach(scope: voidptr): int32
+cdef function nuppnetdetach(scope: voidptr)
 cdef function nupp_core_retain_guest_backing()
 
 const RESOURCE_REFUSAL: int64 = 24
@@ -390,6 +391,7 @@ export function beforeBackingClose(scope: voidptr): boolean
         retain(scope)
         return false
     end
+    @unsafe nuppnetdetach(scope)
 
     return true
 end

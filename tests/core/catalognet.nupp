@@ -1,0 +1,49 @@
+module nupp.core.catalognet
+
+const net = require("nupp.runtime.provider.corenethost")
+
+local function run(): integer
+    const listener = assert(net.listen("127.0.0.1", 0, 4, false))
+    const port = net.listenerPort(listener)
+    assert(port > 0)
+    const request = assert(net.connect("localhost", port, 2000))
+    local client: integer? = nil
+    local server: integer? = nil
+    for _ = 1, 500 do
+        if client == nil then
+            local connected, problem = net.connectPoll(request)
+            assert(problem == nil, problem)
+            client = connected
+        end
+        if server == nil then
+            local accepted, problem = net.accept(listener)
+            assert(problem == nil, problem)
+            server = accepted
+        end
+        if client ~= nil and server ~= nil then
+            break
+        end
+        net.sleep(2)
+    end
+    const connected = assert(client)
+    const accepted = assert(server)
+    net.closeConnect(request)
+    assert(net.write(connected, "socket") == 6)
+    assert(net.shutdownWrite(connected))
+    local bytes = ""
+    for _ = 1, 500 do
+        bytes = bytes .. assert(net.read(accepted, 6))
+        if net.ended(accepted) then
+            break
+        end
+        net.sleep(2)
+    end
+    assert(bytes == "socket" and net.ended(accepted))
+    net.closeStream(connected)
+    net.closeStream(accepted)
+    -- The entry retires the remaining listener before releasing backing.
+
+    return 7
+end
+
+export const result = run()

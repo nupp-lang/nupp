@@ -18,6 +18,7 @@ local proofInputs = {
         "bundle-header"
     ] = {
         "native/corebridge/main.c",
+        "native/corebridge/netbridge.h",
         "native/corebridge/reactor.h",
         "native/corebridge/transport.h",
         "native/httpcurl/uriidna.h",
@@ -56,6 +57,8 @@ local proofInputs = {
     ] = {
         "native/corebridge/tcp.c",
         "native/corebridge/tcp.h",
+        "native/corebridge/streamio.c",
+        "native/corebridge/streamio.h",
         "tests/core/tcplifecycleproof.c",
         "tests/core/tcpmodel/uv.h",
     },

@@ -1214,6 +1214,7 @@ local coremodules: {
     ["nupp.vm.files"] = "nupp.runtime.provider.corefiles",
     ["nupp.vm.process"] = "nupp.runtime.provider.coreprocesshost",
     ["nupp.vm.http"] = "nupp.runtime.provider.corehttp",
+    ["nupp.vm.net"] = "nupp.runtime.provider.corenethost",
     ["nupp.io.http.internal.readiness"] = "nupp.runtime.provider.corehttp",
     ["nupp.io.uri.provider"] = "nupp.runtime.provider.coreuri",
     ["bytes.internal.sharedbytes"] = "nupp.runtime.provider.coresharedbytes",

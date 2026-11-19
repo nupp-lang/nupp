@@ -13,6 +13,7 @@ const filesystemcalls = require("nupp.runtime.filesystemcalls")
 const gccalls = require("nupp.runtime.gccalls")
 const hashcalls = require("nupp.runtime.hashcalls")
 const httpcalls = require("nupp.runtime.httpcalls")
+const netcalls = require("nupp.runtime.netcalls")
 const pollcalls = require("nupp.runtime.pollcalls")
 const poolcalls = require("nupp.runtime.poolcalls")
 const processcalls = require("nupp.runtime.processcalls")
@@ -186,6 +187,17 @@ export const modules: {[string]: {[string]: any}} = {
         end,
         failure = function(a1: any): any
             return httpcalls.failure(a1)
+        end
+    },
+    ["nupp.runtime.netcalls"] = {
+        number = function(a1: any, a2: any, a3: any): any
+            return netcalls.number(a1, a2, a3)
+        end,
+        send = function(a1: any, a2: any, a3: any): any
+            return netcalls.send(a1, a2, a3)
+        end,
+        receive = function(a1: any, a2: any, a3: any): any
+            return netcalls.receive(a1, a2, a3)
         end
     },
     ["nupp.runtime.pollcalls"] = {

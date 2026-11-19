@@ -398,6 +398,9 @@ function M.eachProofRunsForItsOwnCInputs()
         ["tests/core/ringbufferproof.c"] = "ring-buffer",
         ["native/corebridge/tcp.c"] = "tcp-lifecycle",
         ["native/corebridge/tcp.h"] = "tcp-lifecycle",
+        ["native/corebridge/streamio.c"] = "tcp-lifecycle",
+        ["native/corebridge/streamio.h"] = "tcp-lifecycle",
+        ["native/corebridge/netbridge.h"] = "bundle-header",
         ["tests/core/tcplifecycleproof.c"] = "tcp-lifecycle",
         ["tests/core/tcpmodel/uv.h"] = "tcp-lifecycle"
     }

@@ -15,6 +15,9 @@
 #include "reactor.h"
 #include "filetickets.h"
 #include "transport.h"
+#ifdef NUPP_CORE_NET
+#include "netbridge.h"
+#endif
 #if !defined(_WIN32) || defined(NUPP_WIN64_PROCESS)
 #include "process.h"
 #endif
@@ -1316,6 +1319,10 @@ static int pump (uv_run_mode mode, uint64_t nanos, Poller *owner_wait) {
 
   uv_run(&service->loop, mode);
 
+#ifdef NUPP_CORE_NET
+  nuppnetsweep();
+#endif
+
 #if defined(_WIN32) && defined(NUPP_WIN64_PROCESS)
   nuppwinpipesweep();
 #endif
@@ -1771,6 +1778,19 @@ int64_t nupp_uv_shutdown (void) {
   nuppwinpipeshutdown();
 
   while (nuppwinpipepending()) {
+    status = pump(UV_RUN_ONCE, UINT64_MAX, NULL);
+
+    if (status) {
+      return status;
+    }
+  }
+
+#endif
+
+#ifdef NUPP_CORE_NET
+  nuppnetshutdown();
+
+  while (nuppnetpending()) {
     status = pump(UV_RUN_ONCE, UINT64_MAX, NULL);
 
     if (status) {

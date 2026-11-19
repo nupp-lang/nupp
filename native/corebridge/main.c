@@ -22,6 +22,7 @@
 
 #include "reactor.h"
 #include "transport.h"
+#include "netbridge.h"
 #include "../httpcurl/uriidna.h"
 
 #include <errno.h>
@@ -158,6 +159,24 @@ static _Thread_local int retain_guest_backing;
 void nupp_core_retain_guest_backing (void) {
   retain_guest_backing = 1;
 }
+
+#ifndef NUPP_CORE_NET
+int64_t nuppnetcall (void *scope, uint64_t op, uint64_t key, void *bytes,
+                     uint64_t size, uint64_t option) {
+  (void)scope;
+  (void)op;
+  (void)key;
+  (void)bytes;
+  (void)size;
+  (void)option;
+
+  return -ENOSYS;
+}
+
+void nuppnetdetach (void *scope) {
+  (void)scope;
+}
+#endif
 
 #ifdef NUPP_CORE_HTTP
 static _Thread_local void *http_scope;

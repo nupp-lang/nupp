@@ -76,10 +76,11 @@ if [ "$win64_mode" = --win64-contracts ] || [ "$win64_mode" = --win64-http-link 
         icu_lib=$(cygpath -m "$icu_import")
         http="$root_native/native/httpcurl"
         # LINK accepts -DEF, which avoids a slash-prefixed MSYS argument.
-        compile_win64 -DNUPP_CORE_HTTP -DNUPP_WIN64_HTTP_SYSTEM_ICU=1 -DNUPP_WIN64_PROCESS \
+        compile_win64 -DNUPP_CORE_HTTP -DNUPP_WIN64_HTTP_SYSTEM_ICU=1 -DNUPP_WIN64_PROCESS -DNUPP_CORE_NET \
             -iquote "$common" -I"$curl_headers" -I"$icu_headers" \
             "$common/main.c" "$common/uv.c" "$http/transport.c" "$http/uriidna.c" \
             "$common/process.c" "$common/winpipe.c" "$common/streamio.c" \
+            "$common/netbridge.c" "$common/tcp.c" \
             "$curl_lib" "$icu_lib" -Xlinker "-DEF:$common/http-win64.def" \
             -o "$stage_native/nupp-core.exe"
         printf '%s\n' "$stage"
@@ -98,8 +99,12 @@ if [ "$win64_mode" = --win64-contracts ] || [ "$win64_mode" = --win64-http-link 
         "$common/winpipe.c" "$common/streamio.c" \
         -o "$stage_native/process.exe"
     compile_win64 -iquote "$common" "$tests/tcpcontracts.c" "$common/tcp.c" \
+        "$common/streamio.c" \
         -o "$stage_native/tcp.exe"
-    for probe in socket-broker bridge-loader bridge-abi process tcp; do
+    compile_win64 -DNUPP_CORE_NET -iquote "$common" \
+        "$tests/netbridgecontracts.c" "$common/netbridge.c" "$common/tcp.c" \
+        "$common/streamio.c" "$common/uv.c" -o "$stage_native/net.exe"
+    for probe in socket-broker bridge-loader bridge-abi process tcp net; do
         "$stage/$probe.exe" >&2
     done
     printf '%s\n' "$stage"
@@ -176,7 +181,7 @@ compile() {
     fi
     "$CC" \
         $flags \
-        -DNUPP_CORE_HTTP -I"$common" -I"$uv/include" -I"$curl/include" "$@"
+        -DNUPP_CORE_HTTP -DNUPP_CORE_NET -I"$common" -I"$uv/include" -I"$curl/include" "$@"
 }
 link_bridge() {
     if [ "$platform" != Darwin:arm64 ]; then
@@ -184,6 +189,7 @@ link_bridge() {
         set -- "$@" -Wl,--disable-new-dtags -Wl,-rpath-link,"$stage/lib" -ldl
     fi
     compile "$export_flag" -Wl,-rpath,"$rpath" "$@" "$common/process.c" \
+        "$common/netbridge.c" "$common/tcp.c" "$common/streamio.c" \
         ${defaults:+"$defaults"} \
         "$http/transport.c" "$stage/uriidna.o" "$stage/lib/libcurl.$shared_suffix" \
         "$icu" "$stage/lib/$uv_name"
@@ -216,9 +222,15 @@ if [ "$test" = 1 ]; then
     mv "$OUT/nupp-core-contracts$pending" "$OUT/nupp-core-contracts"
     "$OUT/nupp-core-contracts" >&2
     compile -Wl,-rpath,"$rpath" "$ROOT/tests/core/tcpcontracts.c" "$common/tcp.c" \
+        "$common/streamio.c" \
         ${defaults:+"$defaults"} "$stage/lib/$uv_name" -o "$OUT/nupp-tcp-contracts$pending"
     check_floor "$OUT/nupp-tcp-contracts$pending"
     mv "$OUT/nupp-tcp-contracts$pending" "$OUT/nupp-tcp-contracts"
     "$OUT/nupp-tcp-contracts" >&2
+    link_bridge "$ROOT/tests/core/netbridgecontracts.c" "$common/uv.c" \
+        -o "$OUT/nupp-net-contracts$pending"
+    check_floor "$OUT/nupp-net-contracts$pending"
+    mv "$OUT/nupp-net-contracts$pending" "$OUT/nupp-net-contracts"
+    "$OUT/nupp-net-contracts" >&2
 fi
 printf '%s\n' "$OUT"

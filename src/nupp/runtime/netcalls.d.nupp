@@ -1,0 +1,10 @@
+@!internal
+
+local record NetCalls
+    number: function(operation: integer, key: integer, option: integer): integer
+    send: function(operation: integer, key: integer, bytes: string): integer
+    receive: function(operation: integer, key: integer, option: integer): string | integer
+end
+
+local calls: NetCalls
+return calls

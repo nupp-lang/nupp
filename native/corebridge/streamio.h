@@ -8,11 +8,16 @@
 
 #include <uv.h>
 
+/* The proof bounds the backing arrays while exercising the same operations. */
+#ifndef NUPP_STREAM_WINDOW_BYTES
+#define NUPP_STREAM_WINDOW_BYTES 16384
+#endif
+
 /** Initialize to zero and place its address in the libuv handle's data slot. */
 typedef struct NuppStreamIO {
   uv_write_t write;
-  char inbound[16384];
-  char outbound[16384];
+  char inbound[NUPP_STREAM_WINDOW_BYTES];
+  char outbound[NUPP_STREAM_WINDOW_BYTES];
   size_t readstart, readend;
   int reading, readstatus, pending, writestatus;
 } NuppStreamIO;

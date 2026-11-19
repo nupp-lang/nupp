@@ -8,28 +8,15 @@
 #endif
 
 #include "tcp.h"
+#include "streamio.h"
 #include <stdlib.h>
-#include <string.h>
-
-/* The proof bounds the backing arrays while exercising the same operations. */
-#ifndef NUPP_TCP_WINDOW_BYTES
-#define NUPP_TCP_WINDOW_BYTES 16384
-#endif
-
-enum { WINDOW = NUPP_TCP_WINDOW_BYTES };
 
 struct NuppTcp {
+  NuppStreamIO io;
   uv_tcp_t stream;
   uv_connect_t connection;
-  uv_write_t write;
   uv_shutdown_t shutdown;
-
-  /** A submitted write and a stopped read each retain one bounded buffer. */
-  char inbound[WINDOW];
-  char outbound[WINDOW];
-  size_t readstart, readend;
-  int reading, readstatus, pending, writestatus;
-  int connecting, connectstatus, listenerror;
+  int connecting, connectstatus, listenerror, listenready;
   int shuttingdown, shutdownstatus;
   int closing, closed;
 };
@@ -50,7 +37,7 @@ int nupptcpopen (uv_loop_t *loop, NuppTcp **out) {
     return status;
   }
 
-  tcp->stream.data = tcp;
+  tcp->stream.data = &tcp->io;
   tcp->connectstatus = UV_ENOTCONN;
   tcp->shutdownstatus = UV_ENOTCONN;
   *out = tcp;
@@ -61,14 +48,19 @@ int nupptcpopen (uv_loop_t *loop, NuppTcp **out) {
 static void waiting (uv_stream_t *stream, int status) {
   NuppTcp *tcp = stream->data;
   tcp->listenerror = status;
+
+  if (status == 0) {
+    tcp->listenready++;
+  }
 }
 
-int nupptcplisten (NuppTcp *tcp, const struct sockaddr *address, int backlog) {
+int nupptcplisten (NuppTcp *tcp, const struct sockaddr *address, int backlog,
+                   unsigned int flags) {
   if (tcp->closing) {
     return UV_EBADF;
   }
 
-  int status = uv_tcp_bind(&tcp->stream, address, 0);
+  int status = uv_tcp_bind(&tcp->stream, address, flags);
 
   return status < 0 ? status
                     : uv_listen((uv_stream_t *)&tcp->stream, backlog, waiting);
@@ -77,6 +69,22 @@ int nupptcplisten (NuppTcp *tcp, const struct sockaddr *address, int backlog) {
 int nupptcplocal (NuppTcp *tcp, struct sockaddr *address, int *size) {
   return tcp->closing ? UV_EBADF
                       : uv_tcp_getsockname(&tcp->stream, address, size);
+}
+
+int nupptcppeer (NuppTcp *tcp, struct sockaddr *address, int *size) {
+  return tcp->closing ? UV_EBADF
+                      : uv_tcp_getpeername(&tcp->stream, address, size);
+}
+
+int nupptcplistenready (NuppTcp *tcp) {
+  if (tcp->listenerror < 0) {
+    int status = tcp->listenerror;
+    tcp->listenerror = 0;
+
+    return status;
+  }
+
+  return tcp->listenready;
 }
 
 int nupptcpaccept (NuppTcp *listener, NuppTcp *stream) {
@@ -94,7 +102,15 @@ int nupptcpaccept (NuppTcp *listener, NuppTcp *stream) {
   int status = uv_accept((uv_stream_t *)&listener->stream,
                          (uv_stream_t *)&stream->stream);
 
+  if (status == UV_EAGAIN) {
+    listener->listenready = 0;
+  }
+
   if (status == 0) {
+    if (listener->listenready) {
+      listener->listenready--;
+    }
+
     stream->connectstatus = 0;
   }
 
@@ -131,76 +147,10 @@ int nupptcpconnected (const NuppTcp *tcp) {
   return tcp->connectstatus;
 }
 
-static void readbuffer (uv_handle_t *handle, size_t suggested,
-                        uv_buf_t *buffer) {
-  (void)suggested;
-  NuppTcp *tcp = handle->data;
-  *buffer = uv_buf_init(tcp->inbound, sizeof(tcp->inbound));
-}
-
-static void received (uv_stream_t *stream, ssize_t count,
-                      const uv_buf_t *buffer) {
-  (void)buffer;
-  NuppTcp *tcp = stream->data;
-
-  if (count == 0) {
-    return;
-  }
-
-  uv_read_stop(stream);
-  tcp->reading = 0;
-
-  if (count < 0) {
-    tcp->readstatus = (int)count;
-  }
-  else {
-    tcp->readstart = 0;
-    tcp->readend = (size_t)count;
-  }
-}
-
 int nupptcpreceive (NuppTcp *tcp, void *bytes, size_t size) {
-  if (tcp->closing) {
-    return UV_EBADF;
-  }
-
-  if (!size) {
-    return 0;
-  }
-
-  size_t available = tcp->readend - tcp->readstart;
-
-  if (available) {
-    size_t count = size < available ? size : available;
-    memcpy(bytes, tcp->inbound + tcp->readstart, count);
-    tcp->readstart += count;
-
-    return (int)count;
-  }
-
-  if (tcp->readstatus) {
-    return tcp->readstatus == UV_EOF ? 0 : tcp->readstatus;
-  }
-
-  if (tcp->reading) {
-    return UV_EAGAIN;
-  }
-
-  int status = uv_read_start((uv_stream_t *)&tcp->stream, readbuffer, received);
-
-  if (status < 0) {
-    return status;
-  }
-
-  tcp->reading = 1;
-
-  return UV_EAGAIN;
-}
-
-static void written (uv_write_t *request, int status) {
-  NuppTcp *tcp = request->data;
-  tcp->pending = 0;
-  tcp->writestatus = status;
+  return tcp->closing
+             ? UV_EBADF
+             : nuppstreamread((uv_stream_t *)&tcp->stream, bytes, size);
 }
 
 int nupptcpsend (NuppTcp *tcp, const void *bytes, size_t size) {
@@ -208,40 +158,31 @@ int nupptcpsend (NuppTcp *tcp, const void *bytes, size_t size) {
     return UV_EBADF;
   }
 
-  if (tcp->writestatus < 0) {
-    return tcp->writestatus;
-  }
-
   if (tcp->shuttingdown) {
     return UV_EPIPE;
   }
 
-  if (!size) {
-    return 0;
-  }
-
-  if (tcp->pending) {
-    return UV_EAGAIN;
-  }
-
-  unsigned int count = size < WINDOW ? (unsigned int)size : WINDOW;
-  memcpy(tcp->outbound, bytes, count);
-  uv_buf_t buffer = uv_buf_init(tcp->outbound, count);
-  tcp->write.data = tcp;
-  int status =
-      uv_write(&tcp->write, (uv_stream_t *)&tcp->stream, &buffer, 1, written);
-
-  if (status < 0) {
-    return status;
-  }
-
-  tcp->pending = (int)count;
-
-  return (int)count;
+  return nuppstreamwrite((uv_stream_t *)&tcp->stream, bytes, size);
 }
 
 int nupptcppending (const NuppTcp *tcp) {
-  return tcp->writestatus < 0 ? tcp->writestatus : tcp->pending;
+  return nuppstreampending(&tcp->io);
+}
+
+int nupptcpended (const NuppTcp *tcp) {
+  return tcp->io.readstatus == UV_EOF && tcp->io.readstart == tcp->io.readend;
+}
+
+int nupptcpnodelay (NuppTcp *tcp, int enable) {
+  return uv_tcp_nodelay(&tcp->stream, enable);
+}
+
+int nupptcpkeepalive (NuppTcp *tcp, int enable, unsigned int seconds) {
+  return uv_tcp_keepalive(&tcp->stream, enable, seconds);
+}
+
+int nupptcpshutting (const NuppTcp *tcp) {
+  return tcp->shuttingdown;
 }
 
 static void halfclosed (uv_shutdown_t *request, int status) {

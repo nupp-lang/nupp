@@ -861,6 +861,16 @@ local grouprows: {Group} = {
         operations = {{name = "URI_ASCII_DOMAIN", library = "uricalls.asciiDomain", operation = 67, arguments = 1}}
     },
     {
+        name = "NET",
+        call = "HOST_FILES",
+        modules = {"netcalls"},
+        operations = {
+            {name = "NET_NUMBER", library = "netcalls.number", operation = 68, arguments = 3},
+            {name = "NET_SEND", library = "netcalls.send", operation = 69, arguments = 3},
+            {name = "NET_RECEIVE", library = "netcalls.receive", operation = 70, arguments = 3}
+        }
+    },
+    {
         -- The scheduler's primitives (nupp.runtime.taskcalls), which the
         -- TASKS call takes: a task of a function and the pack of its
         -- arguments; running one until it returns, fails, parks or yields,

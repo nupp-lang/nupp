@@ -164,6 +164,14 @@ static void startup_pipes (void *self) {
       (int64_t (*)(int64_t, const void *, uint64_t))find_symbol(self, "write");
   int (*close)(int64_t) = (int (*)(int64_t))find_symbol(self, "close");
   assert(pipe && read && write && close);
+#ifndef NUPP_CORE_NET
+  int64_t (*net)(void *, uint64_t, uint64_t, void *, uint64_t, uint64_t) =
+      (int64_t (*)(void *, uint64_t, uint64_t, void *, uint64_t,
+                   uint64_t))find_symbol(self, "nuppnetcall");
+  void (*detach)(void *) = (void (*)(void *))find_symbol(self, "nuppnetdetach");
+  assert(net && detach && net(self, 0, 0, NULL, 0, 0) == -ENOSYS);
+  detach(self);
+#endif
 
   int64_t pair = pipe(1, 1), poller = nupp_uv_open(-1);
   assert(pair > 0 && poller > 0);

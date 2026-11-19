@@ -14,10 +14,17 @@ typedef struct NuppTcp NuppTcp;
 int nupptcpopen (uv_loop_t *loop, NuppTcp **out);
 
 /** Starts listening at a numeric address. Address storage is borrowed. */
-int nupptcplisten (NuppTcp *tcp, const struct sockaddr *address, int backlog);
+int nupptcplisten (NuppTcp *tcp, const struct sockaddr *address, int backlog,
+                   unsigned int flags);
 
 /** Copies the local address into caller storage. */
 int nupptcplocal (NuppTcp *tcp, struct sockaddr *address, int *size);
+
+/** Copies the peer address into caller storage. */
+int nupptcppeer (NuppTcp *tcp, struct sockaddr *address, int *size);
+
+/** Returns whether a peer can be accepted, or a pending listener error. */
+int nupptcplistenready (NuppTcp *tcp);
 
 /** Attempts to accept into a fresh endpoint on the same loop. */
 int nupptcpaccept (NuppTcp *listener, NuppTcp *stream);
@@ -36,6 +43,16 @@ int nupptcpsend (NuppTcp *tcp, const void *bytes, size_t size);
 
 /** Reports bytes pending in the write slot or its persistent failure. */
 int nupptcppending (const NuppTcp *tcp);
+
+/** Reports clean EOF after the buffered input is consumed. */
+int nupptcpended (const NuppTcp *tcp);
+
+/** Applies the libuv TCP options to the live socket. */
+int nupptcpnodelay (NuppTcp *tcp, int enable);
+int nupptcpkeepalive (NuppTcp *tcp, int enable, unsigned int seconds);
+
+/** Reports whether the caller requested a write half-close. */
+int nupptcpshutting (const NuppTcp *tcp);
 
 /** Starts a write half-close after previously accepted bytes are delivered. */
 int nupptcpshutdown (NuppTcp *tcp);

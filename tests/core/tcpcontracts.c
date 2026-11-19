@@ -111,7 +111,7 @@ int main (void) {
   struct sockaddr_in address;
   int size = sizeof(address);
   assert(uv_ip4_addr("127.0.0.1", 0, &address) == 0);
-  assert(nupptcplisten(listener, (const struct sockaddr *)&address, 8) == 0);
+  assert(nupptcplisten(listener, (const struct sockaddr *)&address, 8, 0) == 0);
   assert(nupptcplocal(listener, (struct sockaddr *)&address, &size) == 0);
   assert(address.sin_port != 0);
   assert(nupptcpaccept(listener, server) == UV_EAGAIN);

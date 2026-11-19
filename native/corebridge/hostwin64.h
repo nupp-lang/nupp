@@ -16,6 +16,7 @@
 #include "process.h"
 #include "winpipe.h"
 #endif
+#include "netbridge.h"
 
 /** The packet still carries UTF-8 paths, even when the CRT needs UTF-16. */
 static wchar_t *wide_path (const char *utf8) {
@@ -296,6 +297,8 @@ static void *find_symbol (void *library, const char *name) {
         {"nupp_uv_wait", (void (*)(void))nupp_uv_wait},
         {"nupp_uv_wait_owner", (void (*)(void))nupp_uv_wait_owner},
         {"read", (void (*)(void))win64_file_read},
+        {"nuppnetcall", (void (*)(void))nuppnetcall},
+        {"nuppnetdetach", (void (*)(void))nuppnetdetach},
 #ifdef NUPP_WIN64_PROCESS
         {"write", (void (*)(void))win64_file_write},
         {"nupp_process_pipe", (void (*)(void))nupp_process_pipe},

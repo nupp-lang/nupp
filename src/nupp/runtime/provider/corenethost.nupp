@@ -1,0 +1,195 @@
+@!internal
+module nupp.runtime.provider.corenethost
+
+const netcalls = require("nupp.runtime.netcalls")
+const pollcalls = require("nupp.runtime.pollcalls")
+
+const LISTEN = 1
+const CONNECT = 2
+const ACCEPT = 3
+const CONNECT_POLL = 4
+const CLOSE = 5
+const READ = 6
+const WRITE = 7
+const ENDED = 8
+const PENDING = 9
+const SHUTDOWN = 10
+const SHUTTING = 11
+const ADDRESS = 12
+const NODELAY = 13
+const KEEPALIVE = 14
+const ERROR = 15
+const AGAIN = -2147483648
+const MAX_WAIT_MS = 2147483647
+const NANOS_PER_MS = 1000000
+
+local function reason(code: integer): string
+    const result = netcalls.receive(ERROR, code, 0)
+
+    return type(result) == "string" and result as string or "socket error " .. tostring(code)
+end
+
+local function handle(result: integer): (integer?, string?)
+    if result == AGAIN then
+        return nil, nil
+    elseif result < 0 then
+        return nil, reason(result)
+    end
+
+    return result
+end
+
+local function changed(result: integer): (boolean, string?)
+    if result < 0 then
+        return false, reason(result)
+    end
+
+    return true
+end
+
+export function listen(host: string, port: integer, backlog: integer, reuse: boolean): (integer?, string?)
+    if port < 0 or port > 65535 or backlog <= 0 or backlog > MAX_WAIT_MS then
+        return nil, "invalid TCP listen options"
+    end
+    const option = port | (backlog << 16) | (reuse and (1 << 48) or 0)
+
+    return handle(netcalls.send(LISTEN, option, host))
+end
+
+export function connect(host: string, port: integer, timeout: integer): (integer?, string?)
+    if port < 0 or port > 65535 or timeout < 0 or timeout > MAX_WAIT_MS then
+        return nil, "invalid TCP connect options"
+    end
+
+    return handle(netcalls.send(CONNECT, port | timeout << 16, host))
+end
+
+export function accept(listener: integer): (integer?, string?)
+    return handle(netcalls.number(ACCEPT, listener, 0))
+end
+
+export function connectPoll(request: integer): (integer?, string?)
+    return handle(netcalls.number(CONNECT_POLL, request, 0))
+end
+
+local function close(key: integer): nil
+    local _ = netcalls.number(CLOSE, key, 0)
+end
+
+export const closeListener = close
+export const closeConnect = close
+export const closeStream = close
+
+export function read(stream: integer, wanted: integer): (string?, string?)
+    local result = netcalls.receive(READ, stream, wanted)
+    if type(result) == "string" then
+        return result as string
+    elseif result == AGAIN then
+        return ""
+    end
+
+    return nil, reason(result as integer)
+end
+
+export function write(stream: integer, bytes: string): (integer?, string?)
+    local result = netcalls.send(WRITE, stream, bytes)
+    if result == AGAIN then
+        return 0
+    end
+
+    return handle(result)
+end
+
+export function pending(stream: integer): integer
+    const result = netcalls.number(PENDING, stream, 0)
+
+    return result < 0 and 0 or result
+end
+
+export function ended(stream: integer): boolean
+    return netcalls.number(ENDED, stream, 0) == 1
+end
+
+export function writeFailed(stream: integer): boolean
+    return netcalls.number(PENDING, stream, 0) < 0
+end
+
+export function shuttingDown(stream: integer): boolean
+    return netcalls.number(SHUTTING, stream, 0) == 1
+end
+
+export function shutdownWrite(stream: integer): (boolean, string?)
+    return changed(netcalls.number(SHUTDOWN, stream, 0))
+end
+
+export function address(stream: integer, peer: boolean): (string?, integer?)
+    const result = netcalls.receive(ADDRESS, stream, peer and 1 or 0)
+    if type(result) ~= "string" then
+        return nil, nil
+    end
+    local port, host = string.match(result as string, "^(%d+)\n(.+)$")
+
+    return host, port and math.tointeger(tonumber(port)) or nil
+end
+
+export function listenerPort(listener: integer): integer
+    local _, port = address(listener, false)
+
+    return port or -1
+end
+
+export function noDelay(stream: integer, enable: boolean): (boolean, string?)
+    return changed(netcalls.number(NODELAY, stream, enable and 1 or 0))
+end
+
+export function keepAlive(stream: integer, enable: boolean, delay: integer): (boolean, string?)
+    return changed(netcalls.number(KEEPALIVE, stream, enable and delay or 0))
+end
+
+local poller: integer? = nil
+
+export function sleep(milliseconds: integer): nil
+    local token = poller
+    if token == nil then
+        token = pollcalls.open()
+        if token < 0 then
+            error("could not open socket poller", 0)
+        end
+        poller = token
+    end
+    local bounded = math.max(0, math.min(MAX_WAIT_MS, milliseconds)) as integer
+    if pollcalls.waitOwner(token, bounded * NANOS_PER_MS) < 0 then
+        error("could not pump socket readiness", 0)
+    end
+end
+
+export function snapshot(): nil
+    sleep(0)
+end
+
+export function listenPath(path: string, backlog: integer): (integer?, string?)
+    return nil, "local sockets are unavailable on the core"
+end
+
+export function connectPath(path: string, timeout: integer): (integer?, string?)
+    return nil, "local sockets are unavailable on the core"
+end
+
+export function bindDatagram(host: string, port: integer, reuse: boolean): (integer?, string?)
+    return nil, "datagrams are unavailable on the core"
+end
+
+export function tlsWrap(
+    stream: integer,
+    server: boolean,
+    hostname: string,
+    certificate: string,
+    privateKey: string,
+    authority: string?,
+    protocols: string,
+    verify: boolean
+): (integer?, string?)
+    close(stream)
+
+    return nil, "TLS streams are unavailable on the core"
+end

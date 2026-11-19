@@ -25,6 +25,7 @@ const guesttime = require("nupp.runtime.core.guesttime")
 const guestfiles = require("nupp.runtime.core.guestfiles")
 const guesthttp = require("nupp.runtime.core.guesthttp")
 const guesturi = require("nupp.runtime.core.guesturi")
+const guestnet = require("nupp.runtime.core.guestnet")
 const librarytexts = require("nupp.runtime.core.librarytexts")
 const hostfiles = require("nupp.runtime.core.hostfiles")
 const guesthash = require("nupp.runtime.core.guesthash")
@@ -226,6 +227,8 @@ export function files(ctx: voidptr, op: uint64, a: uint64, b: uint64, c: uint64)
         end
     elseif operation == librarylayouts.URI_ASCII_DOMAIN then
         return guesturi.asciiDomain(ctx, a)
+    elseif operation >= librarylayouts.NET_FIRST and operation <= librarylayouts.NET_LAST then
+        return guestnet.call(ctx, operation, a, b, c)
     end
     if operation >= librarylayouts.FILESYSTEM_FIRST and operation <= librarylayouts.FILESYSTEM_LAST then
         return guestfiles.call(ctx, operation, a, b)

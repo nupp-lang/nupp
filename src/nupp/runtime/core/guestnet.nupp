@@ -1,0 +1,88 @@
+module nupp.runtime.core.guestnet
+
+const native = require("nupp.runtime.vm.intrinsics")
+const values = require("nupp.runtime.vm.values")
+const strings = require("nupp.runtime.core.corestrings")
+const ints = require("nupp.runtime.core.coreintegers")
+const guest = require("nupp.runtime.core.guestvalues")
+const context = require("nupp.runtime.core.context")
+const layouts = require("nupp.runtime.core.librarylayouts")
+
+cdef function nuppnetcall(
+    scope: voidptr,
+    operation: uint64,
+    key: uint64,
+    borrows bytes: voidptr,
+    size: uint64,
+    option: uint64
+): int64
+
+const READ: uint64 = 6ULL
+const WRITE: uint64 = 7ULL
+const ADDRESS: uint64 = 12ULL
+const ERROR: uint64 = 15ULL
+const OPEN_LAST: uint64 = 2ULL
+const WINDOW: uint64 = 16384ULL
+const TEXT_ROOM: uint64 = 272ULL
+
+local function word(value: uint64): uint64
+    if not ints.isInteger(value) then
+        error("socket host calls: expected an integer")
+    end
+
+    return ints.bitsOf(value)
+end
+
+export function call(ctx: voidptr, method: uint64, a: uint64, b: uint64, payload: uint64): uint64
+    local state = strings.Builder(0ULL, 0ULL)
+    const scope = native.loadPointer(ctx, context.SERVICE_SCOPE)
+    const h = guest.guestheap(ctx)
+    const op = word(a)
+    const key = word(b)
+    @unsafe do
+        local absent = native.pointer(0ULL)
+        if method == layouts.NET_NUMBER then
+            return ints.make(h, native.word(nuppnetcall(scope, op, key, absent, 0ULL, word(payload))))
+        elseif method == layouts.NET_SEND then
+            if op > OPEN_LAST and op ~= WRITE then
+                error("socket host calls: invalid send operation")
+            end
+            local input = strings.header(payload)
+            if input == 0ULL then
+                error("socket host calls: expected a string")
+            end
+            local pointer = native.pointer(strings.bytes(input))
+            local count = strings.length(input)
+            if op <= OPEN_LAST then
+                return ints.make(h, native.word(nuppnetcall(scope, op, 0ULL, pointer, count, key)))
+            end
+
+            return ints.make(h, native.word(nuppnetcall(scope, op, key, pointer, count, 0ULL)))
+        end
+
+        local option = word(payload)
+        local room: uint64 = TEXT_ROOM
+        if op == READ then
+            room = WINDOW
+            if option < WINDOW then
+                room = option
+            end
+        elseif op ~= ADDRESS and op ~= ERROR then
+            error("socket host calls: invalid receive operation")
+        end
+        local output = strings.open(h, state as strings.Builder*)
+        if strings.reserve(h, output, room) ~= 0ULL then
+            error("not enough memory")
+        end
+        local pointer = native.pointer(strings.descriptor(output).base)
+        local copied = nuppnetcall(scope, op, key, pointer, room, option)
+        if copied < 0 then
+            return ints.make(h, native.word(copied))
+        end
+        if native.word(copied) > room or strings.commit(output, native.word(copied)) ~= 0ULL then
+            error("socket host calls: invalid output size")
+        end
+
+        return values.TAG_OBJ | strings.finish(h, output)
+    end
+end

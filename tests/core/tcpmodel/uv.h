@@ -59,6 +59,9 @@ int uv_tcp_init (uv_loop_t *, uv_tcp_t *);
 int uv_tcp_bind (uv_tcp_t *, const struct sockaddr *, unsigned);
 int uv_listen (uv_stream_t *, int, uv_connection_cb);
 int uv_tcp_getsockname (const uv_tcp_t *, struct sockaddr *, int *);
+int uv_tcp_getpeername (const uv_tcp_t *, struct sockaddr *, int *);
+int uv_tcp_nodelay (uv_tcp_t *, int);
+int uv_tcp_keepalive (uv_tcp_t *, int, unsigned);
 int uv_accept (uv_stream_t *, uv_stream_t *);
 int uv_tcp_connect (uv_connect_t *, uv_tcp_t *, const struct sockaddr *,
                     uv_connect_cb);
