@@ -19,6 +19,8 @@ jobs:
       GH_TOKEN: ${{ github.token }}
     steps:
       - uses: actions/checkout@v5
+        with:
+          fetch-depth: 2
       - name: Build the runtime at the seed revision
         run: |
           set -euo pipefail
