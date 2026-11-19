@@ -690,7 +690,7 @@ static const char *counted_field (const char *at, const char *end,
   return at + 1 + size;
 }
 
-/** The host sends NUL-terminated names; OpenSSL wants a length before each. */
+/** Converts the host's NUL-terminated names to OpenSSL's counted names. */
 static int encode_protocols (NuppTlsBytes *protocols, char **owned) {
   size_t size = protocols->size;
   *owned = NULL;
@@ -801,6 +801,7 @@ static int64_t wrap (Endpoint *endpoint, const char *bytes, uint64_t size) {
   endpoint->kind = ENCRYPTED;
   endpoint->key = ++issued;
   endpoint->deadline = 0;
+  endpoint->laststatus = 0;
 
   return (int64_t)endpoint->key;
 }
@@ -852,6 +853,17 @@ static int send_ciphertext (Endpoint *endpoint) {
   return nupptlsconsumed(endpoint->tls, (size_t)count) ? 0 : UV_EIO;
 }
 
+void nuppnetadvance (void) {
+  for (Endpoint *endpoint = endpoints; endpoint; endpoint = endpoint->next) {
+    if (!endpoint->retiring && endpoint->kind == ENCRYPTED &&
+        !endpoint->laststatus) {
+      int status = nupptlsflushed(endpoint->tls);
+      int wire = send_ciphertext(endpoint);
+      endpoint->laststatus = status < 0 ? status : wire;
+    }
+  }
+}
+
 static int operate_tls (Endpoint *endpoint, uint64_t op, void *bytes,
                         uint64_t size) {
   NuppTls *tls = endpoint->tls;
@@ -859,7 +871,7 @@ static int operate_tls (Endpoint *endpoint, uint64_t op, void *bytes,
 
   switch (op) {
     case NUPP_NET_TLS_READY:
-      return nupptlsready(tls);
+      return !endpoint->laststatus && nupptlsready(tls);
     case NUPP_NET_TLS_VERIFIED:
       return nupptlsverified(tls);
     case NUPP_NET_TLS_RESUMED:
@@ -884,6 +896,10 @@ static int operate_tls (Endpoint *endpoint, uint64_t op, void *bytes,
     }
     default:
       break;
+  }
+
+  if (endpoint->laststatus) {
+    return endpoint->laststatus;
   }
 
   int status = receive_ciphertext(endpoint);

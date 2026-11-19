@@ -62,6 +62,9 @@ int64_t nuppnetcall (void *scope, uint64_t op, uint64_t key, void *bytes,
 /** Retires scope identities without retaining a borrow of guest memory. */
 void nuppnetdetach (void *scope);
 
+/** Advances bounded TLS output after the owner loop settles native writes. */
+void nuppnetadvance (void);
+
 /** Frees drained handles and requests on the owner thread. */
 void nuppnetsweep (void);
 

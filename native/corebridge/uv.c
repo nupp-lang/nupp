@@ -1319,6 +1319,14 @@ static int pump (uv_run_mode mode, uint64_t nanos, Poller *owner_wait) {
 
   uv_run(&service->loop, mode);
 
+#if defined(NUPP_CORE_NET) && defined(NUPP_CORE_TLS)
+
+  if (!service->shutting_down) {
+    nuppnetadvance();
+  }
+
+#endif
+
 #ifdef NUPP_CORE_NET
   nuppnetsweep();
 #endif

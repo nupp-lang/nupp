@@ -53,17 +53,16 @@ local function roundTrip(cert: string, key: string): integer
     assert(net.tlsConnected(initiator) and net.tlsConnected(other))
     assert(net.tlsVerified(initiator) and not net.tlsVerified(other))
     assert(net.tlsProtocol(initiator) == "h2" and net.tlsProtocol(other) == "h2")
-    assert(net.tlsWrite(initiator, "tls\0record") == 10)
+    assert(net.tlsWrite(initiator, "tls\0") == 4)
+    assert(net.tlsWrite(initiator, "record") == 6)
     local got = ""
     for _ = 1, 500 do
-        local drained, problem = net.tlsFlushed(initiator)
-        assert(problem == nil, problem)
         local received, why = net.tlsRead(other, 16)
         assert(why == nil, why)
         if received ~= nil then
             got = got .. received
         end
-        if drained and #got == 10 then
+        if #got == 10 then
             break
         end
         net.sleep(2)
