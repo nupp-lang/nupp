@@ -9,9 +9,13 @@ module nupp.compiler.vm.corepiece
 -- executable (nupp.compiler.vm.corelink), placing every local owner, symbol,
 -- signature and contract at its program id.
 --
--- Every id an instruction, call record or graph of a piece holds is local: an
+-- Every id an instruction or call record of a piece holds is local: an
 -- owner's id is its local one and a symbol's id follows the owners'. Its
 -- contracts are numbered by owner, its signatures by first use.
+--
+-- A piece keeps none of its semantic graphs: what a link reads of them, their
+-- size against the program's budget, is measured as the piece finishes, and
+-- the graphs are let go with the rest of its lowering.
 local programgraph = require("nupp.compiler.vm.programgraph")
 local semantic = require("nupp.compiler.vm.coregraphverify")
 local contracts = require("nupp.compiler.vm.coregraphcontracts")
@@ -20,7 +24,7 @@ local opcodes = require("nupp.compiler.vm.opcodes")
 local bytecode = require("nupp.compiler.vm.corebytecode")
 
 -- Bumped when a piece's shape or meaning changes.
-export const FORMAT = "core-piece/1"
+export const FORMAT = "core-piece/2"
 -- The profile pieces are compiled at: the one whose modules load lazily.
 export const VERSION = 8
 -- What an anonymous function's key is spelled from: its owner's name holds a
@@ -324,7 +328,6 @@ export function finish(state: any, index: integer): any
         signatures = output.signatures,
         symbols = symbols,
         contracts = output.contracts,
-        graphs = output.graphs,
         functions = functions,
         relocations = placed,
         diagnostics = unit.diagnostics,
