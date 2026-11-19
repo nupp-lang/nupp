@@ -47,8 +47,12 @@ end
 
 -- The runtime this host's pinned stage zero runs on (scripts/stage0-runtime),
 -- which is what a bare `nupp fixpoint` verifies: vm until the pins flip the
--- host to the core.
+-- host to the core. A compiler running on the core verifies the core whatever
+-- the pins say, since the VM's fixpoint needs the VM to run on.
 local function pinnedRuntime(root: string): string
+    if not rawget(_G, "__nupp_load_image") then
+        return "core"
+    end
     local fs = require("nupp.compiler.fs")
     local script = fs.join(root, "scripts/stage0-runtime")
     if not fs.exists(script) then
