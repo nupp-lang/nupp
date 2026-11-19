@@ -60,6 +60,11 @@ export function create(clock: any): any
 
     local timerSource: suspension.Source? = nil
 
+    -- A scheduler can drive the timer source alongside its own run queue.
+    function time.hasPending(): boolean
+        return #pending > 0
+    end
+
     const function insert(entry: any): nil
         if #pending >= MAX_PENDING_TIMERS then
             error(("nupp: more than %d timers are pending"):format(MAX_PENDING_TIMERS), 3)
@@ -149,9 +154,7 @@ export function create(clock: any): any
         -- is willing to wait for it. That is what it did: a test run would sometimes
         -- take thirty-five minutes instead of two and a half, depending on whether
         -- some earlier suite in the same process had slept.
-        const created = suspension.source("nupp.time", TIMER_ORDER, fireDue, sleepUntilDue, function(): boolean
-            return #pending > 0
-        end)
+        const created = suspension.source("nupp.time", TIMER_ORDER, fireDue, sleepUntilDue, time.hasPending)
         timerSource = created
 
         return created

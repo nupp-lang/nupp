@@ -901,7 +901,8 @@ const schedulerValues: {
     ["coroutine.iscancelled"] = true,
     ["coroutine.run"] = true,
     ["coroutine.sleep"] = true,
-    ["coroutine.sleepuntil"] = true
+    ["coroutine.sleepuntil"] = true,
+    ["coroutine.wakeat"] = true
 }
 
 -- The module that gives the core its `warn` and runs its finalizers, loaded

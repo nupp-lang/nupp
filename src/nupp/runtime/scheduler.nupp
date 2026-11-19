@@ -28,6 +28,7 @@ nothing else can run.
 local calls = require("nupp.runtime.taskcalls")
 local pollcalls = require("nupp.runtime.pollcalls")
 local reactor = require("nupp.runtime.reactor")
+local nativeTimers = require("nupp.runtime.provider.nativetime")
 local suspension = require("nupp.suspension")
 local taskCancellation = require("nupp.suspension.cancellation")
 local coroutines = require("nupp.suspension.internal.coroutines")
@@ -241,7 +242,7 @@ local function step(): nil
         return
     end
     -- A source wakes its task through `wake`, whatever count it answers.
-    local polling = suspended > 0
+    local polling = suspended > 0 or nativeTimers.hasPending()
     if polling then
         suspension.poll()
         if head <= tail then
@@ -389,7 +390,21 @@ local function park(arm: function(any): nil, shielded: boolean): any
     return box.value
 end
 
+local function checkDuration(value: number, label: string): nil
+    if value ~= value or value < 0 or value == math.huge then
+        error("nupp: " .. label .. " must be a finite non-negative number", 3)
+    end
+end
+
 local function sleepuntil(deadline: number): nil
+    checkDuration(deadline, "deadline")
+    if deadline <= (calls.now() as number) then
+        return
+    end
+    if current() == nil and suspension.handled() then
+        nativeTimers.sleepuntil(deadline)
+        return
+    end
     park(
         function(waiter: any): nil
             addtimer({at = deadline, waiter = waiter})
@@ -399,7 +414,10 @@ local function sleepuntil(deadline: number): nil
 end
 
 local function sleep(milliseconds: number): nil
-    sleepuntil((calls.now() as number) + milliseconds)
+    checkDuration(milliseconds, "sleep duration")
+    if milliseconds > 0 then
+        sleepuntil((calls.now() as number) + milliseconds)
+    end
 end
 
 ----------------------------------------------------------------------------
@@ -1015,6 +1033,9 @@ local function checkpoint(): nil
     local record = current()
     if record == nil then
         -- The main thread's stack lets what is runnable now run once.
+        if nativeTimers.hasPending() then
+            suspension.poll()
+        end
         local count = tail - head + 1
         local poll = ownerWait
         if count == 0 and poll ~= nil and ownerWork() then
@@ -1107,5 +1128,6 @@ export const functions: {
     ["coroutine.iscancelled"] = iscancelled,
     ["coroutine.run"] = run,
     ["coroutine.sleep"] = sleep,
-    ["coroutine.sleepuntil"] = sleepuntil
+    ["coroutine.sleepuntil"] = sleepuntil,
+    ["coroutine.wakeat"] = nativeTimers.wakeat
 }
