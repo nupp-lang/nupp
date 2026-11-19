@@ -13,10 +13,10 @@ local loadImage = rawget(_G, "__nupp_load_image")
 
 -- The native core's module instances: neither the VM's image loader nor
 -- LuaJIT's setfenv, and the core's loader module.
-local coreInstance = nil
+local coreInstanceLoader = nil
 if loadImage == nil and rawget(_G, "setfenv") == nil then
     local ok, luaload = pcall(require, "nupp.runtime.luaload")
-    coreInstance = ok and type(luaload) == "table" and luaload.instance or nil
+    coreInstanceLoader = ok and type(luaload) == "table" and luaload.instanceLoader or nil
 end
 
 -- The checkout this helper lives in, whose src/ holds the modules' sources.
@@ -35,7 +35,9 @@ local function sourcefile(name)
     end
     error("no Nupp source for " .. name)
 end
+
 local images = {}
+local coreLoaders = {}
 local checkEnv = nil
 
 local function vmModule(name)
@@ -138,14 +140,19 @@ local function instance(owned, replacements, preloads, globals)
         local value
         if loadImage then
             value = vmModule(name)({value = environment})
-        elseif coreInstance then
+        elseif coreInstanceLoader then
             local path = sourcefile(name)
             if path:sub(-4) == ".lua" then
                 -- A plain Lua module's chunk runs with the instance's
                 -- environment as its _ENV.
                 value = assert(loadfile(path, "t", environment))()
             else
-                value = coreInstance(path, environment)
+                local load = coreLoaders[path]
+                if not load then
+                    load = coreInstanceLoader(path)
+                    coreLoaders[path] = load
+                end
+                value = load(environment)
             end
         else
             local chunk = assert(loadfile(filename(name)))

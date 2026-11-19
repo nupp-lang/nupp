@@ -375,14 +375,10 @@ local function loadchunk(chunk: any, name: string?, mode: string?, env: table?):
     return loaded(chunk, name, mode, env, nil)
 end
 
---- A fresh instance of the Nupp module whose source, or binary chunk
---- (`nupp.compiler.vm.corechunk.compileModule`'s), is the file at `path`: its
---- body runs again in a copy of its own, its globals are fields of `env`
---- and its requires call `env.require`, which may
---- answer a stand-in for any module, the core's own calls
---- (`nupp.runtime.gccalls`) included. Answers the module's value, and raises
---- what reading, compiling or running it raises.
-export function instance(path: string, env: table): any
+--- Reads and compiles the module at `path` once and returns a function that
+--- runs a fresh instance each time. Each call takes the instance's environment
+--- and returns the module's value.
+export function instanceLoader(path: string): function(table): any
     local text, reason = contents(path)
     if text == nil then
         error("cannot open " .. tostring(reason), 2)
@@ -392,12 +388,24 @@ export function instance(path: string, env: table): any
     if bytes == nil then
         error(refused, 2)
     end
-    local value, problem = started(bytes, chunkname, env)
-    if problem ~= nil then
-        error(problem, 2)
-    end
+    const chunk = bytes as string
 
-    return value
+    return function(env: table): any
+        local value, problem = started(chunk, chunkname, env)
+        if problem ~= nil then
+            error(problem, 2)
+        end
+
+        return value
+    end
+end
+
+--- A fresh instance of the Nupp module whose source, or binary chunk
+--- (`nupp.compiler.vm.corechunk.compileModule`'s), is the file at `path`.
+--- Its globals come from `env`. Its requires call `env.require`, which may
+--- provide a stand-in for any module, including the core's own calls.
+export function instance(path: string, env: table): any
+    return instanceLoader(path)(env)
 end
 
 local function loadpath(filename: string?, mode: string?, env: table?): (any, string?)
