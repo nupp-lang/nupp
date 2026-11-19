@@ -99,6 +99,8 @@ if [ "$ORIGIN_HEAD" = "$TASK_HEAD" ] && [ -f "$RUNNER_STATE" ] \
     && grep -q '"root":' "$RUNNER_STATE"; then
     copy_if_absent "$ROOT/build/test-runner" "$TASK_ROOT/build/test-runner"
     copy_if_absent "$ROOT/build/nupp-test" "$TASK_ROOT/build/nupp-test"
+    # The C libraries the runner carries are written beside it as well.
+    copy_if_absent "$ROOT/build/lib" "$TASK_ROOT/build/lib"
 fi
 
 # The VM compiler. A checkout with no installed VM CLI falls back to the LuaJIT
