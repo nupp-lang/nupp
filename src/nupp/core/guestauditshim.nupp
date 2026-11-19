@@ -137,6 +137,9 @@ export function build(source: any, selected: {[string]: any}, primary: any, scen
     refuse(1)
     emit(arm.ldr(8, 20, 31, 160));
     emit(arm.ldr(8, 19, 20, 40));
+    -- The primary entry restored the C caller's registers. Audit leaves
+    -- use the bridge import table through the same register as guests.
+    emit(arm.ldr(8, 22, 20, 56));
     offset(23, helperOffset)
     if prefixFailure then
         emit(arm.mov_reg(64, 0, 19));

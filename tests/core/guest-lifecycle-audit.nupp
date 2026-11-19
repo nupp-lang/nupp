@@ -152,6 +152,9 @@ export function stale(
     local descriptor = native.loadPointer(ctx, context.CATALOG)
     local oldRoot = native.load64(ctx, context.ORIGINAL_ROOT)
     local oldSerial = native.load64(ctx, context.ROOT_SERIAL)
+    -- The primary entry closed its host services. These synthetic roots
+    -- have no backing registrations to retain when an old token is refused.
+    native.store64(ctx, context.SERVICE_SCOPE, 0ULL)
     local id = native.load64(descriptor, native.fieldOffset<catalog.Catalog>("entry"))
     local info = native.offset(
         native.loadPointer(descriptor, native.fieldOffset<catalog.Catalog>("infos")),
