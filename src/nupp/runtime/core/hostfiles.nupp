@@ -3,15 +3,29 @@ module nupp.runtime.core.hostfiles
 -- The file and directory system calls under the program's file layer
 -- (filecalls), made through the C library: each answers a descriptor,
 -- count or position, or the negated error number. A path is a string's
--- bytes up to its first NUL, as C reads one. The constants are macOS's, the
--- one host the core's compiler targets (aarch64-apple-darwin).
+-- bytes up to its first NUL, as C reads one.
 const native = require("nupp.runtime.vm.intrinsics")
 const heap = require("nupp.runtime.vm.heap")
 const strings = require("nupp.runtime.core.corestrings")
 const c = require("nupp.runtime.core.hostc")
 
-cdef function open(borrows path: voidptr, flags: int64, ...): int32
-cdef function openat(parent: int64, borrows path: voidptr, flags: int64, ...): int32
+cdef struct OpenModes
+    readonly: int32
+    writeonly: int32
+    readwrite: int32
+    closeonexec: int32
+    nonblock: int32
+    append: int32
+    create: int32
+    truncate: int32
+    exclusive: int32
+    directory: int32
+end
+
+cdef function nupp_core_open_modes(): voidptr
+cdef function nupp_core_open_file(borrows path: voidptr, flags: int64, mode: int64): int32
+cdef function nupp_core_open_directory(parent: int64, borrows path: voidptr): int32
+cdef function nupp_core_unlink_entry(parent: int64, borrows path: voidptr, directory: uint64): int32
 cdef function read(fd: int64, borrows buffer: voidptr, count: uint64): int64
 cdef function write(fd: int64, borrows buffer: voidptr, count: uint64): int64
 cdef function lseek(fd: int64, offset: int64, whence: int64): int64
@@ -23,10 +37,9 @@ cdef function memcpy(borrows target: voidptr, borrows source: voidptr, count: ui
 cdef function remove(borrows path: voidptr): int32
 cdef function rename(borrows from: voidptr, borrows to: voidptr): int32
 cdef function mkstemp(borrows template: voidptr): int32
-cdef function unlinkat(parent: int64, borrows path: voidptr, flags: int64): int32
 cdef function fdopendir(fd: int64): voidptr
 cdef function rewinddir(borrows dir: voidptr)
-cdef function readdir(borrows dir: voidptr): voidptr
+cdef function nupp_core_next_name(borrows dir: voidptr): voidptr
 cdef function closedir(borrows dir: voidptr): int32
 
 -- filecalls' access flags.
@@ -41,29 +54,10 @@ const DIRECTORY: uint64 = 128ULL
 -- Private opt-in for files.openRegularRead.
 const NONBLOCKING_READ: uint64 = 256ULL
 
--- The C library's, on macOS.
-const O_RDONLY: int64 = 0
-const O_WRONLY: int64 = 1
-const O_RDWR: int64 = 2
-const O_NONBLOCK: int64 = 0x4
-const O_APPEND: int64 = 0x8
-const O_NOFOLLOW: int64 = 0x100
-const O_CREAT: int64 = 0x200
-const O_TRUNC: int64 = 0x400
-const O_EXCL: int64 = 0x800
-const O_DIRECTORY: int64 = 0x100000
-const O_CLOEXEC: int64 = 0x1000000
--- AT_FDCWD is -2: the working directory, for a call relative to a directory.
-const AT_FDCWD_NEGATED: int64 = 2
-const AT_REMOVEDIR: int64 = 0x80
-const ELOOP: int64 = 62
-const ENOTDIR: int64 = 20
 const SHARED_MODE: int64 = 438
 const PRIVATE_MODE: int64 = 384
 const LAST_WHENCE: uint64 = 2ULL
 const MODE_SHIFT: int64 = 32
--- Where a directory entry's name starts in macOS's struct dirent.
-const ENTRY_NAME: int64 = 21
 
 -- os.tmpname's template, "/tmp/lua_XXXXXX", as the two words it is.
 const TEMPLATE_HEAD: uint64 = 0x61756c2f706d742fULL
@@ -74,11 +68,14 @@ const WORD_BYTES: uint64 = 8ULL
 -- The C open flags for filecalls' `flags`, as Rust's OpenOptions makes
 -- them; -1 for a combination it refuses.
 local function openFlags(flags: uint64): int64
+    local modes = nupp_core_open_modes()
+    local closeonexec = native.load32(modes, native.fieldOffset<OpenModes>("closeonexec"))
+    local readonly = native.load32(modes, native.fieldOffset<OpenModes>("readonly"))
     if (flags & NONBLOCKING_READ) ~= 0ULL then
         if flags ~= (READ | NONBLOCKING_READ) then
             return -1
         end
-        return O_CLOEXEC | O_RDONLY | O_NONBLOCK
+        return closeonexec | readonly | native.load32(modes, native.fieldOffset<OpenModes>("nonblock"))
     end
     local reading = (flags & READ) ~= 0ULL
     local appending = (flags & APPEND) ~= 0ULL
@@ -86,43 +83,45 @@ local function openFlags(flags: uint64): int64
     local creating = (flags & CREATE) ~= 0ULL
     local truncating = (flags & TRUNCATE) ~= 0ULL
     local exclusive = (flags & EXCLUSIVE) ~= 0ULL
-    local result: int64 = O_CLOEXEC
+    local result: int64 = closeonexec
     if appending then
-        result = result | O_APPEND
+        result = result | native.load32(modes, native.fieldOffset<OpenModes>("append"))
         if reading then
-            result = result | O_RDWR
+            result = result | native.load32(modes, native.fieldOffset<OpenModes>("readwrite"))
         else
-            result = result | O_WRONLY
+            result = result | native.load32(modes, native.fieldOffset<OpenModes>("writeonly"))
         end
         if truncating and not exclusive then
             return -1
         end
     elseif writing then
         if reading then
-            result = result | O_RDWR
+            result = result | native.load32(modes, native.fieldOffset<OpenModes>("readwrite"))
         else
-            result = result | O_WRONLY
+            result = result | native.load32(modes, native.fieldOffset<OpenModes>("writeonly"))
         end
     elseif reading then
         if creating or truncating or exclusive then
             return -1
         end
-        result = result | O_RDONLY
+        result = result | readonly
     else
         return -1
     end
     if exclusive then
-        result = result | O_CREAT | O_EXCL
+        result = result
+            | native.load32(modes, native.fieldOffset<OpenModes>("create"))
+            | native.load32(modes, native.fieldOffset<OpenModes>("exclusive"))
     else
         if creating then
-            result = result | O_CREAT
+            result = result | native.load32(modes, native.fieldOffset<OpenModes>("create"))
         end
         if truncating then
-            result = result | O_TRUNC
+            result = result | native.load32(modes, native.fieldOffset<OpenModes>("truncate"))
         end
     end
     if (flags & DIRECTORY) ~= 0ULL then
-        result = result | O_DIRECTORY
+        result = result | native.load32(modes, native.fieldOffset<OpenModes>("directory"))
     end
 
     return result
@@ -161,7 +160,7 @@ export function openFile(h: heap.Heap*, path: uint64, flags: uint64): int64
         local lifetime = strings.open(h, state as strings.Builder*)
         local name = c.append(h, lifetime, path)
         while true do
-            local fd: int64 = open(c.at(lifetime, name), mode, permissions)
+            local fd: int64 = nupp_core_open_file(c.at(lifetime, name), mode, permissions)
             if fd >= 0 then
                 return fd
             end
@@ -300,16 +299,6 @@ export function temporary(h: heap.Heap*, borrows b: strings.Builder*): int64
     end
 end
 
--- The working directory when `parent` is negative, else `parent`.
-local function parentOf(parent: uint64): int64
-    local fd = native.index(parent)
-    if fd < 0 then
-        return 0 - AT_FDCWD_NEGATED
-    end
-
-    return fd
-end
-
 -- Opens the directory `path` below `parent` without following a link: its
 -- descriptor, ENOTDIR for anything that is not a directory, a link included.
 export function openDirectory(h: heap.Heap*, parent: uint64, path: uint64): int64
@@ -317,16 +306,11 @@ export function openDirectory(h: heap.Heap*, parent: uint64, path: uint64): int6
     @unsafe do
         local lifetime = strings.open(h, state as strings.Builder*)
         local name = c.append(h, lifetime, path)
-        local fd: int64 = openat(parentOf(parent), c.at(lifetime, name), O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC)
+        local fd: int64 = nupp_core_open_directory(native.index(parent), c.at(lifetime, name))
         if fd >= 0 then
             return fd
         end
-        local failed = c.failure()
-        if failed == 0 - ELOOP then
-            return 0 - ENOTDIR
-        end
-
-        return failed
+        return c.failure()
     end
 end
 
@@ -358,11 +342,10 @@ export function names(fd: uint64, out: voidptr, room: uint64): int64
         rewinddir(dir)
         local length: uint64 = 0ULL
         while true do
-            local entry = readdir(dir)
-            if native.address(entry) == 0ULL then
+            local name = nupp_core_next_name(dir)
+            if native.address(name) == 0ULL then
                 break
             end
-            local name = native.pointer(native.address(entry) + native.word(ENTRY_NAME))
             if not dots(name) then
                 local count = strlen(name) + 1ULL
                 if length + count <= room then
@@ -381,14 +364,10 @@ end
 -- negative), an empty directory when `directory` is 1: 0.
 export function unlinkEntry(h: heap.Heap*, parent: uint64, path: uint64, directory: uint64): int64
     local state = strings.Builder(0ULL, 0ULL)
-    local flags: int64 = 0
-    if directory == 1ULL then
-        flags = AT_REMOVEDIR
-    end
     @unsafe do
         local lifetime = strings.open(h, state as strings.Builder*)
         local name = c.append(h, lifetime, path)
-        local status: int64 = unlinkat(parentOf(parent), c.at(lifetime, name), flags)
+        local status: int64 = nupp_core_unlink_entry(native.index(parent), c.at(lifetime, name), directory)
         if status ~= 0 then
             return c.failure()
         end

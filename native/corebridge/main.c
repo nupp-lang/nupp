@@ -42,6 +42,8 @@
 #include <dlfcn.h>
 #include <sys/mman.h>
 #include <unistd.h>
+
+#include "hostposix.h"
 #endif
 
 #ifdef NUPP_CORE_HTTP
