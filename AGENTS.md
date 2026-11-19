@@ -201,7 +201,10 @@ which is written the same way: a comment saying what the file builds and who
 runs it, and blank lines, kept by hand, around each `if`, `foreach` and
 `function` block and between groups of commands.
 Write C as it reads there: one statement per line, named constants rather than
-bare numbers, and small functions over dense ones.
+bare numbers, and small functions over dense ones. Name C files and
+identifiers as Lua does: lowercase and run together, with no underscores or
+hyphens (`definitionlist.c`, `nuppmarkdownrender`, `storele64`), and
+UPPERCASE for constants and macros.
 
 - `./bin/nupp test [SUITE...]` runs the test suite, or only the named suites:
   `./bin/nupp test doctest` finishes in seconds where the whole suite takes
