@@ -2055,6 +2055,64 @@ function M.scopesKeepDeliveryExplicitAndRejectUnassignedSuites()
     os.execute(("rm -rf %q"):format(dir))
 end
 
+function M.workerDurationsIgnoreWallClockAdjustments()
+    local source = read(ROOT .. "/tests/run.lua")
+    local first = assert(source:find("local now\ndo\n", 1, true))
+    local last = assert(source:find("-- A shard entry", first, true))
+    local setup = source:sub(first, last - 1) .. "\nreturn now"
+    for _, platform in ipairs({"vm", "Linux", "OSX"}) do
+        local ticks, wall = 0, 1000
+        local ffi = {
+            os = platform,
+            cdef = function()
+            end,
+            new = function()
+                return {[0] = {}}
+            end,
+            C = {
+                gettimeofday = function()
+                    wall = wall - 100
+                    error("elapsed time must not read the adjusting wall clock")
+                end,
+                clock_gettime = function(kind, time)
+                    test.eq(kind, platform == "Linux" and 1 or 6)
+                    ticks = ticks + 5
+                    time[0].tv_sec = 12
+                    time[0].tv_nsec = ticks * 1000000
+
+                    return 0
+                end,
+            },
+        }
+        local environment = setmetatable(
+            {
+                require = function(name)
+                    if name == "nupp.vm.clock" then
+                        if platform ~= "vm" then
+                            error("no VM clock")
+                        end
+                        return {
+                            now = function()
+                                ticks = ticks + 5
+                                return ticks
+                            end
+                        }
+                    end
+                    test.eq(name, "ffi")
+
+                    return ffi
+                end,
+            },
+            {__index = _G}
+        )
+        local now = assert(setfenv(assert(loadstring(setup, "@nupp:test-runner")), environment))()
+        local before = now()
+        wall = wall - 100
+        test.eq(now() - before, 5, "worker durations use monotonic milliseconds")
+        test.eq(wall, 900, "wall-clock adjustments never enter elapsed measurements")
+    end
+end
+
 function M.windowsShellUsesArgumentVectorsForNativePipes()
     local source = read(ROOT .. "/tests/run.lua")
     local first = assert(source:find("-- The suites predate Windows support", 1, true))

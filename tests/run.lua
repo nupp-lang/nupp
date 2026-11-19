@@ -1243,35 +1243,34 @@ local function progressHeading(text)
     return paint("1;36", text)
 end
 
--- Wall clock, because most of what these tests spend time on is a subprocess,
--- which no measure of this process's own CPU time would ever see. The FFI is
--- guarded the same way io guards it: a build without it still runs the
--- tests, it just reports coarser times.
+-- Monotonic elapsed time includes subprocess waits without following wall-clock
+-- adjustments. A negative duration makes an otherwise passing worker report
+-- invalid. Builds without a native clock fall back to this process's CPU time.
 local now
 do
+    local clocked, clock = pcall(require, "nupp.vm.clock")
+    if clocked and type(clock) == "table" and type(clock.now) == "function" then
+        now = clock.now
+    end
     local ok, ffi = pcall(require, "ffi")
-    if ok then
-        -- tv_usec is a long on Linux and an int on the BSDs, and reading it at
-        -- the wrong width is how a timer silently returns nonsense.
-        local micros = ffi.os == "Linux" and "long" or "int"
+    local kind = ok and (ffi.os == "Linux" and 1 or ffi.os == "OSX" and 6) or nil
+    if now == nil and kind then
         local declared = pcall(
             ffi.cdef,
-            (
-                [[
-         struct nupp_timeval { long tv_sec; %s tv_usec; };
-         int gettimeofday(struct nupp_timeval *, void *);
+            [[
+         struct nupp_timespec { long tv_sec; long tv_nsec; };
+         int clock_gettime(int, struct nupp_timespec *);
       ]]
-            ):format(micros)
         )
         if declared then
-            local tv = ffi.new("struct nupp_timeval[1]")
+            local tv = ffi.new("struct nupp_timespec[1]")
             local called = pcall(function()
-                ffi.C.gettimeofday(tv, nil)
+                assert(ffi.C.clock_gettime(kind, tv) == 0)
             end)
             if called then
                 now = function()
-                    ffi.C.gettimeofday(tv, nil)
-                    return tonumber(tv[0].tv_sec) * 1000 + tonumber(tv[0].tv_usec) / 1000
+                    assert(ffi.C.clock_gettime(kind, tv) == 0)
+                    return tonumber(tv[0].tv_sec) * 1000 + tonumber(tv[0].tv_nsec) / 1000000
                 end
             end
         end
