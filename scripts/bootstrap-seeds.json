@@ -20,7 +20,7 @@
       "imageSha256": "ab1b144840350699ef459b9b4db218834ffcec94a0f9d1c9597f335370cfc665"
     },
     "aarch64-unknown-linux-gnu": {
-      "url": "https://github.com/nupp-lang/nupp/releases/download/v0.0.15-native-api-seed.6/nupp-seed-aarch64-unknown-linux-gnu-526727cfe2b76713a5430b5d02150f553f3fa355.tar.gz",
+      "url": "https://github.com/nupp-lang/nupp/releases/download/v0.0.15-native-api-seed.6-linux-arm64/nupp-seed-aarch64-unknown-linux-gnu-526727cfe2b76713a5430b5d02150f553f3fa355.tar.gz",
       "sha256": "df39fe9a8017a7732c41d6ba74c761030f7e664f1638f00353dd8d010c46cc7b",
       "runtimeSha256": "b041ade0e2c24c228a70be803d2fa69718b1ec35b852bfc5c6467aaa68e0739c",
       "imageSha256": "ab1b144840350699ef459b9b4db218834ffcec94a0f9d1c9597f335370cfc665"
