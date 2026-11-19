@@ -34,16 +34,17 @@ function M.open(root)
     end
 
     function project.run(file, capturePrint)
-        if capturePrint then
-            -- VM print calls target the runtime directly. Capture real child output.
+        local loadImage = rawget(_G, "__nupp_load_image")
+        if capturePrint or not loadImage then
+            -- A native fixture runs through the CLI in its own project.
+            -- A child also captures prints that go directly to the runtime.
             local executable = require("helpers.paths").absoluteTests .. "/../bin/nupp"
             local status, output = require("nupp.compiler.process").capture({executable, "run", absolute(file)}, {
                 cwd = root
             })
             assert(status == 0, output)
-            return output
+            return capturePrint and output or ""
         end
-        local loadImage = assert(rawget(_G, "__nupp_load_image"), "contract fixtures run on the VM")
 
         local function compiled(path, e, name, source)
             local strict

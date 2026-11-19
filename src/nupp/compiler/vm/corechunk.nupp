@@ -222,10 +222,18 @@ end
 -- the opening stays on one line, preserving the user's source lines.
 local function recordOpening(text: string): (string, string)
     assert(type(recordruntime.create) == "function", "record factory implementation missing")
-    local env = checkingEnvironment(true)
-    local path = assert(environment.findRuntimeModulePath(env, recordcallables.MODULE), "record factory source missing")
-    local source = assert(fs.readFile(path))
-    local tree = parser.parse(source, path)
+    -- The factory belongs to the compiler. A project's include roots need
+    -- only cover that project's modules.
+    local root = environment.compilerRoot()
+    local relative = "src/" .. recordcallables.MODULE:gsub("%.", "/") .. NUPP_SUFFIX
+    local path = root and fs.join(root, relative)
+    local source = path and fs.readFile(path)
+    if source == nil then
+        local env = checkingEnvironment(true)
+        path = assert(environment.findRuntimeModulePath(env, recordcallables.MODULE), "record factory source missing")
+        source = assert(fs.readFile(path))
+    end
+    local tree = parser.parse(source, assert(path))
     assert(#tree.errors == 0, "record factory source does not parse")
     local name, suffix = "__nupp_record_factory", 0
     local used = {}
