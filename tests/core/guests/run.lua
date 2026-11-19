@@ -37,12 +37,10 @@ local OUT = ROOT .. "/build/core-guests"
 local TESTS = ROOT .. "/tests/core"
 -- The C fixtures build with the warnings the bridge builds with.
 local FIXTURE_CFLAGS = "-std=c11 -Wall -Wextra -Werror"
--- The guest runtime is built through the service catalog and the unit code
--- cache; NUPP_GUEST_BUILD=frozen selects the frozen final-frame build instead.
-local UNITS = os.getenv("NUPP_GUEST_BUILD") ~= "frozen"
--- Guest scratch: unit-built guests call into the collector, whose call chain
--- needs more spill room than the frozen build's 128 KiB.
-local SCRATCH = UNITS and 1048576 or 131072
+-- Guest scratch: the guest runtime is built through the service catalog and
+-- the unit code cache, and its guests call into the collector, whose call
+-- chain needs this much spill room.
+local SCRATCH = 1048576
 -- NUPP_GUEST_QUICK=1 checks selections and results only: no ABI guard,
 -- refusal or audit runs, which each run the program again.
 local QUICK = os.getenv("NUPP_GUEST_QUICK") == "1"
@@ -1245,43 +1243,16 @@ local function tools(selectedCases)
     return prefix .. "/nupp-core", prefix .. "/nupp-core-guard"
 end
 
--- Stage the source snapshots the closed guest builds read: the canonical core
--- sources, the negative module and the module fixtures.
+-- Stage the module fixtures the guest builds check where the shared project
+-- finds them, and the lifecycle audit module beside the audit build's.
 local function stage()
     local fixtures = guestbuild.fixtures()
-    local canonical = {}
-    for _, name in ipairs({
-        "arena",
-        "frames",
-        "context",
-        "frameaccess",
-        "instances",
-        "guestcatalog",
-        "guestentry",
-        "guestops",
-        "guesthandlers"
-    }) do
-        canonical[#canonical + 1] = "src/nupp/runtime/core/" .. name .. ".nupp"
-    end
-    for _, name in ipairs({"intrinsics.d.nupp", "program.d.nupp", "slots.d.nupp", "values.nupp"}) do
-        canonical[#canonical + 1] = "src/nupp/runtime/vm/" .. name
-    end
-    canonical[#canonical + 1] = "tests/core/guest-contract-negatives.nupp"
-    for _, fixture in ipairs(fixtures) do
-        canonical[#canonical + 1] = fixture.path
-    end
     for _, directory in ipairs({"core-guest-programs", "core-guest-audit"}) do
         local base = ROOT .. "/build/" .. directory
         os.execute(
             "mkdir -p " .. quote(base .. "/source/nupp/runtime/core") .. " " .. quote(base .. "/source/nupp/core")
         )
-        local names = {}
-        for _, name in ipairs(canonical) do
-            names[#names + 1] = name
-        end
-        write(base .. "/source/nupp/runtime/core/guestnegatives.nupp", read(TESTS .. "/guest-contract-negatives.nupp"))
         if directory == "core-guest-audit" then
-            names[#names + 1] = "tests/core/guest-lifecycle-audit.nupp"
             write(base .. "/source/nupp/runtime/core/guestaudit.nupp", read(TESTS .. "/guest-lifecycle-audit.nupp"))
         end
         local directories = {}
@@ -1295,18 +1266,6 @@ local function stage()
             write(path, fixture.source)
             assert(read(path) == fixture.source, "staged guest source differs: " .. fixture.path)
         end
-        local sources = {}
-        for _, name in ipairs(names) do
-            sources[name] = assert(read(ROOT .. "/" .. name), name)
-        end
-        write(
-            base .. "/snapshot.json",
-            json.encodevalue({
-                version = 1,
-                target = "aarch64-apple-darwin",
-                sources = sources
-            })
-        )
     end
 end
 
@@ -1754,7 +1713,7 @@ local function main()
     local function selection(name, mode)
         local began = os.time()
         timing.phase, timing.case = "select", name
-        local parts = {name, mode, tostring(UNITS and SCRATCH or 131072), UNITS and "units" or "frozen"}
+        local parts = {name, mode, tostring(SCRATCH), "units"}
         -- A case whose program is a checkout source outside the trees the
         -- store keys every selection by keys it by its own tree too.
         if ROOTED[name] then
@@ -1766,13 +1725,9 @@ local function main()
             kept = kept + 1
         else
             compiler()
-            if UNITS then
-                selections[
-                    name .. "-" .. mode
-                ] = producer.selectUnits(name, mode, tostring(SCRATCH), sharedcache.directory("kernels"))
-            else
-                selections[name .. "-" .. mode] = producer.select(name, mode, "131072")
-            end
+            selections[
+                name .. "-" .. mode
+            ] = producer.selectUnits(name, mode, tostring(SCRATCH), sharedcache.directory("kernels"))
             versions[name] = guestbuild.version(name)
             selectioncache.keep(ROOT, parts, selections[name .. "-" .. mode], {version = versions[name]})
         end
@@ -1927,7 +1882,7 @@ local function main()
             end
             -- Each in every collection mode the case runs in.
             local modes = {{"", empty}}
-            if RAISES[name] and UNITS and STRESSED and STRESS[name] then
+            if RAISES[name] and STRESSED and STRESS[name] then
                 local stress = OUT .. "/" .. label .. "-raises-stress.bin"
                 write(stress, u64(-1) .. u64(0) .. u64(1))
                 local stepped = OUT .. "/" .. label .. "-raises-interleaved.bin"
@@ -1962,7 +1917,7 @@ local function main()
                 -- It ends through os.exit: its status and what it printed,
                 -- in each collection mode, and no result published.
                 local runs = {{"", empty}}
-                if UNITS and STRESSED and STRESS[name] then
+                if STRESSED and STRESS[name] then
                     local stress = OUT .. "/" .. label .. "-stress.bin"
                     write(stress, u64(-1) .. u64(0) .. u64(1))
                     local stepped = OUT .. "/" .. label .. "-interleaved.bin"
@@ -2006,7 +1961,7 @@ local function main()
                 end)
                 guarded(label, bundle, empty, highWater, expected)
                 -- The same result with a collection at every allocation.
-                if UNITS and STRESSED and (STRESS[name] == true or STRESS[name] == mode) then
+                if STRESSED and (STRESS[name] == true or STRESS[name] == mode) then
                     local input = OUT .. "/" .. label .. "-stress.bin"
                     write(input, u64(-1) .. u64(0) .. u64(1))
                     local stressed = OUT .. "/" .. label .. "-stress.out"
@@ -2235,9 +2190,13 @@ local function main()
                 timing.case, timing.phase, timing.label = "audit " .. name, "audit select", label
                 local began = os.time()
                 compiler()
-                local selected = UNITS
-                    and producer.selectUnits(name, mode, tostring(SCRATCH), sharedcache.directory("kernels"), scenario)
-                    or producer.select(name, mode, "131072", scenario)
+                local selected = producer.selectUnits(
+                    name,
+                    mode,
+                    tostring(SCRATCH),
+                    sharedcache.directory("kernels"),
+                    scenario
+                )
                 account(os.time() - began)
                 local primary = selections[name .. "-" .. mode]
                 check(same(selected.programs, primary.programs), label .. " stream unchanged")
