@@ -142,4 +142,6 @@ Verified: the touched suites on the VM (156 tests, 155 passed, 1 skipped as core
    the remaining shared failures. The M1 and libuv owners keep their
    existing lanes.
 3. Verify warm test-build reuse on the core. The external binary test
-   built and ran. Its completed state contained no reuse entry.
+   built and ran. Its completed state contained no reuse entry. A native
+   trace showed that the key changes between lookup and publication
+   even though all output files are available.

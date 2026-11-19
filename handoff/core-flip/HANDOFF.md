@@ -40,13 +40,19 @@ branch avoozl-plans). Follow AGENTS.md in each repo.
   on `fcb7a5c31`. Incremental emit, streaming, cleanup, and the stable
   builder landed in four commits from `34ad73dc9` through `070b3463e`.
   The integration stack passed the VM fixpoint and reproduced an
-  unchanged bundle with 20/20 pieces reused.
+  unchanged bundle with 20/20 pieces reused. The opt-in launcher now
+  keeps its builder across edits (`783846a0d`) and notices removed
+  compiler sources (`0ce6dcbf4`). Catalog records are isolated by checkout
+  after `f94e82c94`.
 - The W1 retirement landed at `f09743b9f` after the VM fixpoint and a
   four-row guest replay. Its six-case run and its base each recorded the
   same 28 failed checks. The audit import and synthetic-root fixes landed
   at `8d64249f` after a six-row replay with 4016 checks and zero failures.
-  The checked-fragment branch's five core suites returned 37 passes and
-  nine failures.
+  The checked-fragment change landed at `02a9bda2d`. Its base reproduced
+  all nine failures in the five-suite replay. The two checked-module
+  fixtures passed on both runtimes. C bitfield reads and writes landed
+  at `cc781fe93` after the VM fixpoint and four native replays. Bare C
+  library names resolve on the core after `2190ded84`.
 - GitHub superseded runs `44540110785` and `44543722316`.
   [Run 44544039175](https://github.com/nupp-lang/nupp/actions/runs/44544039175)
   built the compiler and test runner on Linux ARM64 and passed the Linux
@@ -65,8 +71,7 @@ branch avoozl-plans). Follow AGENTS.md in each repo.
   fixes those compile flags and passes the full Linux C lint locally.
   [Run 44567504364](https://github.com/nupp-lang/nupp/actions/runs/44567504364)
   retries the macOS core guests at that commit. Preflight and the macOS
-  compiler build passed. The macOS test runner was still building when
-  this handoff was updated.
+  compiler and test runner builds passed. The macOS guest jobs started.
 
 ## Where things stand
 
@@ -112,7 +117,7 @@ libuv/curl work.
 |---|---|---|
 | Core test path (flip blockers) | core-test-path.md | app and test binaries verified; 506 shared failures |
 | Per-module rebuilds + streaming | incremental-emit.md | landed; verify warm rebuilds through the installed CLI |
-| W1 core inventory and failures | w1.md | frozen retirement and audit fixes landed; fragments and hosted guest results pending |
+| W1 core inventory and failures | w1.md | retirement, checked fragments, and C bitfields landed; core interop and hosted guest checks remain |
 | CI to ARM64 | below | compiler, runner, and native gates passed; HTTP fixture failed |
 
 ## WIP branches and kept worktrees
@@ -122,7 +127,7 @@ libuv/curl work.
 | `wip/core-test-path` (= aa02f754a, landed) | /Volumes/bigbertha/workspaces/core-test-path | core-test-path.md |
 | `wip/core-flip-next` (344a9f5cd) | /Volumes/bigbertha/workspaces/core-flip-next | core-test-path.md |
 | `wip/core-incremental-validation` (fcb7a5c31) | /Volumes/bigbertha/workspaces/core-incremental-emit | incremental-emit.md |
-| `wip/w1-fragments-validation` (35a33064d) | see w1.md | w1.md |
+| `wip/w1-fragments-validation` (35a33064d, prior replay) | archived logs | w1.md |
 | `core-self-emit` (579e7f582, seed tag source; keep) | /Volumes/bigbertha/workspaces/core-self-emit | fixpoint evidence |
 
 A worktree on another machine: create it with `./scripts/worktree <name>
@@ -202,10 +207,10 @@ files beside it, and follow AGENTS.md.
    [issue #136](https://github.com/nupp-lang/nupp/issues/136). Enable
    `aarch64-apple-darwin` in `STAGE0_CORE_HOSTS` once every validation lane
    is usable on the core.
-2. Check how the installed core compiler reuses pieces through ordinary
-   `bin/nupp` rebuilds once the pinned seed can select the core by default.
-3. Continue the checked-fragment work on `wip/w1-fragments-validation`.
-   Read the macOS core-guest legs of
+2. Measure a full compiler source edit through opt-in `bin/nupp` and
+   verify warm reuse for configured binary tests.
+3. Run the five W1 suites on a rebuilt native compiler and check the
+   remaining interop and derive failures. Read the macOS core-guest legs of
    [run 44567504364](https://github.com/nupp-lang/nupp/actions/runs/44567504364)
    when they report. The first scheduled run failed at Linux C lint.
 4. Confirm the HTTP pump fix on the Linux ARM64 and Windows CI shards.

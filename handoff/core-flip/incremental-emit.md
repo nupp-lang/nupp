@@ -25,6 +25,15 @@ drops below the 4-15 GB a self-emit takes now.
   seed digest. Its shell fixture passed. The rebased compiler passed the
   VM fixpoint and a replay built with that image reused 20/20 pieces
   and reproduced the cold bundle byte for byte.
+- `783846a0d` routes opt-in rebuilds through the stable core builder on
+  a host with a pinned core seed. The first bootstrap still uses the
+  VM in an opt-in checkout. `0ce6dcbf4` fixes the fast check for deleted
+  compiler sources. A temporary two-checkout fixture exercised both
+  changes through `bin/nupp`.
+- `f94e82c94` scopes catalog records by checkout. The replay reproduced
+  a record leaking between checkouts with the same compiler before the
+  change, then confirmed both checkouts keep their own record. The VM
+  fixpoint passed.
 - The original `wip/core-incremental-emit` and validated
   `wip/core-incremental-validation` branches are preserved. Their worktree
   and test logs are under `/Volumes/bigbertha/workspaces/core-incremental-emit`.
@@ -87,8 +96,8 @@ Changes (src/nupp/core/*, src/nupp/compiler/vm/corepiece.nupp):
 
 ## What's left
 
-1. Measure ordinary body and interface edits through `bin/nupp` once the
-   core is the default on macOS ARM64. Check that the seed-derived builder
+1. Measure ordinary body and interface edits through `bin/nupp` with
+   `NUPP_RUNTIME=core` on macOS ARM64. Check that the seed-derived builder
    stays fixed, that the store is reused, and that the build agrees with a
    cold build.
 2. Cold checking took 900 s on the measured build. An interface edit can
