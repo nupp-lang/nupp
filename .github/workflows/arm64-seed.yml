@@ -20,17 +20,23 @@ jobs:
     steps:
       - uses: actions/checkout@v5
         with:
-          fetch-depth: 2
-      - name: Build the runtime at the seed revision
+          fetch-depth: 1
+      # The runtime the x64 Linux seed carries was built at this revision,
+      # before allocation required a linked Nupp core.
+      - name: Build the runtime as the x64 Linux seed's was
+        env:
+          RUNTIME_REVISION: 4e6e9d449519f799e122526cacf505fd1f016b0a
         run: |
           set -euo pipefail
           uname -a
+          git fetch -q --depth=1 origin "$SOURCE_REVISION" "$RUNTIME_REVISION"
+          git diff --quiet "$SOURCE_REVISION" HEAD -- . ":!.github"
+          git worktree add -q "$RUNNER_TEMP/runtime-source" "$RUNTIME_REVISION"
+          cd "$RUNNER_TEMP/runtime-source"
           channel=$(sed -n 's/^channel = "\([^"]*\)"$/\1/p' rust-toolchain.toml)
           rustup toolchain install "$channel" --profile minimal
-          git fetch -q --depth=1 origin "$SOURCE_REVISION"
-          git diff --quiet FETCH_HEAD HEAD -- . ":!.github"
-          CARGO_TARGET_DIR=build/seed-target cargo +"$channel" build --locked --release -p nupp-vm
-          ls -l build/seed-target/release/nupp-vm
+          CARGO_TARGET_DIR="$GITHUB_WORKSPACE/build/seed-target" cargo +"$channel" build --locked --release -p nupp-vm
+          ls -l "$GITHUB_WORKSPACE/build/seed-target/release/nupp-vm"
       - name: Pack the seed
         run: |
           set -euo pipefail
