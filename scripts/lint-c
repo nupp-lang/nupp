@@ -171,7 +171,7 @@ flags() {
             fi
             ;;
         # The Win64 probes compile with the target headers in scripts/core-bridge.
-        native/core-bridge/host-win64.h | tests/core/*win64*.c | tests/core/units/win64-*.c)
+        native/core-bridge/host-win64.h | native/core-bridge/winpipe.c | tests/core/*win64*.c | tests/core/units/win64-*.c)
             echo skip
             ;;
         native/core-bridge/main.c | native/core-bridge/guard.c | tests/core/bridgecontracts.c)
@@ -194,7 +194,7 @@ flags() {
         native/core-bridge/uv.c | native/core-bridge/process.c | tests/core/uv-contracts.c)
             echo "-pthread -isystem $(libuv)/include"
             ;;
-        native/core-bridge/tcp.* | tests/core/tcpcontracts.c | tests/core/tcplifecycleproof.c)
+        native/core-bridge/tcp.* | native/core-bridge/streamio.* | tests/core/tcpcontracts.c | tests/core/tcplifecycleproof.c)
             echo "-pthread -D_GNU_SOURCE=1 -I$ROOT/native/core-bridge -isystem $(libuv)/include"
             ;;
         tests/core/process-contracts.c) echo "-pthread -I$ROOT/native/core-bridge" ;;

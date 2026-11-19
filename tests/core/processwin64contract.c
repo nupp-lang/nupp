@@ -6,6 +6,7 @@
 #define WIN32_LEAN_AND_MEAN
 #include "process.h"
 #include "reactor.h"
+#include "winpipe.h"
 #include <uv.h>
 #include <assert.h>
 #include <errno.h>
@@ -110,8 +111,107 @@ static int64_t waitexit (uint64_t poller, uint64_t child) {
   }
 }
 
+static int echoinput (void) {
+  HANDLE input = GetStdHandle(STD_INPUT_HANDLE);
+  HANDLE output = GetStdHandle(STD_OUTPUT_HANDLE);
+  char bytes[4096];
+  DWORD count, written;
+
+  while (ReadFile(input, bytes, sizeof(bytes), &count, NULL) && count) {
+    assert(WriteFile(output, bytes, count, &written, NULL) && count == written);
+  }
+
+  return 0;
+}
+
+static void transferpipes (char *path, uint64_t poller) {
+  enum { SIZE = 40000 };
+
+  char given[SIZE], received[SIZE];
+
+  for (size_t i = 0; i < sizeof(given); i++) {
+    given[i] = (char)(i % 197);
+  }
+
+  int64_t input = nupp_process_pipe(0, 1), output = nupp_process_pipe(1, 0);
+  assert(input > 0 && output > 0);
+  int inchild = (int)(uint32_t)input, inparent = (int)(input >> 32);
+  int outchild = (int)(output >> 32), outparent = (int)(uint32_t)output;
+  assert(nuppwinpipekey(inparent) && nuppwinpipekey(outparent));
+  assert(nuppwinpiperead(outparent, received, 1) == -1 && errno == EAGAIN);
+  char *args[] = {path, "--echo", NULL};
+  int64_t child =
+      nupp_process_spawn(path, args, NULL, NULL, inchild, outchild, -1, 0);
+  assert(child > 0);
+  assert(_close(inchild) == 0 && _close(outchild) == 0);
+
+  size_t sent = 0, got = 0;
+  uint64_t deadline = uv_hrtime() + 5 * SECOND;
+  char extra;
+
+  for (;;) {
+    assert(uv_hrtime() < deadline);
+
+    if (sent < sizeof(given)) {
+      int64_t count =
+          nuppwinpipewrite(inparent, given + sent, sizeof(given) - sent);
+      assert(count > 0 || (count == -1 && errno == EAGAIN));
+
+      if (count > 0) {
+        sent += (size_t)count;
+      }
+
+      if (sent == sizeof(given)) {
+        assert(nuppwinpipeclose(inparent) == 0);
+        assert(nuppwinpipewrite(inparent, given, 1) == -1 && errno == EBADF);
+      }
+      else {
+        assert(nupp_uv_arm(poller, inparent, 2) == 0);
+      }
+    }
+
+    int64_t count = got == sizeof(received)
+                        ? nuppwinpiperead(outparent, &extra, 1)
+                        : nuppwinpiperead(outparent, received + got,
+                                          sizeof(received) - got);
+    assert(count >= 0 || (count == -1 && errno == EAGAIN));
+
+    if (count == 0) {
+      break;
+    }
+
+    if (count > 0) {
+      assert(got < sizeof(received));
+      got += (size_t)count;
+    }
+
+    assert(nupp_uv_arm(poller, outparent, 1) == 0);
+    int64_t event = nupp_uv_wait_owner(poller, 1000000);
+    assert(event == 0 || event == ((int64_t)inparent << 5 | 2) ||
+           event == ((int64_t)outparent << 5 | 1));
+  }
+
+  assert(sent == sizeof(given) && got == sizeof(received));
+  assert(memcmp(given, received, sizeof(given)) == 0);
+  assert(nuppwinpipeclose(outparent) == 0);
+  assert(nupp_uv_arm(poller, outparent, 1) == -EBADF);
+  int64_t exit = nupp_process_reap((uint64_t)child >> 32);
+
+  while (!exit) {
+    assert(uv_hrtime() < deadline);
+    assert(nupp_uv_wait(poller, 1000000) == 0);
+    exit = nupp_process_reap((uint64_t)child >> 32);
+  }
+
+  assert(exit == 256);
+}
+
 int main (int argc, char **argv) {
   if (argc == 2) {
+    if (!strcmp(argv[1], "--echo")) {
+      return echoinput();
+    }
+
     if (!strcmp(argv[1], "--descendant")) {
       Sleep(60000);
 
@@ -130,6 +230,7 @@ int main (int argc, char **argv) {
 
   int64_t poller = nupp_uv_open(-1), discarded = nupp_uv_open(-1);
   assert(poller > 0 && discarded > 0);
+  transferpipes(path, (uint64_t)poller);
   char *missing[] = {"no-such-nupp-process.exe", NULL};
   assert(nupp_process_spawn(missing[0], missing, NULL, NULL, -1, -1, -1, 0) ==
          -ENOENT);
@@ -155,6 +256,7 @@ int main (int argc, char **argv) {
   CloseHandle(leaf);
   assert(nupp_uv_shutdown() == 0);
   assert(!nupp_process_pending());
+  assert(!nuppwinpipepending());
   puts("Win64 owned process contracts passed");
 
   return 0;

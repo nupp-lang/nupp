@@ -23,7 +23,10 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#ifndef _WIN32
+#ifdef _WIN32
+#include "winpipe.h"
+#include <io.h>
+#else
 #include <unistd.h>
 #endif
 
@@ -465,15 +468,6 @@ int64_t nupp_process_spawn (const char *file, char **args, char **env,
 }
 
 int64_t nupp_process_pipe (uint64_t read_nonblock, uint64_t write_nonblock) {
-#ifdef _WIN32
-
-  /* Guest pipe readiness needs an overlapped adapter before it can use the
-   * Windows reactor. Returning a CRT fd here would silently block the owner. */
-  if (read_nonblock || write_nonblock) {
-    return -ENOSYS;
-  }
-
-#endif
   int fds[2];
   int status = uv_pipe(fds, read_nonblock ? UV_NONBLOCK_PIPE : 0,
                        write_nonblock ? UV_NONBLOCK_PIPE : 0);
@@ -487,6 +481,34 @@ int64_t nupp_process_pipe (uint64_t read_nonblock, uint64_t write_nonblock) {
     return status;
 #endif
   }
+
+#ifdef _WIN32
+  uint64_t retained[2] = {read_nonblock, write_nonblock};
+
+  for (int i = 0; i < 2; i++) {
+    if (!retained[i]) {
+      continue;
+    }
+
+    int key = nuppwinpipeopen(fds[i], i == 1);
+
+    if (key < 0) {
+      for (int j = 0; j < 2; j++) {
+        if (nuppwinpipekey(fds[j])) {
+          nuppwinpipeclose(fds[j]);
+        }
+        else {
+          _close(fds[j]);
+        }
+      }
+
+      return key;
+    }
+
+    fds[i] = key;
+  }
+
+#endif
 
 #ifdef F_SETNOSIGPIPE
 

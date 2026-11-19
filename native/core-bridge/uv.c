@@ -26,6 +26,10 @@
 #include <stdlib.h>
 #include <string.h>
 
+#if defined(_WIN32) && defined(NUPP_WIN64_PROCESS)
+#include "winpipe.h"
+#endif
+
 #ifdef _WIN32
 #include <io.h>
 #else
@@ -591,6 +595,16 @@ int64_t nupp_uv_arm (uint64_t token, int64_t fd, uint64_t interest) {
   if (fd < 0 || fd > INT_MAX || interest > 3) {
     return -EINVAL;
   }
+
+#if defined(_WIN32) && defined(NUPP_WIN64_PROCESS)
+
+  if (nuppwinpipekey(fd)) {
+    return interest && service->shutting_down
+               ? -ECANCELED
+               : nuppwinpipearm(token, fd, (int)interest);
+  }
+
+#endif
 
   return arm(p, descriptor((int)fd), (int)interest);
 }
@@ -1226,6 +1240,14 @@ int nupp_uv_owner_active (void) {
 }
 
 static int poller_ready (Poller *poller) {
+#if defined(_WIN32) && defined(NUPP_WIN64_PROCESS)
+
+  if (nuppwinpipeevent(poller->token, 0)) {
+    return 1;
+  }
+
+#endif
+
 #ifdef _WIN32
 
   if (poller->file_completion && service->files.finished) {
@@ -1294,6 +1316,10 @@ static int pump (uv_run_mode mode, uint64_t nanos, Poller *owner_wait) {
 
   uv_run(&service->loop, mode);
 
+#if defined(_WIN32) && defined(NUPP_WIN64_PROCESS)
+  nuppwinpipesweep();
+#endif
+
   if (has_deadline) {
     uv_timer_stop(&service->timer);
   }
@@ -1312,6 +1338,15 @@ int nupp_uv_nowait (void) {
 }
 
 static int64_t event (Poller *p) {
+#if defined(_WIN32) && defined(NUPP_WIN64_PROCESS)
+  int64_t pipe = nuppwinpipeevent(p->token, 1);
+
+  if (pipe) {
+    return pipe;
+  }
+
+#endif
+
 #ifdef _WIN32
 
   if (p->file_completion && service->files.finished) {
@@ -1421,6 +1456,9 @@ int64_t nupp_uv_close (uint64_t token) {
 
 #if !defined(_WIN32) || defined(NUPP_WIN64_PROCESS)
   nupp_process_forget_poller(token);
+#endif
+#if defined(_WIN32) && defined(NUPP_WIN64_PROCESS)
+  nuppwinpipeforget(token);
 #endif
   *at = p->next;
   free(p);
@@ -1720,6 +1758,19 @@ int64_t nupp_uv_shutdown (void) {
   }
 
   while (nupp_process_pending()) {
+    status = pump(UV_RUN_ONCE, UINT64_MAX, NULL);
+
+    if (status) {
+      return status;
+    }
+  }
+
+#endif
+
+#if defined(_WIN32) && defined(NUPP_WIN64_PROCESS)
+  nuppwinpipeshutdown();
+
+  while (nuppwinpipepending()) {
     status = pump(UV_RUN_ONCE, UINT64_MAX, NULL);
 
     if (status) {

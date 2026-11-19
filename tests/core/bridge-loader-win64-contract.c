@@ -154,6 +154,40 @@ static void startup_poller (void *self) {
   assert(!nupp_uv_shutdown());
 }
 
+#ifdef NUPP_WIN64_PROCESS
+static void startup_pipes (void *self) {
+  int64_t (*pipe)(uint64_t, uint64_t) =
+      (int64_t (*)(uint64_t, uint64_t))find_symbol(self, "nupp_process_pipe");
+  int64_t (*read)(int64_t, void *, uint64_t) =
+      (int64_t (*)(int64_t, void *, uint64_t))find_symbol(self, "read");
+  int64_t (*write)(int64_t, const void *, uint64_t) =
+      (int64_t (*)(int64_t, const void *, uint64_t))find_symbol(self, "write");
+  int (*close)(int64_t) = (int (*)(int64_t))find_symbol(self, "close");
+  assert(pipe && read && write && close);
+
+  int64_t pair = pipe(1, 1), poller = nupp_uv_open(-1);
+  assert(pair > 0 && poller > 0);
+  int64_t reader = (uint32_t)pair, writer = pair >> 32;
+  assert(nupp_uv_arm((uint64_t)poller, reader, 1) == 0);
+  char byte = 0;
+  assert(read(reader, &byte, 1) == -1 && errno == EAGAIN);
+  assert(write(writer, "q", 1) == 1);
+  assert(close(writer) == 0);
+
+  int64_t event = 0;
+
+  for (int turn = 0; turn < 20 && !event; turn++) {
+    event = nupp_uv_wait_owner((uint64_t)poller, 10000000);
+  }
+
+  assert(event == ((reader << 5) | 1));
+  assert(read(reader, &byte, 1) == 1 && byte == 'q');
+  assert(close(reader) == 0);
+  assert(read(reader, &byte, 1) == -1 && errno == EBADF);
+  assert(nupp_uv_shutdown() == 0);
+}
+#endif
+
 static void wait_for_job (uint64_t poller, int64_t wake, uint64_t ticket) {
   assert((int64_t)ticket > 0);
   assert(!nupp_uv_arm(poller, wake, 1));
@@ -256,6 +290,9 @@ int main (void) {
   lookup_error(self, kernel);
   startup_pages_and_clock(self);
   startup_poller(self);
+#ifdef NUPP_WIN64_PROCESS
+  startup_pipes(self);
+#endif
   file_completions(self);
   assert(!close_library(kernel));
   assert(!close_library(self));

@@ -12,6 +12,11 @@
 #include <process.h>
 #include <wchar.h>
 
+#ifdef NUPP_WIN64_PROCESS
+#include "process.h"
+#include "winpipe.h"
+#endif
+
 /** The packet still carries UTF-8 paths, even when the CRT needs UTF-16. */
 static wchar_t *wide_path (const char *utf8) {
   int length =
@@ -110,6 +115,13 @@ static int64_t win64_open_poller (void) {
 /** Reads a CRT file descriptor, or returns zero for the completion key. */
 static int64_t win64_file_read (int64_t descriptor, void *bytes,
                                 uint64_t count) {
+#ifdef NUPP_WIN64_PROCESS
+
+  if (nuppwinpipekey(descriptor)) {
+    return nuppwinpiperead(descriptor, bytes, count);
+  }
+
+#endif
 
   /* Completions are taken directly from the queue on Windows. The guest's
    * drain of the readiness key has no kernel wake bytes to consume. */
@@ -128,6 +140,14 @@ static int64_t win64_file_read (int64_t descriptor, void *bytes,
 
 /** Closes a live CRT file descriptor, or reports EBADF for an invalid one. */
 static int win64_file_close (int64_t descriptor) {
+#ifdef NUPP_WIN64_PROCESS
+
+  if (nuppwinpipekey(descriptor)) {
+    return nuppwinpipeclose(descriptor);
+  }
+
+#endif
+
   if (!nupp_uv_valid_file(descriptor)) {
     errno = EBADF;
 
@@ -136,6 +156,25 @@ static int win64_file_close (int64_t descriptor) {
 
   return _close((int)descriptor);
 }
+
+#ifdef NUPP_WIN64_PROCESS
+
+/** Writes through the owned pipe adapter or to a valid CRT descriptor. */
+static int64_t win64_file_write (int64_t descriptor, const void *bytes,
+                                 uint64_t count) {
+  if (nuppwinpipekey(descriptor)) {
+    return nuppwinpipewrite(descriptor, bytes, count);
+  }
+
+  if (!nupp_uv_valid_file(descriptor) || count > INT_MAX) {
+    errno = count > INT_MAX ? EINVAL : EBADF;
+
+    return -1;
+  }
+
+  return _write((int)descriptor, bytes, (unsigned)count);
+}
+#endif
 
 /** The last unread loader failure on this thread. */
 static _Thread_local const char *loader_error;
@@ -257,6 +296,17 @@ static void *find_symbol (void *library, const char *name) {
         {"nupp_uv_wait", (void (*)(void))nupp_uv_wait},
         {"nupp_uv_wait_owner", (void (*)(void))nupp_uv_wait_owner},
         {"read", (void (*)(void))win64_file_read},
+#ifdef NUPP_WIN64_PROCESS
+        {"write", (void (*)(void))win64_file_write},
+        {"nupp_process_pipe", (void (*)(void))nupp_process_pipe},
+        {"nupp_process_spawn", (void (*)(void))nupp_process_spawn},
+        {"nupp_process_watch", (void (*)(void))nupp_process_watch},
+        {"nupp_process_unwatch", (void (*)(void))nupp_process_unwatch},
+        {"nupp_process_reap", (void (*)(void))nupp_process_reap},
+        {"nupp_process_kill", (void (*)(void))nupp_process_kill},
+        {"nupp_uv_nowait", (void (*)(void))nupp_uv_nowait},
+        {"nupp_uv_shutdown", (void (*)(void))nupp_uv_shutdown},
+#endif
     };
 
     for (size_t i = 0; i < sizeof(self_symbols) / sizeof(self_symbols[0]);
