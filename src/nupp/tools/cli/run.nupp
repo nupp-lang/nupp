@@ -146,8 +146,8 @@ local function run(options: any): integer
     -- The program's `arg` is its own, as it is for a script `luajit` runs: `arg[0]` the
     -- program and `arg[1]` onwards what followed it. The compiler's command line is
     -- still what compiling reads, and a module the program requires is compiled while
-    -- it runs, so each compile puts the compiler's back for its duration: the comptime
-    -- worker and compiler packs find the executable through it.
+    -- it runs, so each compile puts the compiler's back for its duration. The
+    -- comptime worker finds the executable through it.
     local toolArg: any = rawget(_G, "arg")
     local programArg: {[integer]: string} = {[0] = path}
     for index, value in ipairs(programArgs) do

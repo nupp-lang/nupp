@@ -312,10 +312,6 @@ local function buildC(root, outDir, name, dep, previous, childResults, target)
     table.sort(nativeInputs)
 
     local artifactTriple = target and target.layoutTarget or require("nupp.compiler.targetlayout").hostKey()
-    local pack, packErr = require("nupp.compiler.compilerpacks").resolve(artifactTriple)
-    if packErr ~= nil and dep.cc == nil and configuredBinding ~= nil then
-        return nil, packErr
-    end
     local artifactSet = dep.artifacts and artifactTriple and dep.artifacts[artifactTriple] or nil
     if artifactSet then
         if configuredBinding
@@ -391,16 +387,7 @@ local function buildC(root, outDir, name, dep, previous, childResults, target)
         for _, directory in ipairs(dep.includeDirs or {}) do
             artifactCppflags[#artifactCppflags + 1] = "-I" .. join(base, directory)
         end
-        local binding, bindingErr = generateBinding(
-            root,
-            outDir,
-            name,
-            dep,
-            base,
-            reference,
-            artifactCppflags,
-            dep.cc or pack and pack.cc or nil
-        )
+        local binding, bindingErr = generateBinding(root, outDir, name, dep, base, reference, artifactCppflags)
         if bindingErr then
             return nil, bindingErr
         end
@@ -430,20 +417,13 @@ local function buildC(root, outDir, name, dep, previous, childResults, target)
     if dep.artifacts ~= nil and #sources == 0 then
         return nil, "C dependency " .. name .. " has no prebuilt artifact for " .. tostring(artifactTriple)
     end
-    if packErr ~= nil and dep.cc == nil then
-        return nil, packErr
-    end
-    local compiler = dep.cc or pack and pack.cc or ccompiler.default()
+    local compiler = dep.cc or ccompiler.default()
     local _, version = process.capture({compiler, "--version"})
     local archiver, archiverIdentity = nil, ""
     if buildsStatic then
-        if pack ~= nil then
-            archiver = pack.ar
-        else
-            local archiveProbe, found = process.capture({compiler, "-print-prog-name=ar"})
-            found = (found or ""):match("^%s*(.-)%s*$")
-            archiver = archiveProbe == 0 and found ~= "" and found or "ar"
-        end
+        local archiveProbe, found = process.capture({compiler, "-print-prog-name=ar"})
+        found = (found or ""):match("^%s*(.-)%s*$")
+        archiver = archiveProbe == 0 and found ~= "" and found or "ar"
         local archiveVersionCode, archiveVersion = process.capture({archiver, "--version"})
         archiverIdentity = archiver .. "\0" .. tostring(archiveVersionCode) .. "\0" .. archiveVersion
     end
@@ -482,9 +462,6 @@ local function buildC(root, outDir, name, dep, previous, childResults, target)
         cppflags[#cppflags + 1] = "-I" .. join(base, dir)
     end
     for _, flag in ipairs(pkgCflags) do
-        cppflags[#cppflags + 1] = flag
-    end
-    for _, flag in ipairs(pack and pack.compileFlags or {}) do
         cppflags[#cppflags + 1] = flag
     end
     local hasMacroBridge = configuredBinding and configuredBinding.macros and next(configuredBinding.macros) ~= nil
@@ -531,8 +508,6 @@ local function buildC(root, outDir, name, dep, previous, childResults, target)
         ) .. "\0" .. hashFiles(
             nativeInputs
         ) .. "\0" .. version .. "\0" .. stable(
-            pack and {version = pack.version, compileFlags = pack.compileFlags, linkFlags = pack.linkFlags,} or {}
-        ) .. "\0" .. stable(
             pkgCflags
         ) .. "\0" .. stable(
             pkgSharedLibs
@@ -584,9 +559,6 @@ local function buildC(root, outDir, name, dep, previous, childResults, target)
                 for _, flag in ipairs(dep.cppflags or {}) do
                     argv[#argv + 1] = flag
                 end
-                for _, flag in ipairs(pack and pack.compileFlags or {}) do
-                    argv[#argv + 1] = flag
-                end
                 for _, flag in ipairs(pkgCflags) do
                     argv[#argv + 1] = flag
                 end
@@ -612,9 +584,6 @@ local function buildC(root, outDir, name, dep, previous, childResults, target)
                 argv[#argv + 1] = "-o"
                 argv[#argv + 1] = staged
                 for _, flag in ipairs(dep.cflags or {}) do
-                    argv[#argv + 1] = flag
-                end
-                for _, flag in ipairs(pack and pack.linkFlags or {}) do
                     argv[#argv + 1] = flag
                 end
                 for _, object in ipairs(objects) do
@@ -676,9 +645,6 @@ local function buildC(root, outDir, name, dep, previous, childResults, target)
             linkFlags[#linkFlags + 1] = flag
         end
         for _, flag in ipairs(dep.ldflags or {}) do
-            linkFlags[#linkFlags + 1] = flag
-        end
-        for _, flag in ipairs(pack and pack.linkFlags or {}) do
             linkFlags[#linkFlags + 1] = flag
         end
     elseif sharedOutput then

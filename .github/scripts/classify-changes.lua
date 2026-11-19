@@ -74,7 +74,6 @@ local rules = {
     {"^scripts/rust%-dependency%-notices", {"docs", "packaging"}},
 
     {"^src/nupp/compiler/aot/", {"compiler", "aot", "browser"}},
-    {"^src/nupp/compiler/compilerpacks%.nupp$", {"compiler"}},
     {"^src/nupp/tools/build/project%.nupp$", {"compiler"}},
     {"^src/nupp/compiler/check/aot%.nupp$", {"compiler", "aot"}},
     {"^src/nupp/compiler/constspecialize%.nupp$", {"compiler"}},

@@ -405,9 +405,9 @@
     },
     {
       "suite": "compilerpacktest",
-      "class": "portable",
-      "facilities": "spawn",
-      "reason": "pure Lua against compiler modules within the subset"
+      "class": "retired",
+      "facilities": "-",
+      "reason": "compiler pack support and its tests were removed"
     },
     {
       "suite": "compressionprovidertest",

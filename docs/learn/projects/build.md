@@ -277,44 +277,6 @@ allocates none rejects it before the `@unsafe` question. `@unsafe` says the
 author accepts what a callback costs rather than that the destination can make
 one. A target nothing describes refuses nothing.
 
-A vendor describes a private target in its compiler pack, so nothing about a
-confidential platform has to be published. `pack.json` takes an optional
-`profile`:
-
-```json
-"profile": {
-  "layoutModel": "aarch64-unknown-linux-gnu",
-  "os": "linux",
-  "capabilities": {
-    "dynamicLoader": false,
-    "ffiCallbacks": false,
-    "staticSymbolResolver": true,
-    "staticAot": true
-  },
-  "link": {"forceLoad": [], "export": []}
-}
-```
-
-Every capability must be stated: an omitted one is one nobody verified, and
-defaulting it to the permissive answer is the mistake profiles exist to
-prevent. `layoutModel` names an already modeled triple, so admitting a target
-does not also open the set of layout models. A descriptor wins over the
-built-in answer for the same triple, because a vendor port of a public triple is
-still that vendor's port.
-
-A compiler pack serves C dependencies, whose sources need a C compiler. `NUPP_COMPILER_PACK_DIR`
-names a pack tree containing `<host>/<target>/pack.json`; Nupp verifies the
-recorded size and SHA-256 of its compiler and archiver before running them.
-A C dependency compiles with its own `cc` when it names one, then with the
-pack's compiler, and otherwise with `cc` from `PATH`. Without a pack, its
-archiver is the one that compiler names, or `ar`.
-
-`pack.json` has `schemaVersion = 1`, `host`, `target`, `version`, authenticated
-`cc` and `ar` tool records, and `compileFlags`/`linkFlags` arrays for its
-sysroot. Each tool record contains a pack-relative `path`, `sha256`, and `size`.
-`{pack}` inside a compile or link flag expands to the selected pack directory,
-so a sysroot remains relocatable after the archive is installed elsewhere.
-
 ### Native artifacts
 
 A C or Rust dependency's shared library is built under `outDir/lib`, and a
@@ -613,6 +575,11 @@ zstd = {
 `pkgConfig` may be one package name or an array when a native library uses
 several installed APIs, such as `{ "libpng", "zlib" }`. The packages are
 resolved together so their compiler and linker flags reach the same build.
+
+Set a dependency's `cc` to select its C compiler. The default is `cc` from
+`PATH`, with `gcc` as the fallback on Windows when it is installed. A build
+that produces a static archive uses the archiver reported by the compiler or
+falls back to `ar`.
 
 Fetched Git trees live under `.nupp/deps` and require an explicit revision.
 C dependencies default to `linkage = "shared"` and emit a `.so`, `.dylib`, or

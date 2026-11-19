@@ -1,29 +1,9 @@
 --[[
-What a target can be asked to do, as distinct from what it can hold.
+Built-in capability profiles for modeled targets.
 
-`nupp.compiler.targetlayout` returns how wide a pointer is. This returns whether
-the destination has a dynamic loader, a tracing JIT, working FFI callbacks, and
-a way to resolve a default-namespace symbol out of a statically linked archive.
-Those are not layout questions and they are not preferences: a build that gets
-them wrong produces an artifact that cannot run, and usually cannot say why.
-
-Every publicly modelled triple is an ordinary hosted platform and answers yes to
-all of them. The profile exists for the ones that do not. An embedded host, such
-as a console or fixed-function appliance, commonly links one executable with no
-loader in it, ships a LuaJIT port with the interpreter and no trace compiler, and
-forbids the executable pages an FFI callback trampoline needs. Naming those facts
-is what lets the compiler refuse a construct the destination cannot run instead
-of emitting it and finding out on the device.
-
-A vendor supplies the facts for a private target in a compiler pack, so nothing
-about a confidential platform has to reach the public distribution catalog. The
-descriptor is verified here, once, and is the same shape the built-in table has.
-
-Two things this deliberately does not do. It does not let a project declare its
-own capabilities: a target's capabilities are the target's, and a manifest that
-could assert a loader into existence would only move the failure later. And it
-carries no toolchain: `nupp.compiler.compilerpacks` owns where `cc` is,
-and a profile that also named one would give two answers to one question.
+A profile records a platform's loader, FFI callback, and static linking
+capabilities. The checker consults it for constructs that require a dynamic
+loader or an FFI callback trampoline.
 ]]
 module nupp.compiler.targetprofile
 
@@ -31,16 +11,12 @@ local layouts = require("nupp.compiler.targetlayout")
 
 local targetProfile = {}
 
---- What a
+--- Records the capabilities of a modeled target.
 record targetProfile.Profile
     --- The triple this describes.
     target: string
 
-    --- Where the descriptor came from, for a diagnostic that has to say.
-    origin: string
-
-    --- The modelled triple whose layout this target uses, which is the target
-    --- itself for every publicly modelled one.
+    --- The triple whose layout this target uses.
     layoutModel: string
 
     --- The operating-system family, which decides how its linker is addressed.
@@ -75,11 +51,7 @@ record targetProfile.Profile
     export: {string}
 end
 
---- The retain and export spellings one host system's linker takes.
----
---- A console commonly has neither, using a vendor static symbol registry
---- instead; a descriptor says so with two empty lists and the link metadata
---- then describes the symbols that registry must contain.
+--- Returns the retain and export flags for the target's linker.
 local function hostedLinking(system: string): ({string}, {string})
     if system == "darwin" then
         return {"-Wl,-force_load,<archive>"}, {"-Wl,-export_dynamic"}
@@ -90,7 +62,7 @@ local function hostedLinking(system: string): ({string}, {string})
     return {"-Wl,--whole-archive", "<archive>", "-Wl,--no-whole-archive"}, {"-Wl,-E"}
 end
 
---- Which operating-system family a modelled triple names.
+--- Returns the operating-system family of a modeled triple.
 function targetProfile.system(target: string): string
     if target:find("apple", 1, true) ~= nil then
         return "darwin"
@@ -103,7 +75,7 @@ function targetProfile.system(target: string): string
     return "linux"
 end
 
---- The profile every publicly modelled triple has.
+--- Returns the profile for a modeled triple.
 ---
 --- Wasm is the one that differs, and differs in both directions: Emscripten has
 --- a module loader and working callbacks, and has neither a tracing JIT nor a
@@ -116,7 +88,6 @@ local function builtin(target: string): targetProfile.Profile?
     if system == "emscripten" then
         return targetProfile.Profile(
             target = target,
-            origin = "built-in",
             layoutModel = target,
             os = system,
             dynamicLoader = true,
@@ -131,7 +102,6 @@ local function builtin(target: string): targetProfile.Profile?
 
     return targetProfile.Profile(
         target = target,
-        origin = "built-in",
         layoutModel = target,
         os = system,
         dynamicLoader = true,
@@ -143,135 +113,12 @@ local function builtin(target: string): targetProfile.Profile?
     )
 end
 
---- Reads a boolean capability, which a descriptor must state outright.
----
---- No default. A descriptor that omits a capability has not been verified for
---- it, and inferring the permissive answer is exactly the mistake this module
---- exists to prevent.
-local function capability(value: any, field: string, label: string): (boolean?, string?)
-    if type(value) ~= "boolean" then
-        return nil, label .. " requires a boolean " .. field
-    end
-
-    return value as boolean, nil
-end
-
-local function flagList(value: any, field: string, label: string): ({string}?, string?)
-    if value == nil then
-        return {}, nil
-    end
-    if type(value) ~= "table" then
-        return nil, label .. "." .. field .. " must be an array of strings"
-    end
-    local count = 0
-    for key in pairs(value as any) do
-        if type(key) ~= "number" or key < 1 or key ~= math.floor(key) then
-            return nil, label .. "." .. field .. " must be an array of strings"
-        end
-        count = count + 1
-    end
-    if count ~= #value then
-        return nil, label .. "." .. field .. " must not have gaps"
-    end
-    local out: {string} = {}
-    for index, entry in ipairs(value as {any}) do
-        if type(entry) ~= "string" then
-            return nil, label .. "." .. field .. "[" .. tostring(index) .. "] must be a string"
-        end
-        out[#out + 1] = entry as string
-    end
-
-    return out, nil
-end
-
---- Verifies a vendor descriptor and turns it into a profile.
----
---- The layout model is referenced rather than restated: a descriptor names a
---- `layoutModel` that is already modelled, so admitting a triple does not open
---- the set of layout models. That limit is deliberate.
-function targetProfile.fromDescriptor(target: string, value: any, origin: string): (targetProfile.Profile?, string?)
-    local label = "target profile for " .. target .. " in " .. origin
-    if type(value) ~= "table" then
-        return nil, label .. " must be an object"
-    end
-    local descriptor = value as {[string]: any}
-    local model = descriptor.layoutModel
-    if type(model) ~= "string" or not layouts.has(model as string) then
-        return nil, label .. " must name a modelled layoutModel"
-    end
-    -- A private triple is admitted by referencing a modelled layout rather
-    -- than by being modelled itself, which is what keeps admitting a triple
-    -- from also opening the set of layout models.
-    local system = descriptor.os
-    if type(system) ~= "string" then
-        return nil, label .. " must name its os"
-    end
-    local capabilities = descriptor.capabilities
-    if type(capabilities) ~= "table" then
-        return nil, label .. " must carry a capabilities object"
-    end
-    local read = capabilities as {[string]: any}
-    local loader, loaderErr = capability(read.dynamicLoader, "dynamicLoader", label)
-    if loader == nil then
-        return nil, loaderErr
-    end
-    local callbacks, callbackErr = capability(read.ffiCallbacks, "ffiCallbacks", label)
-    if callbacks == nil then
-        return nil, callbackErr
-    end
-    local resolver, resolverErr = capability(read.staticSymbolResolver, "staticSymbolResolver", label)
-    if resolver == nil then
-        return nil, resolverErr
-    end
-    local staticAot, staticErr = capability(read.staticAot, "staticAot", label)
-    if staticAot == nil then
-        return nil, staticErr
-    end
-    if staticAot == true and resolver == false then
-        return nil, label .. " claims static AOT without a static symbol resolver"
-    end
-    local link = descriptor.link
-    if link ~= nil and type(link) ~= "table" then
-        return nil, label .. ".link must be an object"
-    end
-    local linkTable = type(link) == "table" and link as {[string]: any} or {}
-    local forceLoad, forceErr = flagList(linkTable.forceLoad, "link.forceLoad", label)
-    if forceLoad == nil then
-        return nil, forceErr
-    end
-    local export, exportErr = flagList(linkTable.export, "link.export", label)
-    if export == nil then
-        return nil, exportErr
-    end
-
-    return targetProfile.Profile(
-        target = target,
-        origin = origin,
-        layoutModel = model as string,
-        os = system as string,
-        dynamicLoader = loader as boolean,
-        ffiCallbacks = callbacks as boolean,
-        staticSymbolResolver = resolver as boolean,
-        staticAot = staticAot as boolean,
-        forceLoad = forceLoad as {string},
-        export = export as {string}
-    ), nil
-end
-
---- The profile for a target, preferring a verified vendor descriptor.
----
---- A descriptor wins over the built-in answer for the same triple, because a
---- vendor port of a public triple is still that vendor's port: the built-in
---- table describes the platform as the public distribution builds it, not every
---- VM that has ever been built for it.
-function targetProfile.resolve(target: string?, descriptor: any?, origin: string?): (targetProfile.Profile?, string?)
+--- Returns the built-in capability profile for a modeled target.
+function targetProfile.resolve(target: string?): (targetProfile.Profile?, string?)
     if target == nil then
         return nil, "a target profile needs a target triple"
     end
     local named = target as string
-    if descriptor ~= nil then
-        return targetProfile.fromDescriptor(named, descriptor, origin or "a compiler pack")
-    end
     local known = builtin(named)
     if known == nil then
         return nil, "no target profile describes " .. named

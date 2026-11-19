@@ -101,7 +101,6 @@ local groups = {
         "bundlescopetest",
         "bundlesignaturetest",
         "bundletest",
-        "compilerpacktest",
         "targetmanifesttest",
     },
 
@@ -232,7 +231,7 @@ end
 for name in (
     [[
 hostbinarytest hostembeddingtest spitest bootstraptest bundletest
-compilerpacktest releasetest rocktest spipackagetest worktreetest
+releasetest rocktest spipackagetest worktreetest
 rusttoolchaintest toolchaintest
 ]]
 ):gmatch("%S+") do

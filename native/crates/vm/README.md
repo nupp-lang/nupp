@@ -503,7 +503,7 @@ are explicitly open tables so their method table survives lowering.
 Generate the compiler image with the stage-zero driver, then run the gate:
 
 ```sh
-EMIT_STUBS=nupp.io.files,nupp.io.path ./bin/nupp run native/crates/vm/emit/emitmod.lua . nupp.bench.emitbench nupp.compiler.fs nupp.compiler.project.projectconfig nupp.compiler.project.store nupp.compiler.project.fingerprint nupp.compiler.hash nupp.compiler.hostservices nupp.compiler.compilerpacks nupp.compiler.project.preludecache > /private/tmp/nupp-emitbench.image
+EMIT_STUBS=nupp.io.files,nupp.io.path ./bin/nupp run native/crates/vm/emit/emitmod.lua . nupp.bench.emitbench nupp.compiler.fs nupp.compiler.project.projectconfig nupp.compiler.project.store nupp.compiler.project.fingerprint nupp.compiler.hash nupp.compiler.hostservices nupp.compiler.project.preludecache > /private/tmp/nupp-emitbench.image
 cargo build --release -p nupp-vm
 python3 native/crates/vm/tests/lowering-smoke.py /private/tmp/nupp-emitbench.image
 ```

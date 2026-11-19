@@ -5,8 +5,7 @@ preprocessor a header is read through, and by a C dependency's build.
 `cc` is the name POSIX gives it, and every Unix toolchain installs it. MinGW,
 the usual C toolchain on Windows, installs `gcc` and no `cc`, so on Windows
 `gcc` stands in when `PATH` has no `cc` and does have `gcc`. A compiler a caller
-names -- an importer option, a dependency's `cc`, a compiler pack -- is used as
-named; this is only what is used when there is none.
+names through an importer option or a dependency's `cc` takes precedence.
 ]]
 module nupp.compiler.cinterop.ccompiler
 
