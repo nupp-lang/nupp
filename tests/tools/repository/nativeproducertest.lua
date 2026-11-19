@@ -50,7 +50,15 @@ function M.pieceProducerHashesSourceUnlessTheImageCarriesItsModule()
                 {["nupp.core.piecestore"] = true, ["nupp.compiler.imagemodules"] = true},
                 {["nupp.vm.persist"] = {}},
                 nil,
-                {os = environment, __nupp_image_modules = inventory or false}
+                {
+                    os = environment,
+                    __nupp_image_modules = inventory or false,
+                    -- This fixture models a VM image even on the native core.
+                    -- rawget does not see the instance's inherited globals.
+                    __nupp_load_image = function()
+                        error("the producer fixture does not execute images")
+                    end,
+                }
             )
             local store = assert(
                 load("nupp.core.piecestore").open(root, {
