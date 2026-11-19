@@ -16,11 +16,13 @@ const TRANSPORT_PREFIXES = {"GITHUB_", "ACTIONS_", "RUNNER_"}
 --- The CI variables under those prefixes that do describe the machine.
 const MACHINE_VARIABLES: {[string]: boolean} = {RUNNER_OS = true, RUNNER_ARCH = true}
 
---- Whether `name` is transport the build cannot read: an agent's per-call id, a
---- CI service's bookkeeping, or what systemd tells the service a CI runner runs
---- as about the process it started.
+--- Whether `name` is transport the build cannot read: an agent's per-call id,
+--- the directory the calling shell was in before, a CI service's bookkeeping,
+--- or what systemd tells the service a CI runner runs as about the process it
+--- started.
 local function transport(name: string): boolean
     if name == "CODEX_TOOL_CALL_ID"
+        or name == "OLDPWD"
         or name == "INVOCATION_ID"
         or name == "JOURNAL_STREAM"
         or name == "SYSTEMD_EXEC_PID"
@@ -37,6 +39,93 @@ local function transport(name: string): boolean
     end
 
     return false
+end
+
+--- What the checkout's root is written as in a test build's key and record. A
+--- worktree of the same commit then names the same build, and a record copied
+--- into it names its own files rather than the ones it was copied from.
+const ROOT_MARK = "<root>"
+
+--- Whether the byte at `after` ends a match of the root as a path component,
+--- so `/work/a` is not taken for the start of `/work/ab`.
+local function endsComponent(text: string, after: integer): boolean
+    local byte = text:sub(after, after)
+    return byte == "" or not byte:match("[%w%._%-]")
+end
+
+--- `text` with every occurrence of the absolute `root` written as ROOT_MARK.
+function reuse.portableText(text: string, root: string): string
+    if root == "" or root == "/" then
+        return text
+    end
+    local parts: {string} = {}
+    local at = 1
+    while true do
+        local first, last = text:find(root, at, true)
+        if first == nil or last == nil then
+            break
+        end
+        parts[#parts + 1] = text:sub(at, first - 1)
+        if endsComponent(text, last + 1) then
+            parts[#parts + 1] = ROOT_MARK
+        else
+            parts[#parts + 1] = root
+        end
+        at = last + 1
+    end
+    parts[#parts + 1] = text:sub(at)
+
+    return table.concat(parts)
+end
+
+--- A copy of `value` whose strings, keys included, are rewritten by `rewrite`.
+local function rewriteStrings(value: any, rewrite: function(string): string): any
+    if type(value) == "string" then
+        return rewrite(value)
+    end
+    if type(value) ~= "table" then
+        return value
+    end
+    local copy = {}
+    for key, item in pairs(value) do
+        copy[rewriteStrings(key, rewrite)] = rewriteStrings(item, rewrite)
+    end
+
+    return setmetatable(copy, getmetatable(value))
+end
+
+--- A record as it is kept: every path under `root` written from ROOT_MARK.
+function reuse.portable(record: any, root: string): any
+    local absolute = fs.absolute(root)
+    return rewriteStrings(record, function(text: string): string
+        if text == absolute then
+            return ROOT_MARK
+        end
+        if text:sub(1, #absolute + 1) == absolute .. "/" then
+            return ROOT_MARK .. text:sub(#absolute + 1)
+        end
+
+        return text
+    end)
+end
+
+--- A kept record with its ROOT_MARK paths resolved under `root`.
+function reuse.located(record: any, root: string): any
+    if record == nil then
+        return nil
+    end
+    local absolute = fs.absolute(root)
+
+    return rewriteStrings(record, function(text: string): string
+        if text == ROOT_MARK then
+            return absolute
+        end
+        if text:sub(1, #ROOT_MARK + 1) == ROOT_MARK .. "/" then
+            return absolute .. text:sub(#ROOT_MARK + 1)
+        end
+
+        return text
+    end)
 end
 
 -- This is a completed test build, above the module cache. Dependency resolution
@@ -85,6 +174,12 @@ function reuse.input(
         end
     end
     table.sort(values)
+    local absoluteRoot = fs.absolute(root)
+
+    local function portable(text: string): string
+        return reuse.portableText(text, absoluteRoot)
+    end
+
     -- Checking can resolve additional lazy bindings. The manifest settings
     -- and the fingerprints of the libraries the artifact actually uses
     -- describe the inputs, independent of which other bindings were resolved.
@@ -100,7 +195,7 @@ function reuse.input(
         stable(settings),
         stable(state.dependencies),
         stable(state.generators),
-        buildLibraries.input(config._nativeLibraryBindings or {}, state.nativeLibraries or {}, digest),
+        buildLibraries.input(config._nativeLibraryBindings or {}, state.nativeLibraries or {}, digest, portable),
         table.concat(values, "\0"),
         tostring(jit and jit.os),
         tostring(jit and jit.arch)
@@ -198,6 +293,11 @@ function reuse.input(
     end
     if not valid then
         return nil
+    end
+    -- Paths, configuration and environment all name the checkout; written as
+    -- ROOT_MARK they name the same build in every worktree of the same sources.
+    for index, part in ipairs(parts) do
+        parts[index] = portable(part)
     end
     table.sort(parts)
 

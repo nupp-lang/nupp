@@ -438,6 +438,15 @@ local function buildOne(root: string?, opts: project.BuildOptions?): integer
     else
         oldState = loadState(statePath)
     end
+    -- A state copied in from another checkout, as a new worktree is seeded, names
+    -- that checkout's files: trusting its outputs would remove them from there as
+    -- this build's leftovers. Only its test build is written to travel.
+    newState.root = fs.absolute(root)
+    if oldState.root ~= nil and oldState.root ~= newState.root then
+        local carried = oldState.testBuild
+        oldState = cache.emptyState()
+        oldState.testBuild = carried
+    end
     -- Every other target's record is carried through untouched, so building one does
     -- not make the others look like they produced nothing.
     for name, produced in pairs(oldState.targets) do
@@ -479,7 +488,7 @@ local function buildOne(root: string?, opts: project.BuildOptions?): integer
     if opts.testBuild and not checkOnly and not selectedPlatform and opts.paths == nil then
         report:at("test-build:lookup")
         testInput = testBuild.input(root, outDir, config, target, newState, contentDigest)
-        local previous = oldState.testBuild
+        local previous = testBuild.located(oldState.testBuild, root)
         if testBuild.intact(previous, testInput, contentDigest) then
             local available = {}
             for path in pairs(previous.outputs) do
@@ -851,20 +860,25 @@ local function buildOne(root: string?, opts: project.BuildOptions?): integer
             for name in pairs(result.effects or {}) do
                 effects[name] = true
             end
-            newState.testBuild = {
-                key = testInput,
-                outputs = outputs,
-                effects = effects,
-                facilities = testRuntime.facilities,
-                vector = testRuntime.vector,
-                payload = testRuntime.payload,
-                core = testRuntime.core,
-                host = testHost,
-                hostHash = testHostHash,
-                modules = count,
-                diagnostics = diagnostics,
-                produced = opts.produced or {},
-            }
+            -- Kept with its paths under the root written portably, so a worktree
+            -- seeded with this directory reuses the build rather than repeating it.
+            newState.testBuild = testBuild.portable(
+                {
+                    key = testInput,
+                    outputs = outputs,
+                    effects = effects,
+                    facilities = testRuntime.facilities,
+                    vector = testRuntime.vector,
+                    payload = testRuntime.payload,
+                    core = testRuntime.core,
+                    host = testHost,
+                    hostHash = testHostHash,
+                    modules = count,
+                    diagnostics = diagnostics,
+                    produced = opts.produced or {},
+                },
+                root
+            )
         end
     end
     report:at("write")

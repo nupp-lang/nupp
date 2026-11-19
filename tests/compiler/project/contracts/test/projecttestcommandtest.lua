@@ -134,6 +134,52 @@ function M.completedTestBuildReusesTheArtifactAndChecksItsBytes()
     assert(ok, why)
 end
 
+-- A worktree seeded with another checkout's output directory, as
+-- scripts/worktree seeds one, reuses the test build rather than repeating it.
+-- The copied state names the first checkout's files, so a build in the copy
+-- that does not reuse it must leave those alone.
+function M.aCopiedTestBuildIsReusedInItsNewCheckoutAndLeavesTheOldOne()
+    local files = {
+        [
+            "nupp.lua"
+        ] = [[return {include={"src"}, build={kind="binary", stub="nupp", outDir="out",
+            output="out/tests", entries={"main"}}}]],
+        ["src/main.lua"] = "return 17\n",
+    }
+    local first, second = tempProject(files), tempProject(files)
+    local modules = require("nupp.tools.build.modules")
+    local original = modules.session
+    local artifact = fixture.executableName(first .. "/out/tests")
+
+    local function build(dir)
+        local produced = {}
+        testAssert.eq(project.build(dir, {testBuild = true, produced = produced}), 0)
+        return produced
+    end
+
+    local ok, why = pcall(function()
+        assert(not build(first).testBuildReused)
+        local built = read(artifact)
+        testAssert.eq(os.execute(("cp -R '%s/out' '%s/out'"):format(first, second)), 0)
+        modules.session = function()
+            error("a copied test build entered the checker")
+        end
+        local reused = build(second)
+        modules.session = original
+        assert(reused.testBuildReused, "the copy is the same build")
+        testAssert.eq(reused.artifact, fixture.executableName(second .. "/out/tests"), "and names its own artifact")
+        fixture.write(second .. "/src/main.lua", "return 18\n")
+        assert(not build(second).testBuildReused)
+        testAssert.eq(read(artifact), built, "building the copy leaves the original's outputs")
+        assert(build(first).testBuildReused)
+        assert(build(second).testBuildReused)
+    end)
+    modules.session = original
+    remove(first)
+    remove(second)
+    assert(ok, why)
+end
+
 function M.completedTestBuildRefreshesNativeInputsAndRejectsChangesDuringBuild()
     local dir = tempProject({
         [

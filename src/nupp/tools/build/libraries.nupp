@@ -86,7 +86,14 @@ end
 
 -- A test artifact may skip the module build, so its proof also reads every
 -- native file that the previous build actually used, including companions.
-function libraries.input(bindings: {[string]: Binding}, names: {string}, digest: function(string): string): string
+-- `normalize` rewrites the text before it is digested, as the test build does
+-- to name its checkout's root the same way in every worktree.
+function libraries.input(
+    bindings: {[string]: Binding},
+    names: {string},
+    digest: function(string): string,
+    normalize: (function(string): string)?
+): string
     local parts: {string} = {}
     local contents: {[string]: string} = {}
     for _, name in ipairs(closure(bindings, names)) do
@@ -106,8 +113,12 @@ function libraries.input(bindings: {[string]: Binding}, names: {string}, digest:
             parts[#parts + 1] = name .. "\0" .. stable(binding) .. "\0" .. content
         end
     end
+    local text = table.concat(parts, "\0")
+    if normalize ~= nil then
+        text = normalize(text)
+    end
 
-    return digest(table.concat(parts, "\0"))
+    return digest(text)
 end
 
 local function pathKey(path: string, caseInsensitive: boolean?): string

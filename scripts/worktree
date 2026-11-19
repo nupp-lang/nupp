@@ -88,6 +88,19 @@ if [ "$ORIGIN_HEAD" = "$TASK_HEAD" ] && [ -f "$ORIGIN_STAMP" ] \
     touch "$TASK_ROOT/build/.nupp-complete"
 fi
 
+# The test runner, which `nupp test` otherwise builds before its first suite: ten
+# minutes on a quiet machine. Its record keys the build by content with the
+# checkout's root left out, so the copy is reused here only if this worktree's
+# sources would build the same runner, and is rebuilt otherwise. Only a record
+# that names the checkout it was written in is copied: an older one would pass
+# the original checkout's outputs off as this one's.
+RUNNER_STATE="$ROOT/build/test-runner/.nupp-state.json"
+if [ "$ORIGIN_HEAD" = "$TASK_HEAD" ] && [ -f "$RUNNER_STATE" ] \
+    && grep -q '"root":' "$RUNNER_STATE"; then
+    copy_if_absent "$ROOT/build/test-runner" "$TASK_ROOT/build/test-runner"
+    copy_if_absent "$ROOT/build/nupp-test" "$TASK_ROOT/build/nupp-test"
+fi
+
 # The VM compiler. A checkout with no installed VM CLI falls back to the LuaJIT
 # path, which rebuilds the compiler from stage zero (an hour and more), so seed
 # the new worktree from a checkout that has one: this one, or else the worktree

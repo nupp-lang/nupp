@@ -202,6 +202,10 @@ export type State = {
     -- Completed test artifact and the content proof used to reuse it.
     testBuild: any?,
 
+    --- The checkout the state was written in. Its outputs and targets name that
+    --- checkout's files, so a state copied into another is not that one's record.
+    root: string?,
+
     nativeLibraries: {string}?,
 
     compilerHash: string?,
@@ -315,6 +319,9 @@ local function validState(state: any): boolean
         if type(state[field]) ~= "table" then
             return false
         end
+    end
+    if state.root ~= nil and type(state.root) ~= "string" then
+        return false
     end
     for name, record in pairs(state.modules) do
         if type(name) ~= "string"
