@@ -13,6 +13,7 @@ const root = require("nupp.tools.vm.root")
 @allow("unused-binding")
 const _DYNAMIC_REQUIRES = [[
 @requires-dynamically nupp.compiler.vm.corechunk
+@requires-dynamically nupp.runtime.provider.corehttp
 ]]
 
 local arguments: any = rawget(_G, "arg")

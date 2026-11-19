@@ -146,7 +146,7 @@ function M.buffersViewsAndFilesKeepTheirConcreteUploadPaths()
     local response, reason = client:send({
         url = endpoint("/echo"),
         method = "POST",
-        body = http.file(path, "application/octet-stream"),
+        body = http.file(require("io").Path.of(path), "application/octet-stream"),
     })
     assert(response, reason)
     local echoed = readAll(response.body, 32768)

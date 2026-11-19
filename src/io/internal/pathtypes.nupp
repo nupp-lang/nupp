@@ -178,3 +178,7 @@ end
 (Path as {[string]: any}).__eq = function(left: Path, right: Path): boolean
     return implementation("io.internal.path").equal(left, right)
 end
+
+export function ispath(value: any): boolean
+    return value is Path
+end
