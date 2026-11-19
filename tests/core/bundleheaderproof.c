@@ -2,7 +2,7 @@
  * @file
  * @brief CBMC proof of the core bridge's ARM64 bundle header contract.
  *
- * Run with `scripts/prove-bundle-header`. The stream model supplies arbitrary
+ * Run with `nupp task prove-bundle-header`. The stream model supplies arbitrary
  * header bytes and read lengths. The validator and decoder are production C.
  */
 
