@@ -1565,8 +1565,9 @@ const PROGRAM_STAGE = "build/core-guest-programs/source"
 --- Declares a case for the program whose entry is the source at `fixture`, a
 --- path under the checkout without its `.nupp`, and returns the case's name. A
 --- program `nupp __core-compiler` is asked to emit is built as one. An entry
---- that declares its module is staged where that name finds it; one that
---- declares none is the module its path names.
+--- that declares its module is staged where that name finds it, unless it is a
+--- library module under `src/` already; one that declares none is the module
+--- its path names.
 export function declareProgram(fixture: string): string
     local root = assert(os.getenv("NUPP_COMPILER_ROOT"))
     local path = root .. "/" .. fixture .. NUPP_SUFFIX
@@ -1575,7 +1576,9 @@ export function declareProgram(fixture: string): string
     assert(#parsed.errors == 0, "guest program parse failed: " .. path)
     local module = cst.declaredModule(parsed.root)
     local staged = fixture
-    if module ~= nil then
+    -- A library module under `src/` is already where its name finds it.
+    local canonical = module ~= nil and "src/" .. (module as string):gsub("%.", "/") or nil
+    if module ~= nil and fixture ~= canonical and fixture ~= (canonical as string) .. "/init" then
         staged = PROGRAM_STAGE .. "/" .. (module as string):gsub("%.", "/")
         local directory = (root .. "/" .. staged):match("^(.*)/[^/]+$") as string
         assert(os.execute("mkdir -p '" .. directory:gsub("'", "'\\''") .. "'"), "cannot create " .. directory)
