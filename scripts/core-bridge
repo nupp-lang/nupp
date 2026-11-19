@@ -36,6 +36,14 @@ if [ "$win64_mode" = --win64-contracts ] || [ "$win64_mode" = --win64-http-link 
     command -v clang > /dev/null || die 'Win64 contracts require clang'
     command -v cl > /dev/null || die 'Win64 contracts require the MSVC SDK compiler'
     if [ "$win64_mode" = --win64-http-link ]; then
+        # Git Bash places its POSIX link command ahead of Visual Studio.
+        if [ -n "${VCToolsInstallDir:-}" ]; then
+            msvc_bin="$(cygpath -u "$VCToolsInstallDir")/bin/Hostx64/x64"
+            if [ -x "$msvc_bin/link.exe" ]; then
+                PATH="$msvc_bin:$PATH"
+                export PATH
+            fi
+        fi
         . "$ROOT/scripts/core-http-windows-sdk.sh"
     fi
     uv=$(NUPP_NATIVE_TARGET=x86_64-pc-windows-msvc NUPP_CC=cl \
