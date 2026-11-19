@@ -1514,6 +1514,9 @@ local function audited(fn, ...)
     return ok, first, second
 end
 
+-- The project environment Nupp suites are checked in on the core, made once.
+local coreSuiteEnvironment = nil
+
 local function loadSuite(suite)
     local path = dir .. "/" .. suite.path
     installVmModules()
@@ -1558,7 +1561,37 @@ local function loadSuite(suite)
         return loaded, nil
     end
 
-    error("Nupp test suites run on the VM: " .. path, 0)
+    -- On the native core there is no image to load. The chunk compiler the
+    -- runner carries compiles the suite as a module instance, checked in the
+    -- project's environment with the prelude it keeps, and loading it runs it.
+    local carried, corechunk = pcall(require, "nupp.compiler.vm.corechunk")
+    if carried then
+        local fs = require("nupp.compiler.fs")
+        if coreSuiteEnvironment == nil then
+            coreSuiteEnvironment = require("nupp.compiler.project.env").new(fs.dirname(fs.absolute(dir)))
+            corechunk.useEnvironment(coreSuiteEnvironment)
+        end
+        local moduleName = suite.path:match("^nupp/") and suite.path:gsub("%.nupp$", ""):gsub("/", ".") or suite.name
+        local text = assert(fs.readFile(path))
+        local bytes, problem = corechunk.compileProgram(text, path, "@" .. path, moduleName)
+        if not bytes then
+            error("cannot compile Nupp test suite " .. path .. ": " .. tostring(problem), 0)
+        end
+        local ok, loaded = audited(function()
+            local value, failure = load(bytes, "@" .. path, "b")
+            if failure ~= nil then
+                error(failure, 0)
+            end
+            return value
+        end)
+        if not ok then
+            error(loaded, 0)
+        end
+
+        return loaded, nil
+    end
+
+    error("Nupp test suites run on the VM or the native core: " .. path, 0)
 end
 
 --- Where a test function is written, which is stable and worth reporting even
