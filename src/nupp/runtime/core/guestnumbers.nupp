@@ -200,7 +200,10 @@ end
 -- Lua's tonumber: numbers as they are; strings by l_str2int (optional sign,
 -- decimal or wrapping hexadecimal, surrounding space); nil for any other
 -- value or text that is not a numeral. Other text, a decimal past int64
--- included, is read as a float by C's strtod through the host.
+-- included, is read as a float by C's strtod through the host. A nil is
+-- answered nil, as Lua answers `tonumber(nil)`: the call arrives here with no
+-- way to tell it from `tonumber()`, which Lua refuses, and the nil a table
+-- read gives is by far the commoner of the two.
 export function tonumber(ctx: voidptr, value: uint64): uint64
     local cell = strings.Builder(0ULL, 0ULL)
     if ints.isInteger(value) or guestvalues.floatof(value) ~= values.NIL then
@@ -208,9 +211,6 @@ export function tonumber(ctx: voidptr, value: uint64): uint64
     end
     local s = strings.header(value)
     if s == 0ULL then
-        if value == values.NIL then
-            texts.argumentError(ctx, 1ULL, 0ULL, librarytexts.TEXT_VALUE_EXPECTED, values.NIL)
-        end
         return values.NIL
     end
     @unsafe do
