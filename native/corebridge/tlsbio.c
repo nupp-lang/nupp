@@ -360,7 +360,7 @@ static int load_root_directory (SSL_CTX *ctx, const char *directory) {
       break;
     }
 
-    memcpy(path, directory, base);
+    memcpy(path, directory, base + 1);
     path[base] = '/';
     memcpy(path + base + 1, entry.name, name + 1);
     int loaded = load_root_file(ctx, path, 1);
