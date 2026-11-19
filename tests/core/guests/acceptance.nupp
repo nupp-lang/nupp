@@ -485,26 +485,6 @@ local function unitLine(line: string): nil
     addFailure(rowFor(rowId("unit", "harness")), text)
 end
 
--- The pinned OpenSSL the crypto codec case binds (docs/native-core-bindings.md),
--- provisioned once and named as the case needs it, unless the caller names
--- its own. Empty where it cannot be provisioned: that case then fails alone.
-local function cryptoLibraries(): string
-    if os.getenv("NUPP_CRYPTO_LIBRARY") ~= nil then
-        return ""
-    end
-    local status, output = capture(quote(ROOT .. "/scripts/toolchain") .. " openssl")
-    local prefix = output:match("([^\r\n]+)%s*$")
-    if status ~= 0 or prefix == nil then
-        return ""
-    end
-    local _, system = capture("uname -s")
-    local suffix = system:match("Darwin") and ".dylib" or ".so"
-
-    return (
-        "NUPP_CRYPTO_LIBRARY=%s NUPP_SSL_LIBRARY=%s "
-    ):format(quote(prefix .. "/lib/libcrypto" .. suffix), quote(prefix .. "/lib/libssl" .. suffix))
-end
-
 -- The pinned zlib and ISA-L CRC libraries the guest project binds by
 -- NUPP_ZLIB_LIBRARY and NUPP_CRC_LIBRARY (guestbuild's project config), as
 -- scripts/c-library-paths names them, unless the caller names its own.
@@ -529,7 +509,7 @@ local function guestScript(names: {string}, shards: integer): string
         "cd %s && %sNUPP_COMPILER_ROOT=%s NUPP_GUEST_SHARDS=%d NUPP_GUEST_JOBS=%d NUPP_GUEST_JOB_TIMEOUT=%d %s run run.lua %s"
     ):format(
         quote(GUESTS),
-        cryptoLibraries() .. standardLibraries(),
+        standardLibraries(),
         quote(ROOT),
         shards,
         options.jobs,

@@ -1029,8 +1029,26 @@ local packagedLibraries = false
 -- The project's native library bindings, when they are packaged.
 local packagedBindings: any = nil
 
+-- Where the pinned OpenSSL's shared libraries are, provisioned once per
+-- machine by scripts/toolchain, or nil when it cannot be: the crypto codec
+-- binds it, and finds it here unless NUPP_CRYPTO_LIBRARY names one.
+local function opensslLibraries(root: string): string?
+    local popen: any = io.popen
+    local pipe = popen("sh '" .. root:gsub("'", "'\\''") .. "/scripts/toolchain' openssl 2>/dev/null")
+    if pipe == nil then
+        return nil
+    end
+    local output = tostring(pipe:read("a") or "")
+    local ok = pipe:close()
+    local prefix = output:match("([^\r\n]+)%s*$")
+
+    return ok and prefix ~= nil and prefix .. "/lib" or nil
+end
+
 local function checkedProject(root: string): any
     if sharedProject == nil then
+        local openssl = os.getenv("NUPP_CRYPTO_LIBRARY") == nil and opensslLibraries(root) or nil
+        local opensslSearch: {string}? = openssl ~= nil and {openssl as string} or nil
         local incremental: any = require("nupp.compiler.project.incremental")
         require("nupp.compiler.project.projectconfig")
         require("nupp.compiler.hash")
@@ -1049,8 +1067,15 @@ local function checkedProject(root: string): any
                 },
                 -- zlib is the standard binding, named by NUPP_ZLIB_LIBRARY or
                 -- provisioned on first use (nupp.compiler.project.libraries).
-                nuppcrypto = {name = "crypto", env = "NUPP_CRYPTO_LIBRARY"},
-                nuppssl = {name = "ssl", env = "NUPP_SSL_LIBRARY", dependencies = {"nuppcrypto"}},
+                -- OpenSSL is named by its variable or found where the pinned
+                -- one is provisioned (`opensslLibraries`).
+                nuppcrypto = {name = "crypto", env = "NUPP_CRYPTO_LIBRARY", search = opensslSearch},
+                nuppssl = {
+                    name = "ssl",
+                    env = "NUPP_SSL_LIBRARY",
+                    dependencies = {"nuppcrypto"},
+                    search = opensslSearch
+                },
                 nuppcurl = {name = "curl", env = "NUPP_CURL_LIBRARY", dependencies = {"nuppssl", "nuppcrypto"}},
             },
         }
