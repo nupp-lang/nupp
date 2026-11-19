@@ -63,7 +63,7 @@ local COUNTS = [[
 module incrementalcase.counts
 
 export function total(limit: integer): integer
-    local sum = 0
+    local sum: integer = 0
     for index = 1, limit do
         sum = sum + index
     end
@@ -72,11 +72,18 @@ export function total(limit: integer): integer
 end
 ]]
 
+-- The same function, summing in the other order: what it answers and every
+-- fact a caller's check reads of it stand.
 local COUNTS_EDITED = [[
 module incrementalcase.counts
 
 export function total(limit: integer): integer
-    return limit * (limit + 1) // 2
+    local sum: integer = 0
+    for index = 1, limit do
+        sum = index + sum
+    end
+
+    return sum
 end
 ]]
 
