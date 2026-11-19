@@ -3,53 +3,30 @@ module nupp.runtime.core.hostfilesystem
 -- The file system's metadata, link, directory, permission, sync and path
 -- calls under the program's filesystem layer (filesystemcalls), made
 -- through the C library. Each answers 0, a length, or the negated error
--- number; a path holding a NUL is refused with EINVAL, as Rust's standard
--- library refused it. The layouts and constants are macOS's, the one host
--- the core's compiler targets (aarch64-apple-darwin).
+-- number. A path holding a NUL is refused with EINVAL.
 const native = require("nupp.runtime.vm.intrinsics")
 const heap = require("nupp.runtime.vm.heap")
 const strings = require("nupp.runtime.core.corestrings")
 const c = require("nupp.runtime.core.hostc")
 
--- macOS's struct stat (64-bit inodes), as far as it is read; the rest is
--- spare room of the same size.
+-- The native stat fields returned by the bridge.
 cdef struct FileStatus
-    device: int32
-    mode: uint16
-    links: uint16
-    inode: uint64
-    user: uint32
-    group: uint32
-    special: int32
-    accessSeconds: int64
-    accessNanos: int64
+    mode: uint64
+    size: int64
     modifySeconds: int64
     modifyNanos: int64
-    changeSeconds: int64
-    changeNanos: int64
-    birthSeconds: int64
-    birthNanos: int64
-    size: int64
-    blocks: int64
-    blockSize: int32
-    flags: uint32
-    generation: uint32
-    spare: int32
-    reserved: int64
-    reservedMore: int64
 end
 
-cdef function stat(borrows path: voidptr, borrows info: voidptr): int32
-cdef function lstat(borrows path: voidptr, borrows info: voidptr): int32
-cdef function fstat(fd: int64, borrows info: voidptr): int32
+cdef function nupp_core_stat_file(borrows path: voidptr, follow: uint64, borrows info: voidptr): int32
+cdef function nupp_core_stat_descriptor(fd: int64, borrows info: voidptr): int32
 cdef function readlink(borrows path: voidptr, borrows out: voidptr, room: uint64): int64
 cdef function mkdir(borrows path: voidptr, mode: int64): int32
 cdef function symlink(borrows target: voidptr, borrows link: voidptr): int32
 cdef function chmod(borrows path: voidptr, mode: int64): int32
-cdef function fcntl(fd: int64, command: int64, ...): int32
+cdef function nupp_core_sync_file(fd: int64): int32
 cdef function getcwd(borrows out: voidptr, room: uint64): voidptr
 cdef function realpath(borrows path: voidptr, borrows out: voidptr): voidptr
-cdef function _NSGetExecutablePath(borrows out: voidptr, borrows room: voidptr): int32
+cdef function nupp_core_executable_path(borrows out: voidptr, room: uint64): int64
 cdef function strlen(borrows text: voidptr): uint64
 cdef function memcpy(borrows target: voidptr, borrows source: voidptr, count: uint64): voidptr
 cdef function free(borrows block: voidptr)
@@ -67,13 +44,11 @@ const WORKING_DIRECTORY: uint64 = 0ULL
 const CANONICAL_PATH: uint64 = 1ULL
 const EXECUTABLE_PATH: uint64 = 2ULL
 
--- The C library's, on macOS.
+-- The file type bits in POSIX mode words.
 const S_IFMT: uint64 = 0xf000ULL
 const S_IFREG: uint64 = 0x8000ULL
 const S_IFDIR: uint64 = 0x4000ULL
 const S_IFLNK: uint64 = 0xa000ULL
-const F_FULLFSYNC: int64 = 51
-const NAME_ROOM: uint64 = 1024ULL
 
 -- Appends the path `s` and a NUL to `b`: where it starts, or -1 when the
 -- path holds a NUL.
@@ -101,7 +76,7 @@ end
 -- `info` into `out`: its kind, size, modification seconds and nanoseconds,
 -- and mode.
 local function describe(info: voidptr, out: voidptr): nil
-    local mode = native.word(native.load16(info, native.fieldOffset<FileStatus>("mode")))
+    local mode = native.load64(info, native.fieldOffset<FileStatus>("mode"))
     local kind = OTHER
     if (mode & S_IFMT) == S_IFLNK then
         kind = SYMLINK
@@ -131,12 +106,7 @@ export function info(h: heap.Heap*, source: uint64, follow: uint64, out: voidptr
             return 0 - c.EINVAL
         end
         local at = room(h, lifetime, native.sizeOf<FileStatus>())
-        local status: int64 = 0
-        if follow == 1ULL then
-            status = c.widened(stat(c.at(lifetime, native.word(name)), c.at(lifetime, at)))
-        else
-            status = c.widened(lstat(c.at(lifetime, native.word(name)), c.at(lifetime, at)))
-        end
+        local status: int64 = nupp_core_stat_file(c.at(lifetime, native.word(name)), follow, c.at(lifetime, at))
         if status ~= 0 then
             return c.failure()
         end
@@ -155,7 +125,7 @@ export function status(h: heap.Heap*, fd: uint64, out: voidptr): int64
     @unsafe do
         local lifetime = strings.open(h, state as strings.Builder*)
         local at = room(h, lifetime, native.sizeOf<FileStatus>())
-        local answer: int64 = fstat(native.index(fd), c.at(lifetime, at))
+        local answer: int64 = nupp_core_stat_descriptor(native.index(fd), c.at(lifetime, at))
         if answer ~= 0 then
             return c.failure()
         end
@@ -253,14 +223,13 @@ export function changeMode(h: heap.Heap*, source: uint64, mode: uint64): int64
     return 0
 end
 
--- Writes the open file `fd` through to its storage, as Rust's sync_all
--- does on macOS with F_FULLFSYNC: 0.
+-- Writes the open file `fd` through to its storage: 0.
 export function sync(fd: uint64): int64
     if fd > FD_LIMIT then
         return 0 - c.EBADF
     end
     while true do
-        local answer: int64 = fcntl(native.index(fd), F_FULLFSYNC)
+        local answer: int64 = nupp_core_sync_file(native.index(fd))
         if answer ~= -1 then
             return 0
         end
@@ -314,14 +283,7 @@ export function query(h: heap.Heap*, which: uint64, source: uint64, out: voidptr
             end
             return owned(realpath(c.at(lifetime, native.word(name)), native.pointer(0ULL)), out, capacity)
         elseif which == EXECUTABLE_PATH then
-            local size = room(h, lifetime, native.word(WORD))
-            native.store64(c.at(lifetime, size), 0, NAME_ROOM)
-            local name = room(h, lifetime, NAME_ROOM)
-            local answer: int64 = _NSGetExecutablePath(c.at(lifetime, name), c.at(lifetime, size))
-            if answer ~= 0 then
-                return 0 - c.EINVAL
-            end
-            return copied(c.at(lifetime, name), out, capacity)
+            return nupp_core_executable_path(out, capacity)
         end
 
         return 0 - c.EINVAL
