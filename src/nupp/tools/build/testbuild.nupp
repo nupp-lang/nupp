@@ -16,12 +16,15 @@ const TRANSPORT_PREFIXES = {"GITHUB_", "ACTIONS_", "RUNNER_"}
 --- The CI variables under those prefixes that do describe the machine.
 const MACHINE_VARIABLES: {[string]: boolean} = {RUNNER_OS = true, RUNNER_ARCH = true}
 
---- Whether `name` is transport the build cannot read: an agent's per-call id,
---- the directory the calling shell was in before, a CI service's bookkeeping,
+--- Whether `name` is transport the build cannot read: an agent's per-call id
+--- or the trace context a harness hands each call, the directory the calling
+--- shell was in before, a CI service's bookkeeping,
 --- or what systemd tells the service a CI runner runs as about the process it
 --- started.
 local function transport(name: string): boolean
     if name == "CODEX_TOOL_CALL_ID"
+        or name == "TRACEPARENT"
+        or name == "TRACESTATE"
         or name == "OLDPWD"
         or name == "INVOCATION_ID"
         or name == "JOURNAL_STREAM"
