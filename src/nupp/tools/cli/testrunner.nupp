@@ -29,7 +29,11 @@ export function run(args: any): integer
     -- loaded dynamically below.
     package.loaded["assert"] = require("assert")
 
-    local source = assert(require("nupp.compiler.bundled").source("/nupp/test/runner.lua"))
+    -- Read through package.loaded, where a test puts a stand-in runner: on the
+    -- native core a literal require of a module the program carries is bound
+    -- as it is built, and would run the real runner in its place.
+    local bundled: any = package.loaded["nupp.compiler.bundled"] or require("nupp.compiler.bundled")
+    local source = assert(bundled.source("/nupp/test/runner.lua"))
     local execute, problem = loadstring(source, "@nupp:test-runner")
     if execute == nil then
         io.stderr:write("nupp: cannot load the bundled test runner: " .. tostring(problem) .. "\n")
