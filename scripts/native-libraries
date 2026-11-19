@@ -26,6 +26,19 @@ case "$(uname -s):$(uname -m)" in
     MINGW*:x86_64|MSYS*:x86_64) TARGET=x86_64-pc-windows-msvc; SYSTEM=windows ;;
     *) die 'no supported native C-library target for this host' ;;
 esac
+# A launcher's environment is not a build input. Xcode's python3 exports its
+# SDK path and /usr/local search paths into every child, so a library
+# provisioned under it (scripts/bootstrap-seed) compiled against other headers
+# and took another key than the same pin provisioned from a shell. The search
+# paths are dropped, and the SDK is keyed by what it resolves to: SDKROOT
+# naming the SDK xcrun selects anyway is no SDKROOT at all.
+unset CPATH C_INCLUDE_PATH CPLUS_INCLUDE_PATH OBJC_INCLUDE_PATH LIBRARY_PATH
+if [ "$SYSTEM" = darwin ] && [ -n "${SDKROOT:-}" ]; then
+    selected=$(env -u SDKROOT xcrun --show-sdk-path 2>/dev/null || true)
+    if [ -n "$selected" ] && [ "$(cd "$SDKROOT" 2>/dev/null && pwd -P)" = "$(cd "$selected" 2>/dev/null && pwd -P)" ]; then
+        unset SDKROOT
+    fi
+fi
 CC=${NUPP_CC:-cc}
 if [ "$SYSTEM" = windows ]; then CC=${NUPP_CC:-cl}; fi
 # The VM's ISA-L and zlib and checkout docs' Markdown can be provisioned with

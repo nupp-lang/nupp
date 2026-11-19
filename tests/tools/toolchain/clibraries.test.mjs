@@ -130,6 +130,36 @@ test('a redirected loader alias is refused', {skip: process.platform === 'win32'
   assert.notEqual(result.status, 0);
   assert.match(result.stderr, /corrupt cache/);
 });
+test('a launcher environment is not a build input', {skip: process.platform === 'win32'}, t => {
+  const f = fixture(t);
+  // An Apple host, as Xcode's python3 runs a child there: it names the SDK
+  // xcrun selects anyway and adds /usr/local search paths.
+  f.write('sdk/MacOSX.sdk/SDKSettings.json', '{}\n');
+  f.write('tools/uname', '#!/bin/sh\ncase "$1" in -s) echo Darwin ;; -m) echo arm64 ;; *) exit 1 ;; esac\n', 0o755);
+  f.write('tools/xcrun', `#!/bin/sh
+case "$1" in
+  --show-sdk-path) echo '${shellPath(path.join(f.directory, 'sdk/MacOSX.sdk'))}' ;;
+  --show-sdk-version) echo 1.0 ;;
+  *) exit 1 ;;
+esac
+`, 0o755);
+  f.write('tools/install_name_tool', '#!/bin/sh\nexit 0\n', 0o755);
+  f.write('tools/otool', '#!/bin/sh\necho "$2:"\n', 0o755);
+  const tool = fs.readFileSync(path.join(f.directory, 'tools/cmake'), 'utf8');
+  f.write('tools/cmake', tool.replace('echo "$*" >> "$TEST_BUILD_CALLS"',
+    'echo "$* CPATH=${CPATH:-} LIBRARY_PATH=${LIBRARY_PATH:-}" >> "$TEST_BUILD_CALLS"')
+    .replace('> "$install/lib/libz.so"', '> "$install/lib/libz.dylib"'), 0o755);
+  const apple = {NUPP_NATIVE_TARGET: 'aarch64-apple-darwin'};
+  const prefix = f.success(f.run(apple));
+  const launched = f.success(f.run({...apple, SDKROOT: shellPath(path.join(f.directory, 'sdk/MacOSX.sdk')),
+    CPATH: '/usr/local/include', LIBRARY_PATH: '/usr/local/lib'}));
+  assert.equal(launched, prefix, 'the same pin provisioned under a launcher took another key');
+  const calls = fs.readFileSync(f.env.TEST_BUILD_CALLS, 'utf8');
+  assert.doesNotMatch(calls, /CPATH=\/usr\/local/);
+  f.write('sdk/Other.sdk/SDKSettings.json', '{}\n');
+  assert.notEqual(f.success(f.run({...apple, SDKROOT: shellPath(path.join(f.directory, 'sdk/Other.sdk'))})), prefix,
+    'another SDK is another build');
+});
 test('target mismatch and invalid offline flags fail before a build', t => {
   const f = fixture(t);
   assert.match(f.run({NUPP_NATIVE_TARGET: 'aarch64-apple-darwin'}).stderr, /refusing host output/);
