@@ -1,6 +1,6 @@
 /* The C interface of Nupp's Markdown renderer, a private build of the pinned
  * upstream cmark-gfm with tables and the colon definition lists of
- * definition-list.c. The documentation host and the core load it as the
+ * definitionlist.c. The documentation host and the core load it as the
  * library "nupp_markdown" (coremarkdown.nupp, markdownlibrary.nupp), and
  * docs/native-markdown.md describes the dialect and the byte policy.
  *
@@ -29,34 +29,34 @@
 
 #endif
 
-typedef struct nupp_markdown nupp_markdown;
+typedef struct nuppmarkdown nuppmarkdown;
 
 /* The upstream commit and definition-list ABI this library was built from,
  * which a caller compares with the one it was written against. */
-NUPP_MD_API const char *nupp_markdown_revision (void);
+NUPP_MD_API const char *nuppmarkdownrevision (void);
 
 /* A new, empty document, or NULL when out of memory. */
-NUPP_MD_API nupp_markdown *nupp_markdown_new (void);
+NUPP_MD_API nuppmarkdown *nuppmarkdownnew (void);
 
 /* Input is explicit-length, already lossily decoded UTF-8; NUL is allowed.
  * Budget caps cumulative allocations, including parser, tree and HTML.
  * Zero means success; negative values mean resource/input/ownership failure.
  * No input pointer is retained. A document may be rendered only once. */
-NUPP_MD_API int nupp_markdown_render (nupp_markdown *, const char *, size_t,
-                                      size_t);
+NUPP_MD_API int nuppmarkdownrender (nuppmarkdown *, const char *, size_t,
+                                    size_t);
 
 /* The rendered HTML, or NULL before a successful render. It may hold NUL
- * bytes, so read nupp_markdown_size bytes of it. */
-NUPP_MD_API const char *nupp_markdown_text (const nupp_markdown *);
+ * bytes, so read nuppmarkdownsize bytes of it. */
+NUPP_MD_API const char *nuppmarkdowntext (const nuppmarkdown *);
 
 /* A bounded suffix, for C-string-only foreign callers preserving embedded NUL.
  * Copy each segment before freeing the document; size remains authoritative. */
-NUPP_MD_API const char *nupp_markdown_text_at (const nupp_markdown *, size_t);
+NUPP_MD_API const char *nuppmarkdowntextat (const nuppmarkdown *, size_t);
 
 /* The byte length of the rendered HTML, or zero. */
-NUPP_MD_API size_t nupp_markdown_size (const nupp_markdown *);
+NUPP_MD_API size_t nuppmarkdownsize (const nuppmarkdown *);
 
 /* Frees the document and its HTML; NULL is allowed. */
-NUPP_MD_API void nupp_markdown_free (nupp_markdown *);
+NUPP_MD_API void nuppmarkdownfree (nuppmarkdown *);
 
 #endif

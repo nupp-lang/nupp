@@ -8,23 +8,23 @@ module nupp.runtime.provider.coremarkdown
 
 const textcodec = require("nupp.runtime.provider.markdowntext")
 
-cdef function nupp_markdown_revision(): cstring from"nuppmarkdown"
-cdef function nupp_markdown_new(): voidptr? from"nuppmarkdown"
-cdef function nupp_markdown_render(
+cdef function nuppmarkdownrevision(): cstring from"nuppmarkdown"
+cdef function nuppmarkdownnew(): voidptr? from"nuppmarkdown"
+cdef function nuppmarkdownrender(
     exclusive document: voidptr,
     text: string,
     count: uint64,
     budget: uint64
 ): int32 from"nuppmarkdown"
-cdef function nupp_markdown_text_at(borrows document: voidptr, at: uint64): cstring? from"nuppmarkdown"
-cdef function nupp_markdown_size(borrows document: voidptr): uint64 from"nuppmarkdown"
-cdef function nupp_markdown_free(takes document: voidptr) from"nuppmarkdown"
+cdef function nuppmarkdowntextat(borrows document: voidptr, at: uint64): cstring? from"nuppmarkdown"
+cdef function nuppmarkdownsize(borrows document: voidptr): uint64 from"nuppmarkdown"
+cdef function nuppmarkdownfree(takes document: voidptr) from"nuppmarkdown"
 
 local record Document is own.Closeable
     @private handle: voidptr?
     function close(takes self): nil
         if self.handle ~= nil then
-            nupp_markdown_free(self.handle)
+            nuppmarkdownfree(self.handle)
             self.handle = nil
         end
     end
@@ -50,23 +50,23 @@ export function render(text: string): (string?, string?)
     local decoded = textcodec.lossy(text)
     assert(#decoded <= 8388608, "Markdown decoded input exceeds 8 MiB")
     assert(
-        tostring(nupp_markdown_revision()) == "27d942c8b0a62d192f616e5bf3578f4b6a89e180/definition-list-1",
+        tostring(nuppmarkdownrevision()) == "27d942c8b0a62d192f616e5bf3578f4b6a89e180/definition-list-1",
         "Markdown header/library mismatch"
     )
     local document = Document(handle = nil)
-    document.handle = nupp_markdown_new()
+    document.handle = nuppmarkdownnew()
     assert(document.handle ~= nil, "Markdown allocation failed")
     assert(
-        nupp_markdown_render(document.handle, decoded, #decoded as uint64, 134217728ULL) == 0,
+        nuppmarkdownrender(document.handle, decoded, #decoded as uint64, 134217728ULL) == 0,
         "Markdown resource limit or allocation failure"
     )
-    local size = nupp_markdown_size(document.handle)
+    local size = nuppmarkdownsize(document.handle)
     assert(size <= 33554432ULL, "Markdown output exceeds 32 MiB")
     local at: uint64 = 0ULL
     local parts: {string} = {}
     local chunks: {string} = {}
     while at < size do
-        local pointer = nupp_markdown_text_at(document.handle, at)
+        local pointer = nuppmarkdowntextat(document.handle, at)
         assert(pointer ~= nil, "Markdown output is missing")
         local part = tostring(pointer)
         parts[#parts + 1] = part

@@ -21,7 +21,7 @@
 
 #endif
 
-/* What nupp_markdown_render answers for a failure (markdown.c). */
+/* What nuppmarkdownrender answers for a failure (markdown.c). */
 enum { NO_RESOURCES = -1, TOO_LARGE = -2, MISUSE = -3 };
 
 /* A budget every document here fits in. */
@@ -44,59 +44,59 @@ static void *concurrent (void *unused)
   (void)unused;
 
   for (int i = 0; i < RENDERS; i++) {
-    nupp_markdown *doc = nupp_markdown_new();
-    assert(doc && nupp_markdown_render(doc, "# Thread", 8, BUDGET) == 0);
-    assert(!strcmp(nupp_markdown_text(doc), "<h1>Thread</h1>\n"));
-    nupp_markdown_free(doc);
+    nuppmarkdown *doc = nuppmarkdownnew();
+    assert(doc && nuppmarkdownrender(doc, "# Thread", 8, BUDGET) == 0);
+    assert(!strcmp(nuppmarkdowntext(doc), "<h1>Thread</h1>\n"));
+    nuppmarkdownfree(doc);
   }
 
   return 0;
 }
 
 int main (void) {
-  assert(!strcmp(nupp_markdown_revision(),
+  assert(!strcmp(nuppmarkdownrevision(),
                  "27d942c8b0a62d192f616e5bf3578f4b6a89e180/definition-list-1"));
 
   for (size_t budget = 0; budget < BUDGET; budget = budget ? budget * 2 : 1) {
-    nupp_markdown *doc = nupp_markdown_new();
+    nuppmarkdown *doc = nuppmarkdownnew();
     assert(doc);
     int status =
-        nupp_markdown_render(doc, "Term\n: first\n\n    - child\n", 25, budget);
+        nuppmarkdownrender(doc, "Term\n: first\n\n    - child\n", 25, budget);
 
     if (status) {
       assert(status == NO_RESOURCES);
-      assert(!nupp_markdown_text(doc));
-      assert(!nupp_markdown_size(doc));
+      assert(!nuppmarkdowntext(doc));
+      assert(!nuppmarkdownsize(doc));
     }
     else {
-      assert(nupp_markdown_text(doc));
+      assert(nuppmarkdowntext(doc));
     }
 
-    assert(nupp_markdown_render(doc, "x", 1, BUDGET) == MISUSE);
-    nupp_markdown_free(doc);
+    assert(nuppmarkdownrender(doc, "x", 1, BUDGET) == MISUSE);
+    nuppmarkdownfree(doc);
   }
 
-  nupp_markdown *first = nupp_markdown_new(), *second = nupp_markdown_new();
+  nuppmarkdown *first = nuppmarkdownnew(), *second = nuppmarkdownnew();
   assert(first && second);
-  assert(nupp_markdown_render(first, "a\0b", 3, BUDGET) == 0);
-  assert(nupp_markdown_size(first) == 11);
-  assert(!memcmp(nupp_markdown_text(first), "<p>a\0b</p>\n", 11));
-  assert(!strcmp(nupp_markdown_text_at(first, 5), "b</p>\n"));
-  assert(!nupp_markdown_text_at(first, 12));
+  assert(nuppmarkdownrender(first, "a\0b", 3, BUDGET) == 0);
+  assert(nuppmarkdownsize(first) == 11);
+  assert(!memcmp(nuppmarkdowntext(first), "<p>a\0b</p>\n", 11));
+  assert(!strcmp(nuppmarkdowntextat(first, 5), "b</p>\n"));
+  assert(!nuppmarkdowntextat(first, 12));
 
-  assert(nupp_markdown_render(second, "# Next", 6, BUDGET) == 0);
-  nupp_markdown_free(second);
-  assert(!memcmp(nupp_markdown_text(first), "<p>a\0b</p>\n", 11));
-  nupp_markdown_free(first);
+  assert(nuppmarkdownrender(second, "# Next", 6, BUDGET) == 0);
+  nuppmarkdownfree(second);
+  assert(!memcmp(nuppmarkdowntext(first), "<p>a\0b</p>\n", 11));
+  nuppmarkdownfree(first);
 
-  first = nupp_markdown_new();
-  assert(nupp_markdown_render(first, "x", OVERSIZED, BUDGET) == TOO_LARGE);
-  nupp_markdown_free(first);
+  first = nuppmarkdownnew();
+  assert(nuppmarkdownrender(first, "x", OVERSIZED, BUDGET) == TOO_LARGE);
+  nuppmarkdownfree(first);
 
-  first = nupp_markdown_new();
-  assert(nupp_markdown_render(first, NULL, 1, BUDGET) == MISUSE);
-  nupp_markdown_free(first);
-  nupp_markdown_free(NULL);
+  first = nuppmarkdownnew();
+  assert(nuppmarkdownrender(first, NULL, 1, BUDGET) == MISUSE);
+  nuppmarkdownfree(first);
+  nuppmarkdownfree(NULL);
 
 #ifdef _WIN32
   HANDLE threads[2] = {CreateThread(NULL, 0, concurrent, NULL, 0, NULL),

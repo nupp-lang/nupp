@@ -19,9 +19,9 @@ if(NOT WIN32)
   find_package(Threads REQUIRED)
 endif()
 
-add_library(nupp_markdown SHARED markdown.c definition-list.c)
+add_library(nupp_markdown SHARED markdown.c definitionlist.c)
 target_compile_definitions(nupp_markdown PRIVATE NUPP_MD_EXPORTS)
-add_library(nupp_markdown_static STATIC markdown.c definition-list.c)
+add_library(nupp_markdown_static STATIC markdown.c definitionlist.c)
 set_target_properties(
   nupp_markdown_static
   PROPERTIES OUTPUT_NAME nupp_markdown_static
@@ -58,4 +58,4 @@ install(
   LIBRARY DESTINATION lib
   ARCHIVE DESTINATION lib
 )
-install(FILES markdown.h definition-list.h DESTINATION include/nupp)
+install(FILES markdown.h definitionlist.h DESTINATION include/nupp)

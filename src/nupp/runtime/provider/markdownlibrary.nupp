@@ -32,23 +32,23 @@ end
 local function library(): any
     if loaded == nil then
         local handle = native.load(assert(location()))
-        local revision = native.bind(handle, "nupp_markdown_revision", {params = {}, result = "pointer"})
+        local revision = native.bind(handle, "nuppmarkdownrevision", {params = {}, result = "pointer"})
         assert(
             native.string(revision()) == "27d942c8b0a62d192f616e5bf3578f4b6a89e180/definition-list-1",
             "Markdown header/library mismatch"
         )
         loaded = {
-            new = native.bind(handle, "nupp_markdown_new", {
+            new = native.bind(handle, "nuppmarkdownnew", {
                 params = {},
                 result = "pointer"
             }),
-            render = native.bind(handle, "nupp_markdown_render", {
+            render = native.bind(handle, "nuppmarkdownrender", {
                 params = {"pointer", {kind = "pointer", readonly = true}, "uint64", "uint64"},
                 result = "int32"
             }),
-            text = native.bind(handle, "nupp_markdown_text", {params = {"pointer"}, result = "pointer"}),
-            size = native.bind(handle, "nupp_markdown_size", {params = {"pointer"}, result = "uint64"}),
-            free = native.bind(handle, "nupp_markdown_free", {params = {"pointer"}, result = "void"})
+            text = native.bind(handle, "nuppmarkdowntext", {params = {"pointer"}, result = "pointer"}),
+            size = native.bind(handle, "nuppmarkdownsize", {params = {"pointer"}, result = "uint64"}),
+            free = native.bind(handle, "nuppmarkdownfree", {params = {"pointer"}, result = "void"})
         }
     end
 

@@ -106,11 +106,11 @@ cmake --build "$staged/build"
 license="$source/COPYING"
 `);
   f.write('host/notices/cmark-gfm-LICENSE.txt', 'test notice\n');
-  f.write('native/markdown/definition-list.c', 'synthetic extension version 1\n');
+  f.write('native/markdown/definitionlist.c', 'synthetic extension version 1\n');
   f.args[1] = 'cmark';
   const prefix = f.success(f.run());
   assert.equal(f.success(f.run()), prefix);
-  f.write('native/markdown/definition-list.c', 'synthetic extension version 2\n');
+  f.write('native/markdown/definitionlist.c', 'synthetic extension version 2\n');
   assert.notEqual(f.success(f.run()), prefix);
   f.write('host/notices/cmark-gfm-LICENSE.txt', 'wrong notice\n');
   const refused = f.run();

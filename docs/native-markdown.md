@@ -2,7 +2,7 @@
 
 The documentation renderer uses unchanged upstream
 [cmark-gfm 27d942c8b0a62d192f616e5bf3578f4b6a89e180](https://github.com/github/cmark-gfm/tree/27d942c8b0a62d192f616e5bf3578f4b6a89e180),
-plus the separate Nupp C extension in `native/markdown/definition-list.c`.
+plus the separate Nupp C extension in `native/markdown/definitionlist.c`.
 That upstream revision includes the September 2026 autolink pointer-overflow
 fix. Its generated version still says `0.29.0.gfm.13`; that version string
 alone is insufficient to identify the source or extension ABI.
@@ -43,7 +43,7 @@ Restoration uses explicit lengths, including NUL in HTML output. The core
 copies bounded C-string segments while its document owner remains live.
 
 The parser, AST and per-call extension are freed before returning HTML. The
-document owns the returned buffer until the matching `nupp_markdown_free`.
+document owns the returned buffer until the matching `nuppmarkdownfree`.
 The private upstream registry has process lifetime; calls are serialized around
 upstream global state. Fixed-size registry/extension construction uses the default
 allocator; document parsing, ASTs, custom state, compatibility buffers and HTML

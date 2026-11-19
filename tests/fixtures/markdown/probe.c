@@ -48,19 +48,19 @@ int main (void) {
     return BAD_INPUT;
   }
 
-  nupp_markdown *doc = nupp_markdown_new();
+  nuppmarkdown *doc = nuppmarkdownnew();
 
   if (!doc) {
     return NO_DOCUMENT;
   }
 
-  int status = nupp_markdown_render(doc, input, size, BUDGET);
+  int status = nuppmarkdownrender(doc, input, size, BUDGET);
 
   if (!status) {
-    fwrite(nupp_markdown_text(doc), 1, nupp_markdown_size(doc), stdout);
+    fwrite(nuppmarkdowntext(doc), 1, nuppmarkdownsize(doc), stdout);
   }
 
-  nupp_markdown_free(doc);
+  nuppmarkdownfree(doc);
 
   if (status) {
     return RENDER_FAILED;
