@@ -16,13 +16,18 @@ The last blockers before `STAGE0_CORE_HOSTS` in `scripts/toolchain.pins` lists m
 - Module instances now resolve `_G.require` through their environment.
   `processtest` reached 53 of 58 passes. The remaining five all call the
   missing `scope` member on the table returned by `require("coroutine")`.
+  `36795addb` publishes the core scheduler on that table. Replay the five
+  cases using a native CLI built from that commit or later.
+- The checked-ownership candidate passed the explicit-drop case. A
+  separate test-helper change preserves all returns from unnamed fragments.
+  `nativetablestest` passed 17/17 under that change using the core CLI.
 - `wip/core-flip-validation` at `510360247` built the `nupp init app`
   template with its project compiler. The package printed `Hello, world!`
   after relocation, using just `PATH=/usr/bin:/bin`. Its launcher selects a
   content-addressed generation inside the adjacent `<name>.core` directory.
-- The same core CLI passed a direct three-argument `...` probe, including
-  a word with a space and an empty argument. The `io.cli.args` namespace
-  correction checks successfully and still needs a runtime replay.
+- `wip/core-flip-next` (`344a9f5cd`) passed the absolute entry and argument
+  cases on the core. The argument test checks `...` and `io.cli.args` with
+  a word containing a space and an empty argument.
 - [Issue #136](https://github.com/nupp-lang/nupp/issues/136) tracks shared
   validation. Leave `STAGE0_CORE_HOSTS` empty until the validation lanes
   and configured binary test target work.

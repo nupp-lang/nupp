@@ -16,8 +16,15 @@ branch avoozl-plans). Follow AGENTS.md in each repo.
 - A fresh app from `nupp init app` built on the native core and printed
   `Hello, world!` after moving the launcher and its `.core` directory to a
   new location and running with an empty environment apart from `PATH`.
-  Candidate `510360247` produced this package. The configured test target,
-  `io.cli.args` follow-up, and full shared lane still need verification.
+  Candidate `510360247` produced this package. The configured test target
+  and full shared lane still need verification.
+  `wip/core-flip-next` at `344a9f5cd` carries the rebased follow-ups and
+  passed both native core entry tests, including empty arguments and
+  `io.cli.args`. It lists 202 suites through the normal shared-lane command.
+  `wip/core-flip-followups` at `60a03b594` also carries the safe sidecar
+  publication and callable result pack fixes.
+- `ed3b79f46` landed the fragment return pack fix. `nativetablestest`
+  passed 17/17 on both runtimes.
 - The core incremental fixture passed. The unchanged build reused 20/20
   pieces, the body edit reused 19/20, and the interface edit reused 17/20.
   Every artifact matched its cold counterpart. The full core fixpoint is
@@ -35,7 +42,16 @@ branch avoozl-plans). Follow AGENTS.md in each repo.
   `stdlibtest/anHttpClientPumpsItsTransfersOnRequest`: a zero-timeout
   call polled its fake transport twice. See the
   [failed job](https://github.com/nupp-lang/nupp/actions/runs/44544039175/job/135671760312).
-  The first nightly macOS core-guest legs still need results.
+  Windows hit the same failure. The fix passed the same case locally
+  and landed at `83ec023a3`.
+- The first nightly with the macOS core-guest matrix stopped at Linux
+  preflight. `clang-tidy` could not see the declaration for `realpath`
+  while checking the bridge contract fixture. No macOS guest jobs ran.
+  [Nightly 44563866923](https://github.com/nupp-lang/nupp/actions/runs/44563866923).
+  `c95b4febb` sets the bridge's feature macro before any system header in
+  lint builds. The focused Linux lint and the early-header repro passed.
+  [Run 44566087488](https://github.com/nupp-lang/nupp/actions/runs/44566087488)
+  retests the macOS core guests at that commit.
 
 ## Where things stand
 
@@ -89,6 +105,7 @@ libuv/curl work.
 | Branch (origin) | Worktree | Lane |
 |---|---|---|
 | `wip/core-test-path` (= aa02f754a, landed) | /Volumes/bigbertha/workspaces/core-test-path | core-test-path.md |
+| `wip/core-flip-next` (344a9f5cd) | /Volumes/bigbertha/workspaces/core-flip-next | core-test-path.md |
 | `wip/core-incremental-validation` (fcb7a5c31) | /Volumes/bigbertha/workspaces/core-incremental-emit | incremental-emit.md |
 | `wip/w1-fragments-rebased` (888f9ba58) | see w1.md | w1.md |
 | `core-self-emit` (579e7f582, seed tag source; keep) | /Volumes/bigbertha/workspaces/core-self-emit | fixpoint evidence |
@@ -109,10 +126,8 @@ A worktree on another machine: create it with `./scripts/worktree <name>
 - Issue 131 closed (4a8f4db15): checked modules shared across test
   environments with one lent prelude; −20% case time on heavy suites (−36%
   excluding nativejittest).
-- C: Lua (PUC 5.4) layout via clang-format + Uncrustify (blank lines),
-  mandatory braces, lowercase run-together names with no underscores,
-  clang-tidy + ASan/UBSan, gersemi for CMake. All enforced by
-  `scripts/format-c`, `scripts/lint-c`, the pre-push hook and CI.
+- C follows Lua's layout and uses lowercase joined words for `.c` and `.h`
+  filenames. The pre-push hook and CI run the formatter and linter.
 - W1: 566-row core inventory (554 pass), four macOS ARM64 core-guest CI legs.
 - Avoozl: legacy epics migrated (avoozl #738), planning DB moved to
   .avoozl/local/workspace.sqlite, draft specs lint clean (nupp-planning #43–#46).
