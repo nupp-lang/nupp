@@ -160,7 +160,21 @@ failed_unchanged() {
 install_built() {
     built="$1/runtime"
     [ -f "$built" ] || built="$(sh "$ROOT/scripts/core-bridge" | tail -n 1)/nupp-core"
+    previous=$(cat "$CLI/current" 2>/dev/null || true)
     install_pair "$built" "$1/compiler.bundle" "$2" "$3" > /dev/null
+    prune "$(cat "$CLI/current")" "$previous"
+}
+
+# Removes every generation but `$1` and `$2`, with the chunks each kept: the
+# one selected now, and the one a command started before it may still be
+# running on.
+prune() {
+    for directory in "$CLI"/* "$CLI"/chunks/*; do
+        name=$(basename "$directory")
+        case "$name" in *[!0-9a-f]*) continue ;; esac
+        [ "${#name}" -eq 64 ] && [ "$name" != "$1" ] && [ "$name" != "$2" ] || continue
+        rm -rf "$directory"
+    done
 }
 
 # Builds these sources with the core compiler RUNTIME COMPILER and installs

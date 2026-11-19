@@ -131,6 +131,7 @@ end
 -- Run without a selected image, as a person at a terminal would, and without the
 -- background link, which would outlive the case.
 local ENV = "NUPP_VM_CLI_IMAGE= NUPP_VM_BINARY= NUPP_VM_AUTO_LINK= NUPP_VM_AUTO_REBUILD=" .. " NUPP_VM_AUTO_LINK=0"
+    .. " NUPP_RUNTIME= NUPP_CORE_AUTO_REBUILD="
 
 local function ran(dir, command, env)
     return capture(("cd '%s' && %s %s ./bin/nupp %s 2>&1"):format(dir, ENV, env or "", command))
@@ -612,7 +613,7 @@ assert base['TMPDIR'].startswith(str(root))
 print('CACHE_WRAPPER_OK')
 ]=]
     )
-    local output = capture(("cd '%s' && python3 cache-control.py 2>&1"):format(dir))
+    local output = capture(("cd '%s' && NUPP_RUNTIME= python3 cache-control.py 2>&1"):format(dir))
     assert(output:find("CACHE_WRAPPER_OK", 1, true), output)
     remove(dir)
 end
@@ -932,6 +933,11 @@ function M.anOptedInEditRebuildsByContentWithACurrentVm()
     assert(out:find("CORE cg02 check", 1, true), "the rebuilt core compiler did not run: " .. out)
     assert(builds(dir) == 1, "the VM generation that built it was not brought current first")
     assert(readFile(dir .. "/corebuilds.log"):find("corebuild vm gen1\n", 1, true), "the stale VM built it")
+    -- A third generation leaves the one before it and removes the first.
+    edit(dir)
+    assert(ran(dir, "check", "NUPP_RUNTIME=core"):find("CORE cg03 check", 1, true))
+    local generations = capture(("ls '%s/.nupp/core-cli' | grep -c '^[0-9a-f]\\{64\\}$'"):format(dir))
+    assert(generations == "2\n", "the core compiler generations were not pruned: " .. generations)
     remove(dir)
 end
 
