@@ -930,7 +930,25 @@ function project.test(root: string?, args: {string}?, opts: project.TestOptions?
     end
     local test = manifest.testConfig(config)
     local produced: {[string]: any} = {}
-    if project.build(root, {
+    local testTarget = targetConfig(config, test.build)
+    -- A binary on the compiler's own stub is a VM program, which the native
+    -- core neither builds nor runs. There the compiler is its own test runner,
+    -- as it is on the VM: the carried runner runs the suites from source, and a
+    -- test command that ran the binary runs that runner instead.
+    local coreRunner = rawget(_G, "__nupp_load_image") == nil
+        and testTarget ~= nil
+        and testTarget.kind == "binary"
+        and testTarget.stub == "nupp"
+    if coreRunner then
+        local configured = manifest.testArgv(test)
+        if configured[1] == (testTarget as any).output then
+            local runnerArgv: {string} = {"nupp", "test", "--internal-runner"}
+            for index = 2, #configured do
+                runnerArgv[#runnerArgv + 1] = configured[index]
+            end
+            test = {argv = runnerArgv, env = test.env, build = test.build} as manifest.Test
+        end
+    elseif project.build(root, {
         target = test.build,
         testBuild = true,
         outDir = asked.outDir,
