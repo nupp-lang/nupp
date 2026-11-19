@@ -67,6 +67,7 @@ export function normalize(call: any): {any}?
                 kind = "dotIndex",
                 obj = source,
                 name = name,
+                pluckedField = true,
                 inferredType = pack and pack.head and pack.head[index] or nil,
                 name
             }
@@ -77,4 +78,127 @@ export function normalize(call: any): {any}?
     args.sourceExprs, args.exprs, args.coreNamed, args.coreSkipped = args.exprs, exprs, true, made
 
     return made
+end
+
+-- Bind shared dotted prefixes before reading their leaf fields. Ordinary
+-- arguments before a prefix still run before it, and the leaves run in the
+-- checker's parameter order. Hold each staged value across later calls.
+export function stagePlucks(ctx: any, nodes: any, kinds: any): (any, boolean)
+    local last = 0
+    for index in ipairs(kinds) do
+        local node = nodes[index]
+        if node.pluckedField and node.obj.kind == "dotIndex" then
+            last = index
+        end
+    end
+    if last == 0 then
+        return nil, false
+    end
+
+    local held, paths, early, bases = {}, {}, {}, {}
+
+    local function save(value: integer?): any
+        if value == nil then
+            return nil
+        end
+        local handle = ctx.hold(value)
+        held[#held + 1] = handle
+
+        return handle
+    end
+
+    local function release(): nil
+        for index = #held, 1, -1 do
+            ctx.release(held[index])
+        end
+    end
+
+    local function readField(node: any, base: any, kind: string): integer?
+        local field = {}
+        for key, value in pairs(node) do
+            field[key] = value
+        end
+        field.obj = {kind = "heldPluckSource", handle = base, inferredType = node.obj.inferredType}
+
+        return ctx.expression(field, kind)
+    end
+
+    local function bindPath(node: any): any
+        local siblings, key, parent = paths, nil, nil
+        if node.kind == "name" then
+            key = node.token.definition or node.token.text
+        elseif node.kind == "dotIndex" then
+            parent = bindPath(node.obj)
+            if parent == nil then
+                return nil
+            end
+            siblings, key = parent.fields, node.name.text
+        else
+            local source = save(ctx.expression(node, "tagged"))
+            return source ~= nil and {handle = source, fields = {}} or nil
+        end
+        local bound = siblings[key]
+        if bound == nil then
+            local value: integer? = nil
+            if parent == nil then
+                value = ctx.expression(node, "tagged")
+            else
+                value = readField(node, parent.handle, "tagged")
+            end
+            local handle = save(value)
+            if handle == nil then
+                return nil
+            end
+            bound = {handle = handle, fields = {}}
+            siblings[key] = bound
+        end
+
+        return bound
+    end
+
+    for index = 1, last do
+        local node = nodes[index]
+        if node.pluckedField then
+            if node.obj.kind == "dotIndex" then
+                local base = bindPath(node.obj)
+                if base == nil then
+                    release()
+                    return nil, true
+                end
+                bases[index] = base.handle
+            end
+        elseif node.kind ~= "nilExpr" then
+            early[index] = save(ctx.expression(node, kinds[index]))
+            if early[index] == nil then
+                release()
+                return nil, true
+            end
+        end
+    end
+
+    local operands, values = {}, {}
+    for index, kind in ipairs(kinds) do
+        local handle = early[index]
+        if handle == nil then
+            local base = bases[index]
+            local value: integer? = nil
+            if base == nil then
+                value = ctx.expression(nodes[index], kind)
+            else
+                value = readField(nodes[index], base, kind)
+            end
+            handle = save(value)
+        end
+        if handle == nil then
+            release()
+            return nil, true
+        end
+        operands[index] = handle
+    end
+    for index, handle in ipairs(operands) do
+        values[index] = ctx.readHeld(handle)
+    end
+    release()
+
+    return values, true
 end

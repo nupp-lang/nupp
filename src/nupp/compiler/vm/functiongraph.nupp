@@ -10,6 +10,7 @@ local cst = require("nupp.compiler.syntax.cst")
 local completion = require("nupp.compiler.syntax.completion")
 local cleanup = require("nupp.compiler.vm.functioncleanup")
 local construction = require("nupp.compiler.vm.construction")
+local namedarguments = require("nupp.compiler.vm.namedarguments")
 local freshOwner = cleanup.freshOwner
 
 local function need(ok: any, message: string): any
@@ -205,6 +206,10 @@ local function compileOwner(fn: any, options: any, profile: any, site: any): any
     -- Evaluate left to right, retaining every earlier operand until the last
     -- expression finishes. This helper neither selects syntax nor operations.
     ctx.operands = function(nodes: any, kinds: any): any
+        local plucked, staged = namedarguments.stagePlucks(ctx, nodes, kinds)
+        if staged then
+            return plucked
+        end
         local held, values = {}, {}
         for index, kind in ipairs(kinds) do
             local value = ctx.expression(nodes[index], kind)
@@ -327,7 +332,9 @@ local function compileOwner(fn: any, options: any, profile: any, site: any): any
     local transfer: function(any, any): nil
     local expressionBody: function(any, string?): integer?
     expressionBody = function(node: any, expected: string?): integer?
-        if node.kind == "paren" then
+        if node.kind == "heldPluckSource" then
+            return ctx.readHeld(node.handle)
+        elseif node.kind == "paren" then
             return expression(node.expr, expected)
         elseif node.kind == "name" then
             local value = bindings[node.token.definition or node.token]
