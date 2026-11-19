@@ -2110,20 +2110,24 @@ function M.windowsShellUsesArgumentVectorsForNativePipes()
         )
         environment._G = environment
         assert(setfenv(assert(loadstring(setup, "@nupp:test-runner")), environment))()
-        local pipe = environment.io.popen("printf 'worker report'", "r")
-        if native then
-            test.eq(type(received[1]), "table", "native pipes start Bash directly")
-            test.eq(received[1][1], "C:/Program Files/Git/bin/bash.exe")
-            test.eq(received[1][2], path)
-        else
-            test.eq(received[1], ('""C:/Program Files/Git/bin/bash.exe" "%s""'):format(path))
+        for _, chunk in ipairs({"@nupp:test-runner", "@nupp:test-cache"}) do
+            received, closed, path = nil, nil, nil
+            local call = assert(loadstring('return io.popen("printf \'worker report\'", "r")', chunk))
+            local pipe = assert(setfenv(call, environment))()
+            if native then
+                test.eq(type(received[1]), "table", "native pipes start Bash directly")
+                test.eq(received[1][1], "C:/Program Files/Git/bin/bash.exe")
+                test.eq(received[1][2], path)
+            else
+                test.eq(received[1], ('""C:/Program Files/Git/bin/bash.exe" "%s""'):format(path))
+            end
+            test.eq(received[2], "r")
+            test.eq(read(path), "printf 'worker report'\n")
+            test.eq(pipe:read("*a"), "worker report")
+            test.eq(pipe:close(), true)
+            test.eq(closed, true)
+            test.eq(io.open(path, "rb"), nil, "closing the pipe removes its script")
         end
-        test.eq(received[2], "r")
-        test.eq(read(path), "printf 'worker report'\n")
-        test.eq(pipe:read("*a"), "worker report")
-        test.eq(pipe:close(), true)
-        test.eq(closed, true)
-        test.eq(io.open(path, "rb"), nil, "closing the pipe removes its script")
     end
 end
 
