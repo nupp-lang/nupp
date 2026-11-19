@@ -22,6 +22,7 @@ module nupp.runtime.processes
 const processcalls = require("nupp.runtime.processcalls")
 const reactor = require("nupp.runtime.reactor")
 const files = require("nupp.runtime.files")
+const system = require("nupp.runtime.provider.coresystem")
 
 --- What becomes of one of a child's standard streams: this program's own,
 --- a pipe to this program, the null device, or (standard error only)
@@ -53,6 +54,7 @@ const STREAMTAGS: {string} = {"0", "1", "2"}
 const SEARCH = 1
 const GIVEN = 2
 const OVERLAY = 4
+const WINDOWS_SHELL = 8
 
 -- Which end of a child's pipe this program keeps (processcalls.pipe).
 const KEEPREAD = 0
@@ -70,7 +72,8 @@ const STDIN = 1
 const STDOUT = 2
 const STDERR = 3
 
-const NULLDEVICE = "/dev/null"
+const WINDOWS = system.platform == "windows"
+const NULLDEVICE = WINDOWS and "NUL" or "/dev/null"
 
 -- The bytes a read of a child's output asks for at a time.
 const CHUNK = 65536
@@ -86,6 +89,8 @@ export type Options = {
     --- Whether a program that names no directory is looked up on PATH; it
     --- is by default.
     search: boolean?,
+
+    windowsShell: boolean?,
 
     --- Environment entries, "NAME=value" each: the child's whole
     --- environment, or with `overlay` set entries over this program's own;
@@ -141,6 +146,9 @@ export function spawn(options: Options): (Process?, integer)
         parts[#parts + 1] = entry(ARGUMENT, argument)
     end
     local flags = options.search == false and 0 or SEARCH
+    if options.windowsShell then
+        flags = flags | WINDOWS_SHELL
+    end
     if options.environment ~= nil then
         flags = flags | (options.overlay == true and OVERLAY or GIVEN)
         for _, setting in ipairs(options.environment as {string}) do
@@ -233,11 +241,28 @@ export function spawn(options: Options): (Process?, integer)
     return process, 0
 end
 
+export function shellCommand(command: string): ({string}, string, boolean)
+    if WINDOWS then
+        return {"cmd.exe", "/D", "/S", "/C", '"' .. command .. '"'}, "cmd.exe", true
+    end
+
+    return {"sh", "-c", command}, SHELL, false
+end
+
 --- Starts `command` in the shell, as C's system and popen do, its standard
 --- input and output as `stdin` and `stdout` say: the process, or nil and the
 --- system's error number.
 export function shell(command: string, stdin: integer, stdout: integer): (Process?, integer)
-    return spawn({arguments = {"sh", "-c", command}, program = SHELL, search = false, stdin = stdin, stdout = stdout})
+    local arguments, program, windowsShell = shellCommand(command)
+
+    return spawn({
+        arguments = arguments,
+        program = program,
+        search = false,
+        windowsShell = windowsShell,
+        stdin = stdin,
+        stdout = stdout
+    })
 end
 
 -- How `process` ended, from its exit's completion: kept on the process, so

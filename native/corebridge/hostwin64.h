@@ -249,6 +249,8 @@ static void *find_linked_crt (const char *name) {
     return (void *)(uintptr_t)function;                                        \
   }
   LINKED_CRT(calloc)
+  LINKED_CRT(exit)
+  LINKED_CRT(getenv)
   LINKED_CRT(free)
   LINKED_CRT(getenv)
   LINKED_CRT(malloc)
@@ -307,6 +309,11 @@ static void *find_symbol (void *library, const char *name) {
         {"nupp_process_unwatch", (void (*)(void))nupp_process_unwatch},
         {"nupp_process_reap", (void (*)(void))nupp_process_reap},
         {"nupp_process_kill", (void (*)(void))nupp_process_kill},
+        {"nupp_process_environ", (void (*)(void))nupp_process_environ},
+        {"nupp_process_envsame", (void (*)(void))nupp_process_envsame},
+        {"nupp_process_signal", (void (*)(void))nupp_process_signal},
+        {"nupp_process_cpus", (void (*)(void))nupp_process_cpus},
+        {"nupp_process_systemname", (void (*)(void))nupp_process_systemname},
         {"nupp_uv_nowait", (void (*)(void))nupp_uv_nowait},
         {"nupp_uv_shutdown", (void (*)(void))nupp_uv_shutdown},
 #endif

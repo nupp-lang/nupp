@@ -10,6 +10,7 @@
 #include <uv.h>
 #include <assert.h>
 #include <errno.h>
+#include <fcntl.h>
 #include <io.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -206,6 +207,50 @@ static void transferpipes (char *path, uint64_t poller) {
   assert(exit == 256);
 }
 
+static void shell (uint64_t poller) {
+  int64_t pair = nupp_process_pipe(0, 0);
+  assert(pair > 0);
+  int reader = (int)(uint32_t)pair, writer = (int)((uint64_t)pair >> 32);
+  int null = _wopen(L"NUL", _O_RDWR | _O_BINARY);
+  assert(null >= 0);
+  char *args[] = {"cmd.exe", "/D", "/S", "/C", "\"echo \"a & b\" & exit /b 7\"",
+                  NULL};
+  int64_t child = nupp_process_spawn(args[0], args, NULL, NULL, null, writer,
+                                     null, NUPP_PROCESS_WINDOWS_SHELL);
+  assert(child > 0);
+  assert(_close(null) == 0 && _close(writer) == 0);
+  uint64_t id = (uint64_t)child >> 32;
+  assert(nupp_process_watch(poller, id) == 0 && waitexit(poller, id) == 263);
+  const char expected[] = "\"a & b\" \r\n";
+  char bytes[sizeof(expected)];
+  int count = _read(reader, bytes, sizeof(bytes));
+  assert(count >= 0 && (size_t)count == strlen(expected));
+  assert(memcmp(bytes, expected, (size_t)count) == 0);
+  assert(_read(reader, bytes, 1) == 0 && _close(reader) == 0);
+}
+
+static void environment (void) {
+  assert(SetEnvironmentVariableW(L"NUPP_PIPE_PROOF", L"caf\x00e9"));
+  char **entries = nupp_process_environ();
+  assert(entries);
+  int found = 0;
+
+  for (char **at = entries; *at; at++) {
+    if (!strcmp(*at, "NUPP_PIPE_PROOF=caf\xc3\xa9")) {
+      found = 1;
+    }
+  }
+
+  free(entries);
+  assert(found && SetEnvironmentVariableW(L"NUPP_PIPE_PROOF", NULL));
+  assert(nupp_process_envsame("PATH", 4, "Path", 4));
+  assert(nupp_process_envsame("\xc3\x89", 2, "\xc3\xa9", 2));
+  assert(!nupp_process_envsame("PATH", 4, "TEMP", 4));
+  assert(!strcmp(nupp_process_systemname(0), "windows"));
+  assert(!strcmp(nupp_process_systemname(1), "x86_64"));
+  assert(nupp_process_cpus() > 0);
+}
+
 int main (int argc, char **argv) {
   if (argc == 2) {
     if (!strcmp(argv[1], "--echo")) {
@@ -230,7 +275,9 @@ int main (int argc, char **argv) {
 
   int64_t poller = nupp_uv_open(-1), discarded = nupp_uv_open(-1);
   assert(poller > 0 && discarded > 0);
+  environment();
   transferpipes(path, (uint64_t)poller);
+  shell((uint64_t)poller);
   char *missing[] = {"no-such-nupp-process.exe", NULL};
   assert(nupp_process_spawn(missing[0], missing, NULL, NULL, -1, -1, -1, 0) ==
          -ENOENT);

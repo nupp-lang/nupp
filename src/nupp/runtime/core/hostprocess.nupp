@@ -15,7 +15,7 @@ cdef function nupp_process_spawn(
     input: int64,
     output: int64,
     errors: int64,
-    search: uint64
+    mode: uint64
 ): int64
 cdef function nupp_process_pipe(readNonblock: uint64, writeNonblock: uint64): int64
 cdef function nupp_process_watch(poller: uint64, child: uint64): int64
@@ -24,12 +24,18 @@ cdef function nupp_process_reap(child: uint64): int64
 cdef function nupp_process_kill(child: uint64, signal: uint64): int64
 cdef function nupp_uv_nowait(): int64
 cdef function nupp_uv_shutdown(): int64
-cdef function kill(pid: int64, signal: int64): int32
+cdef function nupp_process_signal(pid: int64, signal: int64): int32
 cdef function exit(code: int64)
-cdef function _NSGetEnviron(): voidptr
-cdef function memcmp(borrows left: voidptr, borrows right: voidptr, count: uint64): int32
+cdef function nupp_process_environ(): voidptr
+cdef function nupp_process_envsame(
+    borrows left: voidptr,
+    leftSize: uint64,
+    borrows right: voidptr,
+    rightSize: uint64
+): int32
 cdef function getenv(borrows name: voidptr): voidptr
-cdef function sysconf(name: int64): int64
+cdef function nupp_process_cpus(): uint64
+cdef function nupp_process_systemname(field: uint64): voidptr
 cdef function strlen(borrows text: voidptr): uint64
 cdef function memchr(borrows text: voidptr, byte: int64, count: uint64): voidptr
 cdef function memcpy(borrows target: voidptr, borrows source: voidptr, count: uint64): voidptr
@@ -41,6 +47,7 @@ cdef function free(borrows block: voidptr)
 const PROGRAM: int64 = 120
 -- What environment answers for a variable that is not set, negated.
 const UNSET: int64 = 1
+const OUT_OF_MEMORY: int64 = 12
 const ARGUMENT: int64 = 97
 const ENVIRONMENT: int64 = 101
 const DIRECTORY: int64 = 100
@@ -55,6 +62,7 @@ const EQUALS: int64 = 61
 const SEARCH: uint64 = 1ULL
 const ENVIRONMENT_GIVEN: uint64 = 2ULL
 const ENVIRONMENT_OVERLAY: uint64 = 4ULL
+const WINDOWS_SHELL: uint64 = 8ULL
 
 const INT_LIMIT: uint64 = 0x7fffffffULL
 const WORD: uint64 = 8ULL
@@ -114,11 +122,8 @@ local function overridden(entry: voidptr, given: voidptr, count: uint64): boolea
         local index: uint64 = 0ULL
         while index < count do
             local other = native.loadPointer(given, native.index(index * WORD))
-            if nameLength(other) == length then
-                local same: int64 = memcmp(entry, other, length)
-                if same == 0 then
-                    return true
-                end
+            if nupp_process_envsame(entry, length, other, nameLength(other)) ~= 0 then
+                return true
             end
             index = index + 1ULL
         end
@@ -180,15 +185,25 @@ export function spawn(h: heap.Heap*, spec: uint64, flags: uint64): int64
         return 0 - c.EINVAL
     end
     @unsafe do
-        local inherited = native.loadPointer(_NSGetEnviron(), 0)
+        local inheritedAddress: uint64 = 0ULL
+        if (flags & ENVIRONMENT_OVERLAY) ~= 0ULL then
+            inheritedAddress = native.address(nupp_process_environ())
+            if inheritedAddress == 0ULL then
+                return 0 - OUT_OF_MEMORY
+            end
+        end
+        const inherited = native.pointer(inheritedAddress)
         local inheritedCount: uint64 = 0ULL
-        while native.address(native.loadPointer(inherited, native.index(inheritedCount * WORD))) ~= 0ULL do
-            inheritedCount = inheritedCount + 1ULL
+        if inheritedAddress ~= 0ULL then
+            while native.address(native.loadPointer(inherited, native.index(inheritedCount * WORD))) ~= 0ULL do
+                inheritedCount = inheritedCount + 1ULL
+            end
         end
         local givenAt = (arguments + 1ULL) * WORD
         local mergedAt = givenAt + (environment + 1ULL) * WORD
         local lifetime = strings.open(h, state as strings.Builder*)
         if strings.reserve(h, lifetime, mergedAt + (inheritedCount + environment + 1ULL) * WORD) ~= 0ULL then
+            free(inherited)
             error("not enough memory")
         end
         local space = native.pointer(strings.descriptor(lifetime).base)
@@ -232,7 +247,7 @@ export function spawn(h: heap.Heap*, spec: uint64, flags: uint64): int64
             )
             index = index + 1ULL
         end
-        local environ = native.address(inherited)
+        local environ = 0ULL
         if (flags & ENVIRONMENT_OVERLAY) ~= 0ULL then
             environ = native.address(merged)
         elseif (flags & ENVIRONMENT_GIVEN) ~= 0ULL then
@@ -251,8 +266,9 @@ export function spawn(h: heap.Heap*, spec: uint64, flags: uint64): int64
             input,
             output,
             errors,
-            flags & SEARCH
+            flags & (SEARCH | WINDOWS_SHELL)
         )
+        free(inherited)
         if child < 0 then
             -- A failed uv_spawn still owns a native close callback. Repeated
             -- failures may otherwise make no loop turn between attempts.
@@ -302,12 +318,7 @@ export function signal(pid: uint64, number: uint64): int64
     if pid == 0ULL or pid > INT_LIMIT or number > INT_LIMIT then
         return 0 - c.EINVAL
     end
-    local status: int64 = kill(native.index(pid), native.index(number))
-    if status ~= 0 then
-        return c.failure()
-    end
-
-    return 0
+    return nupp_process_signal(native.index(pid), native.index(number))
 end
 
 -- Ends the process with exit code `code`.
@@ -347,27 +358,12 @@ export function environment(name: voidptr, nameBytes: uint64, out: voidptr, room
     end
 end
 
--- systemquery's fields: the platform's, architecture's and byte order's
--- names, each with its text as the little-endian word it is and its length
--- (the core targets aarch64-apple-darwin), then the pointer width and
--- usable parallelism; and its refusal.
-const PLATFORM: uint64 = 0ULL
-const PLATFORM_TEXT: uint64 = 0x736f63616dULL
-const PLATFORM_BYTES: uint64 = 5ULL
-const ARCHITECTURE: uint64 = 1ULL
-const ARCHITECTURE_TEXT: uint64 = 0x34366863726161ULL
-const ARCHITECTURE_BYTES: uint64 = 7ULL
+-- The text fields precede the pointer width and usable parallelism.
 const ENDIANNESS: uint64 = 2ULL
-const ENDIANNESS_TEXT: uint64 = 0x656c7474696cULL
-const ENDIANNESS_BYTES: uint64 = 6ULL
 const PARALLELISM: uint64 = 4ULL
 const POINTER_BITS: uint64 = 3ULL
 const INVALID_QUERY: int64 = 22
 const WORD_BITS: int64 = 64
-const BYTE_BITS: uint64 = 8ULL
-const BYTE: uint64 = 0xffULL
--- sysconf's _SC_NPROCESSORS_ONLN on macOS.
-const ONLINE_PROCESSORS: int64 = 58
 
 -- Facts about the executing core: text fields size with a zero range, then
 -- fill an exact range; the scalar ones take only a zero range. A query that
@@ -381,32 +377,24 @@ export function systemquery(field: uint64, base: voidptr, room: uint64): int64
             elseif field == POINTER_BITS then
                 return WORD_BITS
             end
-            local online = sysconf(ONLINE_PROCESSORS)
-            if online < 1 then
+            local online: uint64 = nupp_process_cpus()
+            if online == 0ULL then
                 return 1
             end
-            return online
+            return native.index(online)
         end
-        local text = PLATFORM_TEXT
-        local length = PLATFORM_BYTES
-        if field == ARCHITECTURE then
-            text, length = ARCHITECTURE_TEXT, ARCHITECTURE_BYTES
-        elseif field == ENDIANNESS then
-            text, length = ENDIANNESS_TEXT, ENDIANNESS_BYTES
-        elseif field ~= PLATFORM then
+        if field > ENDIANNESS then
             return 0 - INVALID_QUERY
         end
+        local text = nupp_process_systemname(field)
+        local length = strlen(text)
         if empty then
             return native.index(length)
-        elseif native.address(base) == 0ULL or room < length then
+        end
+        if native.address(base) == 0ULL or room < length then
             return 0 - INVALID_QUERY
         end
-        -- Exactly its bytes: the range may end with them.
-        local index: uint64 = 0ULL
-        while index < length do
-            native.store8(base, native.index(index), (text >> (index * BYTE_BITS)) & BYTE)
-            index = index + 1ULL
-        end
+        local _ = memcpy(base, text, length)
 
         return native.index(length)
     end

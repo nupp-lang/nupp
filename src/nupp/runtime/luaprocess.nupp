@@ -358,9 +358,9 @@ local function launch(command: any, options: any): processes.Options
     local arguments: {string} = {}
     local program: string? = nil
     local search = true
+    local windowsShell = false
     if type(command) == "string" then
-        arguments = {"sh", "-c", command as string}
-        program = processes.SHELL
+        arguments, program, windowsShell = processes.shellCommand(command as string)
         search = false
     elseif type(command) == "table" then
         for index, argument in ipairs(command as {any}) do
@@ -388,6 +388,7 @@ local function launch(command: any, options: any): processes.Options
         arguments = arguments,
         program = program,
         search = search,
+        windowsShell = windowsShell,
         environment = environment,
         overlay = given.clearenv ~= true,
         directory = given.cwd ~= nil and tostring(given.cwd) or nil,

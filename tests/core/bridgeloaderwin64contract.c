@@ -164,6 +164,11 @@ static void startup_pipes (void *self) {
       (int64_t (*)(int64_t, const void *, uint64_t))find_symbol(self, "write");
   int (*close)(int64_t) = (int (*)(int64_t))find_symbol(self, "close");
   assert(pipe && read && write && close);
+  assert(find_symbol(self, "nupp_process_environ"));
+  assert(find_symbol(self, "nupp_process_envsame"));
+  assert(find_symbol(self, "nupp_process_cpus"));
+  assert(find_symbol(self, "nupp_process_systemname"));
+  assert(find_symbol(self, "nupp_process_signal"));
 #ifndef NUPP_CORE_NET
   int64_t (*net)(void *, uint64_t, uint64_t, void *, uint64_t, uint64_t) =
       (int64_t (*)(void *, uint64_t, uint64_t, void *, uint64_t,

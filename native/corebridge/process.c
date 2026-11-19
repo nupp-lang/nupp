@@ -301,6 +301,135 @@ static int64_t start (uv_loop_t *loop, uv_process_options_t *options) {
   return (int64_t)((child->id << 32) | (uint32_t)child->handle.pid);
 }
 
+char **nupp_process_environ (void) {
+  uv_env_item_t *items;
+  int count;
+
+  if (uv_os_environ(&items, &count) < 0) {
+    return NULL;
+  }
+
+  size_t size = ((size_t)count + 1) * sizeof(char *);
+
+  for (int i = 0; i < count; i++) {
+    size_t name = strlen(items[i].name), value = strlen(items[i].value);
+
+    if (size > SIZE_MAX - 2 || name > SIZE_MAX - size - 2 ||
+        value > SIZE_MAX - size - 2 - name) {
+      uv_os_free_environ(items, count);
+
+      return NULL;
+    }
+
+    size += name + value + 2;
+  }
+
+  char **vector = malloc(size);
+
+  if (vector) {
+    char *bytes = (char *)(vector + count + 1);
+
+    for (int i = 0; i < count; i++) {
+      size_t name = strlen(items[i].name), value = strlen(items[i].value);
+      vector[i] = bytes;
+      memcpy(bytes, items[i].name, name);
+      bytes[name] = '=';
+      memcpy(bytes + name + 1, items[i].value, value + 1);
+      bytes += name + value + 2;
+    }
+
+    vector[count] = NULL;
+  }
+
+  uv_os_free_environ(items, count);
+
+  return vector;
+}
+
+int nupp_process_envsame (const char *left, size_t leftsize, const char *right,
+                          size_t rightsize) {
+#ifdef _WIN32
+
+  if (!leftsize || !rightsize || leftsize > INT_MAX || rightsize > INT_MAX) {
+    return leftsize == rightsize && !leftsize;
+  }
+
+  int a = MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS, left,
+                              (int)leftsize, NULL, 0);
+  int b = MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS, right,
+                              (int)rightsize, NULL, 0);
+
+  if (!a || !b) {
+    return 0;
+  }
+
+  wchar_t *wide = malloc(((size_t)a + (size_t)b) * sizeof(*wide));
+
+  if (!wide) {
+    return 0;
+  }
+
+  int same = MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS, left,
+                                 (int)leftsize, wide, a) == a &&
+             MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS, right,
+                                 (int)rightsize, wide + a, b) == b &&
+             CompareStringOrdinal(wide, a, wide + a, b, TRUE) == CSTR_EQUAL;
+  free(wide);
+
+  return same;
+#else
+
+  return leftsize == rightsize && memcmp(left, right, leftsize) == 0;
+#endif
+}
+
+int nupp_process_signal (int64_t pid, int64_t signal) {
+  if (pid <= 0 || pid > INT_MAX || signal < 0 || signal > INT_MAX) {
+    return -EINVAL;
+  }
+
+  int status = uv_kill((int)pid, (int)signal);
+#ifdef _WIN32
+
+  return status < 0 ? winerror(status) : status;
+#else
+
+  return status;
+#endif
+}
+
+uint64_t nupp_process_cpus (void) {
+  return uv_available_parallelism();
+}
+
+const char *nupp_process_systemname (uint64_t field) {
+  switch (field) {
+    case 0:
+#ifdef _WIN32
+
+      return "windows";
+#elif defined(__APPLE__)
+
+      return "macos";
+#else
+
+      return "linux";
+#endif
+    case 1:
+#if defined(__aarch64__) || defined(__arm64__) || defined(_M_ARM64)
+
+      return "aarch64";
+#else
+
+      return "x86_64";
+#endif
+    case 2:
+      return "little";
+    default:
+      return NULL;
+  }
+}
+
 #ifndef _WIN32
 static const char *path_of (char **env) {
   for (; env && *env; ++env) {
@@ -379,9 +508,38 @@ static int64_t spawn_path (uv_loop_t *loop, uv_process_options_t *options,
 }
 #endif
 
+#ifdef _WIN32
+static int64_t start_shell (uv_loop_t *loop, uv_process_options_t *options) {
+  /* cmd parses the text after /C itself. The final scripted argument already
+   * carries the outer quotes /S strips, so CRT argument escaping would alter
+   * it. */
+  wchar_t directory[MAX_PATH];
+  UINT length = GetSystemDirectoryW(directory, MAX_PATH);
+
+  if (!length || length >= MAX_PATH) {
+    return -ENOENT;
+  }
+
+  char path[4 * MAX_PATH + sizeof("\\cmd.exe")];
+  int count =
+      WideCharToMultiByte(CP_UTF8, WC_ERR_INVALID_CHARS, directory, -1, path,
+                          sizeof(path) - sizeof("\\cmd.exe"), NULL, NULL);
+
+  if (!count) {
+    return -ENOENT;
+  }
+
+  memcpy(path + count - 1, "\\cmd.exe", sizeof("\\cmd.exe"));
+  options->file = path;
+  options->flags |= UV_PROCESS_WINDOWS_VERBATIM_ARGUMENTS;
+
+  return start(loop, options);
+}
+#endif
+
 int64_t nupp_process_spawn (const char *file, char **args, char **env,
                             const char *cwd, int64_t input, int64_t output,
-                            int64_t error, uint64_t search) {
+                            int64_t error, uint64_t mode) {
   if (!file || !args || !args[0] || input < -1 || output < -1 || error < -1 ||
       input > INT_MAX || output > INT_MAX || error > INT_MAX) {
     return -EINVAL;
@@ -426,7 +584,11 @@ int64_t nupp_process_spawn (const char *file, char **args, char **env,
 
 #ifdef _WIN32
 
-  if (search || strchr(file, '/') || strchr(file, '\\') ||
+  if (mode & NUPP_PROCESS_WINDOWS_SHELL) {
+    return start_shell(loop, &options);
+  }
+
+  if ((mode & NUPP_PROCESS_SEARCH) || strchr(file, '/') || strchr(file, '\\') ||
       (file[0] && file[1] == ':')) {
     return start(loop, &options);
   }
@@ -450,7 +612,7 @@ int64_t nupp_process_spawn (const char *file, char **args, char **env,
     return start(loop, &options);
   }
 
-  if (!search) {
+  if (!(mode & NUPP_PROCESS_SEARCH)) {
     return spawn_path(loop, &options, NULL);
   }
 

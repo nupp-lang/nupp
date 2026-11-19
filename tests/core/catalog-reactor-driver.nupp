@@ -60,8 +60,6 @@ local function park(): reactor.Completion
     return suspend() as reactor.Completion
 end
 
-reactor.install(reactor.Parker(waker = waker, park = park))
-
 --- Starts `body` as a task, which runs when `run` next turns: its handle.
 export function spawn(body: function(): nil): integer
     lasttask = lasttask + 1
@@ -100,6 +98,8 @@ end
 --- Runs tasks until none can run, no timer is set and nothing is pending
 --- in the reactor. A task's error is raised here.
 export function run(): nil
+    reactor.install(reactor.Parker(waker = waker, park = park))
+
     while true do
         while #ready > 0 do
             local entry = table.remove(ready, 1)

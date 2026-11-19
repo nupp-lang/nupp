@@ -7,12 +7,31 @@
 #define NUPP_CORE_PROCESS_H
 
 #include <stdint.h>
+#include <stddef.h>
+
+/** Takes an owned UTF-8 name=value vector. The caller frees it with free. */
+char **nupp_process_environ (void);
+
+/** Compares counted variable names using the host's environment rules. */
+int nupp_process_envsame (const char *left, size_t leftsize, const char *right,
+                          size_t rightsize);
+
+/** Signals a single native pid and reports negated errno on failure. */
+int nupp_process_signal (int64_t pid, int64_t signal);
+
+/** Counts processors available to the current process. */
+uint64_t nupp_process_cpus (void);
+
+/** Returns the native platform, architecture or byte order for fields 0–2. */
+const char *nupp_process_systemname (uint64_t field);
 
 /** Owner-thread calls. Spawn borrows strings and fds only for the call. The
  * positive result has the watch identity above bit 31 and the OS pid below. */
+enum { NUPP_PROCESS_SEARCH = 1, NUPP_PROCESS_WINDOWS_SHELL = 8 };
+
 int64_t nupp_process_spawn (const char *file, char **args, char **env,
                             const char *cwd, int64_t input, int64_t output,
-                            int64_t error, uint64_t search);
+                            int64_t error, uint64_t mode);
 
 /** Opens a pipe. Packs the read fd below the write fd in the result. */
 int64_t nupp_process_pipe (uint64_t read_nonblock, uint64_t write_nonblock);
