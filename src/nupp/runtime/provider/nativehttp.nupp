@@ -858,7 +858,7 @@ record http.Client is BodyClient, contracts.Client
             -- nothing settled, so an event between the drain and the sleep still wakes
             -- it.
             transport.snapshot()
-            if self._native:poll() == 0 then
+            if self._native:poll() == 0 and waitMs > 0 then
                 transport.sleep(waitMs)
                 self._native:poll()
             end
