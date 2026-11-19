@@ -1243,7 +1243,7 @@ end
 -- or of any name through `_G`. The core looks it up among the image's.
 export function dynamicRequire(call: any): boolean
     local obj = call and call.kind == "call" and call.obj
-    if not obj or call.typeOnlyRequire then
+    if not obj or call.typeOnlyRequire or call.environmentRequire then
         return false
     end
     if call.runtimeLoader == "require" then
