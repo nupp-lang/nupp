@@ -13,6 +13,8 @@ module nupp.compiler.vm.taggedforeign
 const taggedvalues = require("nupp.compiler.vm.taggedvalues")
 const taggedstructs = require("nupp.compiler.vm.taggedstructs")
 const nativeos = require("nupp.compiler.vm.nativeos")
+const libraries = require("nupp.compiler.project.libraries")
+const layouts = require("nupp.compiler.targetlayout")
 const need = taggedvalues.need
 
 -- The letter of each C kind, as the core reads it.
@@ -37,6 +39,23 @@ const VOID = "v"
 const VARIADIC = "."
 -- The library a `cdef function` without `from` names.
 const DEFAULT_LIBRARY = "<default>"
+
+-- The platform loader takes filenames. A bare logical name such as `z`
+-- uses the host's shared-library naming convention.
+local function libraryFile(library: string): string
+    if library == DEFAULT_LIBRARY or library == "" then
+        return ""
+    end
+    if library:sub(1, 1) == "@" or library:find("[./\\\\]") then
+        return library
+    end
+    local target = layouts.hostKey()
+    if target == nil or not target:find("windows", 1, true) then
+        library = library:gsub("^lib", "")
+    end
+
+    return libraries.filename(library, target)
+end
 
 -- The letter of a foreign argument's or result's kind: a literal or a
 -- constant is its base type's, and a pointer that may be NULL (`T*?`) the
@@ -90,5 +109,5 @@ export function descriptor(node: any, signature: any): string
         end
     end
 
-    return table.concat(codes) .. "\0" .. (library == DEFAULT_LIBRARY and "" or library) .. "\0" .. symbol
+    return table.concat(codes) .. "\0" .. libraryFile(library as string) .. "\0" .. symbol
 end
