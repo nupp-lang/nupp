@@ -17,6 +17,7 @@ local guestbuild = require("nupp.core.guestbuild")
 local auditshim = require("nupp.core.guestauditshim")
 local writer = require("nupp.core.guestartifact")
 local linker = require("nupp.core.link")
+local sharedcache = require("nupp.core.sharedcache")
 local json = require("serde.json")
 -- Selections per mode for this process's shared guest unit, and whether the
 -- proof-rejection checks already ran in it.
@@ -417,14 +418,18 @@ end
 --- `capacity` bytes of scratch: the guest's runtime and program, selected,
 --- linked and encoded as `selectUnits` does, written without its published
 --- hex. A case that loads binary chunks has none to load beside a bundle, and
---- is refused.
+--- is refused. On the core, the runtime's kernels come from the shared store
+--- where their keys hold (`nupp.core.kernelcompiler`), as the guest runner's
+--- do; the VM selects them afresh.
 export function bundle(caseName: string, capacity: integer): string
     assert(capacity == 65536 or capacity == 131072 or capacity == 1048576, "explicit guest scratch capacity")
-    local source = guestbuild.guest(caseName, "normal", nil, false)
+    local kernels = rawget(_G, "__nupp_load_image") == nil and sharedcache.directory("kernels") or nil
+    local source = guestbuild.guest(caseName, "normal", kernels, false)
     assert(#source.chunks == 0, "a bundle carries no binary chunks: " .. caseName)
     local output = shim.build(source, source.selected, capacity)
     local packed = writer.encode(source.executable, source.scopes, output.dispatch, #output.words * 4, source.raises)
     local code = wordBytes(output.words)
+    guestbuild.memory("bundle")
 
     return table.concat({
         BUNDLE_MAGIC,

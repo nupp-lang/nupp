@@ -119,6 +119,19 @@ local function buildextras(): {string}
     return list
 end
 
+-- NUPP_GUEST_MEMORY=1 says how much the heap holds after each phase of a
+-- build, collected first: what a phase leaves live is what the next one
+-- starts on.
+local measuring = os.getenv("NUPP_GUEST_MEMORY") == "1"
+
+--- Reports on stderr the live heap after `phase`, when asked to.
+export function memory(phase: string): nil
+    if measuring then
+        collectgarbage("collect")
+        io.stderr:write(("guest memory %s %d MB\n"):format(phase, math.floor(collectgarbage("count") / 1024)))
+    end
+end
+
 -- Each case's fixture and graph profile version.
 local CASES: {[string]: {
     fixture: string,
@@ -640,6 +653,7 @@ local function runtime(mode: string, cacheDirectory: string?, audited: boolean):
     sessions[kind] = sessions[kind] or service.buildUnits(fixtures, roots, handlers)
     local units = sessions[kind]
     io.stderr:write(("guest runtime session %ds\n"):format(os.time() - began))
+    memory("runtime session")
     local phases = {}
     local started = os.clock()
     local chosen = runner.select(
@@ -698,6 +712,7 @@ local function runtime(mode: string, cacheDirectory: string?, audited: boolean):
         raises = chosen.raises
     }
     runtimes[kind .. ":" .. mode] = held
+    memory("runtime selection")
 
     return held
 end
@@ -1028,6 +1043,8 @@ local sharedProject: any = nil
 local packagedLibraries = false
 -- The project's native library bindings, when they are packaged.
 local packagedBindings: any = nil
+-- Whether this process builds one program (`singleProgram`).
+local single = false
 
 local function checkedProject(root: string): any
     if sharedProject == nil then
@@ -1079,6 +1096,13 @@ end
 export function packageLibraries(): nil
     assert(sharedProject == nil, "native libraries are packaged before the first guest build")
     packagedLibraries = true
+end
+
+--- Says this process builds one program: once it is compiled, the project it
+--- was checked in is let go before the runtime is selected, so the checked
+--- program and the runtime's session are never live together.
+export function singleProgram(): nil
+    single = true
 end
 
 --- The native libraries `bundle` loads relative to itself, by the path under
@@ -1431,12 +1455,26 @@ end
 -- module's from `store` under its key in `keys` when it holds one (unless
 -- `fresh`), the rest compiled and kept. A kept piece that is not this module's
 -- is a miss. Nil when a stub (nupp.compiler.vm.stubmodules) has no kept piece.
+-- A compiled module is finished and kept as soon as the modules it reads
+-- allow (`corepiece.ready`), so its lowering is not held while the rest of
+-- the program starts.
 local function piecesOf(catalog: any, profile: any, store: any, keys: {string?}, fresh: boolean): ({any}?, integer)
     local began = os.clock()
     local state = corepiece.program(catalog, profile)
     local pieces: {any} = {}
     local reused: integer = 0
     local stored: number = 0.0
+    local waiting: {integer} = {}
+
+    local function finished(index: integer, piece: any): nil
+        pieces[index] = piece
+        if keys[index] ~= nil then
+            local keeping = os.clock()
+            store.keep(keys[index], piece)
+            stored += os.clock() - keeping
+        end
+    end
+
     for index in ipairs(catalog.modules) do
         local looked = os.clock()
         local kept = not fresh and keys[index] ~= nil and store.lookup(keys[index]) or nil
@@ -1448,17 +1486,12 @@ local function piecesOf(catalog: any, profile: any, store: any, keys: {string?},
             return nil, reused
         else
             corepiece.start(state, index)
+            waiting[#waiting + 1] = index
         end
+        waiting = corepiece.finishReady(state, waiting, finished)
     end
-    for index in ipairs(catalog.modules) do
-        if pieces[index] == nil then
-            pieces[index] = corepiece.finish(state, index)
-            if keys[index] ~= nil then
-                local keeping = os.clock()
-                store.keep(keys[index], pieces[index])
-                stored += os.clock() - keeping
-            end
-        end
+    for _, index in ipairs(waiting) do
+        finished(index, corepiece.finish(state, index))
     end
     if store then
         store.close()
@@ -1478,6 +1511,7 @@ local function compileProgram(caseName: string, fixture: string, version: intege
     local catalog = programCatalog(caseName, fixture, version, fresh)
     local described = os.clock()
     timings["compile catalog"] = (timings["compile catalog"] or 0) + described - began
+    memory("catalog")
     local profile = profileFor(version)
     if version ~= corepiece.VERSION then
         return executable.fromChecked(programgraph.compile(catalog, profile), version)
@@ -1493,7 +1527,12 @@ local function compileProgram(caseName: string, fixture: string, version: intege
         io.stderr:write("guest pieces: checking ", caseName, " afresh\n")
         return compileProgram(caseName, fixture, version, true)
     end
-    io.stderr:write(("guest pieces: %s reused %d of %d\n"):format(caseName, reused, #pieces))
+    io.stderr:write(
+        (
+            "guest pieces: %s reused %d of %d, %ds after %ds checking\n"
+        ):format(caseName, reused, #pieces, math.floor(os.clock() - described), math.floor(described - began))
+    )
+    memory("pieces")
     local built = os.clock()
     local entry = catalog.modules[#catalog.modules].name
     local ok, result = pcall(corelink.link, pieces, entry)
@@ -1512,6 +1551,7 @@ local function compileProgram(caseName: string, fixture: string, version: intege
     end
     local linked = result
     timings["compile link"] = (timings["compile link"] or 0) + os.clock() - built
+    memory("link")
     if store then
         local recording = os.clock()
         keptcatalog.remember(assert(os.getenv("NUPP_COMPILER_ROOT")), caseName, version, catalog, store, keys)
@@ -1679,6 +1719,10 @@ export function guest(caseName: string, mode: string, cacheDirectory: string?, a
     if cached == nil then
         cached = compileProgram(caseName, case.fixture, case.version)
         programs[key] = cached
+        if single then
+            sharedProject = nil
+            memory("program")
+        end
     end
     -- Its chunks compile before the runtime's selection, as its program
     -- does: a chunk checked after the runtime's session is refused.
