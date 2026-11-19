@@ -355,11 +355,18 @@ jobs:
   # it, and each used to rebuild it for itself: on a compiler change that was
   # the same six minutes of lowering in every job at once. This job is the one
   # that pays; the rest restore what it saves (`.github/actions/prepare`).
+  #
+  # Every Linux job that runs the compiler runs on ARM64. The native core that
+  # replaces the Rust VM encodes ARM64 and nothing else yet, so the Linux legs
+  # moved while the VM still ran there, and the flip is a runtime switch rather
+  # than a new runner and a new runtime at once. Linux x64 users stay on the
+  # last release before the flip until an x86 encoder exists. The classifier
+  # and `required-ci`, which run no compiler, stay where they were.
   build-linux:
-    name: Build the compiler / Linux x64
+    name: Build the compiler / Linux arm64
     needs: classify
     if: needs.classify.outputs.build-linux == 'true'
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-24.04-arm
     # A cold start lowers the compiler twice from the pinned stage zero.
     timeout-minutes: 75
     steps:
@@ -408,10 +415,10 @@ jobs:
   # only the compiler -- the fast checks, the documentation, the fixpoint --
   # does not wait for it.
   runner-linux:
-    name: Build the test runner / Linux x64
+    name: Build the test runner / Linux arm64
     needs: [classify, build-linux]
     if: needs.classify.outputs.linux-integration == 'true'
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-24.04-arm
     timeout-minutes: 75
     steps:
       - name: Check out the repository
@@ -504,7 +511,7 @@ jobs:
     name: Fast checks
     needs: [classify, build-linux]
     if: needs.classify.outputs.fast-checks == 'true'
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-24.04-arm
     # Formatting the tree takes twenty minutes when a formatter or parser change
     # has emptied the format cache, and the check four.
     timeout-minutes: 60
@@ -567,7 +574,7 @@ jobs:
     name: ${{ matrix.name }}
     needs: [classify, runner-linux]
     if: needs.classify.outputs.linux-integration == 'true'
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-24.04-arm
     # A timeout is here to end a hang, so it has to sit above the work rather
     # than across it. A killed job also skips its post steps.
     timeout-minutes: ${{ matrix.timeout }}
@@ -694,7 +701,7 @@ jobs:
 
       # The Nupp-authored interpreter core: the handler sources lowered to CLIF,
       # compiled into an object by the glue, and the runtime's native contract
-      # tests run against it. Linux x64 and macOS ARM64; Windows waits on the
+      # tests run against it. Linux and macOS ARM64; Windows waits on the
       # object's unwind and stack-walking behavior there. The lanes exclude
       # the group.
       - name: Run the native core suites
@@ -717,19 +724,19 @@ jobs:
         run: |
           ./scripts/core-bridge --sanitize --test
           NUPP_CORE_BRIDGE_SANITIZE=1 ./bin/nupp run tests/core/guests/acceptance.nupp \
-            --target aarch64-apple-darwin cbridge ffiaggregates entropyfailure markdown
+            --target ${{ matrix.target }} cbridge ffiaggregates entropyfailure markdown
 
       # The native core's own guest programs and runtime units, run on the core
       # through the C bridge in normal and spill mode, against the committed
       # baseline in tests/core/guests/inventory.json: a new or changed failure,
       # a missing result or a known failure that now passes fails the leg, and
       # the known failures are reported as such. macOS ARM64 only until the
-      # core gains another target.
+      # core runs on another target; the leg names the triple it runs for.
       - name: Run the core guests and units
         if: matrix.kind == 'core'
         shell: bash
         run: >-
-          ./bin/nupp run tests/core/guests/acceptance.nupp --ci --target aarch64-apple-darwin
+          ./bin/nupp run tests/core/guests/acceptance.nupp --ci --target ${{ matrix.target }}
           --part ${{ matrix.shard }}/${{ matrix.shards }} --jobs ${{ matrix.jobs }}
 
       # One shard of one lane. `core_pattern` already pipes to systemd-coredump
@@ -858,7 +865,7 @@ jobs:
     name: Self-hosting fixpoint
     needs: [classify, build-linux]
     if: needs.classify.outputs.fixpoint == 'true'
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-24.04-arm
     timeout-minutes: 75
     steps:
       - name: Check out the repository
@@ -877,7 +884,7 @@ jobs:
     name: Documentation and site
     needs: [classify, build-linux]
     if: needs.classify.outputs.docs-site == 'true'
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-24.04-arm
     timeout-minutes: 60
     steps:
       - name: Check out the repository
@@ -906,7 +913,7 @@ jobs:
     name: GPU conformance / CI Lavapipe Vulkan
     needs: classify
     if: needs.classify.outputs.gpu-linux == 'true'
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-24.04-arm
     timeout-minutes: 30
     steps:
       - name: Check out the repository

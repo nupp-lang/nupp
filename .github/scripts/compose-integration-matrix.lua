@@ -38,11 +38,18 @@ local function lane(name, excluded, shards, batch, jobs, fullOnly)
     }
 end
 
+-- `target` is the triple the core's guests run for on that platform's runner.
+--
+-- Linux runs on ARM64. The native core that replaces the Rust VM has an
+-- ARM64 encoder and no x86 one, so the platform's legs moved to the ARM64
+-- runners while the VM still ran there too: the flip is then a runtime
+-- switch, not a change of runner and a change of runtime at once.
 composer.platforms = {
     {
         key = "linux",
         variable = "SELECTED_LINUX",
-        name = "Linux x64",
+        name = "Linux arm64",
+        target = "aarch64-unknown-linux-gnu",
         timeout = 90,
         -- A leg's time is its suites' work over its workers: the runner slices a
         -- heavy suite's cases between them, so no one suite is the floor below
@@ -53,6 +60,10 @@ composer.platforms = {
         legs = {
             {kind = "gates", title = "native gates"},
             {kind = "native-core", title = "native core", select = "--group=native-runtime", shards = 4, jobs = 2},
+            -- No core guest legs yet: on this runner every guest the sanitized
+            -- subset ran failed, and the full shards were stopped at forty
+            -- minutes by the runner's shutdown signal (19 November). A `core`
+            -- leg here, as on macOS below, is all it takes once the core runs.
             lane("shared", GROUPED, 4, 32),
             lane("isolated", GROUPED, 4),
             lane("shell", GROUPED, 4),
@@ -62,6 +73,7 @@ composer.platforms = {
         key = "macos",
         variable = "SELECTED_MACOS",
         name = "macOS arm64",
+        target = "aarch64-apple-darwin",
         -- Three cores and seven gigabytes: shared workers are recycled after
         -- fewer suites, and shell suites, which start children of their own,
         -- run two at a time. Five macOS jobs is what an account runs at once,
@@ -89,9 +101,12 @@ composer.platforms = {
         key = "windows",
         variable = "SELECTED_WINDOWS",
         name = "Windows x64",
+        target = "x86_64-pc-windows-gnu",
         timeout = 120,
         -- The native core waits on the object's unwind and stack-walking
-        -- behavior here, and the preflight group runs in the gates leg.
+        -- behavior here, and these legs wait on an ARM64 Windows toolchain,
+        -- seed and C libraries to move to ARM64 runners (#134). The preflight
+        -- group runs in the gates leg.
         legs = {
             {kind = "gates", title = "native gates"},
             lane("shared", GROUPED .. ",windows-preflight", 3, 32),
@@ -130,6 +145,7 @@ function composer.compose(platform, full, core)
                 shards = shards,
                 batch = leg.batch or 0,
                 jobs = leg.jobs or 0,
+                target = platform.target,
             }
         end
         ::continue::
@@ -138,11 +154,11 @@ function composer.compose(platform, full, core)
     return entries
 end
 
-local FIELDS = {"name", "id", "timeout", "kind", "select", "shard", "shards", "batch", "jobs"}
+local FIELDS = {"name", "id", "timeout", "kind", "select", "shard", "shards", "batch", "jobs", "target"}
 
 --- The matrix as JSON, hand-encoded for the reason the classifier's selection
 --- is: this runs before any library exists. Every string here is written in
---- this file from letters, digits, spaces and `-/=,`, so the escaping this
+--- this file from letters, digits, spaces and `-/=,_`, so the escaping this
 --- omits cannot arise.
 function composer.encode(entries)
     local encoded = {}

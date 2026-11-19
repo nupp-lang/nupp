@@ -276,7 +276,8 @@ function M.theCoreSurfaceNamesWhatTheCoreRegressionStepRuns()
 end
 
 -- The macOS legs carry the core regression step only when the core surface
--- is selected or the run is a full one; no other platform carries it.
+-- is selected or the run is a full one, for the triple of the runner they are
+-- on; no other platform carries it yet.
 function M.theCoreLegsRunOnlyOnMacosWhenTheCoreIsSelected()
     local composer = dofile(".github/scripts/compose-integration-matrix.lua")
     local function coreLegs(platform, full, core)
@@ -298,6 +299,7 @@ function M.theCoreLegsRunOnlyOnMacosWhenTheCoreIsSelected()
             for index, leg in ipairs(legs) do
                 test.eq(leg.shard, index)
                 test.eq(leg.shards, #legs)
+                test.eq(leg.target, "aarch64-apple-darwin")
             end
         else
             test.eq(#coreLegs(platform, true, true), 0)
