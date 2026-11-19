@@ -23,6 +23,7 @@
  */
 
 #include "markdown.h"
+#include "allocationbudget.h"
 #include "definitionlist.h"
 
 #include <cmark-gfm-core-extensions.h>
@@ -168,25 +169,21 @@ static void charge (size_t bytes) {
 
 /* cmark's calloc: zeroed, tracked and charged with its header. */
 static void *allocate (size_t count, size_t width) {
-  if (width && count > SIZE_MAX / width) {
+  size_t total = 0;
+
+  if (!allocationcharge(count, width, sizeof(allocation), active->remaining,
+                        &total)) {
     fail();
   }
 
-  size_t bytes = count * width;
-
-  if (bytes > SIZE_MAX - sizeof(allocation) ||
-      bytes + sizeof(allocation) > active->remaining) {
-    fail();
-  }
-
-  allocation *item = calloc(1, sizeof(allocation) + bytes);
+  allocation *item = calloc(1, total);
 
   if (!item) {
     fail();
   }
 
-  active->remaining -= sizeof(allocation) + bytes;
-  item->h.bytes = bytes;
+  active->remaining -= total;
+  item->h.bytes = total - sizeof(allocation);
 
   item->h.next = active->allocations;
 
