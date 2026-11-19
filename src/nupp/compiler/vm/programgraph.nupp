@@ -1242,7 +1242,7 @@ export function describe(modules: {any}, entryModule: string, options: any?): an
         end
         -- A call with named arguments passes the positional list the checker
         -- bound them to; each skipped slot is a `nil` literal of its own.
-        if node.kind == "call" or node.kind == "methodCall" then
+        if node.kind == "call" or node.kind == "methodCall" or node.kind == "safeCall" then
             for _, skipped in ipairs(namedarguments.normalize(node) or {}) do
                 collect(skipped, owner)
             end
