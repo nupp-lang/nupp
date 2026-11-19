@@ -15,9 +15,9 @@ return {
          kind = "c",
          cc = "c++",
          path = "../..",
-         sources = { "bench/serde-spike/simdjson-native/simdjson_control.cpp" },
+         sources = { "bench/serde-spike/simdjson-native/simdjsoncontrol.cpp" },
          headers = {
-            "bench/serde-spike/simdjson-native/simdjson_control.h",
+            "bench/serde-spike/simdjson-native/simdjsoncontrol.h",
             "bench/serde-spike/simdjson-native/serde.inc",
          },
          cflags = {

@@ -94,9 +94,9 @@ typedef struct {
   uint32_t written, status, position;
 } IndexResult;
 
-typedef IndexResult (*gen_fn)(const uint8_t *, uint32_t *, size_t, size_t);
+typedef IndexResult (*genfn)(const uint8_t *, uint32_t *, size_t, size_t);
 
-/* Leaves hand_index with what it has written so far. */
+/* Leaves handindex with what it has written so far. */
 #define RESULT(status, position)                                               \
   return (IndexResult) {                                                       \
     written, (status), (position)                                              \
@@ -107,13 +107,13 @@ typedef IndexResult (*gen_fn)(const uint8_t *, uint32_t *, size_t, size_t);
  * closes a string, and of every structural byte outside one. Whole blocks
  * are classified in lanes and the tail a byte at a time. It is never
  * inlined, so the timed loop calls it as it calls the generated entry. */
-__attribute__((noinline)) IndexResult hand_index (const uint8_t *source,
-                                                  size_t count, uint32_t *tape,
-                                                  size_t capacity) {
+__attribute__((noinline)) IndexResult handindex (const uint8_t *source,
+                                                 size_t count, uint32_t *tape,
+                                                 size_t capacity) {
   uint32_t at = 0, written = 0;
-  bool inString = false, slashOdd = false, haveSlash = false,
-       haveNonAscii = false;
-  uint32_t lastSlash = 0, expected = 0, constraint = 0, lastNonAscii = 0;
+  bool instring = false, slashodd = false, haveslash = false,
+       havenonascii = false;
+  uint32_t lastslash = 0, expected = 0, constraint = 0, lastnonascii = 0;
 
   while (at < count) {
     uint64_t events = 0;
@@ -166,15 +166,15 @@ __attribute__((noinline)) IndexResult hand_index (const uint8_t *source,
 
       /* Every byte a scalar still owes is non-ASCII, so it is an event, and
        * the next event must be the byte right after the last one. */
-      if (expected != 0 && (!haveNonAscii || position != lastNonAscii + 1)) {
-        RESULT(INDEX_BAD_UTF8, lastNonAscii + 2);
+      if (expected != 0 && (!havenonascii || position != lastnonascii + 1)) {
+        RESULT(INDEX_BAD_UTF8, lastnonascii + 2);
       }
 
       if (byte >= ASCII_LIMIT) {
-        bool isContinuation = byte <= CONTINUATION_LAST;
+        bool iscontinuation = byte <= CONTINUATION_LAST;
 
         if (expected != 0) {
-          if (!isContinuation) {
+          if (!iscontinuation) {
             RESULT(INDEX_BAD_UTF8, position + 1);
           }
 
@@ -188,7 +188,7 @@ __attribute__((noinline)) IndexResult hand_index (const uint8_t *source,
           expected -= 1;
           constraint = ANY_CONTINUATION;
         }
-        else if (isContinuation || byte < LEAD2_FIRST || byte > LEAD4_LAST) {
+        else if (iscontinuation || byte < LEAD2_FIRST || byte > LEAD4_LAST) {
           RESULT(INDEX_BAD_UTF8, position + 1);
         }
         else if (byte <= LEAD2_LAST) {
@@ -215,30 +215,30 @@ __attribute__((noinline)) IndexResult hand_index (const uint8_t *source,
           }
         }
 
-        haveNonAscii = true;
-        lastNonAscii = position;
-        haveSlash = false;
-        slashOdd = false;
+        havenonascii = true;
+        lastnonascii = position;
+        haveslash = false;
+        slashodd = false;
       }
       else if (expected != 0) {
         RESULT(INDEX_BAD_UTF8, position + 1);
       }
       else if (byte == '\\') {
-        if (!inString) {
+        if (!instring) {
           RESULT(INDEX_STRAY_BACKSLASH, position + 1);
         }
 
         /* A run of backslashes escapes what follows when its length is
          * odd. */
-        slashOdd = haveSlash && position == lastSlash + 1 ? !slashOdd : true;
-        haveSlash = true;
-        lastSlash = position;
+        slashodd = haveslash && position == lastslash + 1 ? !slashodd : true;
+        haveslash = true;
+        lastslash = position;
       }
       else {
-        bool escaped = haveSlash && position == lastSlash + 1 && slashOdd;
+        bool escaped = haveslash && position == lastslash + 1 && slashodd;
 
         if (byte == '"' && !escaped) {
-          inString = !inString;
+          instring = !instring;
 
           if (written >= capacity) {
             RESULT(INDEX_TAPE_FULL, position + 1);
@@ -249,11 +249,11 @@ __attribute__((noinline)) IndexResult hand_index (const uint8_t *source,
         else if (byte < ' ') {
           bool whitespace = byte == '\t' || byte == '\n' || byte == '\r';
 
-          if (inString || !whitespace) {
+          if (instring || !whitespace) {
             RESULT(INDEX_CONTROL_BYTE, position + 1);
           }
         }
-        else if (!inString) {
+        else if (!instring) {
           if (written >= capacity) {
             RESULT(INDEX_TAPE_FULL, position + 1);
           }
@@ -261,8 +261,8 @@ __attribute__((noinline)) IndexResult hand_index (const uint8_t *source,
           tape[written++] = position;
         }
 
-        haveSlash = false;
-        slashOdd = false;
+        haveslash = false;
+        slashodd = false;
       }
     }
 
@@ -270,7 +270,7 @@ __attribute__((noinline)) IndexResult hand_index (const uint8_t *source,
   }
 
   if (expected != 0) {
-    RESULT(INDEX_BAD_UTF8, lastNonAscii + 2);
+    RESULT(INDEX_BAD_UTF8, lastnonascii + 2);
   }
 
   RESULT(INDEX_OK, 0);
@@ -330,7 +330,7 @@ int main (int argc, char **argv) {
     return 1;
   }
 
-  gen_fn generated = (gen_fn)dlsym(library, "ks_index");
+  genfn generated = (genfn)dlsym(library, "ks_index");
 
   if (!generated) {
     fprintf(stderr, "the library lacks ks_index\n");
@@ -346,14 +346,14 @@ int main (int argc, char **argv) {
       size_t size = sizes[s];
       char *doc = malloc(size + 64);
       size_t n = build(doc, size, kind);
-      uint32_t *genTape = malloc(sizeof(uint32_t) * (n + 1)),
-               *handTape = malloc(sizeof(uint32_t) * (n + 1));
-      IndexResult g = generated((const uint8_t *)doc, genTape, n, n),
-                  h = hand_index((const uint8_t *)doc, n, handTape, n);
+      uint32_t *gentape = malloc(sizeof(uint32_t) * (n + 1)),
+               *handtape = malloc(sizeof(uint32_t) * (n + 1));
+      IndexResult g = generated((const uint8_t *)doc, gentape, n, n),
+                  h = handindex((const uint8_t *)doc, n, handtape, n);
 
       if (g.written != h.written || g.status != h.status ||
           g.position != h.position ||
-          memcmp(genTape, handTape, sizeof(uint32_t) * g.written)) {
+          memcmp(gentape, handtape, sizeof(uint32_t) * g.written)) {
         printf("MISMATCH %s %zu: %u/%u/%u vs %u/%u/%u\n", names[kind], n,
                g.written, g.status, g.position, h.written, h.status,
                h.position);
@@ -380,10 +380,10 @@ int main (int argc, char **argv) {
 
           for (size_t c = 0; c < calls; c++) {
             if (which == 0) {
-              generated((const uint8_t *)doc, genTape, n, n);
+              generated((const uint8_t *)doc, gentape, n, n);
             }
             else {
-              hand_index((const uint8_t *)doc, n, handTape, n);
+              handindex((const uint8_t *)doc, n, handtape, n);
             }
 
             __asm__ volatile("" ::: "memory");
@@ -401,8 +401,8 @@ int main (int argc, char **argv) {
              "gen/hand %.3fx\n",
              names[kind], n, g.written, best[0], best[1], best[0] / best[1]);
       free(doc);
-      free(genTape);
-      free(handTape);
+      free(gentape);
+      free(handtape);
     }
   }
 

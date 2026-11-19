@@ -48,8 +48,8 @@ enum { GENERATED, HAND_NEON, SCALAR, ENCODERS };
 /* The generated ks_encode: output, input, alphabet, then the length of each
  * of the three spans, as the AOT backend passes them. It answers the bytes
  * written. */
-typedef uint32_t (*gen_fn)(uint8_t *, const uint8_t *, const uint8_t *, size_t,
-                           size_t, size_t);
+typedef uint32_t (*genfn)(uint8_t *, const uint8_t *, const uint8_t *, size_t,
+                          size_t, size_t);
 
 static double now (void) {
   struct timespec t;
@@ -73,7 +73,7 @@ int main (int argc, char **argv) {
     return 1;
   }
 
-  gen_fn generated = (gen_fn)dlsym(library, "ks_encode");
+  genfn generated = (genfn)dlsym(library, "ks_encode");
 
   if (!generated) {
     fprintf(stderr, "the library lacks ks_encode\n");
@@ -89,19 +89,19 @@ int main (int argc, char **argv) {
 
   for (int s = 0; s < 3; s++) {
     size_t n = sizes[s], encoded = 4 * ((n + 2) / 3);
-    uint8_t *input = malloc(n), *genOutput = malloc(encoded + OUTPUT_SLACK),
-            *handOutput = malloc(encoded + OUTPUT_SLACK);
+    uint8_t *input = malloc(n), *genoutput = malloc(encoded + OUTPUT_SLACK),
+            *handoutput = malloc(encoded + OUTPUT_SLACK);
 
     for (size_t i = 0; i < n; i++) {
       input[i] = (uint8_t)(i * 131 + 7);
     }
 
     uint32_t written =
-        generated(genOutput, input, alphabet, encoded, n, ALPHABET_SIZE);
-    size_t handWritten = nuppBase64EncodeVector(input, n, (char *)handOutput);
+        generated(genoutput, input, alphabet, encoded, n, ALPHABET_SIZE);
+    size_t handwritten = nuppBase64EncodeVector(input, n, (char *)handoutput);
 
-    if (written != handWritten || memcmp(genOutput, handOutput, handWritten)) {
-      printf("MISMATCH %zu %u %zu\n", n, written, handWritten);
+    if (written != handwritten || memcmp(genoutput, handoutput, handwritten)) {
+      printf("MISMATCH %zu %u %zu\n", n, written, handwritten);
 
       return 1;
     }
@@ -118,13 +118,13 @@ int main (int argc, char **argv) {
 
         for (size_t c = 0; c < calls; c++) {
           if (which == GENERATED) {
-            generated(genOutput, input, alphabet, encoded, n, ALPHABET_SIZE);
+            generated(genoutput, input, alphabet, encoded, n, ALPHABET_SIZE);
           }
           else if (which == HAND_NEON) {
-            nuppBase64EncodeVector(input, n, (char *)handOutput);
+            nuppBase64EncodeVector(input, n, (char *)handoutput);
           }
           else {
-            nuppBase64EncodeScalar(input, n, (char *)handOutput);
+            nuppBase64EncodeScalar(input, n, (char *)handoutput);
           }
 
           __asm__ volatile("" ::: "memory");

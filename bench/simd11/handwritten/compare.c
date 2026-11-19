@@ -57,53 +57,52 @@ enum { ORDERED, PAIRWISE, ALGEBRAIC, DOT_KERNELS };
 
 /* The harness library's entries take each span's length after its pointers;
  * the hand versions take one count. */
-typedef void (*map_fn)(double *, const double *, double, double, size_t,
-                       size_t);
-typedef void (*refine_fn)(double *, const double *, size_t, size_t);
-typedef double (*library_dot)(const double *, const double *, size_t, size_t);
-typedef double (*dot_fn)(const double *, const double *, size_t);
-typedef uint32_t (*utf8_fn)(const uint8_t *, size_t);
+typedef void (*mapfn)(double *, const double *, double, double, size_t, size_t);
+typedef void (*refinefn)(double *, const double *, size_t, size_t);
+typedef double (*librarydot)(const double *, const double *, size_t, size_t);
+typedef double (*dotfn)(const double *, const double *, size_t);
+typedef uint32_t (*utf8fn)(const uint8_t *, size_t);
 
 /* neon.c */
-double hand_ordered (const double *left, const double *right, size_t count);
-double hand_pairwise (const double *left, const double *right, size_t count);
-double hand_algebraic (const double *left, const double *right, size_t count);
-uint32_t hand_utf8_valid_prefix (const uint8_t *source, size_t count);
-void hand_map (double *restrict output, const double *input, double scale,
-               double bias, size_t count);
-void hand_refine (double *restrict output, const double *input, size_t count);
-void hand_refine_tuned (double *restrict output, const double *input,
-                        size_t count);
+double handordered (const double *left, const double *right, size_t count);
+double handpairwise (const double *left, const double *right, size_t count);
+double handalgebraic (const double *left, const double *right, size_t count);
+uint32_t handutf8prefix (const uint8_t *source, size_t count);
+void handmap (double *restrict output, const double *input, double scale,
+              double bias, size_t count);
+void handrefine (double *restrict output, const double *input, size_t count);
+void handrefinetuned (double *restrict output, const double *input,
+                      size_t count);
 
-static map_fn generated_map, scalar_map;
-static refine_fn generated_refine, scalar_refine;
+static mapfn generatedmap, scalarmap;
+static refinefn generatedrefine, scalarrefine;
 
 /* Runs implementation `which` of map over `n` elements. */
-static void run_map (int which, double *out, const double *in, size_t n) {
+static void runmap (int which, double *out, const double *in, size_t n) {
   if (which == SCALAR_C) {
-    scalar_map(out, in, MAP_SCALE, MAP_BIAS, n, n);
+    scalarmap(out, in, MAP_SCALE, MAP_BIAS, n, n);
   }
   else if (which == GENERATED) {
-    generated_map(out, in, MAP_SCALE, MAP_BIAS, n, n);
+    generatedmap(out, in, MAP_SCALE, MAP_BIAS, n, n);
   }
   else {
-    hand_map(out, in, MAP_SCALE, MAP_BIAS, n);
+    handmap(out, in, MAP_SCALE, MAP_BIAS, n);
   }
 }
 
 /* Runs implementation `which` of refine over `n` elements. */
-static void run_refine (int which, double *out, const double *in, size_t n) {
+static void runrefine (int which, double *out, const double *in, size_t n) {
   if (which == SCALAR_C) {
-    scalar_refine(out, in, n, n);
+    scalarrefine(out, in, n, n);
   }
   else if (which == GENERATED) {
-    generated_refine(out, in, n, n);
+    generatedrefine(out, in, n, n);
   }
   else if (which == HAND) {
-    hand_refine(out, in, n);
+    handrefine(out, in, n);
   }
   else {
-    hand_refine_tuned(out, in, n);
+    handrefinetuned(out, in, n);
   }
 }
 
@@ -133,12 +132,12 @@ int main (int argc, char **argv) {
     return 1;
   }
 
-  scalar_map = (map_fn)dlsym(library, "ks_map");
-  generated_map = (map_fn)dlsym(library, "ks_explicit_map");
-  scalar_refine = (refine_fn)dlsym(library, "ks_refine");
-  generated_refine = (refine_fn)dlsym(library, "ks_explicit_refine");
+  scalarmap = (mapfn)dlsym(library, "ks_map");
+  generatedmap = (mapfn)dlsym(library, "ks_explicit_map");
+  scalarrefine = (refinefn)dlsym(library, "ks_refine");
+  generatedrefine = (refinefn)dlsym(library, "ks_explicit_refine");
 
-  if (!scalar_map || !generated_map || !scalar_refine || !generated_refine) {
+  if (!scalarmap || !generatedmap || !scalarrefine || !generatedrefine) {
     fprintf(stderr, "the library lacks a kernel\n");
 
     return 1;
@@ -162,10 +161,10 @@ int main (int argc, char **argv) {
       }
 
       if (kernel == MAP) {
-        run_map(SCALAR_C, want, in, n);
+        runmap(SCALAR_C, want, in, n);
       }
       else {
-        run_refine(SCALAR_C, want, in, n);
+        runrefine(SCALAR_C, want, in, n);
       }
 
       int kinds = kernel == MAP ? MAP_IMPLEMENTATIONS : REFINE_IMPLEMENTATIONS;
@@ -176,10 +175,10 @@ int main (int argc, char **argv) {
         }
 
         if (kernel == MAP) {
-          run_map(which, out, in, n);
+          runmap(which, out, in, n);
         }
         else {
-          run_refine(which, out, in, n);
+          runrefine(which, out, in, n);
         }
 
         if (memcmp(out, want, n * sizeof *want) != 0 || out[n] != CANARY) {
@@ -203,10 +202,10 @@ int main (int argc, char **argv) {
 
           for (size_t c = 0; c < calls; c++) {
             if (kernel == MAP) {
-              run_map(which, out, in, n);
+              runmap(which, out, in, n);
             }
             else {
-              run_refine(which, out, in, n);
+              runrefine(which, out, in, n);
             }
 
             __asm__ volatile("" ::: "memory");
@@ -246,11 +245,11 @@ int main (int argc, char **argv) {
                                       "ks_algebraic"};
   const char *generated[DOT_KERNELS] = {
       "ks_explicit_ordered", "ks_explicit_pairwise", "ks_explicit_algebraic"};
-  dot_fn hands[DOT_KERNELS] = {hand_ordered, hand_pairwise, hand_algebraic};
+  dotfn hands[DOT_KERNELS] = {handordered, handpairwise, handalgebraic};
 
   for (int kernel = ORDERED; kernel < DOT_KERNELS; kernel++) {
-    library_dot scalar = (library_dot)dlsym(library, scalars[kernel]);
-    library_dot mine = (library_dot)dlsym(library, generated[kernel]);
+    librarydot scalar = (librarydot)dlsym(library, scalars[kernel]);
+    librarydot mine = (librarydot)dlsym(library, generated[kernel]);
 
     if (!scalar || !mine) {
       fprintf(stderr, "the library lacks %s\n", names[kernel]);
@@ -336,9 +335,9 @@ int main (int argc, char **argv) {
       return 1;
     }
 
-    utf8_fn generated_utf8 = (utf8_fn)dlsym(utf8, "ks_valid_prefix");
+    utf8fn generatedutf8 = (utf8fn)dlsym(utf8, "ks_valid_prefix");
 
-    if (!generated_utf8) {
+    if (!generatedutf8) {
       fprintf(stderr, "the UTF-8 library lacks ks_valid_prefix\n");
 
       return 1;
@@ -358,8 +357,7 @@ int main (int argc, char **argv) {
           bytes[i] = (uint8_t)units[kind][i % unit];
         }
 
-        uint32_t want = generated_utf8(bytes, n),
-                 got = hand_utf8_valid_prefix(bytes, n);
+        uint32_t want = generatedutf8(bytes, n), got = handutf8prefix(bytes, n);
 
         if (want != got) {
           fprintf(stderr, "%s %zu: generated %u, hand %u\n", kinds[kind], n,
@@ -378,8 +376,8 @@ int main (int argc, char **argv) {
             double start = now();
 
             for (size_t c = 0; c < calls; c++) {
-              sink = which == 0 ? generated_utf8(bytes, n)
-                                : hand_utf8_valid_prefix(bytes, n);
+              sink = which == 0 ? generatedutf8(bytes, n)
+                                : handutf8prefix(bytes, n);
               __asm__ volatile("" ::: "memory");
             }
 

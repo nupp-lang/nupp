@@ -76,8 +76,8 @@ enum {
 
 /* output[i] = input[i] * scale + bias, eight doubles an iteration, then one
  * register, then one element. */
-void hand_map (double *restrict output, const double *input, double scale,
-               double bias, size_t count) {
+void handmap (double *restrict output, const double *input, double scale,
+              double bias, size_t count) {
   float64x2_t s = vdupq_n_f64(scale), b = vdupq_n_f64(bias);
   size_t i = 0;
 
@@ -102,7 +102,7 @@ void hand_map (double *restrict output, const double *input, double scale,
 /* Halve each value while it exceeds one, at most REFINE_ROUNDS times, and
  * add the number of halvings: four lanes at a time under a live mask, then
  * the leftover elements one at a time. */
-void hand_refine (double *restrict output, const double *input, size_t count) {
+void handrefine (double *restrict output, const double *input, size_t count) {
   const float64x2_t one = vdupq_n_f64(1.0), half = vdupq_n_f64(0.5),
                     cap = vdupq_n_f64(REFINE_ROUNDS);
   size_t i = 0;
@@ -142,8 +142,8 @@ void hand_refine (double *restrict output, const double *input, size_t count) {
  * empty asm, clang carries the masks as one bit a lane and widens them again
  * at every select, which is what the plain version above pays. This is the
  * version an author who read the assembly would keep. */
-void hand_refine_tuned (double *restrict output, const double *input,
-                        size_t count) {
+void handrefinetuned (double *restrict output, const double *input,
+                      size_t count) {
   const float64x2_t one = vdupq_n_f64(1.0), half = vdupq_n_f64(0.5),
                     cap = vdupq_n_f64(REFINE_ROUNDS);
   size_t i = 0;
@@ -184,7 +184,7 @@ void hand_refine_tuned (double *restrict output, const double *input,
 
 /* Products in source order, added one at a time: only the multiplies can run
  * in lanes. */
-double hand_ordered (const double *left, const double *right, size_t count) {
+double handordered (const double *left, const double *right, size_t count) {
   double total = 0.0;
   size_t i = 0;
 
@@ -212,12 +212,11 @@ double hand_ordered (const double *left, const double *right, size_t count) {
 typedef struct {
   double sum[PAIRWISE_LEVELS];
   unsigned char full[PAIRWISE_LEVELS];
-} hand_pairwise_state;
+} pairwisestate;
 
 /* Adds one leaf the way a carry adds a bit: it merges with every full level
  * below the first empty one, which then holds the merged sum. */
-static inline void hand_pairwise_push (hand_pairwise_state *state,
-                                       double leaf) {
+static inline void pairwisepush (pairwisestate *state, double leaf) {
   unsigned level = 0;
 
   while (state->full[level]) {
@@ -230,28 +229,28 @@ static inline void hand_pairwise_push (hand_pairwise_state *state,
   state->full[level] = 1;
 }
 
-double hand_pairwise (const double *left, const double *right, size_t count) {
-  hand_pairwise_state state;
+double handpairwise (const double *left, const double *right, size_t count) {
+  pairwisestate state;
 
   for (unsigned level = 0; level < PAIRWISE_LEVELS; level++) {
     state.full[level] = 0;
   }
 
-  hand_pairwise_push(&state, 0.0);
+  pairwisepush(&state, 0.0);
   size_t i = 0;
 
   for (; i + 4 <= count; i += 4) {
     float64x2_t p0 = vmulq_f64(vld1q_f64(left + i), vld1q_f64(right + i));
     float64x2_t p1 =
         vmulq_f64(vld1q_f64(left + i + 2), vld1q_f64(right + i + 2));
-    hand_pairwise_push(&state, vgetq_lane_f64(p0, 0));
-    hand_pairwise_push(&state, vgetq_lane_f64(p0, 1));
-    hand_pairwise_push(&state, vgetq_lane_f64(p1, 0));
-    hand_pairwise_push(&state, vgetq_lane_f64(p1, 1));
+    pairwisepush(&state, vgetq_lane_f64(p0, 0));
+    pairwisepush(&state, vgetq_lane_f64(p0, 1));
+    pairwisepush(&state, vgetq_lane_f64(p1, 0));
+    pairwisepush(&state, vgetq_lane_f64(p1, 1));
   }
 
   for (; i < count; i++) {
-    hand_pairwise_push(&state, left[i] * right[i]);
+    pairwisepush(&state, left[i] * right[i]);
   }
 
   double total = 0.0;
@@ -271,7 +270,7 @@ double hand_pairwise (const double *left, const double *right, size_t count) {
 
 /* Reassociation allowed: the kernel's shape, one four-lane accumulator and a
  * horizontal sum at the end. */
-double hand_algebraic (const double *left, const double *right, size_t count) {
+double handalgebraic (const double *left, const double *right, size_t count) {
   float64x2_t a0 = vdupq_n_f64(0.0), a1 = vdupq_n_f64(0.0);
   size_t i = 0;
 
@@ -295,7 +294,7 @@ double hand_algebraic (const double *left, const double *right, size_t count) {
  * vector holds an error, then the scalar ladder of the table above from the
  * last scalar start at or before it. A block of ASCII after a non-ASCII one
  * only has to show that the earlier block did not end inside a scalar. */
-uint32_t hand_utf8_valid_prefix (const uint8_t *source, size_t count) {
+uint32_t handutf8prefix (const uint8_t *source, size_t count) {
   /* By the previous byte's high nibble: 0-7 ASCII, 8-B a continuation, C-F
    * a lead. */
   static const uint8_t high1[BLOCK] = {
@@ -365,12 +364,12 @@ uint32_t hand_utf8_valid_prefix (const uint8_t *source, size_t count) {
   static const uint8_t limits[BLOCK] = {0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF,
                                         0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF,
                                         0xFF, 0xEF, 0xDF, 0xBF};
-  const uint8x16_t byte1High = vld1q_u8(high1), byte1Low = vld1q_u8(low1),
-                   byte2High = vld1q_u8(high2);
-  const uint8x16_t incompleteLimit = vld1q_u8(limits);
-  const uint8x16_t lowNibble = vdupq_n_u8(0x0F);
+  const uint8x16_t byte1high = vld1q_u8(high1), byte1low = vld1q_u8(low1),
+                   byte2high = vld1q_u8(high2);
+  const uint8x16_t incompletelimit = vld1q_u8(limits);
+  const uint8x16_t lownibble = vdupq_n_u8(0x0F);
   uint8x16_t previous = vdupq_n_u8(0);
-  int previousAscii = 1;
+  int previousascii = 1;
   size_t at = 0;
 
   while (at + BLOCK <= count) {
@@ -379,9 +378,9 @@ uint32_t hand_utf8_valid_prefix (const uint8_t *source, size_t count) {
     if (vmaxvq_u8(input) >= ASCII_LIMIT) {
       uint8x16_t prev1 = vextq_u8(previous, input, BLOCK - 1);
       uint8x16_t special =
-          vandq_u8(vandq_u8(vqtbl1q_u8(byte1High, vshrq_n_u8(prev1, 4)),
-                            vqtbl1q_u8(byte1Low, vandq_u8(prev1, lowNibble))),
-                   vqtbl1q_u8(byte2High, vshrq_n_u8(input, 4)));
+          vandq_u8(vandq_u8(vqtbl1q_u8(byte1high, vshrq_n_u8(prev1, 4)),
+                            vqtbl1q_u8(byte1low, vandq_u8(prev1, lownibble))),
+                   vqtbl1q_u8(byte2high, vshrq_n_u8(input, 4)));
 
       /* The tables flag every continuation after a continuation; that is
        * an error only where no three- or four-byte lead calls for it. */
@@ -396,14 +395,14 @@ uint32_t hand_utf8_valid_prefix (const uint8_t *source, size_t count) {
         break;
       }
 
-      previousAscii = 0;
+      previousascii = 0;
     }
-    else if (!previousAscii) {
-      if (vmaxvq_u8(vcgtq_u8(previous, incompleteLimit)) != 0) {
+    else if (!previousascii) {
+      if (vmaxvq_u8(vcgtq_u8(previous, incompletelimit)) != 0) {
         break;
       }
 
-      previousAscii = 1;
+      previousascii = 1;
     }
 
     previous = input;

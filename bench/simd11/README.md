@@ -186,7 +186,7 @@ time over the best hand-written time.
 | algebraic | 65,539 | 42.8 us | 9.77 us | 10.1 us | 0.97x |
 
 UTF-8 validation compares `bench/utf8simd`'s `validPrefix` with the same
-lookup validator written in NEON (`hand_utf8_valid_prefix`), over the harness's
+lookup validator written in NEON (`handutf8prefix`), over the harness's
 ASCII and mixed-width inputs; the two must return the same prefix. Pass the
 UTF-8 library as `compare`'s second argument
 (`bench/simd11/build/utf8/native.dylib`).

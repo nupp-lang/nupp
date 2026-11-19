@@ -1,4 +1,4 @@
-#include "simdjson_control.h"
+#include "simdjsoncontrol.h"
 
 #include <climits>
 #include <cmath>
@@ -20,7 +20,7 @@ extern "C" {
 }
 #include <simdjson.h>
 
-struct nuppSimdjsonParser {
+struct nuppsimdjsonparser {
     simdjson::dom::parser dom;
     simdjson::ondemand::parser ondemand;
     std::vector<char> padded;
@@ -1583,16 +1583,16 @@ static void installBufferMetatable(lua_State *L) {
 
 } // namespace
 
-extern "C" nuppSimdjsonParser *nuppSimdjsonNew(void) {
-    return new (std::nothrow) nuppSimdjsonParser();
+extern "C" nuppsimdjsonparser *nuppsimdjsonnew(void) {
+    return new (std::nothrow) nuppsimdjsonparser();
 }
 
-extern "C" void nuppSimdjsonFree(nuppSimdjsonParser *parser) {
+extern "C" void nuppsimdjsonfree(nuppsimdjsonparser *parser) {
     delete parser;
 }
 
-extern "C" int nuppSimdjsonPrepare(
-    nuppSimdjsonParser *parser,
+extern "C" int nuppsimdjsonprepare(
+    nuppsimdjsonparser *parser,
     const char *source,
     size_t length
 ) {
@@ -1617,7 +1617,7 @@ extern "C" int nuppSimdjsonPrepare(
     return 0;
 }
 
-extern "C" int nuppSimdjsonStage1(nuppSimdjsonParser *parser) {
+extern "C" int nuppsimdjsonstage1(nuppsimdjsonparser *parser) {
     if (parser == nullptr) {
         return -1;
     }
@@ -1634,7 +1634,7 @@ extern "C" int nuppSimdjsonStage1(nuppSimdjsonParser *parser) {
     return 0;
 }
 
-extern "C" int nuppSimdjsonDom(nuppSimdjsonParser *parser) {
+extern "C" int nuppsimdjsondom(nuppsimdjsonparser *parser) {
     if (parser == nullptr) {
         return -1;
     }
@@ -1651,18 +1651,18 @@ extern "C" int nuppSimdjsonDom(nuppSimdjsonParser *parser) {
     return 0;
 }
 
-extern "C" const char *nuppSimdjsonError(int code) {
+extern "C" const char *nuppsimdjsonerror(int code) {
     if (code == -1) {
         return "bridge allocation or argument failure";
     }
     return simdjson::error_message(static_cast<simdjson::error_code>(code));
 }
 
-extern "C" const char *nuppSimdjsonVersion(void) {
+extern "C" const char *nuppsimdjsonversion(void) {
     return SIMDJSON_VERSION;
 }
 
-extern "C" const char *nuppSimdjsonImplementation(void) {
+extern "C" const char *nuppsimdjsonimplementation(void) {
     static std::string implementation;
     implementation = simdjson::get_active_implementation()->name();
     return implementation.c_str();

@@ -136,9 +136,9 @@ typedef struct {
   uint32_t written, status, position;
 } ScanResult;
 
-typedef ScanResult (*gen_fn)(const uint8_t *, uint32_t *, size_t, size_t);
+typedef ScanResult (*genfn)(const uint8_t *, uint32_t *, size_t, size_t);
 
-/* Leaves hand_scan with what it has written so far. */
+/* Leaves handscan with what it has written so far. */
 #define RESULT(status, position)                                               \
   return (ScanResult) {                                                        \
     written, (status), (position)                                              \
@@ -164,12 +164,12 @@ static inline uint64_t nibbles (uint8x16_t mask) {
  * and goes on a byte at a time, so that the state machine reports the error
  * at the byte that raised it. It is never inlined, so the timed loop calls
  * it as it calls the generated entry. */
-__attribute__((noinline)) ScanResult hand_scan (const uint8_t *source,
-                                                size_t count, uint32_t *tape,
-                                                size_t capacity) {
+__attribute__((noinline)) ScanResult handscan (const uint8_t *source,
+                                               size_t count, uint32_t *tape,
+                                               size_t capacity) {
   /* By the previous byte's high nibble: 0-7 ASCII, 8-B a continuation, C-F
    * a lead. */
-  static const uint8_t byte1HighTable[BLOCK] = {
+  static const uint8_t byte1hightable[BLOCK] = {
       TOO_LONG,
       TOO_LONG,
       TOO_LONG,
@@ -190,7 +190,7 @@ __attribute__((noinline)) ScanResult hand_scan (const uint8_t *source,
 
   /* By the previous byte's low nibble, which tells the leads C0, C1, E0, ED,
    * F0 and F4 apart from their neighbors. */
-  static const uint8_t byte1LowTable[BLOCK] = {
+  static const uint8_t byte1lowtable[BLOCK] = {
       CARRY | OVERLONG_3 | OVERLONG_2 | OVERLONG_4,
       CARRY | OVERLONG_2,
       CARRY,
@@ -211,7 +211,7 @@ __attribute__((noinline)) ScanResult hand_scan (const uint8_t *source,
 
   /* By this byte's high nibble, which narrows a continuation to 80-8F, 90-9F
    * or A0-BF. */
-  static const uint8_t byte2HighTable[BLOCK] = {
+  static const uint8_t byte2hightable[BLOCK] = {
       TOO_SHORT,
       TOO_SHORT,
       TOO_SHORT,
@@ -230,22 +230,22 @@ __attribute__((noinline)) ScanResult hand_scan (const uint8_t *source,
       TOO_SHORT,
       TOO_SHORT,
   };
-  const uint8x16_t byte1High = vld1q_u8(byte1HighTable),
-                   byte1Low = vld1q_u8(byte1LowTable);
-  const uint8x16_t byte2High = vld1q_u8(byte2HighTable);
+  const uint8x16_t byte1high = vld1q_u8(byte1hightable),
+                   byte1low = vld1q_u8(byte1lowtable);
+  const uint8x16_t byte2high = vld1q_u8(byte2hightable);
   uint32_t at = 0, written = 0;
-  bool inString = false, stringEscaped = false, slashOdd = false,
-       haveSlash = false;
-  uint32_t lastSlash = 0, owed = 0, constraint = 0, lastNonAscii = 0;
-  bool haveNonAscii = false, seeded = false, previousNonAscii = false,
-       vectorsOff = false;
+  bool instring = false, stringescaped = false, slashodd = false,
+       haveslash = false;
+  uint32_t lastslash = 0, owed = 0, constraint = 0, lastnonascii = 0;
+  bool havenonascii = false, seeded = false, previousnonascii = false,
+       vectorsoff = false;
   uint8x16_t previous = vdupq_n_u8(0);
 
   while (at < count || !seeded) {
     uint64_t events = 0;
     uint32_t width = 0, shift = 0;
 
-    if (!vectorsOff && (size_t)at + BLOCK <= count) {
+    if (!vectorsoff && (size_t)at + BLOCK <= count) {
       /* The lanes that hold a structural byte, a quote, a backslash or a
        * control byte. */
       uint8x16_t block = vld1q_u8(source + at);
@@ -260,7 +260,7 @@ __attribute__((noinline)) ScanResult hand_scan (const uint8_t *source,
       m = vorrq_u8(m, vcltq_u8(block, vdupq_n_u8(' ')));
       bool validate = false;
 
-      if (previousNonAscii) {
+      if (previousnonascii) {
         events = nibbles(m);
         validate = true;
       }
@@ -282,10 +282,10 @@ __attribute__((noinline)) ScanResult hand_scan (const uint8_t *source,
         uint8x16_t previous2 = vextq_u8(previous, block, BLOCK - 2);
         uint8x16_t previous3 = vextq_u8(previous, block, BLOCK - 3);
         uint8x16_t special =
-            vandq_u8(vandq_u8(vqtbl1q_u8(byte1High, vshrq_n_u8(previous1, 4)),
-                              vqtbl1q_u8(byte1Low, vandq_u8(previous1,
+            vandq_u8(vandq_u8(vqtbl1q_u8(byte1high, vshrq_n_u8(previous1, 4)),
+                              vqtbl1q_u8(byte1low, vandq_u8(previous1,
                                                             vdupq_n_u8(0x0F)))),
-                     vqtbl1q_u8(byte2High, vshrq_n_u8(block, 4)));
+                     vqtbl1q_u8(byte2high, vshrq_n_u8(block, 4)));
 
         /* The tables flag every continuation after a continuation; that is
          * an error only where no three- or four-byte lead calls for it. */
@@ -295,19 +295,19 @@ __attribute__((noinline)) ScanResult hand_scan (const uint8_t *source,
                      vdupq_n_u8(TWO_CONTS));
 
         if (vmaxvq_u8(veorq_u8(special, required)) != 0) {
-          vectorsOff = true;
+          vectorsoff = true;
         }
         else {
-          previousNonAscii = vgetq_lane_u8(block, BLOCK - 1) >= ASCII_LIMIT;
+          previousnonascii = vgetq_lane_u8(block, BLOCK - 1) >= ASCII_LIMIT;
         }
       }
       else {
-        previousNonAscii = false;
+        previousnonascii = false;
       }
 
       previous = block;
 
-      if (!vectorsOff) {
+      if (!vectorsoff) {
         width = BLOCK;
         shift = NIBBLE_SHIFT;
       }
@@ -325,15 +325,15 @@ __attribute__((noinline)) ScanResult hand_scan (const uint8_t *source,
       bool walking = true;
 
       while (walking && back <= MAX_CONTINUATIONS && back <= at) {
-        uint32_t earlierAt = at - back;
-        uint32_t earlier = earlierAt < count ? source[earlierAt] : 0;
+        uint32_t earlierat = at - back;
+        uint32_t earlier = earlierat < count ? source[earlierat] : 0;
 
         if (earlier < ASCII_LIMIT) {
           walking = false;
         }
         else if (earlier >= LEAD_FIRST) {
           if (earlier < LEAD2_FIRST || earlier > LEAD4_LAST) {
-            RESULT(SCAN_BAD_UTF8, earlierAt + 1);
+            RESULT(SCAN_BAD_UTF8, earlierat + 1);
           }
 
           uint32_t need = earlier <= LEAD2_LAST   ? 1
@@ -342,8 +342,8 @@ __attribute__((noinline)) ScanResult hand_scan (const uint8_t *source,
 
           if (need >= back) {
             owed = need - back + 1;
-            haveNonAscii = true;
-            lastNonAscii = at - 1;
+            havenonascii = true;
+            lastnonascii = at - 1;
 
             if (back == 1) {
               if (earlier == LEAD_E0) {
@@ -396,15 +396,15 @@ __attribute__((noinline)) ScanResult hand_scan (const uint8_t *source,
 
       /* Every byte a scalar still owes is non-ASCII, so it is an event, and
        * the next event must be the byte right after the last one. */
-      if (owed != 0 && (!haveNonAscii || position != lastNonAscii + 1)) {
-        RESULT(SCAN_BAD_UTF8, lastNonAscii + 2);
+      if (owed != 0 && (!havenonascii || position != lastnonascii + 1)) {
+        RESULT(SCAN_BAD_UTF8, lastnonascii + 2);
       }
 
       if (byte >= ASCII_LIMIT) {
-        bool isContinuation = byte <= CONTINUATION_LAST;
+        bool iscontinuation = byte <= CONTINUATION_LAST;
 
         if (owed != 0) {
-          if (!isContinuation) {
+          if (!iscontinuation) {
             RESULT(SCAN_BAD_UTF8, position + 1);
           }
 
@@ -418,7 +418,7 @@ __attribute__((noinline)) ScanResult hand_scan (const uint8_t *source,
           owed -= 1;
           constraint = ANY_CONTINUATION;
         }
-        else if (isContinuation || byte < LEAD2_FIRST || byte > LEAD4_LAST) {
+        else if (iscontinuation || byte < LEAD2_FIRST || byte > LEAD4_LAST) {
           RESULT(SCAN_BAD_UTF8, position + 1);
         }
         else if (byte <= LEAD2_LAST) {
@@ -445,48 +445,48 @@ __attribute__((noinline)) ScanResult hand_scan (const uint8_t *source,
           }
         }
 
-        haveNonAscii = true;
-        lastNonAscii = position;
-        haveSlash = false;
-        slashOdd = false;
+        havenonascii = true;
+        lastnonascii = position;
+        haveslash = false;
+        slashodd = false;
       }
       else if (owed != 0) {
         RESULT(SCAN_BAD_UTF8, position + 1);
       }
       else if (byte == '\\') {
-        if (!inString) {
+        if (!instring) {
           RESULT(SCAN_STRAY_BACKSLASH, position + 1);
         }
 
         /* A run of backslashes escapes what follows when its length is
          * odd. */
-        slashOdd = haveSlash && position == lastSlash + 1 ? !slashOdd : true;
-        haveSlash = true;
-        lastSlash = position;
-        stringEscaped = true;
+        slashodd = haveslash && position == lastslash + 1 ? !slashodd : true;
+        haveslash = true;
+        lastslash = position;
+        stringescaped = true;
       }
       else {
-        bool escaped = haveSlash && position == lastSlash + 1 && slashOdd;
+        bool escaped = haveslash && position == lastslash + 1 && slashodd;
 
         if (byte == '"' && !escaped) {
           if (written >= capacity) {
             RESULT(SCAN_TAPE_FULL, position + 1);
           }
 
-          tape[written++] = inString && stringEscaped
+          tape[written++] = instring && stringescaped
                                 ? (position | ESCAPED_STRING)
                                 : position;
-          stringEscaped = stringEscaped && inString;
-          inString = !inString;
+          stringescaped = stringescaped && instring;
+          instring = !instring;
         }
         else if (byte < ' ') {
           bool whitespace = byte == '\t' || byte == '\n' || byte == '\r';
 
-          if (inString || !whitespace) {
+          if (instring || !whitespace) {
             RESULT(SCAN_CONTROL_BYTE, position + 1);
           }
         }
-        else if (!inString) {
+        else if (!instring) {
           if (written >= capacity) {
             RESULT(SCAN_TAPE_FULL, position + 1);
           }
@@ -494,8 +494,8 @@ __attribute__((noinline)) ScanResult hand_scan (const uint8_t *source,
           tape[written++] = position;
         }
 
-        haveSlash = false;
-        slashOdd = false;
+        haveslash = false;
+        slashodd = false;
       }
     }
 
@@ -503,7 +503,7 @@ __attribute__((noinline)) ScanResult hand_scan (const uint8_t *source,
   }
 
   if (owed != 0) {
-    RESULT(SCAN_BAD_UTF8, lastNonAscii + 2);
+    RESULT(SCAN_BAD_UTF8, lastnonascii + 2);
   }
 
   RESULT(SCAN_OK, 0);
@@ -565,7 +565,7 @@ int main (int argc, char **argv) {
     return 1;
   }
 
-  gen_fn generated = (gen_fn)dlsym(library, "ks_scan");
+  genfn generated = (genfn)dlsym(library, "ks_scan");
 
   if (!generated) {
     fprintf(stderr, "the library lacks ks_scan\n");
@@ -588,9 +588,9 @@ int main (int argc, char **argv) {
 
   for (size_t i = 0; i < sizeof bad / sizeof bad[0]; i++) {
     size_t n = strlen(bad[i]);
-    uint32_t genTape[ERROR_TAPE], handTape[ERROR_TAPE];
-    ScanResult g = generated((const uint8_t *)bad[i], genTape, n, ERROR_TAPE),
-               h = hand_scan((const uint8_t *)bad[i], n, handTape, ERROR_TAPE);
+    uint32_t gentape[ERROR_TAPE], handtape[ERROR_TAPE];
+    ScanResult g = generated((const uint8_t *)bad[i], gentape, n, ERROR_TAPE),
+               h = handscan((const uint8_t *)bad[i], n, handtape, ERROR_TAPE);
 
     if (g.written != h.written || g.status != h.status ||
         g.position != h.position || g.status == SCAN_OK) {
@@ -609,14 +609,14 @@ int main (int argc, char **argv) {
       size_t size = sizes[s];
       char *doc = malloc(size + 64);
       size_t n = build(doc, size, kind);
-      uint32_t *genTape = malloc(sizeof(uint32_t) * (n + 1)),
-               *handTape = malloc(sizeof(uint32_t) * (n + 1));
-      ScanResult g = generated((const uint8_t *)doc, genTape, n, n),
-                 h = hand_scan((const uint8_t *)doc, n, handTape, n);
+      uint32_t *gentape = malloc(sizeof(uint32_t) * (n + 1)),
+               *handtape = malloc(sizeof(uint32_t) * (n + 1));
+      ScanResult g = generated((const uint8_t *)doc, gentape, n, n),
+                 h = handscan((const uint8_t *)doc, n, handtape, n);
 
       if (g.written != h.written || g.status != h.status ||
           g.position != h.position ||
-          memcmp(genTape, handTape, sizeof(uint32_t) * g.written)) {
+          memcmp(gentape, handtape, sizeof(uint32_t) * g.written)) {
         printf("MISMATCH %s %zu: %u/%u/%u vs %u/%u/%u\n", names[kind], n,
                g.written, g.status, g.position, h.written, h.status,
                h.position);
@@ -643,10 +643,10 @@ int main (int argc, char **argv) {
 
           for (size_t c = 0; c < calls; c++) {
             if (which == 0) {
-              generated((const uint8_t *)doc, genTape, n, n);
+              generated((const uint8_t *)doc, gentape, n, n);
             }
             else {
-              hand_scan((const uint8_t *)doc, n, handTape, n);
+              handscan((const uint8_t *)doc, n, handtape, n);
             }
 
             __asm__ volatile("" ::: "memory");
@@ -664,8 +664,8 @@ int main (int argc, char **argv) {
              "gen/hand %.3fx\n",
              names[kind], n, g.written, best[0], best[1], best[0] / best[1]);
       free(doc);
-      free(genTape);
-      free(handTape);
+      free(gentape);
+      free(handtape);
     }
   }
 
