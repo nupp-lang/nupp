@@ -1002,6 +1002,17 @@ export function forVersion(version: integer): any
 
             return {receiver = operands[1], index = operands[2], kind = "tagged", indexed = access}
         end
+        profile.readAssignment = function(ctx: any, node: any, target: any): integer
+            local receiver = ctx.readHeld(target.heldReceiver)
+            if target.structField then
+                return taggedstructs.read(ctx, node, target.structField, receiver) as integer
+            elseif target.structElement then
+                return receiver
+            end
+            need(target.indexed == nil, "compound span assignment needs a checked getter and setter")
+
+            return ctx.emit(node, "GetIdx", {receiver, ctx.readHeld(target.heldIndex)}, "tagged") as integer
+        end
         profile.assignTarget = function(ctx: any, node: any, target: any, receiver: integer, value: integer): nil
             if target.structField then
                 taggedstructs.assign(ctx, node, target, receiver, value)

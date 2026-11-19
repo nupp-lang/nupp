@@ -279,8 +279,8 @@ local function store(ctx: any, node: any, object: integer, field: any, value: in
 end
 
 -- `obj.name` of a struct.
-export function read(ctx: any, node: any, field: any): integer?
-    local object = ctx.expression(node.obj, "tagged")
+export function read(ctx: any, node: any, field: any, receiver: integer?): integer?
+    local object = receiver or ctx.expression(node.obj, "tagged")
     if object == nil then
         return nil
     end

@@ -643,7 +643,14 @@ local function compileOwner(fn: any, options: any, profile: any, site: any): any
         end
     end
 
+    -- The address and previous value of a compound or guarded destination
+    -- survive any calls and branches while the right operand runs.
+    local heldExpressions: {[any]: any} = {}
     expression = function(node: any, expected: string?): integer?
+        local held = heldExpressions[node]
+        if held ~= nil then
+            return ctx.readHeld(held)
+        end
         local outer = lowering(node)
         local value = expressionBody(node, expected)
         if not block then
@@ -1582,6 +1589,48 @@ local function compileOwner(fn: any, options: any, profile: any, site: any): any
         end
     end
 
+    local function guardedTarget(node: any): boolean
+        return node.kind == "safeIndex" or node.kind == "safeBracket"
+    end
+
+    local function releaseTarget(target: any): nil
+        if target.heldIndex then
+            ctx.release(target.heldIndex)
+        end
+        if target.heldReceiver then
+            ctx.release(target.heldReceiver)
+        end
+    end
+
+    local function whenTargetPresent(node: any, assign: function(any): nil): nil
+        local receiver = expression(node.obj, "tagged")
+        if not block then
+            return
+        end
+        local held = ctx.hold(need(receiver, "guarded assignment lacks its receiver"))
+        local absent = invoke("isNil", node, ctx.readHeld(held))
+        local present = ctx.emit(node, "Not", {absent}, profile.booleanKind)
+        ctx.when(
+            node,
+            present,
+            function(): nil
+                local plain = {}
+                for key, value in pairs(node) do
+                    plain[key] = value
+                end
+                plain.kind = node.kind == "safeIndex" and "dotIndex" or "bracketIndex"
+                local previous = heldExpressions[node.obj]
+                heldExpressions[node.obj] = held
+                assign(plain)
+                heldExpressions[node.obj] = previous
+                context()
+            end,
+            true
+        )
+        block = ctx.block
+        ctx.release(held)
+    end
+
     statements = function(stats: any): nil
         if block and profile.recordBindings then
             invoke("recordBindings", stats, nil)
@@ -1718,6 +1767,14 @@ local function compileOwner(fn: any, options: any, profile: any, site: any): any
                 if profile.cleanupRegistrations and block then
                     invoke("cleanupRegistrations", stat, value)
                 end
+            elseif stat.kind == "assignStmt"
+                and profile.readAssignment
+                and #stat.targets == 1
+                and guardedTarget(stat.targets[1])
+            then
+                whenTargetPresent(stat.targets[1], function(target: any): nil
+                    statements({{kind = "assignStmt", targets = {target}, exprs = stat.exprs, stat}})
+                end)
             elseif stat.kind == "assignStmt" then
                 local spread, spreadValues = spreadCall(stat.exprs, #stat.targets), nil
                 need(
@@ -1738,9 +1795,7 @@ local function compileOwner(fn: any, options: any, profile: any, site: any): any
                         local prepared = invoke("assignmentTarget", target, stat.exprs[index])
                         if not block then
                             for _, old in ipairs(targets) do
-                                if old.heldReceiver then
-                                    ctx.release(old.heldReceiver)
-                                end
+                                releaseTarget(old)
                             end
                             finishTemporaries(statementDepth, stat)
                             return
@@ -1760,6 +1815,17 @@ local function compileOwner(fn: any, options: any, profile: any, site: any): any
                             spreadValues = profile.callResults(ctx, stat.exprs[index], spread)
                         end
                         value = spreadValues and spreadValues[index - #stat.exprs + 1]
+                    elseif stat.compound and target.heldReceiver then
+                        local original = stat.exprs[index].lhs
+                        context()
+                        local read = profile.readAssignment(ctx, stat.targets[index], target)
+                        block = ctx.block
+                        local held = ctx.hold(read)
+                        local previous = heldExpressions[original]
+                        heldExpressions[original] = held
+                        value = expression(stat.exprs[index], target.kind)
+                        heldExpressions[original] = previous
+                        ctx.release(held)
                     else
                         value = expression(stat.exprs[index], target.kind)
                     end
@@ -1768,9 +1834,7 @@ local function compileOwner(fn: any, options: any, profile: any, site: any): any
                             ctx.release(values[previous])
                         end
                         for _, old in ipairs(targets) do
-                            if old.heldReceiver then
-                                ctx.release(old.heldReceiver)
-                            end
+                            releaseTarget(old)
                         end
                         finishTemporaries(statementDepth, stat)
                         return
@@ -1811,12 +1875,7 @@ local function compileOwner(fn: any, options: any, profile: any, site: any): any
                     ctx.release(values[index])
                 end
                 for index = #targets, 1, -1 do
-                    if targets[index].heldReceiver then
-                        ctx.release(targets[index].heldReceiver)
-                    end
-                    if targets[index].heldIndex then
-                        ctx.release(targets[index].heldIndex)
-                    end
+                    releaseTarget(targets[index])
                 end
             elseif stat.kind == "callStmt" then
                 invoke("statementCall", stat.expr, nil)
@@ -2260,6 +2319,30 @@ local function compileOwner(fn: any, options: any, profile: any, site: any): any
                     cleanupReturn(stat, false)
                 else
                     invoke("returnStatement", stat, nil)
+                end
+            elseif stat.kind == "compoundAssign" and profile.readAssignment then
+                local operation = stat.compoundOperation
+                if operation == nil and stat.op.text == "??=" then
+                    operation = {
+                        kind = "binop",
+                        op = {text = "??"},
+                        lhs = stat.target,
+                        rhs = stat.value,
+                        inferredType = stat.target.inferredType,
+                        stat.target,
+                        stat.value
+                    }
+                end
+                need(operation, "compound assignment lacks its checked operation")
+
+                local function assign(target: any): nil
+                    statements({{kind = "assignStmt", targets = {target}, exprs = {operation}, compound = true, stat}})
+                end
+
+                if guardedTarget(stat.target) then
+                    whenTargetPresent(stat.target, assign)
+                else
+                    assign(stat.target)
                 end
             elseif stat.kind == "compoundAssign" then
                 -- `t op= v` is `t = t op v` with the operation the checker
