@@ -194,7 +194,7 @@ flags() {
         native/core-bridge/uv.c | native/core-bridge/process.c | tests/core/uv-contracts.c)
             echo "-pthread -isystem $(libuv)/include"
             ;;
-        native/core-bridge/tcp.* | tests/core/tcpcontracts.c)
+        native/core-bridge/tcp.* | tests/core/tcpcontracts.c | tests/core/tcplifecycleproof.c)
             echo "-pthread -D_GNU_SOURCE=1 -I$ROOT/native/core-bridge -isystem $(libuv)/include"
             ;;
         tests/core/process-contracts.c) echo "-pthread -I$ROOT/native/core-bridge" ;;

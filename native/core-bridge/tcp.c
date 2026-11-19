@@ -11,7 +11,12 @@
 #include <stdlib.h>
 #include <string.h>
 
-enum { WINDOW = 16384 };
+/* The proof bounds the backing arrays while exercising the same operations. */
+#ifndef NUPP_TCP_WINDOW_BYTES
+#define NUPP_TCP_WINDOW_BYTES 16384
+#endif
+
+enum { WINDOW = NUPP_TCP_WINDOW_BYTES };
 
 struct NuppTcp {
   uv_tcp_t stream;
