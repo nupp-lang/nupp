@@ -8,9 +8,9 @@ local M = {}
 
 M.PLATFORMS = {"x86_64-unknown-linux-gnu", "aarch64-apple-darwin", "x86_64-pc-windows-msvc",}
 
---- What a binary build for a selected platform is refused with: a binary is a
---- VM program for the machine building it.
-M.REFUSAL = "VM programs for another platform are not available"
+--- What a binary build for a selected platform is refused with: a binary builds
+--- for the machine building it.
+M.REFUSAL = "a binary builds for the machine building it"
 
 --- Runs `body` with a binary project configuring every platform in `PLATFORMS`.
 function M.withProject(body)
