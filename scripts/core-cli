@@ -19,10 +19,10 @@
 #
 # A checkout with none builds one from these sources. On a flipped host the
 # pinned core seed builds it (`scripts/toolchain stage0-seed`). An installed
-# generation is kept as the builder until the seed pin changes, so edits keep
-# the same compiler's piece store. Before the pin,
-# under NUPP_RUNTIME=core, the VM compiler bin/nupp runs builds it and rebuilds
-# it (`nupp __core-compiler`): the VM is the bootstrap step and nothing else.
+# generation is kept as the builder on hosts with a pinned core seed,
+# including under NUPP_RUNTIME=core before the flip, so edits keep the same
+# compiler's piece store. The VM bootstraps an opt-in checkout and supplies
+# rebuilds on hosts without a pinned core seed.
 # Either way the build goes through scripts/core-self-build or that command.
 # A rebuild that fails leaves the previous generation selected and says so;
 # with no generation at all, the command fails.
@@ -333,7 +333,9 @@ build_with_vm() {
 # Name the host's pinned seed by its digest, without fetching it on an edit.
 seed_pin() {
     host_key=$(sh "$ROOT/scripts/stage0-runtime" --host | tr '[:lower:]-' '[:upper:]_')
-    sed -n "s/^STAGE0_CORE_SHA256_${host_key}=//p" "$ROOT/scripts/toolchain.pins" 2>/dev/null | digest_stdin
+    pinned=$(sed -n "s/^STAGE0_CORE_SHA256_${host_key}=//p" "$ROOT/scripts/toolchain.pins" 2>/dev/null)
+    [ -n "$pinned" ] || return 1
+    printf '%s\n' "$pinned" | digest_stdin
 }
 
 remember_builder() {
@@ -344,18 +346,21 @@ remember_builder() {
 # Keep an immutable builder so the code that owns a piece key stays the same
 # over multiple edits. A new seed pin bootstraps a new builder on its first edit.
 rebuild() {
-    if ! flipped; then
+    if ! anchor_pin=$(seed_pin); then
+        if flipped; then
+            note "the host's core seed digest is unavailable"
+            return 1
+        fi
         build_with_vm
         return
     fi
-    anchor_pin=$(seed_pin)
     anchor_generation=
     previous_pin=
     if [ -r "$CLI/builder" ]; then
         read -r previous_pin anchor_generation < "$CLI/builder" || anchor_generation=
     fi
     if [ -n "$previous_pin" ] && [ "$previous_pin" != "$anchor_pin" ]; then
-        anchor_seed=$(sh "$ROOT/scripts/toolchain" stage0-seed) || return 1
+        anchor_seed=$(sh "$ROOT/scripts/toolchain" core-seed) || return 1
         build_with "$anchor_seed/runtime" "$anchor_seed/compiler.bundle" || return 1
         remember_builder "$anchor_pin" "$(selected)"
         return

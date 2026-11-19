@@ -39,9 +39,10 @@ fi
 # bootstrap from the VM seed -- is reached. There is no fallback to it, so a
 # VM compiler selected by the environment is refused rather than run.
 #
-# Before the pin, NUPP_RUNTIME=core asks for the same anywhere the core runs,
-# and the VM compiler below is then only what builds the core one
-# (scripts/core-cli runs it as NUPP_RUNTIME=vm). Unset, or `vm`, it is the VM.
+# Before the flip, NUPP_RUNTIME=core selects it on a supported host.
+# The VM supplies the initial compiler in an opt-in checkout. A host with a
+# pinned core seed then rebuilds with the installed core compiler. With
+# NUPP_RUNTIME unset or set to `vm`, this launcher runs the VM.
 if [ "$(sh "$ROOT/scripts/stage0-runtime")" = core ]; then
     if [ -n "${NUPP_VM_CLI_IMAGE:-}" ]; then
         echo "nupp: NUPP_VM_CLI_IMAGE selects a VM compiler, and this host runs on the native core" >&2

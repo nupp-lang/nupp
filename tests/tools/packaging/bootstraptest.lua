@@ -355,14 +355,19 @@ function M.coreCompilerGenerationsAreSharedBySources()
     plant("runtime", CORE_RUNTIME, "755")
     plant("seed.bundle", "NUPPCORE seed")
     for _, checkout in ipairs({"a", "b"}) do
+        plant(checkout .. "/bin/nupp", assert(readFile(ROOT .. "/bin/nupp")), "755")
         plant(checkout .. "/scripts/core-cli", assert(readFile(ROOT .. "/scripts/core-cli")), "755")
         plant(checkout .. "/scripts/lock-owner", assert(readFile(ROOT .. "/scripts/lock-owner")), "755")
-        -- A host the pins flip, so the compiler it has rebuilds it.
-        plant(checkout .. "/scripts/stage0-runtime", "#!/bin/sh\necho core\n", "755")
-        plant(checkout .. "/scripts/toolchain.pins", "STAGE0_CORE_SHA256_CORE=first\n")
+        local runtime = checkout == "a" and "core" or "vm"
+        plant(
+            checkout .. "/scripts/stage0-runtime",
+            ("#!/bin/sh\nif [ \"$1\" = --host ]; then echo aarch64-apple-darwin; else echo %s; fi\n"):format(runtime),
+            "755"
+        )
+        plant(checkout .. "/scripts/toolchain.pins", "STAGE0_CORE_SHA256_AARCH64_APPLE_DARWIN=first\n")
         plant(
             checkout .. "/scripts/toolchain",
-            ("#!/bin/sh\n[ \"$1\" = stage0-seed ] && echo %q\n"):format(dir .. "/seed"),
+            ("#!/bin/sh\n[ \"$1\" = core-seed ] && echo %q\n"):format(dir .. "/seed"),
             "755"
         )
         plant(checkout .. "/scripts/core-self-build", selfBuild, "755")
@@ -372,8 +377,15 @@ function M.coreCompilerGenerationsAreSharedBySources()
     end
 
     local function cli(checkout, arguments)
+        local command = "scripts/core-cli"
+        if arguments:sub(1, 4) == "run " then
+            command, arguments = "bin/nupp", arguments:sub(5)
+        end
+
         return capture(
-            ("NUPP_CORE_CLI_STORE='%s/store' sh '%s/%s/scripts/core-cli' %s 2>&1"):format(dir, dir, checkout, arguments)
+            (
+                "%s NUPP_RUNTIME=core NUPP_CORE_AUTO_REBUILD=1 NUPP_CORE_CLI_STORE='%s/store' sh '%s/%s/%s' %s 2>&1"
+            ):format(NO_VM_CLI, dir, dir, checkout, command, arguments)
         )
     end
 
@@ -419,7 +431,7 @@ function M.coreCompilerGenerationsAreSharedBySources()
         plant("seed/runtime", CORE_RUNTIME, "755")
         plant("seed/compiler.bundle", "NUPPCORE second seed")
         os.execute("sleep 1")
-        plant("b/scripts/toolchain.pins", "STAGE0_CORE_SHA256_CORE=second\n")
+        plant("b/scripts/toolchain.pins", "STAGE0_CORE_SHA256_AARCH64_APPLE_DARWIN=second\n")
         cli("b", "run version")
         assert(builds() == 5, "a new pin bootstraps one generation")
         assert(assert(readFile(dir .. "/builders")):match("([^\n]+)\n$") == dir .. "/seed/compiler.bundle")
