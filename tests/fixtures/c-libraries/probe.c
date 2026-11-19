@@ -181,7 +181,8 @@ int main (void) {
   assert(!strcmp(zlibVersion(), ZLIB_VERSION) &&
          !strcmp(ZLIB_VERSION, EXPECTED_ZLIB_VERSION));
   assert(OpenSSL_version_num() == OPENSSL_VERSION_NUMBER);
-  assert(OPENSSL_VERSION_NUMBER == EXPECTED_OPENSSL_VERSION_NUMBER);
+  static_assert(OPENSSL_VERSION_NUMBER == EXPECTED_OPENSSL_VERSION_NUMBER,
+                "the headers are the pinned OpenSSL's");
   assert(curl_global_init(CURL_GLOBAL_DEFAULT) == CURLE_OK);
   const curl_version_info_data *version = curl_version_info(CURLVERSION_NOW);
   assert(version && version->version_num == LIBCURL_VERSION_NUM);

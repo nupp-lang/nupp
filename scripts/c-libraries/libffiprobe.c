@@ -60,7 +60,8 @@ static int32_t add (int32_t a, int32_t b) {
  * of a narrower integer result. */
 static void callback (ffi_cif *cif, void *result, void **args, void *data) {
   (void)cif;
-  *(ffi_arg *)result = (ffi_arg)(*(int32_t *)args[0] + *(int32_t *)data);
+  int32_t sum = *(int32_t *)args[0] + *(int32_t *)data;
+  *(ffi_sarg *)result = sum;
 }
 
 /* The line the build scripts read: the version and the sizes of the

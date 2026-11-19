@@ -56,4 +56,6 @@ uint64_t crc64_rocksoft_refl_pmull (uint64_t, const uint8_t *, uint64_t);
 
 #endif
 
-#include "../../../../native/crc/crc.c"
+/* The adapter's own source, which is the point: it is compiled here under
+ * the definitions above rather than linked. */
+#include "../../../../native/crc/crc.c" /* NOLINT(bugprone-suspicious-include) */
