@@ -102,6 +102,33 @@ static int64_t win64_open_poller (void) {
   return nupp_uv_open(-1);
 }
 
+static int64_t win64_file_read (int64_t descriptor, void *bytes,
+                                uint64_t count) {
+  /* Completions are taken directly from the queue on Windows. The guest's
+   * drain of the readiness key has no kernel wake bytes to consume. */
+  if (descriptor == NUPP_UV_FILE_COMPLETION) {
+    return 0;
+  }
+
+  if (!nupp_uv_valid_file(descriptor) || count > INT_MAX) {
+    errno = count > INT_MAX ? EINVAL : EBADF;
+
+    return -1;
+  }
+
+  return _read((int)descriptor, bytes, (unsigned)count);
+}
+
+static int win64_file_close (int64_t descriptor) {
+  if (!nupp_uv_valid_file(descriptor)) {
+    errno = EBADF;
+
+    return -1;
+  }
+
+  return _close((int)descriptor);
+}
+
 /* dlerror reports the last unread loader failure on this thread. The guest
  * finds this function through the existing symbol slot and process handle. */
 static _Thread_local const char *loader_error;
@@ -165,27 +192,43 @@ void nupp_core_retain_guest_backing (void);
 int nupp_http_scope_detach (void *scope);
 #endif
 
+static void *find_linked_crt (const char *name) {
+  /* A constant table can contain PE import thunks. Resolve each expression
+   * at runtime to retain the address the bridge's linked CRT actually uses. */
+#define LINKED_CRT(function)                                                   \
+  if (!strcmp(name, #function)) {                                              \
+    return (void *)(uintptr_t)function;                                        \
+  }
+  LINKED_CRT(calloc)
+  LINKED_CRT(free)
+  LINKED_CRT(getenv)
+  LINKED_CRT(malloc)
+  LINKED_CRT(memchr)
+  LINKED_CRT(memcpy)
+  LINKED_CRT(strerror)
+  LINKED_CRT(strlen)
+#undef LINKED_CRT
+
+  return NULL;
+}
+
 static void *find_symbol (void *library, const char *name) {
   if (library && library == GetModuleHandleW(NULL)) {
     /* Bind guest self imports to this executable's linked CRT. Named
      * libraries resolve only their own exports. */
-    /* Resolve the CRT import expression at runtime. GCC can otherwise
-     * materialize its import thunk in the constant table. */
-    if (!strcmp(name, "strerror")) {
-      return (void *)(uintptr_t)strerror;
+    void *crt = find_linked_crt(name);
+
+    if (crt) {
+      return crt;
     }
 
     const struct {
       const char *name;
       void (*address)(void);
     } self_symbols[] = {
-        {"calloc", (void (*)(void))calloc},
+        {"__error", (void (*)(void))_errno},
+        {"close", (void (*)(void))win64_file_close},
         {"dlerror", (void (*)(void))take_loader_error},
-        {"free", (void (*)(void))free},
-        {"getenv", (void (*)(void))getenv},
-        {"malloc", (void (*)(void))malloc},
-        {"memchr", (void (*)(void))memchr},
-        {"memcpy", (void (*)(void))memcpy},
         {"nupp_core_map_pages", (void (*)(void))win64_map_pages},
         {"nupp_core_monotonic_nanos", (void (*)(void))uv_hrtime},
         {"nupp_core_open_poller", (void (*)(void))win64_open_poller},
@@ -196,11 +239,14 @@ static void *find_symbol (void *library, const char *name) {
 #ifndef NUPP_CORE_HTTP
         {"nupp_http_scope_detach", (void (*)(void))nupp_http_scope_detach},
 #endif
+        {"nupp_uv_arm", (void (*)(void))nupp_uv_arm},
         {"nupp_uv_close", (void (*)(void))nupp_uv_close},
+        {"nupp_uv_open", (void (*)(void))nupp_uv_open},
         {"nupp_uv_owner_active", (void (*)(void))nupp_uv_owner_active},
+        {"nupp_uv_preserve_file", (void (*)(void))nupp_uv_preserve_file},
         {"nupp_uv_wait", (void (*)(void))nupp_uv_wait},
         {"nupp_uv_wait_owner", (void (*)(void))nupp_uv_wait_owner},
-        {"strlen", (void (*)(void))strlen},
+        {"read", (void (*)(void))win64_file_read},
     };
 
     for (size_t i = 0; i < sizeof(self_symbols) / sizeof(self_symbols[0]);

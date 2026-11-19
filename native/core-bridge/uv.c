@@ -61,6 +61,9 @@ struct Poller {
   PollTarget target;
   Subscription *subscriptions;
   Poller *next;
+#ifdef _WIN32
+  int file_completion;
+#endif
 };
 
 struct Timer {
@@ -129,6 +132,43 @@ enum {
 static uint64_t failed (int error) {
   return (uint64_t)-(int64_t)error;
 }
+
+#ifdef _WIN32
+#ifdef _MSC_VER
+static void __cdecl ignore_invalid_file_parameter (const wchar_t *expression,
+                                                   const wchar_t *function,
+                                                   const wchar_t *file,
+                                                   unsigned int line,
+                                                   uintptr_t reserved) {
+  (void)expression;
+  (void)function;
+  (void)file;
+  (void)line;
+  (void)reserved;
+}
+#endif
+
+int nupp_uv_valid_file (int64_t descriptor) {
+  if (descriptor < 0 || descriptor > INT_MAX) {
+    return 0;
+  }
+
+  /* MSVC's release CRT can terminate on a recycled fd. Install a
+   * thread-local handler only for the non-owning descriptor lookup. */
+#ifdef _MSC_VER
+  _invalid_parameter_handler previous =
+      _set_thread_local_invalid_parameter_handler(
+          ignore_invalid_file_parameter);
+#endif
+  uintptr_t handle = (uintptr_t)uv_get_osfhandle((int)descriptor);
+#ifdef _MSC_VER
+  _set_thread_local_invalid_parameter_handler(previous);
+#endif
+
+  return handle && handle < UINTPTR_MAX - 1;
+}
+
+#endif
 
 static void close_descriptor (int fd) {
 #ifdef _WIN32
@@ -527,6 +567,24 @@ int64_t nupp_uv_arm (uint64_t token, int64_t fd, uint64_t interest) {
     return -EBADF;
   }
 
+#ifdef _WIN32
+
+  if (fd == NUPP_UV_FILE_COMPLETION && service->active_limit) {
+    if (interest > 1) {
+      return -EINVAL;
+    }
+
+    if (interest && service->shutting_down) {
+      return -ECANCELED;
+    }
+
+    p->file_completion = (int)interest;
+
+    return 0;
+  }
+
+#endif
+
   if (fd < 0 || fd > INT_MAX || interest > 3) {
     return -EINVAL;
   }
@@ -889,10 +947,8 @@ static void dispose (Job **at) {
   free(job);
 }
 
-static void completed (uv_fs_t *request) {
-  Job *job = request->data;
-  job->result = request->result;
-  uv_fs_req_cleanup(request);
+static void finish_job (Job *job, int64_t result) {
+  job->result = result;
   /* The ticket owns its duplicate and bytes until dispose at collection. */
   service->active_jobs--;
   job->done = 1;
@@ -909,13 +965,94 @@ static void completed (uv_fs_t *request) {
 #endif
 }
 
+static void completed (uv_fs_t *request) {
+  Job *job = request->data;
+  int64_t result = request->result;
+  uv_fs_req_cleanup(request);
+
+#ifdef _WIN32
+
+  /* Libuv's negative Windows errors use a separate numbering scheme from
+   * the CRT errors the guest's file layer reports. */
+  if (result < 0) {
+    switch (result) {
+      case UV_EACCES:
+        result = -EACCES;
+        break;
+      case UV_EAGAIN:
+        result = -EAGAIN;
+        break;
+      case UV_EBADF:
+        result = -EBADF;
+        break;
+      case UV_EBUSY:
+        result = -EBUSY;
+        break;
+      case UV_ECANCELED:
+        result = -ECANCELED;
+        break;
+      case UV_EEXIST:
+        result = -EEXIST;
+        break;
+      case UV_EINVAL:
+        result = -EINVAL;
+        break;
+      case UV_EISDIR:
+        result = -EISDIR;
+        break;
+      case UV_EMFILE:
+        result = -EMFILE;
+        break;
+      case UV_ENAMETOOLONG:
+        result = -ENAMETOOLONG;
+        break;
+      case UV_ENOENT:
+        result = -ENOENT;
+        break;
+      case UV_ENOMEM:
+        result = -ENOMEM;
+        break;
+      case UV_ENOSPC:
+        result = -ENOSPC;
+        break;
+      case UV_ENOTDIR:
+        result = -ENOTDIR;
+        break;
+      case UV_EPERM:
+        result = -EPERM;
+        break;
+      case UV_EPIPE:
+        result = -EPIPE;
+        break;
+      default:
+        result = -EIO;
+        break;
+    }
+  }
+
+#endif
+  finish_job(job, result);
+}
+
 static void hold_descriptor (Job *job) {
   if (job->kind == 1 || job->descriptor >= 0 || job->descriptor_error) {
     return;
   }
 
 #ifdef _WIN32
-  job->descriptor_error = ENOSYS;
+
+  if (!nupp_uv_valid_file((int64_t)job->word)) {
+    job->descriptor_error = EBADF;
+
+    return;
+  }
+
+  job->descriptor = _dup((int)job->word);
+
+  if (job->descriptor < 0) {
+    job->descriptor_error = errno;
+  }
+
 #else
 
   do {
@@ -939,6 +1076,49 @@ void nupp_uv_preserve_file (uint64_t descriptor) {
   }
 }
 
+#ifdef _WIN32
+/* The pool import transports the flags already issued by hostfiles.nupp.
+ * Translate its Darwin values before passing them to the Windows libuv ABI. */
+static int file_open_flags (uint32_t flags) {
+  enum {
+    ACCESS = 0x3,
+    APPEND = 0x8,
+    CREATE = 0x200,
+    TRUNCATE = 0x400,
+    EXCLUSIVE = 0x800,
+    CLOSE_ON_EXEC = 0x1000000
+  };
+
+  if ((flags &
+       ~(ACCESS | APPEND | CREATE | TRUNCATE | EXCLUSIVE | CLOSE_ON_EXEC)) ||
+      (flags & ACCESS) == ACCESS) {
+    return -ENOTSUP;
+  }
+
+  static const int access[] = {UV_FS_O_RDONLY, UV_FS_O_WRONLY, UV_FS_O_RDWR};
+  int result = access[flags & ACCESS] | _O_BINARY;
+
+  if (flags & APPEND) {
+    result |= UV_FS_O_APPEND;
+  }
+
+  if (flags & CREATE) {
+    result |= UV_FS_O_CREAT;
+  }
+
+  if (flags & TRUNCATE) {
+    result |= UV_FS_O_TRUNC;
+  }
+
+  if (flags & EXCLUSIVE) {
+    result |= UV_FS_O_EXCL;
+  }
+
+  return result;
+}
+
+#endif
+
 static void submit_jobs (void) {
   for (Job *job = service->jobs; job; job = job->next) {
     if (service->active_jobs == service->active_limit) {
@@ -956,12 +1136,25 @@ static void submit_jobs (void) {
     int status;
 
     if (job->descriptor_error) {
-      status = -job->descriptor_error;
+      finish_job(job, -job->descriptor_error);
+      continue;
     }
-    else if (job->kind == 1) {
+
+    if (job->kind == 1) {
+      int flags = (int)(uint32_t)job->word;
+
+#ifdef _WIN32
+      flags = file_open_flags((uint32_t)job->word);
+
+      if (flags < 0) {
+        finish_job(job, flags);
+        continue;
+      }
+
+#endif
+
       status = uv_fs_open(&service->loop, &job->request, (char *)job->bytes,
-                          (int)(uint32_t)job->word, (int)(job->word >> 32),
-                          completed);
+                          flags, (int)(job->word >> 32), completed);
     }
     else if (job->kind == 2) {
       status = uv_fs_read(&service->loop, &job->request, job->descriptor,
@@ -1041,6 +1234,14 @@ int nupp_uv_owner_active (void) {
 }
 
 static int poller_ready (Poller *poller) {
+#ifdef _WIN32
+
+  if (poller->file_completion && service->finished) {
+    return 1;
+  }
+
+#endif
+
   for (Subscription *s = poller->subscriptions; s; s = s->next) {
     if (s->ready) {
       return 1;
@@ -1119,7 +1320,16 @@ int nupp_uv_nowait (void) {
 }
 
 static int64_t event (Poller *p) {
-#ifndef _WIN32
+#ifdef _WIN32
+
+  if (p->file_completion && service->finished) {
+    p->file_completion = 0;
+
+    return (NUPP_UV_FILE_COMPLETION << 5) | 1;
+  }
+
+#else
+
   int64_t child = nupp_process_event(p->token);
 
   if (child) {
@@ -1227,14 +1437,6 @@ int64_t nupp_uv_close (uint64_t token) {
 }
 
 uint64_t nuppiostart (uint64_t threads) {
-#ifdef _WIN32
-  /* The Windows broker admits sockets only until file completion wakeup is
-   * available. A CRT pipe cannot be used as a Winsock poll target. */
-  (void)threads;
-
-  return failed(ENOSYS);
-#else
-
   if (!threads || threads > 64) {
     return failed(EINVAL);
   }
@@ -1244,6 +1446,15 @@ uint64_t nuppiostart (uint64_t threads) {
   if (status) {
     return (uint64_t)(int64_t)status;
   }
+
+#ifdef _WIN32
+
+  if (!service->active_limit) {
+    service->active_limit = (size_t)threads;
+  }
+
+  return NUPP_UV_FILE_COMPLETION;
+#else
 
   if (service->wake[0] >= 0) {
     return (uint64_t)service->wake[0];
@@ -1287,7 +1498,7 @@ uint64_t nuppiosubmit (uint64_t kind, uint64_t word, uint64_t base,
     return failed(EFAULT);
   }
 
-  if (!service || service->wake[0] < 0) {
+  if (!service || !service->active_limit) {
     return failed(EINVAL);
   }
 

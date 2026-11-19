@@ -35,15 +35,15 @@ if [ "$win64_mode" = --win64-contracts ] || [ "$win64_mode" = --win64-http-link 
         die 'Win64 contracts require the x64 Visual Studio developer environment'
     command -v clang > /dev/null || die 'Win64 contracts require clang'
     command -v cl > /dev/null || die 'Win64 contracts require the MSVC SDK compiler'
-    if [ "$win64_mode" = --win64-http-link ]; then
-        # Git Bash places its POSIX link command ahead of Visual Studio.
-        if [ -n "${VCToolsInstallDir:-}" ]; then
-            msvc_bin="$(cygpath -u "$VCToolsInstallDir")/bin/Hostx64/x64"
-            if [ -x "$msvc_bin/link.exe" ]; then
-                PATH="$msvc_bin:$PATH"
-                export PATH
-            fi
+    # Git Bash places its POSIX link command ahead of Visual Studio.
+    if [ -n "${VCToolsInstallDir:-}" ]; then
+        msvc_bin="$(cygpath -u "$VCToolsInstallDir")/bin/Hostx64/x64"
+        if [ -x "$msvc_bin/link.exe" ]; then
+            PATH="$msvc_bin:$PATH"
+            export PATH
         fi
+    fi
+    if [ "$win64_mode" = --win64-http-link ]; then
         . "$ROOT/scripts/core-http-windows-sdk.sh"
     fi
     uv=$(NUPP_NATIVE_TARGET=x86_64-pc-windows-msvc NUPP_CC=cl \
@@ -58,7 +58,11 @@ if [ "$win64_mode" = --win64-contracts ] || [ "$win64_mode" = --win64-http-link 
     uv_native=$(cygpath -m "$uv")
     stage_native=$(cygpath -m "$stage")
     compile_win64() {
+        # uv_fs_open and the bridge exchange CRT descriptors. Match the
+        # runtime used by uv.dll so both use one descriptor table. Override
+        # the clang driver's static CRT default at the linker as well.
         clang --target=x86_64-pc-windows-msvc -std=c11 -O2 -Wall -Wextra -Werror \
+            -fms-runtime-lib=dll -Xlinker -NODEFAULTLIB:libcmt \
             -D_CRT_SECURE_NO_WARNINGS -DUSING_UV_SHARED=1 -I"$uv_native/include" "$@" \
             "$uv_native/lib/uv.lib" -lws2_32
     }

@@ -2,6 +2,12 @@
 #define NUPP_CORE_REACTOR_H
 #include <stdint.h>
 
+#ifdef _WIN32
+/* The one-shot file completion event uses a key outside the CRT fd range. */
+#define NUPP_UV_FILE_COMPLETION INT64_C(0x100000000)
+int nupp_uv_valid_file (int64_t descriptor);
+#endif
+
 /* The packet's six I/O imports use the same calling contract as transport.h. */
 uint64_t nuppiostart (uint64_t threads);
 uint64_t nuppiosubmit (uint64_t kind, uint64_t word, uint64_t base,
