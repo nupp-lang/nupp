@@ -377,7 +377,6 @@ function M.proofsRequireCoveredCChanges()
         selects(path, {"proofs"})
     end
     for _, path in ipairs({
-        "native/core-bridge/tcp.c",
         "native/markdown/CMakeLists.txt",
         "tests/core/proofs.nupp",
         ".github/workflows/compiler.yml",
@@ -387,6 +386,40 @@ function M.proofsRequireCoveredCChanges()
         doesNotSelect(path, {"proofs"})
     end
     test(jobsFor("AGENTS.md", "tests/core/replyheadersproof.c").proofs)
+end
+
+function M.libuvProofsRunForTheirOwnCInputs()
+    local classify = classifier().classify
+
+    local function picked(...)
+        return table.concat(classify({...}).proofs, " ")
+    end
+
+    for _, path in ipairs({
+        "native/core-bridge/uv.c",
+        "native/core-bridge/filetickets.h",
+        "tests/core/fileticketproof.c"
+    }) do
+        test.eq(picked(path), "file-io-tickets")
+        selects(path, {"proofs"})
+    end
+
+    for _, path in ipairs({
+        "native/core-bridge/tcp.c",
+        "native/core-bridge/tcp.h",
+        "tests/core/tcplifecycleproof.c",
+        "tests/core/tcpmodel/uv.h"
+    }) do
+        test.eq(picked(path), "tcp-lifecycle")
+        selects(path, {"proofs"})
+    end
+
+    test.eq(picked("native/core-bridge/uv.c", "native/core-bridge/tcp.c"), "file-io-tickets tcp-lifecycle")
+    local original = "bundle-header http-response-headers markdown-allocator ring-buffer"
+    test.eq(picked("native/http-curl/transport.c"), original)
+    test.eq(picked("native/core-bridge/reactor.h"), original .. " file-io-tickets")
+    test.eq(picked("tests/core/proofintrinsics.h"), original .. " file-io-tickets tcp-lifecycle")
+    test.eq(picked("native/core-bridge/process.c", "tests/core/proofs.nupp"), "")
 end
 
 function M.documentationOnlyChangesProvisionNoPlatform()

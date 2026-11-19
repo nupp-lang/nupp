@@ -111,6 +111,7 @@ jobs:
       gpu-windows: ${{ steps.classify.outputs.gpu-windows }}
       fixpoint: ${{ steps.classify.outputs.fixpoint }}
       proofs: ${{ steps.classify.outputs.proofs }}
+      proof-names: ${{ steps.classify.outputs.proof-names }}
       linux-legs: ${{ steps.matrix.outputs.linux-legs }}
       macos-legs: ${{ steps.matrix.outputs.macos-legs }}
       windows-legs: ${{ steps.matrix.outputs.windows-legs }}
@@ -1033,12 +1034,20 @@ jobs:
           echo "$RUNNER_TEMP/cbmc/usr/bin" >> "$GITHUB_PATH"
 
       - name: Run the C proofs
+        shell: bash
+        env:
+          PROOF_NAMES: ${{ needs.classify.outputs.proof-names }}
         run: |
           if [ "$(./scripts/stage0-runtime)" = vm ]; then
             seed=$(./scripts/toolchain stage0-seed)
             export NUPP_VM_BINARY="$seed/runtime" NUPP_VM_CLI_IMAGE="$seed/compiler.image"
           fi
-          ./bin/nupp task proofs
+          read -r -a proofs <<< "$PROOF_NAMES"
+          if [ "${#proofs[@]}" -eq 0 ]; then
+            echo "The classifier selected the proof job without any proofs" >&2
+            exit 1
+          fi
+          ./bin/nupp task proofs "${proofs[@]}"
 
   # The one status a ruleset should require. Its meaning does not change when
   # the jobs above are reorganized, renamed, or split, and it cannot pass by a

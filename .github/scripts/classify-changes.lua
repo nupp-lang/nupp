@@ -110,8 +110,8 @@ local rules = {
 
     -- The C inputs to the CBMC harnesses and their production callers.
     {"^native/core%-bridge/main%.c$", {"proofs"}},
-    {"^native/core%-bridge/reactor%.h$", {"proofs"}},
-    {"^native/core%-bridge/transport%.h$", {"proofs"}},
+    {"^native/core%-bridge/reactor%.h$", {"proofs", "file-io-proof"}},
+    {"^native/core%-bridge/transport%.h$", {"proofs", "file-io-proof"}},
     {"^native/http%-curl/uri%-idna%.h$", {"proofs"}},
     {"^native/http%-curl/transport%.c$", {"proofs"}},
     {"^native/http%-curl/transport%.h$", {"proofs"}},
@@ -119,8 +119,17 @@ local rules = {
     {"^native/http%-curl/replyheaders%.h$", {"proofs"}},
     {"^native/markdown/markdown%.c$", {"proofs"}},
     {"^native/markdown/allocationbudget%.h$", {"proofs"}},
-    {"^tests/core/[^/]+proof%.c$", {"proofs"}},
-    {"^tests/core/proofintrinsics%.h$", {"proofs"}},
+    {"^tests/core/bundleheaderproof%.c$", {"proofs"}},
+    {"^tests/core/markdownallocatorproof%.c$", {"proofs"}},
+    {"^tests/core/replyheadersproof%.c$", {"proofs"}},
+    {"^tests/core/ringbufferproof%.c$", {"proofs"}},
+    {"^native/core%-bridge/uv%.c$", {"file-io-proof"}},
+    {"^native/core%-bridge/filetickets%.h$", {"file-io-proof"}},
+    {"^tests/core/fileticketproof%.c$", {"file-io-proof"}},
+    {"^native/core%-bridge/tcp%.[ch]$", {"tcp-proof"}},
+    {"^tests/core/tcplifecycleproof%.c$", {"tcp-proof"}},
+    {"^tests/core/tcpmodel/uv%.h$", {"tcp-proof"}},
+    {"^tests/core/proofintrinsics%.h$", {"proofs", "file-io-proof", "tcp-proof"}},
 
     {"^native/", {"native"}},
     {"^runtime/wasm/", {"browser"}},
@@ -252,7 +261,17 @@ function classifier.classify(paths)
         everything("a path no rule classifies changed")
     end
 
+    local proofs = {}
     if surfaces.proofs then
+        proofs = {"bundle-header", "http-response-headers", "markdown-allocator", "ring-buffer"}
+    end
+    if surfaces["file-io-proof"] then
+        proofs[#proofs + 1] = "file-io-tickets"
+    end
+    if surfaces["tcp-proof"] then
+        proofs[#proofs + 1] = "tcp-lifecycle"
+    end
+    if #proofs > 0 then
         select(jobs, "proofs", "C inputs to the proofs changed", reasons)
     end
 
@@ -302,7 +321,7 @@ function classifier.classify(paths)
         select(jobs, "gpu-windows", why, reasons)
     end
 
-    return {surfaces = surfaces, jobs = jobs, reasons = reasons}
+    return {surfaces = surfaces, jobs = jobs, reasons = reasons, proofs = proofs}
 end
 
 -- The jobs that provision a macOS or Windows runner.
@@ -394,6 +413,7 @@ if invokedDirectly then
         for _, name in ipairs(classifier.jobs) do
             handle:write(("%s=%s\n"):format(name, selection.jobs[name] and "true" or "false"))
         end
+        handle:write("proof-names=", table.concat(selection.proofs, " "), "\n")
         handle:write("selection=", classifier.encode(selection), "\n")
         handle:close()
     end

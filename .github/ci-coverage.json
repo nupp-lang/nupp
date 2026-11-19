@@ -253,7 +253,7 @@
       "steps": [
         {
           "name": "Run the C proofs",
-          "guarantees": ["CBMC verifies the bounded contracts for the bundle header, HTTP ring and response-header packer, and Markdown allocation budget"]
+          "guarantees": ["CBMC verifies the bounded contracts for the bundle header, HTTP ring and response-header packer, Markdown allocation budget, file I/O tickets, and TCP buffer ownership and close"]
         }
       ]
     },
