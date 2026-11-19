@@ -66,6 +66,25 @@ local function iscancelled(value: any): boolean
     return type(value) == "table" and getmetatable(value) == CancellationMT
 end
 
+local FailureMT: any = {}
+
+FailureMT.__tostring = function(value: any): string
+    local text = tostring(value.primary)
+    for index = 1, value.suppressedCount do
+        text = text .. "\ncleanup: " .. tostring(value.suppressed[index])
+    end
+
+    return text
+end
+
+local function withFailures(primary: any, suppressed: {any}, count: integer): any
+    if count == 0 then
+        return primary
+    end
+
+    return setmetatable({primary = primary, suppressed = suppressed, suppressedCount = count}, FailureMT)
+end
+
 ----------------------------------------------------------------------------
 -- The run queue and the timers
 ----------------------------------------------------------------------------
@@ -166,7 +185,7 @@ local function stale(entry: any): boolean
         return record.ticket ~= waiter.ticket
     end
 
-    return entry.scope.closed or entry.scope.live == 0
+    return entry.scope.closed or (entry.scope.live == 0 and not entry.scope.bodyActive)
 end
 
 local deadlinepassed: function(any): nil
@@ -285,21 +304,64 @@ local function current(): any
     return calls.data(thread)
 end
 
+-- The scopes the main thread's stack opened, innermost last.
+local rootscopes: {any} = {}
+
+local function bodyScope(record: any): any
+    local opened = record ~= nil and record.opened or rootscopes
+    for index = #opened, 1, -1 do
+        if opened[index].bodyActive then
+            return opened[index]
+        end
+    end
+
+    return nil
+end
+
+local function scopeProblem(scope: any): (boolean, any)
+    if scope.failed and (scope.failedFirst or scope.deliberate) then
+        return true, scope.failure
+    end
+    if scope.cancellation ~= nil and not scope.deliberate then
+        return true, scope.cancellation
+    end
+
+    return false, nil
+end
+
+local function checkBodyScope(scope: any): nil
+    if scope ~= nil then
+        local failed, problem = scopeProblem(scope)
+        if failed then
+            error(problem, 0)
+        end
+    end
+end
+
 -- Waits until `arm`'s waiter is woken, answering what it was woken with.
 -- A task parks; the main thread's stack runs the scheduler meanwhile. A
 -- cancelled task's park raises its cancellation, unless `shielded`, whose
 -- caller must go on waiting regardless (a scope settling its children).
 local function park(arm: function(any): nil, shielded: boolean): any
     local record = current()
+    local scope = not shielded and bodyScope(record) or nil
+    checkBodyScope(scope)
     if record ~= nil then
         if record.requested and not shielded then
             error(record.cancelled, 0)
         end
         local waiter = {record = record, ticket = record.ticket}
         arm(waiter)
+        if scope ~= nil then
+            scope.bodyWaiter = waiter
+        end
         record.status = "parked"
         local value = calls.park()
         record.status = "running"
+        if scope ~= nil then
+            scope.bodyWaiter = nil
+            checkBodyScope(scope)
+        end
         if record.requested and not shielded then
             error(record.cancelled, 0)
         end
@@ -307,8 +369,15 @@ local function park(arm: function(any): nil, shielded: boolean): any
     end
     local box = {done = false, value = nil}
     arm(box)
+    if scope ~= nil then
+        scope.bodyWaiter = box
+    end
     while not box.done do
         step()
+    end
+    if scope ~= nil then
+        scope.bodyWaiter = nil
+        checkBodyScope(scope)
     end
 
     return box.value
@@ -421,7 +490,11 @@ local function ownfailure(scope: any, problem: any): nil
     if not scope.failed then
         scope.failed = true
         scope.failure = problem
+        scope.failedFirst = scope.cancellation == nil
         cancelscope(scope, "the scope is unwinding", false)
+    else
+        scope.failureCount = scope.failureCount + 1
+        scope.suppressed[scope.failureCount] = problem
     end
 end
 
@@ -539,6 +612,9 @@ cancelscope = function(scope: any, reason: any, deliberate: boolean): nil
     for index = 1, #children do
         cancelrecord(children[index], scope.cancellation)
     end
+    if scope.bodyWaiter ~= nil then
+        wake(scope.bodyWaiter, nil)
+    end
 end
 
 deadlinepassed = function(scope: any): nil
@@ -549,9 +625,6 @@ end
 
 local ScopeMethods: any = {}
 local ScopeMT: any = {__index = ScopeMethods}
-
--- The scopes the main thread's stack opened, innermost last.
-local rootscopes: {any} = {}
 
 local function open(limit: integer?, timeoutms: number?): any
     if limit ~= nil and (limit < 1 or limit == math.huge or limit ~= math.floor(limit)) then
@@ -586,6 +659,8 @@ local function open(limit: integer?, timeoutms: number?): any
             owner = owner,
             closed = false,
             failed = false,
+            suppressed = {},
+            failureCount = 0,
             deliberate = false
         },
         ScopeMT
@@ -692,15 +767,63 @@ ScopeMethods.close = function(scope: any): nil
             break
         end
     end
-    if scope.failed then
-        error(scope.failure, 0)
-    end
-    if scope.cancellation ~= nil and not scope.deliberate then
-        error(scope.cancellation, 0)
+    local failed, problem = scopeProblem(scope)
+    if failed then
+        if scope.failed and not scope.failedFirst and not scope.deliberate then
+            for index = scope.failureCount, 1, -1 do
+                scope.suppressed[index + 1] = scope.suppressed[index]
+            end
+            scope.suppressed[1] = scope.failure
+            scope.failureCount = scope.failureCount + 1
+        end
+        error(withFailures(problem, scope.suppressed, scope.failureCount), 0)
     end
     if record ~= nil and record.requested then
         error(record.cancelled, 0)
     end
+end
+
+-- Runs the callback synchronously and drains the scope even if it raises.
+local function run(...: any): ...any
+    local limit: integer? = nil
+    local timeoutms: number? = nil
+    local body: any
+    if select("#", ...) == 1 then
+        body = ...
+    else
+        limit, timeoutms, body = ...
+    end
+    local scope = open(limit, timeoutms)
+    scope.bodyActive = true
+    local answer = packed(pcall(body, scope))
+    scope.bodyActive = false
+    scope.bodyWaiter = nil
+    if answer[1] then
+        ScopeMethods.close(scope)
+        return table.unpack(answer, 2, answer.n)
+    end
+
+    local problem = answer[2]
+    local failed, owned = scopeProblem(scope)
+    if failed and owned == problem then
+        ScopeMethods.close(scope)
+        error(problem, 0)
+    end
+    cancelscope(scope, "the body failed", true)
+    local settled, settleProblem = pcall(ScopeMethods.close, scope)
+    if settled or settleProblem == problem then
+        error(problem, 0)
+    end
+    if scope.failed and scope.deliberate then
+        local count = scope.failureCount as integer
+        local suppressed: {any} = {scope.failure}
+        for index = 1, count do
+            suppressed[index + 1] = scope.suppressed[index]
+        end
+        error(withFailures(problem, suppressed, count + 1), 0)
+    end
+
+    error(withFailures(problem, {settleProblem}, 1), 0)
 end
 
 -- A racing scope records the first settlement and drains through the same
@@ -988,6 +1111,7 @@ export const functions: {
     ["coroutine.deadline"] = deadline,
     ["coroutine.gather"] = gather,
     ["coroutine.iscancelled"] = iscancelled,
+    ["coroutine.run"] = run,
     ["coroutine.sleep"] = sleep,
     ["coroutine.sleepuntil"] = sleepuntil
 }

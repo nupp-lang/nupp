@@ -899,6 +899,7 @@ const schedulerValues: {
     ["coroutine.deadline"] = true,
     ["coroutine.gather"] = true,
     ["coroutine.iscancelled"] = true,
+    ["coroutine.run"] = true,
     ["coroutine.sleep"] = true,
     ["coroutine.sleepuntil"] = true
 }
