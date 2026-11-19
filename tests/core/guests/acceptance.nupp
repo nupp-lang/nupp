@@ -505,12 +505,31 @@ local function cryptoLibraries(): string
     ):format(quote(prefix .. "/lib/libcrypto" .. suffix), quote(prefix .. "/lib/libssl" .. suffix))
 end
 
+-- The pinned zlib and ISA-L CRC libraries the guest project binds by
+-- NUPP_ZLIB_LIBRARY and NUPP_CRC_LIBRARY (guestbuild's project config), as
+-- scripts/c-library-paths names them, unless the caller names its own.
+local function standardLibraries(): string
+    if os.getenv("NUPP_ZLIB_LIBRARY") ~= nil or os.getenv("NUPP_CRC_LIBRARY") ~= nil then
+        return ""
+    end
+    local status, output = capture("sh " .. quote(ROOT .. "/scripts/c-library-paths"))
+    if status ~= 0 then
+        return ""
+    end
+    local named: {string} = {}
+    for key, value in output:gmatch("(NUPP_[%u_]+_LIBRARY)=([^\r\n]+)") do
+        named[#named + 1] = key .. "=" .. quote(value) .. " "
+    end
+
+    return table.concat(named)
+end
+
 local function guestScript(names: {string}, shards: integer): string
     return (
         "cd %s && %sNUPP_COMPILER_ROOT=%s NUPP_GUEST_SHARDS=%d NUPP_GUEST_JOBS=%d NUPP_GUEST_JOB_TIMEOUT=%d %s run run.lua %s"
     ):format(
         quote(GUESTS),
-        cryptoLibraries(),
+        cryptoLibraries() .. standardLibraries(),
         quote(ROOT),
         shards,
         options.jobs,
