@@ -520,7 +520,8 @@ local seenCaseIds = {}
 -- executes that whole suite so a repaired beforeAll or afterAll still proves
 -- its cases rather than turning into an empty green run.
 local wholeSuites = {}
-local SYNTHETIC_CASES = {["<shard>"] = true, ["<unrun>"] = true,}
+-- A suite that does not load is one `<load>` failure, rerun whole like a hook's.
+local SYNTHETIC_CASES = {["<shard>"] = true, ["<unrun>"] = true, ["<load>"] = true,}
 local rerunReport = nil
 -- Suites this process is to run, when a parent has split them up. Empty means "decide
 -- for yourself", which is what the run a person starts does.
@@ -708,7 +709,12 @@ if rerunReport ~= nil then
                 -- A worker-level failure is followed by one `<unrun>` record for every
                 -- queue piece it failed to report. Those records name real suites; this
                 -- aggregate names the worker and is not itself a selectable case.
-            elseif (record.name == "beforeAll" or record.name == "afterAll" or record.name == "<unrun>")
+            elseif (
+                record.name == "beforeAll"
+                or record.name == "afterAll"
+                or record.name == "<unrun>"
+                or record.name == "<load>"
+            )
                 and type(record.suite) == "string"
             then
                 wholeSuites[record.suite] = true
@@ -1597,6 +1603,9 @@ end
 --- Where a test function is written, which is stable and worth reporting even
 --- when it passes.
 local function definedAt(fn)
+    if fn == nil then
+        return nil, nil
+    end
     local parameterized = caseDefinitions[fn]
     if parameterized ~= nil then
         return parameterized.file, parameterized.line
@@ -3759,9 +3768,21 @@ local function runSuite(suiteInfo, slices)
         cases = loaded.cases
     else
         local loadBefore = now()
-        suite, removeLoader = loadSuite(suiteInfo)
+        -- A suite that does not load or name its cases fails alone, as one
+        -- `<load>` record, rather than ending the worker and every suite after
+        -- it in the queue.
+        local loads, problem = pcall(function()
+            suite, removeLoader = loadSuite(suiteInfo)
+            hooks, cases = suiteParts(suiteInfo, suite)
+        end)
         loadElapsed = now() - loadBefore
-        hooks, cases = suiteParts(suiteInfo, suite)
+        if not loads then
+            if removeLoader then
+                removeLoader()
+            end
+            recordResult(suiteInfo.name, "<load>", nil, false, problem, "", "", loadElapsed)
+            return
+        end
     end
     if chosenCaseCount > 0 and not wholeSuites[suiteInfo.name] then
         local selected = {}

@@ -843,6 +843,31 @@ return {
     os.execute("rm -rf " .. string.format("%q", dir))
 end
 
+-- A suite that does not load used to end its worker, and with it every suite
+-- queued after it: it fails alone, as one `<load>` record a rerun takes whole.
+function M.aSuiteThatDoesNotLoadFailsAlone()
+    local dir = copiedRunner()
+    write(dir .. "/tests/aloadtest.lua", 'error("suite load sentinel")\n')
+    write(dir .. "/tests/bafterloadtest.lua", "return {runs = function() end}\n")
+    local output, invocation = capturedRun(
+        (
+            "cd %q && NUPP_TEST_BUILD=%q %q aloadtest bafterloadtest --jobs=1 --json 2>/dev/null"
+        ):format(dir, dir .. "/build", RUNNER)
+    )
+    test.eq(invocation.status, 1, "a suite that did not load passed" .. evidence(invocation))
+    local report = decode(output)
+    test.eq(report.total, 2, "the load failure and the suite after it" .. evidence(invocation))
+    test.eq(report.failed, 1)
+    local byId = {}
+    for _, record in ipairs(report.tests) do
+        byId[record.id] = record
+    end
+    test.eq(byId["aloadtest/<load>"].status, "failed")
+    test.matches(byId["aloadtest/<load>"].failure.message, "suite load sentinel")
+    test.eq(byId["bafterloadtest/runs"].status, "passed")
+    os.execute("rm -rf " .. string.format("%q", dir))
+end
+
 function M.invalidStructuredMetadataFailsOneCaseWithoutBreakingJson()
     local dir = os.tmpname()
     os.remove(dir)
