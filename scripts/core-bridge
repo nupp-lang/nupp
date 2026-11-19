@@ -247,5 +247,10 @@ if [ "$test" = 1 ]; then
     fixtures="$ROOT/tests/stdlib/io/net/fixtures"
     (unset SSL_CERT_FILE SSL_CERT_DIR
         "$OUT/nupp-tls-bio-contracts" "$fixtures/localhost-cert.pem" "$fixtures/localhost-key.pem") >&2
+    (unset SSL_CERT_FILE
+        SSL_CERT_DIR="$fixtures" "$OUT/nupp-tls-bio-contracts" \
+            "$fixtures/localhost-cert.pem" "$fixtures/localhost-key.pem" configured
+        SSL_CERT_DIR="$fixtures/missing" "$OUT/nupp-tls-bio-contracts" \
+            "$fixtures/localhost-cert.pem" "$fixtures/localhost-key.pem" missing) >&2
 fi
 printf '%s\n' "$OUT"

@@ -3,7 +3,14 @@
  * @brief Drives the pinned OpenSSL engine using bounded memory BIOs.
  */
 
+#ifndef _WIN32
+#define _POSIX_C_SOURCE 200809L
+#else
+#define WIN32_LEAN_AND_MEAN
+#endif
+
 #include "tlsbio.h"
+#include <uv.h>
 #include <openssl/err.h>
 #include <openssl/pem.h>
 #include <openssl/ssl.h>
@@ -12,14 +19,17 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/stat.h>
 
 #ifdef __APPLE__
 #include <CoreFoundation/CoreFoundation.h>
 #include <Security/Security.h>
 #elif defined(_WIN32)
-#define WIN32_LEAN_AND_MEAN
-#include <windows.h>
 #include <wincrypt.h>
+#ifndef S_ISDIR
+#define S_ISDIR(mode) (((mode) & _S_IFMT) == _S_IFDIR)
+#define S_ISREG(mode) (((mode) & _S_IFMT) == _S_IFREG)
+#endif
 #endif
 
 enum { WIRE_WINDOW = 32768, ERROR_ROOM = 256, ALPN_LIMIT = UINT16_MAX };
@@ -94,11 +104,9 @@ static BIO *pem (NuppTlsBytes bytes) {
              : NULL;
 }
 
-static int certificates (SSL_CTX *ctx, NuppTlsBytes bytes, int server) {
-  BIO *bio = pem(bytes);
-
+static int load_certificates (SSL_CTX *ctx, BIO *bio, int server) {
   if (!bio) {
-    return 0;
+    return -1;
   }
 
   STACK_OF(X509_INFO) *items =
@@ -106,7 +114,7 @@ static int certificates (SSL_CTX *ctx, NuppTlsBytes bytes, int server) {
   BIO_free(bio);
 
   if (!items) {
-    return 0;
+    return -1;
   }
 
   int ok = 1, count = 0;
@@ -131,7 +139,11 @@ static int certificates (SSL_CTX *ctx, NuppTlsBytes bytes, int server) {
 
   sk_X509_INFO_pop_free(items, X509_INFO_free);
 
-  return ok && count;
+  return ok ? count : -1;
+}
+
+static int certificates (SSL_CTX *ctx, NuppTlsBytes bytes, int server) {
+  return load_certificates(ctx, pem(bytes), server) > 0;
 }
 
 static int identity (SSL_CTX *ctx, const NuppTlsOptions *options) {
@@ -314,16 +326,70 @@ static int verify_platform (X509_STORE_CTX *store, void *context) {
 }
 #endif
 
+static int load_root_file (SSL_CTX *ctx, const char *path, int skip_directory) {
+  uv_fs_t file = {0};
+  int status = uv_fs_stat(NULL, &file, path, NULL);
+  uint64_t mode = file.statbuf.st_mode;
+  uv_fs_req_cleanup(&file);
+
+  if (status < 0) {
+    return -1;
+  }
+
+  if (skip_directory && S_ISDIR(mode)) {
+    return 0;
+  }
+
+  return S_ISREG(mode) ? load_certificates(ctx, BIO_new_file(path, "rb"), 0)
+                       : -1;
+}
+
+static int load_root_directory (SSL_CTX *ctx, const char *directory) {
+  uv_fs_t scan = {0};
+  int status = uv_fs_scandir(NULL, &scan, directory, 0, NULL);
+  int found = 0;
+  size_t base = strlen(directory);
+  uv_dirent_t entry;
+
+  while (status >= 0 && (status = uv_fs_scandir_next(&scan, &entry)) == 0) {
+    size_t name = strlen(entry.name);
+    char *path = base <= SIZE_MAX - name - 2 ? malloc(base + name + 2) : NULL;
+
+    if (!path) {
+      status = UV_ENOMEM;
+      break;
+    }
+
+    memcpy(path, directory, base);
+    path[base] = '/';
+    memcpy(path + base + 1, entry.name, name + 1);
+    int loaded = load_root_file(ctx, path, 1);
+    free(path);
+
+    if (loaded < 0) {
+      status = UV_EINVAL;
+      break;
+    }
+
+    found |= loaded > 0;
+  }
+
+  uv_fs_req_cleanup(&scan);
+
+  return status == UV_EOF ? found : -1;
+}
+
 static int platform_roots (SSL_CTX *ctx) {
   const char *file = getenv("SSL_CERT_FILE"),
              *directory = getenv("SSL_CERT_DIR");
 
   if ((file && *file) || (directory && *directory)) {
-    X509_STORE *store = SSL_CTX_get_cert_store(ctx);
+    int roots = file && *file ? load_root_file(ctx, file, 0) : 0;
+    int more = roots >= 0 && directory && *directory
+                   ? load_root_directory(ctx, directory)
+                   : 0;
 
-    return (!file || !*file || X509_STORE_load_file(store, file)) &&
-           (!directory || !*directory ||
-            X509_STORE_load_path(store, directory));
+    return roots >= 0 && more >= 0 && (roots > 0 || more > 0);
   }
 
 #if defined(__APPLE__) || defined(_WIN32)

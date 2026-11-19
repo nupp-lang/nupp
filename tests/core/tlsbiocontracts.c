@@ -172,7 +172,7 @@ static void collect_ticket (NuppTls *client, NuppTls *server) {
 }
 
 int main (int argc, char **argv) {
-  assert(argc == 3);
+  assert(argc == 3 || argc == 4);
   NuppTlsBytes cert = read_fixture(argv[1]), key = read_fixture(argv[2]);
   NuppTlsOptions serveropts = {.certificate = cert,
                                .private_key = key,
@@ -189,6 +189,30 @@ int main (int argc, char **argv) {
                                              12},
                                .verify = 1};
   char error[256];
+
+  if (argc == 4) {
+    clientopts.authority = (NuppTlsBytes){NULL, 0};
+    NuppTls *server = nupptlsopen(&serveropts, error, sizeof(error));
+    NuppTls *client = nupptlsopen(&clientopts, error, sizeof(error));
+    assert(server);
+
+    if (!strcmp(argv[3], "configured")) {
+      assert(client && handshake(client, server) && nupptlsverified(client));
+    }
+    else {
+      assert(!strcmp(argv[3], "missing") && !client && *error);
+    }
+
+    nupptlsfree(client);
+    nupptlsfree(server);
+    nupptlsclear();
+    free((void *)cert.data);
+    free((void *)key.data);
+    puts("configured TLS directory contract passed");
+
+    return 0;
+  }
+
   NuppTls *server = nupptlsopen(&serveropts, error, sizeof(error));
   NuppTls *client = nupptlsopen(&clientopts, error, sizeof(error));
   assert(server && client && handshake(client, server));

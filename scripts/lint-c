@@ -201,7 +201,7 @@ flags() {
             echo "-pthread -D_GNU_SOURCE=1 -I$ROOT/native/corebridge -isystem $(libuv)/include"
             ;;
         native/corebridge/tlsbio.* | tests/core/tlsbiocontracts.c)
-            echo "-I$ROOT/native/corebridge -isystem $(openssl)/include"
+            echo "-pthread -I$ROOT/native/corebridge -isystem $(openssl)/include -isystem $(libuv)/include"
             ;;
         tests/core/processcontracts.c) echo "-pthread -I$ROOT/native/corebridge" ;;
         native/corebridge/* | tests/core/*) echo "-pthread" ;;
