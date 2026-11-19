@@ -1,5 +1,7 @@
 module nupp.compiler.vm.functioncleanup
 
+local construction = require("nupp.compiler.vm.construction")
+
 local function need(ok: any, message: string): any
     -- The message is built only for a failure: checks run millions of times.
     if not ok then
@@ -36,6 +38,18 @@ export function affine(t: any): any
     end
 
     return t
+end
+
+-- A fresh result needs a temporary until a local, field or argument takes it.
+-- A plain construction acquires its obligation at the receiving site.
+export function freshOwner(node: any): boolean
+    return node.inferredType ~= nil
+        and node.inferredType.tag == "affine"
+        and (
+            node.kind == "call" and not construction.bare(node)
+            or node.kind == "orExitExpr" and node.orExitProtected
+            or node.kind == "funcExpr" and #(node.body.takenCaptures or {}) > 0
+        )
 end
 
 export function localOwner(stat: any, index: integer): any

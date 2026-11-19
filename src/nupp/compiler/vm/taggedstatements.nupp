@@ -1,5 +1,7 @@
 module nupp.compiler.vm.taggedstatements
 
+local functioncleanup = require("nupp.compiler.vm.functioncleanup")
+
 -- Statements in the tagged profile: binary operators, checked conditions,
 -- numeric loops, and the cleanup protocol of a function owning affine
 -- values.
@@ -516,6 +518,16 @@ export function cleanupProfile(base: any): any
             end
             if tail == nil or ctx.block == nil then
                 return nil
+            end
+            if functioncleanup.freshOwner(last) then
+                local first: integer
+                if spreads then
+                    local key = ctx.emit(last, "K", {pool(ctx, "int64", "1")}, "tagged")
+                    first = ctx.emit(last, "GetIdx", {tail, key}, "tagged")
+                else
+                    first = tail[1]
+                end
+                ctx.trackTemporary(last, first)
             end
             if spreads then
                 values[#values + 1] = tail

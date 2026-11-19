@@ -10,18 +10,7 @@ local cst = require("nupp.compiler.syntax.cst")
 local completion = require("nupp.compiler.syntax.completion")
 local cleanup = require("nupp.compiler.vm.functioncleanup")
 local construction = require("nupp.compiler.vm.construction")
-
--- Whether `node` is a call whose fresh affine result owns a cleanup until a
--- local, an argument or a field takes it. A construction is not one: the
--- local or argument that receives the instance owns it from the start.
-local function freshOwner(node: any): boolean
-    return (
-        node.kind == "call" and not construction.bare(node)
-        or node.kind == "orExitExpr" and node.orExitProtected
-        or node.kind == "funcExpr" and #(node.body.takenCaptures or {}) > 0
-    )
-        and cleanup.affine(node.inferredType) ~= nil
-end
+local freshOwner = cleanup.freshOwner
 
 local function need(ok: any, message: string): any
     -- The message is built only for a failure: checks run millions of times.
@@ -605,17 +594,8 @@ local function compileOwner(fn: any, options: any, profile: any, site: any): any
         end
         error("function graph: unsupported checked expression " .. tostring(node.kind), 0)
     end
-    expression = function(node: any, expected: string?): integer?
-        local outer = lowering(node)
-        local value = expressionBody(node, expected)
-        if not block then
-            site.node = outer
-            return nil
-        end
-        assert(value ~= nil, "function graph: continued expression requires a value")
-        -- A fresh result owns its cleanup before a later initializer/argument
-        -- can fail. Publishing it as a local owner or taking it consumes
-        -- this temporary, never the original owner's obligation twice.
+    -- A fresh result owns its cleanup until the place that receives it takes it.
+    ctx.trackTemporary = function(node: any, value: integer): nil
         if cleanupEnabled and block and freshOwner(node) then
             -- assert answers its first argument: a fresh owner given it
             -- is the one its result now holds. One spreading a call's results
@@ -631,6 +611,17 @@ local function compileOwner(fn: any, options: any, profile: any, site: any): any
             end
             registerCleanup(node, node.statementOwner or node, cleanup.affine(node.inferredType), value)
         end
+    end
+
+    expression = function(node: any, expected: string?): integer?
+        local outer = lowering(node)
+        local value = expressionBody(node, expected)
+        if not block then
+            site.node = outer
+            return nil
+        end
+        assert(value ~= nil, "function graph: continued expression requires a value")
+        ctx.trackTemporary(node, value)
         -- The value written into a moved (or never filled) owner takes over
         -- that owner's cleanup from here: a later failure destroys it.
         if cleanupEnabled and node.automaticOwnerReinit then

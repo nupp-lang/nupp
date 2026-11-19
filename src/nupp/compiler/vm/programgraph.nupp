@@ -5,6 +5,7 @@ local lexer = require("nupp.compiler.syntax.lexer")
 local types = require("nupp.compiler.types")
 local graph = require("nupp.compiler.vm.graph")
 local construction = require("nupp.compiler.vm.construction")
+local functioncleanup = require("nupp.compiler.vm.functioncleanup")
 local builtinextensions = require("nupp.compiler.builtinextensions")
 local taggedvalues = require("nupp.compiler.vm.taggedvalues")
 local opcodes = require("nupp.compiler.vm.opcodes")
@@ -473,7 +474,11 @@ end
 
 local function guardedLibrary(p: any, node: any): string?
     local library = graph.coreLibraryCall(node)
-    if library == nil or UNGUARDED[library] or graph.callbackArgument(node) ~= nil or p.callByNode[node] ~= nil then
+    if library == nil
+        or UNGUARDED[library]
+        or graph.callbackArgument(node) ~= nil
+        or p.callByNode[node] ~= nil and not (p.chunkModule and graphcalls.owningAssert(node))
+    then
         return nil
     end
     local callee = node.obj
@@ -1462,6 +1467,7 @@ export function describe(modules: {any}, entryModule: string, options: any?): an
             and node.kind == "call"
             and callsWithin(p, node.args)
             and guardedLibrary(p, node) ~= nil
+            and not (p.chunkModule and graphcalls.owningAssert(node))
         then
             node.chunkDynamic = true
         end
@@ -1685,6 +1691,10 @@ export function describe(modules: {any}, entryModule: string, options: any?): an
                 end
             end
         end
+        if functioncleanup.freshOwner(node) then
+            local anchor = need(cst.firstToken(node), "temporary cleanup lacks a source anchor")
+            cleanupToken(node, node.inferredType, anchor)
+        end
         -- `drop(v)` of a value no local owner holds (a taken parameter, a
         -- fresh result) runs v's cleanups itself, from this site.
         if node.kind == "call"
@@ -1823,6 +1833,7 @@ export function describe(modules: {any}, entryModule: string, options: any?): an
                 graph.libraryValue(node.obj) ~= nil
                 and moduleNames[graph.libraryModule(graph.libraryValue(node.obj) as string)] ~= nil
                 or chunkValueCall(p, node)
+                or p.chunkModule and graphcalls.owningAssert(node)
             )
         if node.kind == "call"
             and node.obj.kind == "name"
@@ -1870,8 +1881,14 @@ export function describe(modules: {any}, entryModule: string, options: any?): an
                 root = root,
                 builtins = chunkLocalRead(cst.firstToken(node), owner, p.builtins, p.chunkBuiltins)
             }
-            local item = {id = #p.calls, owner = owner.id, node = node, field = true, guarded = true}
-            p.calls[#p.calls + 1], p.callByNode[node] = item, item
+            local existing = p.callByNode[node]
+            if existing then
+                need(existing.field and graphcalls.owningAssert(node), "guard requires a checked assertion callsite")
+                existing.guarded = true
+            else
+                local item = {id = #p.calls, owner = owner.id, node = node, field = true, guarded = true}
+                p.calls[#p.calls + 1], p.callByNode[node] = item, item
+            end
         end
         -- A generic `for` over anything but ipairs, pairs or gmatch calls its
         -- iterator each step: the statement is that call's callsite.

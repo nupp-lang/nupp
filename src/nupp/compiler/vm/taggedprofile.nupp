@@ -1725,6 +1725,14 @@ export function forVersion(version: integer): any
             if catalog(ctx).guarded[node] == nil then
                 return libraryCallOrCall(ctx, node, expected)
             end
+            if catalog(ctx).chunkModule and graphcalls.owningAssert(node) then
+                -- The checked assertion passes through the original owner.
+                if graphcalls.spreadsLibrary(node) then
+                    local builtin = taggedvalues.guardedOriginal(ctx, node)
+                    return invoke(ctx, node, true, true, nil, nil, builtin)
+                end
+                return libraryCallOrCall(ctx, node, expected)
+            end
             local actual = ctx.hold(taggedvalues.guardedCallee(ctx, node))
             local original = taggedvalues.guardedOriginal(ctx, node)
             local same = ctx.hold(ctx.emit(node, "Eq", {ctx.readHeld(actual), original}, "tagged"))

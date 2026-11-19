@@ -1510,6 +1510,11 @@ export function dynamicmethodcontract(call: any, count: integer?): any
     return contract
 end
 
+-- The checked assertion carries its first result's ownership into its caller.
+export function owningAssert(call: any): boolean
+    return coreLibraryCall(call) == "assert" and call.inferredType ~= nil and call.inferredType.tag == "affine"
+end
+
 -- Whether a call passes what its checked signature takes: as many arguments,
 -- more to a variadic one, a spread last, or fewer when the rest may be nil.
 -- Lua passes any count, so a call that does not (a plain Lua chunk's, whose
