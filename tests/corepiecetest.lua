@@ -322,10 +322,17 @@ end
 -- encoding, link as they were built: unchanged ones relinked beside a module
 -- that gained an early function give that program's whole build.
 function M.keptPiecesLinkAsTheyWereBuilt()
-    local persist = require("nupp.vm.persist")
+    local persisted, persist = pcall(require, "nupp.vm.persist")
+    local saveData, loadData
+    if persisted then
+        saveData, loadData = persist.saveData, persist.loadData
+    else
+        local plain = require("nupp.compiler.project.plaincodec")
+        saveData, loadData = plain.encode, plain.decode
+    end
 
     local function kept(piece)
-        return persist.loadData(persist.saveData(piece))
+        return loadData(saveData(piece))
     end
 
     local before = pieces()
