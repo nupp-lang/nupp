@@ -4,6 +4,33 @@ Read this first, then the lane files beside it. Repository: nupp-lang/nupp,
 trunk branch `core-dev`. Plans: ~/projects/nupp-planning (Avoozl workspace,
 branch avoozl-plans). Follow AGENTS.md in each repo.
 
+## November 19 resumption
+
+- Core-dev has the launcher fixture fix at `168e311d5`. The local launcher
+  suite passed 24/24.
+- The remaining known worker exit was a lowering callback returning nil
+  under an integer result signature. The exact case passed on the rebuilt
+  core. The focused process test also passed after module instances began
+  resolving `_G.require` through their own environment. [Issue #136](https://github.com/nupp-lang/nupp/issues/136)
+  tracks the remaining shared-lane work.
+- [wip/core-flip-validation](https://github.com/nupp-lang/nupp/tree/wip/core-flip-validation)
+  at `510360247` carries the native binary target candidate, top-level
+  script arguments, checked module ownership, and the two targeted fixes.
+  The app and shared-lane checks still gate the macOS ARM64 flip.
+- The core incremental fixture passed. The unchanged build reused 20/20
+  pieces, the body edit reused 19/20, and the interface edit reused 17/20.
+  Every artifact matched its cold counterpart. The full core fixpoint is
+  running in the incremental worktree. The stable builder shell fixture
+  passed on [wip/core-cli-builder-anchor](https://github.com/nupp-lang/nupp/tree/wip/core-cli-builder-anchor).
+- The W1 retirement branch passed the VM fixpoint. Its six-case guest run
+  and its base each recorded the same 28 failed checks. A debugger probe
+  confirmed the audit import and synthetic-root fixes. The checked-fragment
+  branch's five core suites returned 37 passes and nine failures.
+- GitHub superseded runs `44540110785` and `44543722316`.
+  [Run 44544039175](https://github.com/nupp-lang/nupp/actions/runs/44544039175)
+  built the compiler on Linux ARM64. Its remaining jobs and the first
+  nightly macOS core-guest legs are pending.
+
 ## Where things stand
 
 - **The compiler builds itself on the native core.** `nupp fixpoint --runtime
