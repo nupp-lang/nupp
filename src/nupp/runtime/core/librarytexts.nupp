@@ -4,6 +4,7 @@ module nupp.runtime.core.librarytexts
 -- the one table of the core's library texts: edit that table, not this file.
 -- A leaf has no data, so each text is its bytes as little-endian words,
 -- eight to a word.
+const native = require("nupp.runtime.vm.intrinsics")
 const heap = require("nupp.runtime.vm.heap")
 const strings = require("nupp.runtime.core.corestrings")
 
@@ -767,4 +768,553 @@ export function append(h: heap.Heap*, borrows b: strings.Builder*, id: uint64): 
     end
 
     return 0ULL
+end
+
+-- Matching an option must not allocate or advance the collector.
+local function matchWord(s: uint64, offset: uint64, word: uint64, count: uint64): boolean
+    local bytes = strings.bytes(s) + offset
+    if count == 8ULL then
+        return native.load64(native.pointer(bytes), 0) == word
+    end
+    local at: uint64 = 0ULL
+    while at < count do
+        if native.word(native.load8(native.pointer(bytes), native.index(at))) ~= (word >> (at * 8ULL)) & 255ULL then
+            return false
+        end
+        at = at + 1ULL
+    end
+
+    return true
+end
+
+-- Whether string header `s` contains text `id`, without interning another string.
+export function matches(s: uint64, id: uint64): boolean
+    if id == 1ULL then
+        return strings.length(s) == 14ULL
+            and matchWord(s, 0ULL, 0x7567726120646162ULL, 8ULL)
+            and matchWord(s, 8ULL, 0x2320746e656dULL, 6ULL)
+    elseif id == 2ULL then
+        return strings.length(s) == 5ULL and matchWord(s, 0ULL, 0x27206f7420ULL, 5ULL)
+    elseif id == 3ULL then
+        return strings.length(s) == 3ULL and matchWord(s, 0ULL, 0x282027ULL, 3ULL)
+    elseif id == 4ULL then
+        return strings.length(s) == 1ULL and matchWord(s, 0ULL, 0x29ULL, 1ULL)
+    elseif id == 5ULL then
+        return strings.length(s) == 15ULL
+            and matchWord(s, 0ULL, 0x6574636570786520ULL, 8ULL)
+            and matchWord(s, 8ULL, 0x20746f67202c64ULL, 7ULL)
+    elseif id == 6ULL then
+        return strings.length(s) == 8ULL and matchWord(s, 0ULL, 0x65756c6176206f6eULL, 8ULL)
+    elseif id == 7ULL then
+        return strings.length(s) == 6ULL and matchWord(s, 0ULL, 0x676e69727473ULL, 6ULL)
+    elseif id == 8ULL then
+        return strings.length(s) == 6ULL and matchWord(s, 0ULL, 0x7265626d756eULL, 6ULL)
+    elseif id == 9ULL then
+        return strings.length(s) == 5ULL and matchWord(s, 0ULL, 0x656c626174ULL, 5ULL)
+    elseif id == 10ULL then
+        return strings.length(s) == 21ULL
+            and matchWord(s, 0ULL, 0x662f676e69727473ULL, 8ULL)
+            and matchWord(s, 8ULL, 0x2f6e6f6974636e75ULL, 8ULL)
+            and matchWord(s, 16ULL, 0x656c626174ULL, 5ULL)
+    elseif id == 11ULL then
+        return strings.length(s) == 36ULL
+            and matchWord(s, 0ULL, 0x68207265626d756eULL, 8ULL)
+            and matchWord(s, 8ULL, 0x6e69206f6e207361ULL, 8ULL)
+            and matchWord(s, 16ULL, 0x6572207265676574ULL, 8ULL)
+            and matchWord(s, 24ULL, 0x61746e6573657270ULL, 8ULL)
+            and matchWord(s, 32ULL, 0x6e6f6974ULL, 4ULL)
+    elseif id == 12ULL then
+        return strings.length(s) == 17ULL
+            and matchWord(s, 0ULL, 0x6c61767265746e69ULL, 8ULL)
+            and matchWord(s, 8ULL, 0x74706d6520736920ULL, 8ULL)
+            and matchWord(s, 16ULL, 0x79ULL, 1ULL)
+    elseif id == 13ULL then
+        return strings.length(s) == 22ULL
+            and matchWord(s, 0ULL, 0x6e6f697469736f70ULL, 8ULL)
+            and matchWord(s, 8ULL, 0x20666f2074756f20ULL, 8ULL)
+            and matchWord(s, 16ULL, 0x73646e756f62ULL, 6ULL)
+    elseif id == 14ULL then
+        return strings.length(s) == 4ULL and matchWord(s, 0ULL, 0x6f72657aULL, 4ULL)
+    elseif id == 15ULL then
+        return strings.length(s) == 18ULL
+            and matchWord(s, 0ULL, 0x756f2065756c6176ULL, 8ULL)
+            and matchWord(s, 8ULL, 0x6e617220666f2074ULL, 8ULL)
+            and matchWord(s, 16ULL, 0x6567ULL, 2ULL)
+    elseif id == 16ULL then
+        return strings.length(s) == 18ULL
+            and matchWord(s, 0ULL, 0x756f207865646e69ULL, 8ULL)
+            and matchWord(s, 8ULL, 0x6e617220666f2074ULL, 8ULL)
+            and matchWord(s, 16ULL, 0x6567ULL, 2ULL)
+    elseif id == 17ULL then
+        return strings.length(s) == 25ULL
+            and matchWord(s, 0ULL, 0x796e616d206f6f74ULL, 8ULL)
+            and matchWord(s, 8ULL, 0x746e656d656c6520ULL, 8ULL)
+            and matchWord(s, 16ULL, 0x766f6d206f742073ULL, 8ULL)
+            and matchWord(s, 24ULL, 0x65ULL, 1ULL)
+    elseif id == 18ULL then
+        return strings.length(s) == 23ULL
+            and matchWord(s, 0ULL, 0x74616e6974736564ULL, 8ULL)
+            and matchWord(s, 8ULL, 0x70617277206e6f69ULL, 8ULL)
+            and matchWord(s, 16ULL, 0x646e756f726120ULL, 7ULL)
+    elseif id == 19ULL then
+        return strings.length(s) == 14ULL
+            and matchWord(s, 0ULL, 0x78652065756c6176ULL, 8ULL)
+            and matchWord(s, 8ULL, 0x646574636570ULL, 6ULL)
+    elseif id == 20ULL then
+        return strings.length(s) == 25ULL
+            and matchWord(s, 0ULL, 0x61682065756c6176ULL, 8ULL)
+            and matchWord(s, 8ULL, 0x74696c206f6e2073ULL, 8ULL)
+            and matchWord(s, 16ULL, 0x726f66206c617265ULL, 8ULL)
+            and matchWord(s, 24ULL, 0x6dULL, 1ULL)
+    elseif id == 21ULL then
+        return strings.length(s) == 15ULL
+            and matchWord(s, 0ULL, 0x2064696c61766e69ULL, 8ULL)
+            and matchWord(s, 8ULL, 0x282065756c6176ULL, 7ULL)
+    elseif id == 22ULL then
+        return strings.length(s) == 22ULL
+            and matchWord(s, 0ULL, 0x6c626174206e6920ULL, 8ULL)
+            and matchWord(s, 8ULL, 0x632720726f662065ULL, 8ULL)
+            and matchWord(s, 16ULL, 0x277461636e6fULL, 6ULL)
+    elseif id == 23ULL then
+        return strings.length(s) == 29ULL
+            and matchWord(s, 0ULL, 0x2064696c61766e69ULL, 8ULL)
+            and matchWord(s, 8ULL, 0x6d6563616c706572ULL, 8ULL)
+            and matchWord(s, 16ULL, 0x756c617620746e65ULL, 8ULL)
+            and matchWord(s, 24ULL, 0x2061282065ULL, 5ULL)
+    elseif id == 24ULL then
+        return strings.length(s) == 23ULL
+            and matchWord(s, 0ULL, 0x2064696c61766e69ULL, 8ULL)
+            and matchWord(s, 8ULL, 0x2065727574706163ULL, 8ULL)
+            and matchWord(s, 16ULL, 0x25207865646e69ULL, 7ULL)
+    elseif id == 25ULL then
+        return strings.length(s) == 11ULL
+            and matchWord(s, 0ULL, 0x646e692074612029ULL, 8ULL)
+            and matchWord(s, 8ULL, 0x207865ULL, 3ULL)
+    elseif id == 26ULL then
+        return strings.length(s) == 40ULL
+            and matchWord(s, 0ULL, 0x2064696c61766e69ULL, 8ULL)
+            and matchWord(s, 8ULL, 0x2720666f20657375ULL, 8ULL)
+            and matchWord(s, 16ULL, 0x6572206e69202725ULL, 8ULL)
+            and matchWord(s, 24ULL, 0x6e656d6563616c70ULL, 8ULL)
+            and matchWord(s, 32ULL, 0x676e697274732074ULL, 8ULL)
+    elseif id == 27ULL then
+        return strings.length(s) == 18ULL
+            and matchWord(s, 0ULL, 0x6873696e69666e75ULL, 8ULL)
+            and matchWord(s, 8ULL, 0x7574706163206465ULL, 8ULL)
+            and matchWord(s, 16ULL, 0x6572ULL, 2ULL)
+    elseif id == 28ULL then
+        return strings.length(s) == 26ULL
+            and matchWord(s, 0ULL, 0x796e616d206f6f74ULL, 8ULL)
+            and matchWord(s, 8ULL, 0x73746c7573657220ULL, 8ULL)
+            and matchWord(s, 16ULL, 0x61706e75206f7420ULL, 8ULL)
+            and matchWord(s, 24ULL, 0x6b63ULL, 2ULL)
+    elseif id == 29ULL then
+        return strings.length(s) == 26ULL
+            and matchWord(s, 0ULL, 0x6e69746c75736572ULL, 8ULL)
+            and matchWord(s, 8ULL, 0x676e697274732067ULL, 8ULL)
+            and matchWord(s, 16ULL, 0x72616c206f6f7420ULL, 8ULL)
+            and matchWord(s, 24ULL, 0x6567ULL, 2ULL)
+    elseif id == 30ULL then
+        return strings.length(s) == 25ULL
+            and matchWord(s, 0ULL, 0x756e20676e6f7277ULL, 8ULL)
+            and matchWord(s, 8ULL, 0x20666f207265626dULL, 8ULL)
+            and matchWord(s, 16ULL, 0x746e656d75677261ULL, 8ULL)
+            and matchWord(s, 24ULL, 0x73ULL, 1ULL)
+    elseif id == 31ULL then
+        return strings.length(s) == 20ULL
+            and matchWord(s, 0ULL, 0x2064696c61766e69ULL, 8ULL)
+            and matchWord(s, 8ULL, 0x69737265766e6f63ULL, 8ULL)
+            and matchWord(s, 16ULL, 0x27206e6fULL, 4ULL)
+    elseif id == 32ULL then
+        return strings.length(s) == 13ULL
+            and matchWord(s, 0ULL, 0x6f6627206f742027ULL, 8ULL)
+            and matchWord(s, 8ULL, 0x2774616d72ULL, 5ULL)
+    elseif id == 33ULL then
+        return strings.length(s) == 36ULL
+            and matchWord(s, 0ULL, 0x6569666963657073ULL, 8ULL)
+            and matchWord(s, 8ULL, 0x6320277125272072ULL, 8ULL)
+            and matchWord(s, 16ULL, 0x616820746f6e6e61ULL, 8ULL)
+            and matchWord(s, 24ULL, 0x6669646f6d206576ULL, 8ULL)
+            and matchWord(s, 32ULL, 0x73726569ULL, 4ULL)
+    elseif id == 34ULL then
+        return strings.length(s) == 21ULL
+            and matchWord(s, 0ULL, 0x2064696c61766e69ULL, 8ULL)
+            and matchWord(s, 8ULL, 0x27206f742079656bULL, 8ULL)
+            and matchWord(s, 16ULL, 0x277478656eULL, 5ULL)
+    elseif id == 35ULL then
+        return strings.length(s) == 25ULL
+            and matchWord(s, 0ULL, 0x2074706d65747461ULL, 8ULL)
+            and matchWord(s, 8ULL, 0x6f66726570206f74ULL, 8ULL)
+            and matchWord(s, 16ULL, 0x302f2f6e27206d72ULL, 8ULL)
+            and matchWord(s, 24ULL, 0x27ULL, 1ULL)
+    elseif id == 36ULL then
+        return strings.length(s) == 8ULL and matchWord(s, 0ULL, 0x676e697274736f74ULL, 8ULL)
+    elseif id == 37ULL then
+        return strings.length(s) == 6ULL and matchWord(s, 0ULL, 0x74616d726f66ULL, 6ULL)
+    elseif id == 38ULL then
+        return strings.length(s) == 6ULL and matchWord(s, 0ULL, 0x7461636e6f63ULL, 6ULL)
+    elseif id == 39ULL then
+        return strings.length(s) == 6ULL and matchWord(s, 0ULL, 0x686374616d67ULL, 6ULL)
+    elseif id == 40ULL then
+        return strings.length(s) == 4ULL and matchWord(s, 0ULL, 0x7478656eULL, 4ULL)
+    elseif id == 41ULL then
+        return strings.length(s) == 8ULL and matchWord(s, 0ULL, 0x7265626d756e6f74ULL, 8ULL)
+    elseif id == 42ULL then
+        return strings.length(s) == 6ULL and matchWord(s, 0ULL, 0x766e65746567ULL, 6ULL)
+    elseif id == 43ULL then
+        return strings.length(s) == 3ULL and matchWord(s, 0ULL, 0x627573ULL, 3ULL)
+    elseif id == 44ULL then
+        return strings.length(s) == 4ULL and matchWord(s, 0ULL, 0x65747962ULL, 4ULL)
+    elseif id == 45ULL then
+        return strings.length(s) == 4ULL and matchWord(s, 0ULL, 0x72616863ULL, 4ULL)
+    elseif id == 46ULL then
+        return strings.length(s) == 3ULL and matchWord(s, 0ULL, 0x706572ULL, 3ULL)
+    elseif id == 47ULL then
+        return strings.length(s) == 5ULL and matchWord(s, 0ULL, 0x7265707075ULL, 5ULL)
+    elseif id == 48ULL then
+        return strings.length(s) == 5ULL and matchWord(s, 0ULL, 0x7265776f6cULL, 5ULL)
+    elseif id == 49ULL then
+        return strings.length(s) == 3ULL and matchWord(s, 0ULL, 0x6e656cULL, 3ULL)
+    elseif id == 50ULL then
+        return strings.length(s) == 4ULL and matchWord(s, 0ULL, 0x646e6966ULL, 4ULL)
+    elseif id == 51ULL then
+        return strings.length(s) == 5ULL and matchWord(s, 0ULL, 0x686374616dULL, 5ULL)
+    elseif id == 52ULL then
+        return strings.length(s) == 6ULL and matchWord(s, 0ULL, 0x7463656c6573ULL, 6ULL)
+    elseif id == 53ULL then
+        return strings.length(s) == 4ULL and matchWord(s, 0ULL, 0x62757367ULL, 4ULL)
+    elseif id == 54ULL then
+        return strings.length(s) == 12ULL
+            and matchWord(s, 0ULL, 0x746174656d746573ULL, 8ULL)
+            and matchWord(s, 8ULL, 0x656c6261ULL, 4ULL)
+    elseif id == 55ULL then
+        return strings.length(s) == 12ULL
+            and matchWord(s, 0ULL, 0x746174656d746567ULL, 8ULL)
+            and matchWord(s, 8ULL, 0x656c6261ULL, 4ULL)
+    elseif id == 56ULL then
+        return strings.length(s) == 6ULL and matchWord(s, 0ULL, 0x746567776172ULL, 6ULL)
+    elseif id == 57ULL then
+        return strings.length(s) == 6ULL and matchWord(s, 0ULL, 0x746573776172ULL, 6ULL)
+    elseif id == 58ULL then
+        return strings.length(s) == 4ULL and matchWord(s, 0ULL, 0x65707974ULL, 4ULL)
+    elseif id == 59ULL then
+        return strings.length(s) == 6ULL and matchWord(s, 0ULL, 0x747265736e69ULL, 6ULL)
+    elseif id == 60ULL then
+        return strings.length(s) == 6ULL and matchWord(s, 0ULL, 0x65766f6d6572ULL, 6ULL)
+    elseif id == 61ULL then
+        return strings.length(s) == 6ULL and matchWord(s, 0ULL, 0x6b6361706e75ULL, 6ULL)
+    elseif id == 62ULL then
+        return strings.length(s) == 3ULL and matchWord(s, 0ULL, 0x736261ULL, 3ULL)
+    elseif id == 63ULL then
+        return strings.length(s) == 4ULL and matchWord(s, 0ULL, 0x6c696563ULL, 4ULL)
+    elseif id == 64ULL then
+        return strings.length(s) == 3ULL and matchWord(s, 0ULL, 0x78616dULL, 3ULL)
+    elseif id == 65ULL then
+        return strings.length(s) == 3ULL and matchWord(s, 0ULL, 0x6e696dULL, 3ULL)
+    elseif id == 66ULL then
+        return strings.length(s) == 9ULL
+            and matchWord(s, 0ULL, 0x656765746e696f74ULL, 8ULL)
+            and matchWord(s, 8ULL, 0x72ULL, 1ULL)
+    elseif id == 67ULL then
+        return strings.length(s) == 4ULL and matchWord(s, 0ULL, 0x74727173ULL, 4ULL)
+    elseif id == 68ULL then
+        return strings.length(s) == 4ULL and matchWord(s, 0ULL, 0x74726f73ULL, 4ULL)
+    elseif id == 69ULL then
+        return strings.length(s) == 5ULL and matchWord(s, 0ULL, 0x746e697270ULL, 5ULL)
+    elseif id == 70ULL then
+        return strings.length(s) == 3ULL and matchWord(s, 0ULL, 0x707865ULL, 3ULL)
+    elseif id == 71ULL then
+        return strings.length(s) == 3ULL and matchWord(s, 0ULL, 0x676f6cULL, 3ULL)
+    elseif id == 72ULL then
+        return strings.length(s) == 3ULL and matchWord(s, 0ULL, 0x6e6973ULL, 3ULL)
+    elseif id == 73ULL then
+        return strings.length(s) == 3ULL and matchWord(s, 0ULL, 0x736f63ULL, 3ULL)
+    elseif id == 74ULL then
+        return strings.length(s) == 3ULL and matchWord(s, 0ULL, 0x6e6174ULL, 3ULL)
+    elseif id == 75ULL then
+        return strings.length(s) == 4ULL and matchWord(s, 0ULL, 0x6e697361ULL, 4ULL)
+    elseif id == 76ULL then
+        return strings.length(s) == 4ULL and matchWord(s, 0ULL, 0x736f6361ULL, 4ULL)
+    elseif id == 77ULL then
+        return strings.length(s) == 4ULL and matchWord(s, 0ULL, 0x6e617461ULL, 4ULL)
+    elseif id == 78ULL then
+        return strings.length(s) == 4ULL and matchWord(s, 0ULL, 0x646f6d66ULL, 4ULL)
+    elseif id == 79ULL then
+        return strings.length(s) == 7ULL and matchWord(s, 0ULL, 0x65737265766572ULL, 7ULL)
+    elseif id == 80ULL then
+        return strings.length(s) == 4ULL and matchWord(s, 0ULL, 0x65766f6dULL, 4ULL)
+    elseif id == 81ULL then
+        return strings.length(s) == 6ULL and matchWord(s, 0ULL, 0x6d6f646e6172ULL, 6ULL)
+    elseif id == 82ULL then
+        return strings.length(s) == 10ULL
+            and matchWord(s, 0ULL, 0x65736d6f646e6172ULL, 8ULL)
+            and matchWord(s, 8ULL, 0x6465ULL, 2ULL)
+    elseif id == 83ULL then
+        return strings.length(s) == 9ULL
+            and matchWord(s, 0ULL, 0x20676e696c6c6163ULL, 8ULL)
+            and matchWord(s, 8ULL, 0x27ULL, 1ULL)
+    elseif id == 84ULL then
+        return strings.length(s) == 15ULL
+            and matchWord(s, 0ULL, 0x646162206e6f2027ULL, 8ULL)
+            and matchWord(s, 8ULL, 0x2820666c657320ULL, 7ULL)
+    elseif id == 85ULL then
+        return strings.length(s) == 9ULL
+            and matchWord(s, 0ULL, 0x65646e6570737573ULL, 8ULL)
+            and matchWord(s, 8ULL, 0x64ULL, 1ULL)
+    elseif id == 86ULL then
+        return strings.length(s) == 7ULL and matchWord(s, 0ULL, 0x676e696e6e7572ULL, 7ULL)
+    elseif id == 87ULL then
+        return strings.length(s) == 6ULL and matchWord(s, 0ULL, 0x6c616d726f6eULL, 6ULL)
+    elseif id == 88ULL then
+        return strings.length(s) == 4ULL and matchWord(s, 0ULL, 0x64616564ULL, 4ULL)
+    elseif id == 89ULL then
+        return strings.length(s) == 28ULL
+            and matchWord(s, 0ULL, 0x7220746f6e6e6163ULL, 8ULL)
+            and matchWord(s, 8ULL, 0x656420656d757365ULL, 8ULL)
+            and matchWord(s, 16ULL, 0x756f726f63206461ULL, 8ULL)
+            and matchWord(s, 24ULL, 0x656e6974ULL, 4ULL)
+    elseif id == 90ULL then
+        return strings.length(s) == 37ULL
+            and matchWord(s, 0ULL, 0x7220746f6e6e6163ULL, 8ULL)
+            and matchWord(s, 8ULL, 0x6f6e20656d757365ULL, 8ULL)
+            and matchWord(s, 16ULL, 0x6e65707375732d6eULL, 8ULL)
+            and matchWord(s, 24ULL, 0x6f726f6320646564ULL, 8ULL)
+            and matchWord(s, 32ULL, 0x656e697475ULL, 5ULL)
+    elseif id == 91ULL then
+        return strings.length(s) == 41ULL
+            and matchWord(s, 0ULL, 0x2074706d65747461ULL, 8ULL)
+            and matchWord(s, 8ULL, 0x646c656979206f74ULL, 8ULL)
+            and matchWord(s, 16ULL, 0x756f206d6f726620ULL, 8ULL)
+            and matchWord(s, 24ULL, 0x2061206564697374ULL, 8ULL)
+            and matchWord(s, 32ULL, 0x6e6974756f726f63ULL, 8ULL)
+            and matchWord(s, 40ULL, 0x65ULL, 1ULL)
+    elseif id == 92ULL then
+        return strings.length(s) == 9ULL
+            and matchWord(s, 0ULL, 0x6e6974756f726f63ULL, 8ULL)
+            and matchWord(s, 8ULL, 0x65ULL, 1ULL)
+    elseif id == 93ULL then
+        return strings.length(s) == 6ULL and matchWord(s, 0ULL, 0x657461657263ULL, 6ULL)
+    elseif id == 94ULL then
+        return strings.length(s) == 6ULL and matchWord(s, 0ULL, 0x656d75736572ULL, 6ULL)
+    elseif id == 95ULL then
+        return strings.length(s) == 5ULL and matchWord(s, 0ULL, 0x646c656979ULL, 5ULL)
+    elseif id == 96ULL then
+        return strings.length(s) == 6ULL and matchWord(s, 0ULL, 0x737574617473ULL, 6ULL)
+    elseif id == 97ULL then
+        return strings.length(s) == 4ULL and matchWord(s, 0ULL, 0x70617277ULL, 4ULL)
+    elseif id == 98ULL then
+        return strings.length(s) == 11ULL
+            and matchWord(s, 0ULL, 0x61646c6569797369ULL, 8ULL)
+            and matchWord(s, 8ULL, 0x656c62ULL, 3ULL)
+    elseif id == 99ULL then
+        return strings.length(s) == 8ULL and matchWord(s, 0ULL, 0x6e6f6974636e7566ULL, 8ULL)
+    elseif id == 100ULL then
+        return strings.length(s) == 24ULL
+            and matchWord(s, 0ULL, 0x6320746f6e6e6163ULL, 8ULL)
+            and matchWord(s, 8ULL, 0x69616d2065736f6cULL, 8ULL)
+            and matchWord(s, 16ULL, 0x646165726874206eULL, 8ULL)
+    elseif id == 101ULL then
+        return strings.length(s) == 31ULL
+            and matchWord(s, 0ULL, 0x6320746f6e6e6163ULL, 8ULL)
+            and matchWord(s, 8ULL, 0x6e20612065736f6cULL, 8ULL)
+            and matchWord(s, 16ULL, 0x6f63206c616d726fULL, 8ULL)
+            and matchWord(s, 24ULL, 0x656e6974756f72ULL, 7ULL)
+    elseif id == 102ULL then
+        return strings.length(s) == 5ULL and matchWord(s, 0ULL, 0x65736f6c63ULL, 5ULL)
+    elseif id == 104ULL then
+        return strings.length(s) == 14ULL
+            and matchWord(s, 0ULL, 0x766f206b63617473ULL, 8ULL)
+            and matchWord(s, 8ULL, 0x776f6c667265ULL, 6ULL)
+    elseif id == 105ULL then
+        return strings.length(s) == 31ULL
+            and matchWord(s, 0ULL, 0x6c207463656a626fULL, 8ULL)
+            and matchWord(s, 8ULL, 0x7369206874676e65ULL, 8ULL)
+            and matchWord(s, 16ULL, 0x206e6120746f6e20ULL, 8ULL)
+            and matchWord(s, 24ULL, 0x72656765746e69ULL, 7ULL)
+    elseif id == 106ULL then
+        return strings.length(s) == 41ULL
+            and matchWord(s, 0ULL, 0x2074706d65747461ULL, 8ULL)
+            and matchWord(s, 8ULL, 0x646c656979206f74ULL, 8ULL)
+            and matchWord(s, 16ULL, 0x2073736f72636120ULL, 8ULL)
+            and matchWord(s, 24ULL, 0x6c6c61632d432061ULL, 8ULL)
+            and matchWord(s, 32ULL, 0x7261646e756f6220ULL, 8ULL)
+            and matchWord(s, 40ULL, 0x79ULL, 1ULL)
+    elseif id == 107ULL then
+        return strings.length(s) == 7ULL and matchWord(s, 0ULL, 0x65726975716572ULL, 7ULL)
+    elseif id == 108ULL then
+        return strings.length(s) == 17ULL
+            and matchWord(s, 0ULL, 0x6f69747265737361ULL, 8ULL)
+            and matchWord(s, 8ULL, 0x64656c696166206eULL, 8ULL)
+            and matchWord(s, 16ULL, 0x21ULL, 1ULL)
+    elseif id == 109ULL then
+        return strings.length(s) == 15ULL
+            and matchWord(s, 0ULL, 0x65207265626d756eULL, 8ULL)
+            and matchWord(s, 8ULL, 0x64657463657078ULL, 7ULL)
+    elseif id == 110ULL then
+        return strings.length(s) == 7ULL and matchWord(s, 0ULL, 0x656761726f7473ULL, 7ULL)
+    elseif id == 111ULL then
+        return strings.length(s) == 17ULL
+            and matchWord(s, 0ULL, 0x74756f2065736162ULL, 8ULL)
+            and matchWord(s, 8ULL, 0x676e617220666f20ULL, 8ULL)
+            and matchWord(s, 16ULL, 0x65ULL, 1ULL)
+    elseif id == 112ULL then
+        return strings.length(s) == 38ULL
+            and matchWord(s, 0ULL, 0x726f662720646162ULL, 8ULL)
+            and matchWord(s, 8ULL, 0x2074696d696c2027ULL, 8ULL)
+            and matchWord(s, 16ULL, 0x207265626d756e28ULL, 8ULL)
+            and matchWord(s, 24ULL, 0x6465746365707865ULL, 8ULL)
+            and matchWord(s, 32ULL, 0x20746f67202cULL, 6ULL)
+    elseif id == 113ULL then
+        return strings.length(s) == 31ULL
+            and matchWord(s, 0ULL, 0x616820656c626174ULL, 8ULL)
+            and matchWord(s, 8ULL, 0x746f727020612073ULL, 8ULL)
+            and matchWord(s, 16ULL, 0x656d206465746365ULL, 8ULL)
+            and matchWord(s, 24ULL, 0x656c6261746174ULL, 7ULL)
+    elseif id == 114ULL then
+        return strings.length(s) == 6ULL and matchWord(s, 0ULL, 0x657a65657266ULL, 6ULL)
+    elseif id == 115ULL then
+        return strings.length(s) == 8ULL and matchWord(s, 0ULL, 0x6e657a6f72667369ULL, 8ULL)
+    elseif id == 116ULL then
+        return strings.length(s) == 23ULL
+            and matchWord(s, 0ULL, 0x736920656c626174ULL, 8ULL)
+            and matchWord(s, 8ULL, 0x79646165726c6120ULL, 8ULL)
+            and matchWord(s, 16ULL, 0x6e657a6f726620ULL, 7ULL)
+    elseif id == 117ULL then
+        return strings.length(s) == 16ULL
+            and matchWord(s, 0ULL, 0x2064696c61766e69ULL, 8ULL)
+            and matchWord(s, 8ULL, 0x27206e6f6974706fULL, 8ULL)
+    elseif id == 118ULL then
+        return strings.length(s) == 14ULL
+            and matchWord(s, 0ULL, 0x677463656c6c6f63ULL, 8ULL)
+            and matchWord(s, 8ULL, 0x656761627261ULL, 6ULL)
+    elseif id == 119ULL then
+        return strings.length(s) == 6ULL and matchWord(s, 0ULL, 0x64656b726170ULL, 6ULL)
+    elseif id == 120ULL then
+        return strings.length(s) == 35ULL
+            and matchWord(s, 0ULL, 0x7220746f6e6e6163ULL, 8ULL)
+            and matchWord(s, 8ULL, 0x206120656d757365ULL, 8ULL)
+            and matchWord(s, 16ULL, 0x656c756465686373ULL, 8ULL)
+            and matchWord(s, 24ULL, 0x74756f726f632064ULL, 8ULL)
+            and matchWord(s, 32ULL, 0x656e69ULL, 3ULL)
+    elseif id == 121ULL then
+        return strings.length(s) == 19ULL
+            and matchWord(s, 0ULL, 0x6f20726f72726528ULL, 8ULL)
+            and matchWord(s, 8ULL, 0x7369207463656a62ULL, 8ULL)
+            and matchWord(s, 16ULL, 0x206120ULL, 3ULL)
+    elseif id == 122ULL then
+        return strings.length(s) == 6ULL and matchWord(s, 0ULL, 0x65756c617620ULL, 6ULL)
+    elseif id == 123ULL then
+        return strings.length(s) == 4ULL and matchWord(s, 0ULL, 0x63675f5fULL, 4ULL)
+    elseif id == 124ULL then
+        return strings.length(s) == 6ULL and matchWord(s, 0ULL, 0x65646f6d5f5fULL, 6ULL)
+    elseif id == 125ULL then
+        return strings.length(s) == 11ULL
+            and matchWord(s, 0ULL, 0x726177206e726177ULL, 8ULL)
+            and matchWord(s, 8ULL, 0x203a6eULL, 3ULL)
+    elseif id == 126ULL then
+        return strings.length(s) == 15ULL
+            and matchWord(s, 0ULL, 0x6e6920726f727265ULL, 8ULL)
+            and matchWord(s, 8ULL, 0x282063675f5f20ULL, 7ULL)
+    elseif id == 127ULL then
+        return strings.length(s) == 28ULL
+            and matchWord(s, 0ULL, 0x626f20726f727265ULL, 8ULL)
+            and matchWord(s, 8ULL, 0x207369207463656aULL, 8ULL)
+            and matchWord(s, 16ULL, 0x7473206120746f6eULL, 8ULL)
+            and matchWord(s, 24ULL, 0x676e6972ULL, 4ULL)
+    elseif id == 128ULL then
+        return strings.length(s) == 18ULL
+            and matchWord(s, 0ULL, 0x2074706d65747461ULL, 8ULL)
+            and matchWord(s, 8ULL, 0x206c6c6163206f74ULL, 8ULL)
+            and matchWord(s, 16ULL, 0x2061ULL, 2ULL)
+    elseif id == 144ULL then
+        return strings.length(s) == 20ULL
+            and matchWord(s, 0ULL, 0x656d6174656d2820ULL, 8ULL)
+            and matchWord(s, 8ULL, 0x5f5f2720646f6874ULL, 8ULL)
+            and matchWord(s, 16ULL, 0x29276367ULL, 4ULL)
+    elseif id == 129ULL then
+        return strings.length(s) == 7ULL and matchWord(s, 0ULL, 0x7463656c6c6f63ULL, 7ULL)
+    elseif id == 130ULL then
+        return strings.length(s) == 4ULL and matchWord(s, 0ULL, 0x706f7473ULL, 4ULL)
+    elseif id == 131ULL then
+        return strings.length(s) == 7ULL and matchWord(s, 0ULL, 0x74726174736572ULL, 7ULL)
+    elseif id == 132ULL then
+        return strings.length(s) == 5ULL and matchWord(s, 0ULL, 0x746e756f63ULL, 5ULL)
+    elseif id == 133ULL then
+        return strings.length(s) == 4ULL and matchWord(s, 0ULL, 0x70657473ULL, 4ULL)
+    elseif id == 134ULL then
+        return strings.length(s) == 9ULL
+            and matchWord(s, 0ULL, 0x6e696e6e75727369ULL, 8ULL)
+            and matchWord(s, 8ULL, 0x67ULL, 1ULL)
+    elseif id == 135ULL then
+        return strings.length(s) == 12ULL
+            and matchWord(s, 0ULL, 0x69746172656e6567ULL, 8ULL)
+            and matchWord(s, 8ULL, 0x6c616e6fULL, 4ULL)
+    elseif id == 136ULL then
+        return strings.length(s) == 11ULL
+            and matchWord(s, 0ULL, 0x6e656d6572636e69ULL, 8ULL)
+            and matchWord(s, 8ULL, 0x6c6174ULL, 3ULL)
+    elseif id == 137ULL then
+        return strings.length(s) == 5ULL and matchWord(s, 0ULL, 0x6d61726170ULL, 5ULL)
+    elseif id == 138ULL then
+        return strings.length(s) == 8ULL and matchWord(s, 0ULL, 0x6c756d726f6e696dULL, 8ULL)
+    elseif id == 139ULL then
+        return strings.length(s) == 10ULL
+            and matchWord(s, 0ULL, 0x6e696d726f6a616dULL, 8ULL)
+            and matchWord(s, 8ULL, 0x726fULL, 2ULL)
+    elseif id == 140ULL then
+        return strings.length(s) == 10ULL
+            and matchWord(s, 0ULL, 0x6a616d726f6e696dULL, 8ULL)
+            and matchWord(s, 8ULL, 0x726fULL, 2ULL)
+    elseif id == 141ULL then
+        return strings.length(s) == 5ULL and matchWord(s, 0ULL, 0x6573756170ULL, 5ULL)
+    elseif id == 142ULL then
+        return strings.length(s) == 7ULL and matchWord(s, 0ULL, 0x6c756d70657473ULL, 7ULL)
+    elseif id == 143ULL then
+        return strings.length(s) == 8ULL and matchWord(s, 0ULL, 0x657a697370657473ULL, 8ULL)
+    elseif id == 145ULL then
+        return strings.length(s) == 16ULL
+            and matchWord(s, 0ULL, 0x656c626174697277ULL, 8ULL)
+            and matchWord(s, 8ULL, 0x656761726f747320ULL, 8ULL)
+    elseif id == 146ULL then
+        return strings.length(s) == 29ULL
+            and matchWord(s, 0ULL, 0x7220657275636573ULL, 8ULL)
+            and matchWord(s, 8ULL, 0x6f73206d6f646e61ULL, 8ULL)
+            and matchWord(s, 16ULL, 0x6961662065637275ULL, 8ULL)
+            and matchWord(s, 24ULL, 0x203a64656cULL, 5ULL)
+    elseif id == 147ULL then
+        return strings.length(s) == 23ULL
+            and matchWord(s, 0ULL, 0x276c6c61635f5f27ULL, 8ULL)
+            and matchWord(s, 8ULL, 0x74206e6961686320ULL, 8ULL)
+            and matchWord(s, 16ULL, 0x676e6f6c206f6fULL, 7ULL)
+    elseif id == 148ULL then
+        return strings.length(s) == 4ULL and matchWord(s, 0ULL, 0x6e69616dULL, 4ULL)
+    elseif id == 149ULL then
+        return strings.length(s) == 3ULL and matchWord(s, 0ULL, 0x61754cULL, 3ULL)
+    elseif id == 150ULL then
+        return strings.length(s) == 1ULL and matchWord(s, 0ULL, 0x43ULL, 1ULL)
+    elseif id == 151ULL then
+        return strings.length(s) == 4ULL and matchWord(s, 0ULL, 0x5d435b3dULL, 4ULL)
+    elseif id == 152ULL then
+        return strings.length(s) == 3ULL and matchWord(s, 0ULL, 0x5d435bULL, 3ULL)
+    elseif id == 153ULL then
+        return strings.length(s) == 6ULL and matchWord(s, 0ULL, 0x6c61626f6c67ULL, 6ULL)
+    elseif id == 154ULL then
+        return strings.length(s) == 5ULL and matchWord(s, 0ULL, 0x6c61636f6cULL, 5ULL)
+    elseif id == 155ULL then
+        return strings.length(s) == 6ULL and matchWord(s, 0ULL, 0x646f6874656dULL, 6ULL)
+    elseif id == 156ULL then
+        return strings.length(s) == 5ULL and matchWord(s, 0ULL, 0x646c656966ULL, 5ULL)
+    elseif id == 157ULL then
+        return strings.length(s) == 7ULL and matchWord(s, 0ULL, 0x65756c61767075ULL, 7ULL)
+    elseif id == 158ULL then
+        return strings.length(s) == 12ULL
+            and matchWord(s, 0ULL, 0x7265746920726f66ULL, 8ULL)
+            and matchWord(s, 8ULL, 0x726f7461ULL, 4ULL)
+    elseif id == 159ULL then
+        return strings.length(s) == 7ULL and matchWord(s, 0ULL, 0x6e61656c6f6f62ULL, 7ULL)
+    elseif id == 160ULL then
+        return strings.length(s) == 3ULL and matchWord(s, 0ULL, 0x6c696eULL, 3ULL)
+    end
+
+    return false
 end

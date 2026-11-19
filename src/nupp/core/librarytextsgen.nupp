@@ -9,7 +9,7 @@ local WORD_BYTES = 8
 
 -- The appendWord calls that append `text`, a word of up to eight bytes each,
 -- little-endian.
-local function words(text: string): {string}
+local function words(text: string, match: boolean?): {string}
     local calls = {}
     local at = 1
     while at <= #text do
@@ -19,7 +19,13 @@ local function words(text: string): {string}
             digits[#digits + 1] = string.format("%02x", piece:byte(index))
         end
         local hex = table.concat(digits):gsub("^0+", "")
-        calls[#calls + 1] = "strings.appendWord(h, b, 0x" .. hex .. "ULL, " .. tostring(#piece) .. "ULL)"
+        if match then
+            calls[
+                #calls + 1
+            ] = "matchWord(s, " .. tostring(at - 1) .. "ULL, 0x" .. hex .. "ULL, " .. tostring(#piece) .. "ULL)"
+        else
+            calls[#calls + 1] = "strings.appendWord(h, b, 0x" .. hex .. "ULL, " .. tostring(#piece) .. "ULL)"
+        end
         at += WORD_BYTES
     end
 
@@ -37,6 +43,7 @@ export function source(): string
         "-- the one table of the core's library texts: edit that table, not this file.",
         "-- A leaf has no data, so each text is its bytes as little-endian words,",
         "-- eight to a word.",
+        "const native = require(\"nupp.runtime.vm.intrinsics\")",
         "const heap = require(\"nupp.runtime.vm.heap\")",
         "const strings = require(\"nupp.runtime.core.corestrings\")",
         ""
@@ -68,6 +75,48 @@ export function source(): string
     lines[#lines + 1] = "    end"
     lines[#lines + 1] = ""
     lines[#lines + 1] = "    return 0ULL"
+    lines[#lines + 1] = "end"
+    lines[#lines + 1] = ""
+    lines[#lines + 1] = "-- Matching an option must not allocate or advance the collector."
+    lines[#lines + 1] = "local function matchWord(s: uint64, offset: uint64, word: uint64, count: uint64): boolean"
+    lines[#lines + 1] = "    local bytes = strings.bytes(s) + offset"
+    lines[#lines + 1] = "    if count == 8ULL then"
+    lines[#lines + 1] = "        return native.load64(native.pointer(bytes), 0) == word"
+    lines[#lines + 1] = "    end"
+    lines[#lines + 1] = "    local at: uint64 = 0ULL"
+    lines[#lines + 1] = "    while at < count do"
+    lines[
+        #lines + 1
+    ] = "        if native.word(native.load8(native.pointer(bytes), native.index(at))) ~= (word >> (at * 8ULL)) & 255ULL then"
+    lines[#lines + 1] = "            return false"
+    lines[#lines + 1] = "        end"
+    lines[#lines + 1] = "        at = at + 1ULL"
+    lines[#lines + 1] = "    end"
+    lines[#lines + 1] = ""
+    lines[#lines + 1] = "    return true"
+    lines[#lines + 1] = "end"
+    lines[#lines + 1] = ""
+    lines[#lines + 1] = "-- Whether string header `s` contains text `id`, without interning another string."
+    lines[#lines + 1] = "export function matches(s: uint64, id: uint64): boolean"
+    for index, entry in ipairs(texts) do
+        lines[#lines + 1] = (index == 1 and "    if" or "    elseif") .. " id == " .. tostring(entry.id) .. "ULL then"
+        local calls = {"strings.length(s) == " .. tostring(#entry.text) .. "ULL"}
+        for _, call in ipairs(words(entry.text, true)) do
+            calls[#calls + 1] = call
+        end
+        local whole = "        return " .. table.concat(calls, " and ")
+        if #whole <= WIDTH then
+            lines[#lines + 1] = whole
+        else
+            lines[#lines + 1] = "        return " .. calls[1]
+            for at = 2, #calls do
+                lines[#lines + 1] = "            and " .. calls[at]
+            end
+        end
+    end
+    lines[#lines + 1] = "    end"
+    lines[#lines + 1] = ""
+    lines[#lines + 1] = "    return false"
     lines[#lines + 1] = "end"
 
     return table.concat(lines, "\n") .. "\n"

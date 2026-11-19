@@ -164,6 +164,9 @@ export struct Services
     -- collectgarbage's parameters (`guestgc`), Lua 5.5's six coded bytes,
     -- the first lowest.
     gcparams: uint64
+    -- The incremental cycle an explicit step joined, until a later step
+    -- reports its completion. Automatic safepoints may finish it meanwhile.
+    gcstepCycle: uint64
 end
 
 export const FAULT_ARITH: uint64 = 1ULL
@@ -232,6 +235,7 @@ export function prepare(base: voidptr, bytes: uint64): uint64
     native.store64(services, native.fieldOffset<Services>("finalclose"), 0ULL)
     native.store64(services, native.fieldOffset<Services>("finalresult"), 0ULL)
     native.store64(services, native.fieldOffset<Services>("gcparams"), 0ULL)
+    native.store64(services, native.fieldOffset<Services>("gcstepCycle"), 0ULL)
 
     return native.address(services)
 end

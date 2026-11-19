@@ -383,6 +383,22 @@ local UNITS = {
 }
 
 UNITS[#UNITS + 1] = {
+    name = "gcoptionunits",
+    modules = {"gcoptionunits", "unitentry"},
+    entries = {{"gcoptionunits", "smallsteps", 2}, {"gcoptionunits", "textmatches", 0}},
+    cases = function()
+        local cases = {{"textmatches", {}, 0}}
+        for _, count in ipairs({0, 300, 1000, 4096}) do
+            for pacing = 0, 3 do
+                cases[#cases + 1] = {"smallsteps", {count, pacing}, 0}
+            end
+        end
+
+        return cases
+    end
+}
+
+UNITS[#UNITS + 1] = {
     name = "stringticketlandingunits",
     modules = {"stringticketfaultunits", "longstringfaultunits", "stringticketentry", "releasequeueentry"},
     observeLanding = true,

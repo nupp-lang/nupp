@@ -1,0 +1,169 @@
+module nupp.core.gcoptionunits
+
+const native = require("nupp.runtime.vm.intrinsics")
+const arena = require("nupp.runtime.vm.arena")
+const heap = require("nupp.runtime.vm.heap")
+const collector = require("nupp.runtime.vm.collector")
+const values = require("nupp.runtime.vm.values")
+const strings = require("nupp.runtime.core.corestrings")
+const context = require("nupp.runtime.core.context")
+const guestscope = require("nupp.runtime.core.guestscope")
+const guestgc = require("nupp.runtime.core.guestgc")
+const librarytexts = require("nupp.runtime.core.librarytexts")
+
+local function zeroed(borrows a: arena.Arena*, bytes: uint64): uint64
+    @unsafe do
+        local raw = arena.alloc(a, bytes, 8ULL)
+        if raw == nil then
+            error("gc option units: no room for the fixture")
+        end
+        local base = native.address(raw)
+        local at: uint64 = 0ULL
+        while at < bytes do
+            native.store64(native.pointer(base), native.index(at), 0ULL)
+            at = at + 8ULL
+        end
+        return base
+    end
+end
+
+-- Every generated matcher agrees with the canonical appender, including
+-- texts longer than eight bytes and the final partial word.
+export function textmatches(): uint64
+    local state = strings.Builder(0ULL, 0ULL)
+    local wrong: uint64 = 0ULL
+    do
+        local a = arena.open(16777216ULL)
+        @unsafe do
+            local h = heap.create(a)
+            h.automatic = false
+            local id: uint64 = 1ULL
+            while id <= librarytexts.TEXT_NIL do
+                local present = false
+                local canonical: uint64 = 0ULL
+                do
+                    local lifetime = strings.open(h, state as strings.Builder*)
+                    local builder = state as strings.Builder*
+                    wrong = wrong + librarytexts.append(h, builder, id)
+                    local s = strings.finish(h, builder)
+                    canonical = s
+                    local allocated = h.stats.allocated
+                    -- Reserved ids append nothing and must not match.
+                    present = strings.length(s) > 0ULL
+                    if librarytexts.matches(s, id) ~= present or librarytexts.matches(s, 0ULL) then
+                        wrong = wrong + 1ULL
+                    end
+                    if h.stats.allocated ~= allocated then
+                        wrong = wrong + 1ULL
+                    end
+                end
+                if present then
+                    do
+                        local lifetime = strings.open(h, state as strings.Builder*)
+                        local builder = state as strings.Builder*
+                        wrong = wrong + librarytexts.append(h, builder, id)
+                        wrong = wrong + strings.appendWord(h, builder, 0ULL, 1ULL)
+                        local longer = strings.finish(h, builder)
+                        if librarytexts.matches(longer, id) then
+                            wrong = wrong + 1ULL
+                        end
+                    end
+                    do
+                        local lifetime = strings.open(h, state as strings.Builder*)
+                        local builder = state as strings.Builder*
+                        local source = strings.bytes(canonical)
+                        local first = native.word(native.load8(native.pointer(source), 0)) ~ 1ULL
+                        wrong = wrong + strings.appendWord(h, builder, first, 1ULL)
+                        wrong = wrong + strings.append(h, builder, source + 1ULL, strings.length(canonical) - 1ULL)
+                        local different = strings.finish(h, builder)
+                        if librarytexts.matches(different, id) then
+                            wrong = wrong + 1ULL
+                        end
+                    end
+                end
+                id = id + 1ULL
+            end
+            heap.destroy(h)
+        end
+    end
+
+    return wrong
+end
+
+local function automatic(h: heap.Heap*): boolean
+    @unsafe do
+        return h.automatic
+    end
+end
+
+-- Option dispatch must not allocate and finish an active collection before
+-- the explicit step can report it. More than one step's worth of roots makes
+-- the old allocating option comparisons complete every cycle between calls.
+export function smallsteps(count: uint64, pacing: uint64): uint64
+    local wrong: uint64 = 0ULL
+    do
+        local a = arena.open(16777216ULL)
+        @unsafe do
+            local h = heap.create(a)
+            h.automatic = false
+            h.incremental = 1ULL
+            local services = zeroed(a, native.sizeOf<guestscope.Services>())
+            local ctx = zeroed(a, native.word(context.SIZE))
+            native.store64(
+                native.pointer(services),
+                native.fieldOffset<guestscope.Services>("heap"),
+                native.address(h as voidptr)
+            )
+            native.store64(native.pointer(ctx), context.SERVICE_SCOPE, services)
+            local roots = zeroed(a, (count + 1ULL) * 8ULL)
+            collector.register(h, roots, count + 1ULL)
+            local at: uint64 = 0ULL
+            while at < count do
+                local o = collector.allocate(h, heap.KIND_CLOSURE, 0ULL)
+                o.auxLen = 0ULL
+                collector.initialized(h, o)
+                native.store64(native.pointer(roots), native.index(at * 8ULL), heap.objectValue(o))
+                at = at + 1ULL
+            end
+            local text = zeroed(a, 8ULL)
+            native.store64(native.pointer(text), 0, 0x70657473ULL)
+            local option = values.TAG_OBJ | strings.make(h, text, 4ULL)
+            native.store64(native.pointer(roots), native.index(count * 8ULL), option)
+            collector.fullCycle(h)
+            local allocated = h.stats.allocated
+            h.automatic = true
+            h.stress = pacing == 2ULL
+            h.interleave = pacing == 3ULL
+            local finished = false
+            at = 0ULL
+            while at < 32ULL do
+                if guestgc.collectgarbage(native.pointer(ctx), option, values.NIL, values.NIL) == values.TRUE then
+                    finished = true
+                    break
+                end
+                if pacing ~= 0ULL then
+                    collector.safepoint(h)
+                end
+                at = at + 1ULL
+            end
+            if not finished then
+                wrong = wrong + 1ULL
+            end
+            if h.stats.allocated ~= allocated then
+                wrong = wrong + 2ULL
+            end
+            if not automatic(h) or h.liveCount ~= count + 1ULL then
+                wrong = wrong + 4ULL
+            end
+            wrong = wrong + collector.checkOracle(h, true) * 8ULL
+            if finished and count > 256ULL then
+                if guestgc.collectgarbage(native.pointer(ctx), option, values.NIL, values.NIL) ~= values.FALSE then
+                    wrong = wrong + 16ULL
+                end
+            end
+            heap.destroy(h)
+        end
+    end
+
+    return wrong
+end

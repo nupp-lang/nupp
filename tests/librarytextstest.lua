@@ -28,7 +28,8 @@ function M.generatedExportsAndWordBytesMatchTheCanonicalTexts()
     local source = assert(fs.readFile(PATH))
     test.eq(source, generator.source(), "regenerate librarytexts from its canonical generator")
     local exports, branches, current = {}, {}, nil
-    for line in source:gmatch("[^\n]+") do
+    local appendSource = source:match("^(.-)\n%-%- Matching an option") or source
+    for line in appendSource:gmatch("[^\n]+") do
         local name, id = line:match("^export const ([%w_]+): uint64 = (%d+)ULL$")
         if name then
             assert(not exports[name], "duplicate text export")
