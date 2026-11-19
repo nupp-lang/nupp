@@ -781,7 +781,9 @@ local TEXT_SOURCES = {testrunner = {{"tests/cache.lua", "nupp:test-cache"}}}
 local ARGUMENTS = {
     hostlibrary = "alpha beta",
     benchworkloads = "--case fib --json --out /dev/null",
-    testrunner = "--jobs=1 --json --no-color " .. table.concat(RUNNER_SUITES, " "),
+    -- Fresh: the normal and spill runs share the runner's result cache, and
+    -- each must execute every test rather than report the other's.
+    testrunner = "--jobs=1 --json --no-color --fresh " .. table.concat(RUNNER_SUITES, " "),
     fixpointcompiler = (
         "--check %s/tests/core/catalog-fixpoint-compiler.nupp %s/tests/core/catalog-fixpoint-lowering.nupp"
     ):format(ROOT, ROOT)
