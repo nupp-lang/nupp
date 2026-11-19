@@ -108,7 +108,7 @@ local function whole(value: any, what: string, minimum: integer, maximum: intege
         error(("nupp: HTTP %s must be an integer%s"):format(what, (" from " .. minimum .. " through " .. upper)), 3)
     end
 
-    return value as integer
+    return assert(math.tointeger(value))
 end
 
 local function optionInteger(options: any, name: string, fallback: integer, minimum: integer): integer

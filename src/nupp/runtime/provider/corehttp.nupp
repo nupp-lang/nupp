@@ -232,10 +232,6 @@ export function bodyRead(request: integer, count: integer): (string, string?, st
     return "failed", nil, calls.failure(request) or "the HTTP transfer is closed"
 end
 
--- Nothing can signal between the readiness poll and the wait on this thread.
-export function snapshot(): nil
-end
-
 export function sleep(milliseconds: integer): nil
     if next(clients) == nil then
         return
@@ -256,4 +252,8 @@ export function sleep(milliseconds: integer): nil
     if code < 0 then
         error("HTTP reactor: " .. filecalls.reason(-code), 0)
     end
+end
+
+export function snapshot(): nil
+    sleep(0)
 end
