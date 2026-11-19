@@ -262,6 +262,15 @@ local function owns(o: heap.Header*): boolean
     end
 end
 
+local function takeStringCharge(borrows o: heap.Header*): uint64
+    @unsafe do
+        local tail = heap.corestringtail(o)
+        local charge = tail.charge
+        tail.charge = 0ULL
+        return charge
+    end
+end
+
 --- A white object the sweep reached: reclaimed at once when it owns nothing
 --- outside its slot, else retired onto the released list for the runtime.
 export function release(h: heap.Heap*, o: heap.Header*): nil
@@ -269,10 +278,7 @@ export function release(h: heap.Heap*, o: heap.Header*): nil
     @unsafe do
         if owns(o) then
             if o.kind as uint64 == heap.KIND_STR and heap.corestringexternal(o) then
-                local tail = heap.corestringtail(o)
-                local charge = tail.charge
-                tail.charge = 0ULL
-                heap.accountResize(h, charge, 0ULL)
+                heap.accountResize(h, takeStringCharge(o), 0ULL)
             elseif o.kind as uint64 == heap.KIND_CORE_STORAGE then
                 -- Only core owners use auxLen for external mapped charge.
                 -- Snapshot it before retire overwrites aux; retries do not

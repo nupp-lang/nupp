@@ -101,36 +101,42 @@ local function mirror(o: heap.Header*): nil
     end
 end
 
+local function releaseExternalString(borrows o: heap.Header*): boolean
+    local state = pages.Scope(0ULL, 0ULL, 0ULL, 0ULL, 0ULL, 0ULL, 0ULL)
+    @unsafe do
+        local status = state as pages.Scope*
+        local tail = heap.corestringtail(o)
+        local result: uint64 = 0ULL
+        if tail.ticket ~= 0ULL then
+            -- Resume detached pending authority on INVALID without dropping
+            -- the same alias a second time.
+            result = shared.ticketrelease(status, tail.ticket)
+        else
+            result = shared.releaselocal(status, native.pointer(tail.block))
+        end
+        if result ~= shared.RETAINED and result ~= shared.RELEASED and result ~= shared.FAILED then
+            -- No reference was consumed. Retain this queue entry.
+            error("core strings: shared release refused")
+        end
+        tail.ticket = 0ULL
+        tail.block = 0ULL
+        return result == shared.FAILED
+    end
+end
+
 -- Recycles every object the sweep retired onto the released list (tables, interned
 -- strings, boxed integers and coroutines), releasing a table's owned parts and a
 -- coroutine's frame pages first. Every allocating guest leaf calls this after its
 -- collector work.
 export function drain(h: heap.Heap*): nil
-    local state = pages.Scope(0ULL, 0ULL, 0ULL, 0ULL, 0ULL, 0ULL, 0ULL)
     @unsafe do
-        local status = state as pages.Scope*
         while h.released.count > 0ULL do
             local address = heap.wordAt(h.released, h.released.count - 1ULL)
             local failed: boolean = false
             local o = native.pointer(address) as heap.Header*
             -- The sweep already retired it: its former kind is in aux.
             if o.aux as uint64 == heap.KIND_STR and heap.corestringexternal(o) then
-                local tail = heap.corestringtail(o)
-                local result: uint64 = 0ULL
-                if tail.ticket ~= 0ULL then
-                    -- release resumes detached pending authority on INVALID;
-                    -- a retry must never drop the same alias a second time.
-                    result = shared.ticketrelease(status, tail.ticket)
-                else
-                    result = shared.releaselocal(status, native.pointer(tail.block))
-                end
-                if result ~= shared.RETAINED and result ~= shared.RELEASED and result ~= shared.FAILED then
-                    -- No reference was consumed: retain this queue entry.
-                    error("core strings: shared release refused")
-                end
-                tail.ticket = 0ULL
-                tail.block = 0ULL
-                failed = result == shared.FAILED
+                failed = releaseExternalString(o)
             elseif o.aux as uint64 == heap.KIND_TABLE then
                 local a = arrayOf(o)
                 if a.base ~= 0ULL then

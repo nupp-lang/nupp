@@ -115,11 +115,10 @@ local function sharedvalid(block: voidptr): boolean
 end
 
 -- Status storage is caller-owned and remains mapped after the block is gone.
-export function sharedscopevalid(statusScope: voidptr, block: voidptr): boolean
+export function sharedstatusvalid(status: uint64, block: voidptr): boolean
     if not sharedvalid(block) then
         return false
     end
-    local status = native.address(statusScope)
     local size = native.sizeOf<Scope>()
 
     return extent(status, size)
@@ -130,6 +129,10 @@ export function sharedscopevalid(statusScope: voidptr, block: voidptr): boolean
             native.address(block),
             native.load64(block, native.fieldOffset<SharedBacking>("mapped"))
         )
+end
+
+export function sharedscopevalid(statusScope: voidptr, block: voidptr): boolean
+    return sharedstatusvalid(native.address(statusScope), block)
 end
 
 -- The exact immutable mapping charge, checked before acquiring any reference.

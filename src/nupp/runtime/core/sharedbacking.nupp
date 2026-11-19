@@ -294,14 +294,15 @@ export function ticketfinish(borrows status: pages.Scope*, ticket: uint64): uint
             return INVALID
         end
         local allocation = native.pointer(control(ticket))
-        if not pages.sharedscopevalid(status as voidptr, allocation) then
+        local statusAddress = native.address(status as voidptr)
+        if not pages.sharedstatusvalid(statusAddress, allocation) then
             return INVALID
         end
         local first = node.error
         local failed = node.failed ~= 0ULL
         if node.phase == TICKET_DETACHED then
             local block = native.pointer(node.block)
-            if not pages.sharedscopevalid(status as voidptr, block) then
+            if not pages.sharedstatusvalid(statusAddress, block) then
                 return INVALID
             end
             local released = releaselocal(out, block)
