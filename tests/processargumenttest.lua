@@ -93,8 +93,14 @@ function M.processForwardingRejectsChangedCalleeAndMissingImportSite()
     local output = executable.fromChecked(input, 8)
     local call
     for _, site in ipairs(input.catalog.calls) do
-        if site.node.kind == 'call' and site.node.obj.kind == 'dotIndex' then
-            call = site.node;
+        local callee = site.node.obj
+        if site.node.kind == 'call'
+            and callee.kind == 'dotIndex'
+            and callee.obj.kind == 'name'
+            and callee.obj.token.text == 'file'
+            and callee.name.text == 'seek'
+        then
+            call = site.node
             break
         end
     end
