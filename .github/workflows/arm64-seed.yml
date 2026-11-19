@@ -1,5 +1,9 @@
 name: Linux ARM64 execution seed
 
+# The pinned runtimes link the Nupp interpreter core, and lowering it needs a
+# runtime to run the compiler on, which ARM64 Linux does not have yet. So the
+# glue measures the layouts on ARM64, the x64 seed lowers the core against
+# them, and ARM64 compiles the object and links the runtime.
 on:
   push:
     branches:
@@ -8,35 +12,101 @@ on:
 permissions:
   contents: read
 
+env:
+  SEED_TAG: v0.0.15-native-api-seed.6
+  SOURCE_REVISION: 526727cfe2b76713a5430b5d02150f553f3fa355
+  IMAGE_SHA256: ab1b144840350699ef459b9b4db218834ffcec94a0f9d1c9597f335370cfc665
+  GH_TOKEN: ${{ github.token }}
+  CARGO_TARGET_DIR: build/seed-target
+
 jobs:
-  seed:
+  layouts:
     runs-on: ubuntu-24.04-arm
-    timeout-minutes: 60
-    env:
-      SEED_TAG: v0.0.15-native-api-seed.6
-      SOURCE_REVISION: 526727cfe2b76713a5430b5d02150f553f3fa355
-      IMAGE_SHA256: ab1b144840350699ef459b9b4db218834ffcec94a0f9d1c9597f335370cfc665
-      GH_TOKEN: ${{ github.token }}
+    timeout-minutes: 40
     steps:
       - uses: actions/checkout@v5
-        with:
-          fetch-depth: 1
-      # The runtime the x64 Linux seed carries was built at this revision,
-      # before allocation required a linked Nupp core.
-      - name: Build the runtime as the x64 Linux seed's was
-        env:
-          RUNTIME_REVISION: 4e6e9d449519f799e122526cacf505fd1f016b0a
+      - name: Build the glue and measure the layouts
         run: |
           set -euo pipefail
-          uname -a
-          git fetch -q --depth=1 origin "$SOURCE_REVISION" "$RUNTIME_REVISION"
+          git fetch -q --depth=1 origin "$SOURCE_REVISION"
           git diff --quiet "$SOURCE_REVISION" HEAD -- . ":!.github"
-          git worktree add -q "$RUNNER_TEMP/runtime-source" "$RUNTIME_REVISION"
-          cd "$RUNNER_TEMP/runtime-source"
           channel=$(sed -n 's/^channel = "\([^"]*\)"$/\1/p' rust-toolchain.toml)
           rustup toolchain install "$channel" --profile minimal
-          CARGO_TARGET_DIR="$GITHUB_WORKSPACE/build/seed-target" cargo +"$channel" build --locked --release -p nupp-vm
-          ls -l "$GITHUB_WORKSPACE/build/seed-target/release/nupp-vm"
+          cargo +"$channel" build --locked --release -p nupp-vm --features aot
+          mkdir -p build/glue
+          cp build/seed-target/release/nupp-vm build/glue/glue
+          build/glue/glue native layouts build/glue/layouts.json
+          head -c 600 build/glue/layouts.json; echo
+      - uses: actions/upload-artifact@v4
+        with:
+          name: glue
+          path: build/glue/
+          if-no-files-found: error
+
+  lower:
+    needs: layouts
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/download-artifact@v4
+        with:
+          name: glue
+          path: build/glue
+      - name: Lower the core against the ARM64 layouts on the x64 seed
+        run: |
+          set -euo pipefail
+          git fetch -q --depth=1 origin "$SOURCE_REVISION"
+          git diff --quiet "$SOURCE_REVISION" HEAD -- . ":!.github"
+          git fetch -q --depth=1 origin core-dev
+          git show FETCH_HEAD:scripts/bootstrap-seeds.json > "$RUNNER_TEMP/seeds.json"
+          export NUPP_BOOTSTRAP_SEED_MANIFEST="$RUNNER_TEMP/seeds.json"
+          python3 - <<'PY'
+          import importlib.machinery, types, sys
+          from pathlib import Path
+          loader = importlib.machinery.SourceFileLoader("vmcli", "scripts/vm-cli")
+          vmcli = types.ModuleType("vmcli")
+          vmcli.__file__ = str(Path("scripts/vm-cli").resolve())
+          loader.exec_module(vmcli)
+          out = vmcli.ROOT / "build/arm64-core"
+          image = vmcli.lowering_image(out, None, None)
+          pair = vmcli.execution_seed()
+          clif = out / "runtime.clif"
+          vmcli.run_step([str(pair / "runtime"), "run", str(image), "nupp.compiler.clif.lower", "compileRuntime",
+                          str(vmcli.ROOT), str(vmcli.ROOT / "build/glue/layouts.json"), "--output", str(clif)],
+                         vmcli.execution_environment(None), "lowering of the native core")
+          print(clif, clif.stat().st_size)
+          PY
+      - uses: actions/upload-artifact@v4
+        with:
+          name: clif
+          path: build/arm64-core/runtime.clif
+          if-no-files-found: error
+
+  seed:
+    needs: lower
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/download-artifact@v4
+        with:
+          name: glue
+          path: build/glue
+      - uses: actions/download-artifact@v4
+        with:
+          name: clif
+          path: build/core
+      - name: Compile the core and link the runtime
+        run: |
+          set -euo pipefail
+          chmod +x build/glue/glue
+          build/glue/glue native object build/core/runtime.clif build/core/runtime.o
+          channel=$(sed -n 's/^channel = "\([^"]*\)"$/\1/p' rust-toolchain.toml)
+          rustup toolchain install "$channel" --profile minimal
+          NUPP_NATIVE_RUNTIME_OBJECT="$PWD/build/core/runtime.o" \
+            cargo +"$channel" build --locked --release -p nupp-vm --features native-runtime
+          ls -l build/seed-target/release/nupp-vm
       - name: Pack the seed
         run: |
           set -euo pipefail
@@ -47,13 +117,12 @@ jobs:
           test "$(sha256sum build/seed/compiler.image | cut -d' ' -f1)" = "$IMAGE_SHA256"
           vm=build/seed-target/release/nupp-vm
           set +e
-          RUST_BACKTRACE=1 "$vm" verify build/seed/compiler.image 2>&1 | head -60; echo "verify: ${PIPESTATUS[0]}"
           env RUST_BACKTRACE=1 NO_JIT=1 NO_AOT=1 SIMD_INTERPRET=1 NUPP_COMPILER_ROOT="$PWD" NUPP_VM_BINARY="$PWD/$vm" \
             NUPP_VM_CLI_IMAGE="$PWD/build/seed/compiler.image" \
-            "$vm" exec build/seed/compiler.image nupp.tools.vm.root --help 2>&1 | head -40; echo "exec: ${PIPESTATUS[0]}"
+            "$vm" exec build/seed/compiler.image nupp.tools.vm.root --help 2>&1 | head -20; echo "exec: ${PIPESTATUS[0]}"
           set -e
           python3 scripts/bootstrap-seed pack \
-            --runtime build/seed-target/release/nupp-vm --image build/seed/compiler.image \
+            --runtime "$vm" --image build/seed/compiler.image \
             --source-revision "$SOURCE_REVISION" \
             --output "build/seed-out/nupp-seed-aarch64-unknown-linux-gnu-$SOURCE_REVISION.tar.gz"
       - uses: actions/upload-artifact@v4
