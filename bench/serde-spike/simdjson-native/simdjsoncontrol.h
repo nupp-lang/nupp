@@ -37,6 +37,7 @@ typedef struct nuppsimdjsonparser nuppsimdjsonparser;
 
 /** A new parser, or NULL when it cannot be allocated. */
 nuppsimdjsonparser *nuppsimdjsonnew (void);
+
 /** Releases the parser and its padded input. */
 void nuppsimdjsonfree (nuppsimdjsonparser *parser);
 
@@ -55,6 +56,7 @@ int nuppsimdjsondom (nuppsimdjsonparser *parser);
 
 /** Returns a borrowed description of a control error code. */
 const char *nuppsimdjsonerror (int code);
+
 /** Returns the upstream simdjson version of the control. */
 const char *nuppsimdjsonversion (void);
 

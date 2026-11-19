@@ -57,24 +57,34 @@
  * each give the errors that nibble permits; a pair of bytes is in error
  * where all three agree. */
 enum {
+
   /* A lead byte, then a byte that is not a continuation. */
   TOO_SHORT = 1 << 0,
+
   /* An ASCII byte, then a continuation. */
   TOO_LONG = 1 << 1,
+
   /* E0 80..9F. */
   OVERLONG_3 = 1 << 2,
+
   /* F4 90..BF, or F5..FF. */
   TOO_LARGE = 1 << 3,
+
   /* ED A0..BF. */
   SURROGATE = 1 << 4,
+
   /* C0 or C1. */
   OVERLONG_2 = 1 << 5,
+
   /* F5..FF 80..8F. */
   TOO_LARGE_1000 = 1 << 6,
+
   /* F0 80..8F, sharing a bit with TOO_LARGE_1000. */
   OVERLONG_4 = 1 << 6,
+
   /* A continuation, then another. */
   TWO_CONTS = 1 << 7,
+
   /* What any lead byte's low nibble permits. */
   CARRY = TOO_SHORT | TOO_LONG | TWO_CONTS
 };
@@ -300,6 +310,7 @@ double handalgebraic (const double *left, const double *right, size_t count) {
  * last scalar start at or before it. A block of ASCII after a non-ASCII one
  * only has to show that the earlier block did not end inside a scalar. */
 uint32_t handutf8prefix (const uint8_t *source, size_t count) {
+
   /* By the previous byte's high nibble: 0-7 ASCII, 8-B a continuation, C-F
    * a lead. */
   static const uint8_t high1[BLOCK] = {

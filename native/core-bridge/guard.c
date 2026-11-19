@@ -43,6 +43,7 @@ static const struct shortening shortenings[] = {
     {BUNDLE_DATA_BYTES, 0},
     {BUNDLE_DATA_BYTES, 31},
     {BUNDLE_SCRATCH_BYTES, 0},
+
     /* A byte less than the least scratch a guest program declares. */
     {BUNDLE_SCRATCH_BYTES, 65535},
     {BUNDLE_OUTPUT_WORDS, 0},
@@ -306,10 +307,13 @@ struct guardtest {
 };
 
 static const struct guardtest tests[] = {
+
     /* The entry preserves the C ABI and answers CORE_TEST_EXPECTED's words. */
     {"abi::generated_entry_preserves_c_abi_and_output", checkoutput},
+
     /* The entry answers CORE_TEST_STATUS, which is not zero. */
     {"abi::generated_entry_returns_requested_status", checkrequested},
+
     /* The entry refuses the bundle when any region is too short for it. */
     {"abi::generated_entry_refuses_short_regions", checkshort},
 };

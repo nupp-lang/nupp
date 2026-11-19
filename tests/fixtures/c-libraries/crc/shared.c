@@ -18,6 +18,7 @@
 enum { FIRST_ALGORITHM = 1, LAST_ALGORITHM = 4 };
 
 int main (void) {
+
   /* Each algorithm's CRC of "123456789", indexed by its id. */
   const uint64_t vectors[] = {0, 0xcbf43926, 0xe3069283, 0x6c40df5f0b497347,
                               0xae8b14860a799888};

@@ -82,10 +82,13 @@ static pthread_mutex_t lock = PTHREAD_MUTEX_INITIALIZER;
 /* What nuppmarkdownrender answers. */
 enum status {
   RENDERED = 0,
+
   /* The budget ran out, or an allocation failed. */
   NO_RESOURCES = -1,
+
   /* The input or the budget is larger than this library accepts. */
   TOO_LARGE = -2,
+
   /* No document, one already rendered, or a NULL input with a length. */
   MISUSE = -3,
 };
@@ -116,22 +119,30 @@ union allocation {
 };
 
 struct nuppmarkdown {
+
   /* Every live allocation, newest first. */
   allocation *allocations;
+
   /* Where a failure inside cmark returns to. */
   jmp_buf failure;
+
   /* The budget still unspent, and the byte length of text. */
   size_t remaining, size;
+
   /* The rendered HTML, which may hold NUL. */
   char *text;
+
   /* How each source line ends, indexed by line number from 1, and the
    * number of entries. */
   unsigned char *lineendings;
   size_t lines;
+
   /* Where the alt text of the image being rendered starts in the HTML. */
   bufsize_t altstart;
+
   /* The source's last line has no line break. */
   int unterminated;
+
   /* nuppmarkdownrender has been called. */
   int used;
 };
@@ -180,6 +191,7 @@ static void *allocate (size_t count, size_t width) {
   item->h.next = active->allocations;
 
   if (item->h.next) {
+
     /* The analyzer loses the header behind the pointer release is given.
      * NOLINTNEXTLINE(clang-analyzer-unix.Malloc) */
     item->h.next->h.prev = item;
@@ -328,6 +340,7 @@ static void tablehtml (cmark_node *root) {
     for (cmark_node *row = cmark_node_first_child(table); row;
          row = cmark_node_next(row)) {
       int header = cmark_gfm_extensions_get_table_row_is_header(row);
+
       /* The first row after the header opens the body. */
       int body = !header && cmark_gfm_extensions_get_table_row_is_header(
                                 cmark_node_previous(row));
@@ -648,6 +661,7 @@ static void restoreendings (cmark_node *node) {
   size_t line = htmlline(node);
   const char *literal = cmark_node_get_literal(node);
   size_t size = strlen(literal), to = 0;
+
   /* Room for every byte to become two, as LF becomes CRLF. */
   char *copy = allocate(size + 1, 2);
 
@@ -851,6 +865,7 @@ static char *render (const char *input, size_t bytes,
 static void scanlines (nuppmarkdown *doc, const char *source, size_t bytes) {
   doc->unterminated =
       bytes && source[bytes - 1] != '\n' && source[bytes - 1] != '\r';
+
   /* Line numbers start at 1 and the last line follows the last break, so
    * the table has two entries more than the source has breaks. */
   doc->lines = 2;
@@ -902,10 +917,13 @@ static void scanlines (nuppmarkdown *doc, const char *source, size_t bytes) {
  * until that url is absent from the source and the first rendering too. The
  * markers are restored by explicit size, since the HTML then holds NUL. */
 typedef struct {
+
   /* n, the length of each run of RUN_BYTE. */
   size_t ones;
+
   /* The plain marker, the token and the token's url. */
   char *plain, *token, *url;
+
   /* Their lengths. */
   size_t base, marker, urlsize;
 } markers;
@@ -1056,6 +1074,7 @@ static void restore (nuppmarkdown *doc, const markers *m, int bom) {
     }
     else if (m->base <= length - from &&
              !memcmp(doc->text + from, m->plain, m->base)) {
+
       /* The first plain marker is the BOM's shield. */
       if (bom) {
         bom = 0;

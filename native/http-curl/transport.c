@@ -295,6 +295,7 @@ static void close_watch (NuppCurlClient *client, Watch *watch) {
   }
 
   *slot = watch->next;
+
   /* libcurl can close and reuse the socket once REMOVE returns. */
   nupp_uv_socket_retire(watch->token);
   free(watch);

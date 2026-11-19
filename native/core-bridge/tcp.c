@@ -14,6 +14,7 @@ struct NuppTcp {
   uv_connect_t connection;
   uv_write_t write;
   uv_shutdown_t shutdown;
+
   /** A submitted write and a stopped read each retain one bounded buffer. */
   char inbound[WINDOW];
   char outbound[WINDOW];

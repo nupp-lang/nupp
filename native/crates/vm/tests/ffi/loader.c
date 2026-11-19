@@ -47,6 +47,7 @@ static void *loader_thread(void *data) {
     call->result = call->callback(20, 22);
     return NULL;
 }
+
 /* Calls the callback from a thread the VM did not create, as a C library's worker would. */
 API int32_t loader_call_from_thread(int32_t (*callback)(int32_t, int32_t)) {
     struct ThreadCall call = {callback, -1};

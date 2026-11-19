@@ -146,6 +146,7 @@ static uint64_t randomword (void) {
  * every offset, the same messages fed in random chunks, and that each
  * invalid call is refused without touching its state. */
 static void check (updatefn update) {
+
   /* Each algorithm's CRC of "123456789", indexed by its id. */
   const uint64_t known[] = {0, 0xcbf43926, 0xe3069283, 0x6c40df5f0b497347,
                             0xae8b14860a799888};
@@ -163,6 +164,7 @@ static void check (updatefn update) {
     assert(words[0] == xorout && words[1] == 0);
     assert(!update(id, 0, words, (const uint8_t *)"123456789", 9));
     assert(words[1] == known[id] && words[0] == (known[id] ^ xorout));
+
     /* The old ABI accepts any uint64 raw word, even above a 32-bit width.
      * Empty updates must not silently truncate that saved word.
      */
@@ -196,6 +198,7 @@ static void check (updatefn update) {
         memcpy(saved, words, sizeof(saved));
         assert(!update(id, 0, words, NULL, 0));
         assert(!memcmp(saved, words, sizeof(saved)));
+
         /* Resume a copy, never a finalized value. */
         memcpy(words, saved, sizeof(saved));
         offset += count;

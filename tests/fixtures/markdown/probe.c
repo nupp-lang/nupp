@@ -23,6 +23,7 @@
 /* How the probe exits. */
 enum {
   RENDERED = 0,
+
   /* Reading standard input failed, or it held more than INPUT_BYTES. */
   BAD_INPUT = 2,
   NO_DOCUMENT = 3,

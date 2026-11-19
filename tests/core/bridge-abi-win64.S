@@ -39,6 +39,7 @@
 .globl nupp_core_test_abi
 .seh_proc nupp_core_test_abi
 nupp_core_test_abi:
+
     // Shadow space at 0-31, report and result at 32-47. Save the caller's
     // registers above that and align rsp for the entry call.
     subq $280, %rsp

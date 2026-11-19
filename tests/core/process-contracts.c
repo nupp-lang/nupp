@@ -80,6 +80,7 @@ void nupp_process_contracts (void) {
   uint64_t early = start(
       "sh", "test \"$PATH:$ONLY:$PWD\" = '/no-such-path:ready:/' && exit 7",
       env, "/", -1, -1, -1, 1);
+
   /* Advance to actual native exit before installing the language watch. */
   int64_t registered;
 

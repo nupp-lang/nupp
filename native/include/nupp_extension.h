@@ -104,8 +104,10 @@ typedef struct nupp_slot {
 
 /* The VM an extension instance belongs to. */
 typedef struct nupp_vm nupp_vm;
+
 /* One call of a host function, valid until that function returns. */
 typedef struct nupp_call nupp_call;
+
 /* A suspended call's completion, owned by the extension until it completes
  * or fails it, exactly once. */
 typedef struct nupp_request nupp_request;
@@ -129,6 +131,7 @@ typedef void (*nupp_write)(void *sink, const void *bytes, size_t length);
 
 typedef struct nupp_function_entry {
   const char *name;
+
   /* A Nupp function type: "function(a: integer, b: integer): integer". */
   const char *signature;
   nupp_function function;
@@ -162,10 +165,12 @@ typedef struct nupp_extension {
   size_t function_count;
   const nupp_resource_type *resource_types;
   size_t resource_type_count;
+
   /* Optional. Runs once per VM after every check passed. Configuration may
    * live in `*instance`; program state belongs in resources, which a
    * checkpoint can save. */
   nupp_status (*init)(const nupp_host *host, nupp_vm *vm, void **instance);
+
   /* Optional. Runs when the VM ends, after every resource was dropped. */
   void (*shutdown)(const nupp_host *host, void *instance);
 } nupp_extension;
@@ -196,6 +201,7 @@ struct nupp_host {
    * task resumes when the request completes. Null, with an error raised,
    * where the caller cannot park. */
   nupp_request *(*suspend)(nupp_call *call);
+
   /* Thread-safe. Results are copied; handles cannot cross. */
   void (*complete)(nupp_request *request, const nupp_slot *results,
                    size_t nresults);
@@ -203,8 +209,10 @@ struct nupp_host {
 
   /* A managed object of the extension's resource type `type` owning `data`. */
   nupp_handle (*new_resource)(nupp_call *call, uint32_t type, void *data);
+
   /* The data of a live resource of type `type`, or null. */
   void *(*resource)(nupp_call *call, nupp_handle handle, uint32_t type);
+
   /* Drops a resource now; later uses of it see null. */
   nupp_status (*close_resource)(nupp_call *call, nupp_handle handle,
                                 uint32_t type);

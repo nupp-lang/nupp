@@ -79,6 +79,7 @@ static void report (void) {
 }
 
 int main (void) {
+
   /* The core assumes a little-endian host, and headers that match the
    * library they were installed with. */
   const uint32_t endian = 1;

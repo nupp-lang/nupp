@@ -13,6 +13,8 @@ same line and `else` on the line after the closing brace. Write `if (ready)`,
 
 Preserve existing names and ABI. Use one statement per line, brace every
 control body, and leave blank lines between definitions and major steps.
+Put a blank line before a leading comment group and keep the group with
+the code it describes. Start a file's opening comment on the first line.
 
 Name new Nupp-owned `.c` and `.h` files in luacase. Join words directly in
 lowercase, as in `definitionlist.c` and `definitionlist.h`.
@@ -41,6 +43,7 @@ comments for explanations within a function body.
 uint64_t nuppiotake (void);
 ```
 
-From the repository root with pipx installed, run `scripts/format-c --write`
-to format the Nupp-owned files listed by `scripts/format-c --list`. Use
-`scripts/format-c --check` to verify their layout.
+From the repository root with Python 3 and pipx installed, run
+`scripts/format-c --write` to format the C files listed by
+`scripts/format-c --list` and apply leading comment spacing across native
+sources. Use `scripts/format-c --check` to verify their layout.

@@ -36,18 +36,22 @@
 /* The status every int32_t call returns. */
 #define NUPP_NATIVE_OK 0
 #define NUPP_NATIVE_INVALID_ARGUMENT 1
+
 /* A handle table or a provider resource limit is exhausted. */
 #define NUPP_NATIVE_CAPACITY 2
 #define NUPP_NATIVE_STALE_HANDLE 3
 #define NUPP_NATIVE_CLOSED 4
 #define NUPP_NATIVE_INTERNAL 5
+
 /* An output buffer is too small, and the call's length output holds the byte
  * count it needs. nuppNativeBytesCopy still returns CAPACITY here, because the
  * pinned stage-zero compiler reads that code as its size-probe answer. */
 #define NUPP_NATIVE_BUFFER_TOO_SMALL 6
+
 /* A value does not fit the range its ABI type, or Nupp's exact integers, can
  * carry. */
 #define NUPP_NATIVE_OUT_OF_RANGE 7
+
 /* The facility is absent from this machine, such as a GPU adapter. */
 #define NUPP_NATIVE_UNAVAILABLE 8
 
@@ -70,10 +74,12 @@
 #define NUPP_NATIVE_FEATURE_NET (UINT64_C(1) << 8)
 #define NUPP_NATIVE_FEATURE_TLS (UINT64_C(1) << 9)
 #define NUPP_NATIVE_FEATURE_COMPRESSION (UINT64_C(1) << 10)
+
 /* Bit 11 named the removed LLVM code generator; it stays unassigned. */
 /* Bit 12 named the removed AOT runtime for LLVM-compiled builders. */
 /* The endpoint calls of the network family, which carry an IPv6 scope. */
 #define NUPP_NATIVE_FEATURE_NET_ENDPOINT (UINT64_C(1) << 13)
+
 /* The process-wide readiness generation, nuppNativePoll and nuppNativeWait,
  * and nuppNativeGpuSynchronizeReady when NUPP_NATIVE_FEATURE_GPU is set. */
 #define NUPP_NATIVE_FEATURE_READINESS (UINT64_C(1) << 14)
@@ -101,6 +107,7 @@ NUPP_NATIVE_EXPORT const char *nuppCrcLastError (void);
 
 NUPP_NATIVE_EXPORT uint32_t nuppNativeAbiVersion (void);
 NUPP_NATIVE_EXPORT uint64_t nuppNativeFeatures (void);
+
 /* The message of the last call on this thread that failed. A call that
  * succeeds leaves it as it was, so read it only after a failure. */
 NUPP_NATIVE_EXPORT const char *nuppNativeLastError (void);
@@ -240,9 +247,11 @@ NUPP_NATIVE_EXPORT int32_t nuppNativeFilesReadLink (NuppNativeFilesSlice path,
                                                     uint64_t *output);
 NUPP_NATIVE_EXPORT int32_t nuppNativeFilesList (NuppNativeFilesSlice path,
                                                 uint64_t *output);
+
 /* Zero when the path resolves, NUPP_NATIVE_FILES_ABSENT when it does not,
  * and a failure status when the lookup cannot tell. */
 NUPP_NATIVE_EXPORT int32_t nuppNativeFilesExists (NuppNativeFilesSlice path);
+
 /* Batched directory reading: each next call writes a byte handle holding up
  * to 256 entries encoded as a listing is, and an empty batch ends it. */
 NUPP_NATIVE_EXPORT int32_t nuppNativeFilesListOpen (NuppNativeFilesSlice path,
@@ -301,6 +310,7 @@ NUPP_NATIVE_EXPORT int32_t nuppNativeFilesTransferTakeBytes (uint64_t transfer,
                                                              uint64_t *output);
 NUPP_NATIVE_EXPORT int32_t nuppNativeFilesTransferCancel (uint64_t transfer);
 NUPP_NATIVE_EXPORT int32_t nuppNativeFilesTransferRelease (uint64_t transfer);
+
 /* Superseded by nuppNativePoll and nuppNativeWait with
  * nuppNativeFilesTransferStatus: a settled transfer advances the process
  * readiness generation. */
@@ -431,6 +441,7 @@ NUPP_NATIVE_EXPORT int32_t nuppNativeNetStreamState (uint64_t stream,
 NUPP_NATIVE_EXPORT int32_t nuppNativeNetStreamShutdownWrite (uint64_t stream);
 NUPP_NATIVE_EXPORT int32_t nuppNativeNetStreamSetNoDelay (uint64_t stream,
                                                           int32_t enabled);
+
 /* The platform may round the delay to its own granularity, which is whole
  * seconds on most. */
 NUPP_NATIVE_EXPORT int32_t nuppNativeNetStreamSetKeepAliveMs (uint64_t stream,
@@ -463,6 +474,7 @@ NUPP_NATIVE_EXPORT int32_t nuppNativeNetDatagramMembership (
     NuppNativeNetSlice interfaceaddress, uint32_t interfaceindex,
     uint8_t interfacekind, int32_t join);
 NUPP_NATIVE_EXPORT int32_t nuppNativeNetDatagramRelease (uint64_t datagram);
+
 /* The endpoint twins of the address calls above. Text is an IP literal, and an
  * IPv6 endpoint with a scope prints and parses it as `%scope`; parsing also
  * takes an interface name there, such as `fe80::1%lo0`, where the platform can
@@ -482,6 +494,7 @@ NUPP_NATIVE_EXPORT int32_t nuppNativeNetDatagramReceiveEndpoint (
 NUPP_NATIVE_EXPORT int32_t nuppNativeNetDatagramSendEndpoint (
     uint64_t datagram, const NuppNativeNetEndpoint *endpoint,
     const uint8_t *data, size_t length, uint32_t *state, size_t *sent);
+
 /* Superseded by nuppNativePoll and nuppNativeWait, which these now answer
  * exactly: the network family's generation is the process readiness
  * generation. */
@@ -680,6 +693,7 @@ NUPP_NATIVE_EXPORT int32_t nuppNativeHttpBodyError (uint64_t body,
                                                     uint8_t *output,
                                                     size_t capacity,
                                                     size_t *length);
+
 /* Poll drains the client's ready events without blocking. Every event also
  * advances the process readiness generation, so a caller sleeps in
  * nuppNativeWait and then polls; Wait is superseded by that pair. */
@@ -736,6 +750,7 @@ typedef struct {
 NUPP_NATIVE_EXPORT
 int32_t nuppNativeProcessSpawn (const NuppNativeProcessSpawn *spawn,
                                 NuppNativeProcessStarted *output);
+
 /* Additive status/error outputs; zero denotes an unavailable code or signal. */
 NUPP_NATIVE_EXPORT int32_t nuppNativeProcessSpawnWithError (
     const NuppNativeProcessSpawn *spawn, NuppNativeProcessStarted *output,
@@ -758,6 +773,7 @@ NUPP_NATIVE_EXPORT int32_t nuppNativeProcessStreamWrite (uint64_t stream,
                                                          uint32_t *state,
                                                          size_t *accepted);
 NUPP_NATIVE_EXPORT int32_t nuppNativeProcessStreamRelease (uint64_t stream);
+
 /* Returns how many of the child and the listed streams are ready. The child
  * counts until nuppNativeProcessPollExit has reported its exit; after that a
  * wait is left to its streams, which a descendant may hold open. A zero
@@ -846,6 +862,7 @@ NUPP_NATIVE_EXPORT int32_t nuppNativeGpuDownloadQueue (uint64_t context,
                                                        uint64_t offset,
                                                        uint64_t size);
 NUPP_NATIVE_EXPORT int32_t nuppNativeGpuSynchronize (uint64_t context);
+
 /* Present when NUPP_NATIVE_FEATURE_READINESS is also set. Writes 1 when the
  * context's submitted work has finished and 0 while it runs, and never
  * blocks. A failed wait for the device, a timeout included, is answered here

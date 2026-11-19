@@ -208,6 +208,7 @@ static int openjob (uv_loop_t *loop, Child *child) {
 static void exited (uv_process_t *handle, int64_t code, int signal) {
   Child *child = handle->data;
 #ifdef _WIN32
+
   /* A process can exit on its own between a kill and the IOCP callback. */
   signal = (uint32_t)code == JOB_EXIT_BASE + (unsigned)child->killsignal
                ? child->killsignal
@@ -279,6 +280,7 @@ static int64_t start (uv_loop_t *loop, uv_process_options_t *options) {
   child_count++;
 
   if (status < 0) {
+
     /* With three inherited descriptors libuv has no stream to open after
      * spawn. A failed spawn still initializes the process handle. */
     child->consumed = 1;
@@ -409,6 +411,7 @@ int64_t nupp_process_spawn (const char *file, char **args, char **env,
                                   .args = args,
                                   .env = env,
                                   .cwd = cwd,
+
   /* libuv creates a session/group before the child can execute. */
 #ifdef _WIN32
                                   .flags = UV_PROCESS_WINDOWS_HIDE,

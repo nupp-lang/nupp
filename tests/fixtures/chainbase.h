@@ -12,4 +12,5 @@
 typedef unsigned long long __zz_chain_base_t;
 typedef __zz_chain_base_t __aa_chain_mid_t;
 typedef __aa_chain_mid_t chain_size_t;
+
 /* NOLINTEND(bugprone-reserved-identifier,cert-dcl37-c) */

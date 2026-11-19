@@ -38,6 +38,7 @@ int main (void) {
   TYPE(WGPUNativeDisplayHandle, WGPUNativeDisplayHandle);
   FIELD(WGPUNativeDisplayHandle, type);
   putchar(',');
+
   /* The handle data is a union of platform handles, which the runtime
    * declares as two plain words starting at this offset. */
   printf("\"words\":%zu", offsetof(WGPUNativeDisplayHandle, data));

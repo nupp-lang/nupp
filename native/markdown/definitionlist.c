@@ -57,13 +57,17 @@ enum { CODE_INDENT = 4 };
 /* The state the extension keeps on each node it owns, as cmark user data. */
 typedef struct {
   enum role role;
+
   /* A definition's content column: a line indented this far continues it. */
   int padding;
+
   /* A blank line came between the definition and what came before it, or
    * between two of its blocks. */
   int loose;
+
   /* The number of the last blank line the definition held, or zero. */
   int blankline;
+
   /* The definition's first line was only its marker. */
   int startsblank;
 } block;
@@ -239,9 +243,11 @@ static cmark_node *openblock (cmark_syntax_extension *ext, int indented,
   cmark_node *term = cmark_node_get_type(parent) == CMARK_NODE_PARAGRAPH
                          ? parent
                          : cmark_node_last_child(parent);
+
   /* The list the new definition joins, or, when its term joins a list
    * already open, the definition itself. */
   cmark_node *list;
+
   /* A blank line separates the definition from what came before it. */
   int loose;
 

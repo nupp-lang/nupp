@@ -144,6 +144,7 @@ API int64_t clayout_mixed_read(const struct clayout_mixed *m) {
 }
 
 static struct clayout_node clayout_static_node = {NULL, 77};
+
 /* C writes a pointer the VM did not store. */
 API void clayout_mixed_link_static(struct clayout_mixed *m) { m->head = &clayout_static_node; }
 API int32_t clayout_node_value(const struct clayout_node *node) { return node ? node->value : -1; }
@@ -229,11 +230,13 @@ API struct clayout_tagged clayout_tagged_make(int32_t tag, double value) {
     }
     return t;
 }
+
 /* A struct holding bitfields by value passes as its storage units. */
 API int64_t clayout_flags_by_value(struct clayout_flags f) { return f.mode + f.level * 100 + f.delta * 10000; }
 
 #include <stdarg.h>
 #include <stdio.h>
+
 /* A variadic C function: its extra arguments are typed by the default promotions. */
 API int32_t clayout_format(char *output, uint64_t capacity, const char *format, ...) {
     va_list arguments;

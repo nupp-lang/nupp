@@ -107,6 +107,7 @@ typedef struct Service {
 } Service;
 
 static _Thread_local Service *service;
+
 /* Identities never alias across owner threads or loop lifetimes. */
 static _Atomic uint64_t issued;
 
@@ -791,6 +792,7 @@ int nupp_uv_socket_retire (uint64_t owner) {
       drop_socket(at);
     }
     else {
+
       /* Withdraw any generic native subscription before the actual close. */
       if (!(*at)->owner) {
         arm(*at, target, 0);
@@ -954,6 +956,7 @@ static void dispose (Job **at) {
 
 static void finish_job (Job *job, int64_t result) {
   job->result = result;
+
   /* The ticket owns its duplicate and bytes until dispose at collection. */
   service->active_jobs--;
   job->done = 1;
@@ -1072,6 +1075,7 @@ static void hold_descriptor (Job *job) {
 }
 
 void nupp_uv_preserve_file (uint64_t descriptor) {
+
   /* Usually capture at dispatch. Closing early must capture before the
    * descriptor can be recycled, even if the job hasn't reached libuv. */
   for (Job *job = service ? service->jobs : NULL; job; job = job->next) {
@@ -1082,6 +1086,7 @@ void nupp_uv_preserve_file (uint64_t descriptor) {
 }
 
 #ifdef _WIN32
+
 /* The pool import transports the flags already issued by hostfiles.nupp.
  * Translate its Darwin values before passing them to the Windows libuv ABI. */
 static int file_open_flags (uint32_t flags) {
@@ -1801,6 +1806,7 @@ int64_t nupp_uv_shutdown (void) {
     status = drain_closing();
 
     if (status) {
+
       /* Closing handles and the loop still own their backing. A later
        * shutdown can retry with the same stopped, unclosed wait timer. */
       return status;

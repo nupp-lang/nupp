@@ -46,6 +46,7 @@ int main(void) {
   assert(uv_run(&loop, UV_RUN_DEFAULT) == 0);
   assert(fired == 1 && closed == 1);
   assert(uv_loop_close(&loop) == 0);
+
   /* The loaded module must be the moved sidecar, never a system libuv. */
   uv_lib_t library;
 #ifdef _WIN32

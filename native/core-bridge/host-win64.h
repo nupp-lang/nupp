@@ -110,6 +110,7 @@ static int64_t win64_open_poller (void) {
 /** Reads a CRT file descriptor, or returns zero for the completion key. */
 static int64_t win64_file_read (int64_t descriptor, void *bytes,
                                 uint64_t count) {
+
   /* Completions are taken directly from the queue on Windows. The guest's
    * drain of the readiness key has no kernel wake bytes to consume. */
   if (descriptor == NUPP_UV_FILE_COMPLETION) {
@@ -200,6 +201,7 @@ int nupp_http_scope_detach (void *scope);
 #endif
 
 static void *find_linked_crt (const char *name) {
+
   /* A constant table can contain PE import thunks. Resolve each expression
    * at runtime to retain the address the bridge's linked CRT actually uses. */
 #define LINKED_CRT(function)                                                   \
@@ -221,6 +223,7 @@ static void *find_linked_crt (const char *name) {
 
 static void *find_symbol (void *library, const char *name) {
   if (library && library == GetModuleHandleW(NULL)) {
+
     /* Bind guest self imports to this executable's linked CRT. Named
      * libraries resolve only their own exports. */
     void *crt = find_linked_crt(name);

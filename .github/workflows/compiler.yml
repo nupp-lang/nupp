@@ -238,8 +238,8 @@ jobs:
           echo "--- changed paths ---"
           cat changed-paths.txt
 
-      # C is checked only when something that decides its formatting or its
-      # lint changed: a C source or header, its CMake, the tools'
+      # Native code is checked only when something that decides its formatting
+      # or lint changed: a native source or header, its CMake, the tools'
       # configuration, their pins or the scripts that run them. An empty list
       # is "everything", as it is for the classifier, so a run with no diff
       # still checks.
@@ -247,7 +247,7 @@ jobs:
         id: c-changed
         run: |
           if [ ! -s changed-paths.txt ] || grep -Eq \
-              '\.(c|h|cmake)$|(^|/)CMakeLists\.txt$|^\.(clang-format|clang-tidy|uncrustify\.cfg|gersemirc)$|^scripts/(format-c|lint-c)$|^scripts/toolchain(\.pins)?$' \
+              '\.(c|h|cc|cpp|cxx|hh|hpp|hxx|S|def|cmake)$|(^|/)CMakeLists\.txt$|^\.(clang-format|clang-tidy|uncrustify\.cfg|gersemirc)$|^scripts/(format-c|lint-c|space-native-comments\.py)$|^\.github/scripts/test-space-native-comments\.py$|^scripts/toolchain(\.pins)?$' \
               changed-paths.txt; then
             echo "check=true" >> "$GITHUB_OUTPUT"
           else
@@ -267,7 +267,9 @@ jobs:
 
       - name: Check C formatting
         if: steps.c-changed.outputs.check == 'true'
-        run: ./scripts/format-c --check
+        run: |
+          python3 .github/scripts/test-space-native-comments.py
+          ./scripts/format-c --check
 
       # The upstream headers the lint compiles against, unpacked and
       # configured once per pin (scripts/lint-c).

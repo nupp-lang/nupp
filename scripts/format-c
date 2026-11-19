@@ -1,14 +1,14 @@
 #!/bin/sh
 # Formats the C the repository owns and the CMake that builds it, or with
 # --check says whether they are. --list names the C files, which
-# scripts/lint-c checks too.
+# scripts/lint-c checks too. Leading comment spacing also applies to the
+# other native sources.
 #
 # clang-format lays the code out (.clang-format), Uncrustify adds the blank
 # lines clang-format cannot place (.uncrustify.cfg), and clang-format runs
 # again to restore whatever layout Uncrustify disturbed. gersemi formats the
-# CMake (.gersemirc). Every tool is pinned -- clang-format and gersemi through
-# pipx, Uncrustify through scripts/toolchain -- so every machine writes the
-# same bytes.
+# CMake (.gersemirc). The external formatters are pinned: clang-format and
+# gersemi through pipx, Uncrustify through scripts/toolchain.
 set -eu
 
 case "$#:${1-}" in
@@ -38,6 +38,19 @@ if [ "$mode" = --list ]; then
     printf '%s\n' "$@"
     exit 0
 fi
+
+commentFiles=""
+for file in $(git ls-files '*.c' '*.h' '*.cc' '*.cpp' '*.cxx' '*.hh' '*.hpp' '*.hxx' '*.S' '*.def'); do
+    if [ -f "$file" ]; then
+        commentFiles="$commentFiles $file"
+    fi
+done
+commentFormatter=$PWD/scripts/space-native-comments.py
+
+space_comments() {
+    # shellcheck disable=SC2086
+    python3 "$commentFormatter" $commentFiles
+}
 
 # The CMake beside it, with the same exceptions.
 cmake=""
@@ -69,19 +82,19 @@ clang_format() {
         clang-format --style=file:.clang-format "$@"
 }
 
-if [ "$#" -eq 0 ]; then
-    clang_format --assume-filename=rollout.c --dump-config >/dev/null
-    exit "${cmakeStatus:-0}"
-fi
-
-uncrustify=$(sh scripts/toolchain uncrustify)
-
 # Formats the named files in place.
 format() {
-    clang_format -i "$@"
-    "$uncrustify" -q -c .uncrustify.cfg -l C --replace --no-backup "$@"
-    clang_format -i "$@"
+    if [ "$#" -gt 0 ]; then
+        clang_format -i "$@"
+        "$uncrustify" -q -c .uncrustify.cfg -l C --replace --no-backup "$@"
+        clang_format -i "$@"
+    fi
+    space_comments
 }
+
+if [ "$#" -gt 0 ]; then
+    uncrustify=$(sh scripts/toolchain uncrustify)
+fi
 
 if [ "$mode" = --write ]; then
     format "$@"
@@ -91,14 +104,14 @@ fi
 # Formats a copy of every file and compares it with the original.
 scratch=$(mktemp -d)
 trap 'rm -rf "$scratch"' EXIT HUP INT TERM
-for file in "$@"; do
+for file in $commentFiles; do
     mkdir -p "$scratch/$(dirname "$file")"
     cp "$file" "$scratch/$file"
 done
 cp .clang-format .uncrustify.cfg "$scratch/"
 (cd "$scratch" && format "$@") >/dev/null
 status=${cmakeStatus:-0}
-for file in "$@"; do
+for file in $commentFiles; do
     if ! cmp -s "$file" "$scratch/$file"; then
         diff -u "$file" "$scratch/$file" || true
         status=1

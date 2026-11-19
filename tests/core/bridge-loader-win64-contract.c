@@ -29,6 +29,7 @@ static int header_refused (uint64_t architecture) {
 }
 
 static void executable_region (void) {
+
   /* mov eax, 7; ret (only the native machine ABI is under test). */
   const unsigned char code[] = {0xb8, 7, 0, 0, 0, 0xc3};
   unsigned char *region = mapregion(sizeof(code));

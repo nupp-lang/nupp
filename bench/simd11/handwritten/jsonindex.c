@@ -127,6 +127,7 @@ __attribute__((noinline)) IndexResult handindex (const uint8_t *source,
     uint32_t width, shift;
 
     if ((size_t)at + BLOCK <= count) {
+
       /* The lanes that hold a structural byte, a quote, a backslash, a
        * control byte or a byte outside ASCII: every byte the state machine
        * below sees. */
@@ -147,6 +148,7 @@ __attribute__((noinline)) IndexResult handindex (const uint8_t *source,
       shift = NIBBLE_SHIFT;
     }
     else {
+
       /* The same question for one byte of the tail. */
       uint32_t byte = source[at];
 

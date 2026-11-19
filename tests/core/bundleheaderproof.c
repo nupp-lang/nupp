@@ -30,6 +30,7 @@ extern int64_t nondet_filesize (void);
 /* CBMC recognizes these intrinsics. Declare them for ordinary C linting. */
 /* NOLINTNEXTLINE(bugprone-reserved-identifier,cert-dcl37-c) */
 extern void __CPROVER_assume (_Bool condition);
+
 /* NOLINTNEXTLINE(bugprone-reserved-identifier,cert-dcl37-c) */
 extern void __CPROVER_assert (_Bool condition, const char *description);
 

@@ -101,24 +101,34 @@
  * each give the errors that nibble permits; a pair of bytes is in error
  * where all three agree. */
 enum {
+
   /* A lead byte, then a byte that is not a continuation. */
   TOO_SHORT = 1 << 0,
+
   /* An ASCII byte, then a continuation. */
   TOO_LONG = 1 << 1,
+
   /* E0 80..9F. */
   OVERLONG_3 = 1 << 2,
+
   /* F4 90..BF, or F5..FF. */
   TOO_LARGE = 1 << 3,
+
   /* ED A0..BF. */
   SURROGATE = 1 << 4,
+
   /* C0 or C1. */
   OVERLONG_2 = 1 << 5,
+
   /* F5..FF 80..8F. */
   TOO_LARGE_1000 = 1 << 6,
+
   /* F0 80..8F, sharing a bit with TOO_LARGE_1000. */
   OVERLONG_4 = 1 << 6,
+
   /* A continuation, then another. */
   TWO_CONTS = 1 << 7,
+
   /* What any lead byte's low nibble permits. */
   CARRY = TOO_SHORT | TOO_LONG | TWO_CONTS
 };
@@ -174,6 +184,7 @@ static inline uint64_t nibbles (uint8x16_t mask) {
 __attribute__((noinline)) ScanResult handscan (const uint8_t *source,
                                                size_t count, uint32_t *tape,
                                                size_t capacity) {
+
   /* By the previous byte's high nibble: 0-7 ASCII, 8-B a continuation, C-F
    * a lead. */
   static const uint8_t byte1hightable[BLOCK] = {
@@ -253,6 +264,7 @@ __attribute__((noinline)) ScanResult handscan (const uint8_t *source,
     uint32_t width = 0, shift = 0;
 
     if (!vectorsoff && (size_t)at + BLOCK <= count) {
+
       /* The lanes that hold a structural byte, a quote, a backslash or a
        * control byte. */
       uint8x16_t block = vld1q_u8(source + at);
@@ -376,6 +388,7 @@ __attribute__((noinline)) ScanResult handscan (const uint8_t *source,
       }
     }
     else if (width == 0) {
+
       /* The same classification for one byte, outside ASCII included. */
       if (at < count) {
         uint32_t byte = source[at];

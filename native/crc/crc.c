@@ -45,6 +45,7 @@ static uint64_t finalxor (enum algorithm id) {
 /* Whether a call's arguments are ones nuppcrc.h allows. */
 static int valid (uint32_t id, int32_t reset, const uint64_t *words,
                   const uint8_t *data, size_t length) {
+
   /* NULL data is valid at this boundary for an empty update only. */
   return id >= CRC32_IEEE && id <= CRC64_NVME && (reset == 0 || reset == 1) &&
          words && length <= PTRDIFF_MAX && (data || !length);
@@ -59,6 +60,7 @@ static uint64_t update (enum algorithm id, uint64_t state, const uint8_t *data,
              UINT32_MAX;
     case CRC32_CASTAGNOLI:
       return crc32_iscsi((unsigned char *)data, count, (uint32_t)state);
+
     /* ISA-L's normal ECMA complements both its seed and its result. */
     case CRC64_ECMA_182:
       return ~crc64_ecma_norm(~state, data, count);

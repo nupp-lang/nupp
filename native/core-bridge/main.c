@@ -14,6 +14,7 @@
  */
 
 #ifndef _WIN32
+
 /* MAP_ANONYMOUS, realpath and the rest of POSIX the bridge uses. */
 #define _DARWIN_C_SOURCE 1
 #define _GNU_SOURCE 1
