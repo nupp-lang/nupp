@@ -736,6 +736,11 @@ export function forVersion(version: integer): any
             if operands == nil then
                 return nil as any
             end
+            -- An element of an array of structs is a view of its bytes.
+            local declared = taggedstructs.element(node.obj.inferredType)
+            if declared then
+                return taggedstructs.elementAt(ctx, node, declared, operands[1], operands[2])
+            end
 
             return ctx.emit(node, "GetIdx", operands, "tagged") as integer
         end
@@ -903,12 +908,22 @@ export function forVersion(version: integer): any
             if operands == nil then
                 return {receiver = 0, kind = "tagged"}
             end
+            -- A struct written to an array of them is copied over its bytes.
+            local declared = taggedstructs.element(node.obj.inferredType)
+            if declared then
+                local slot = taggedstructs.elementAt(ctx, node, declared, operands[1], operands[2])
+                return {receiver = slot, kind = "tagged", structElement = declared}
+            end
 
             return {receiver = operands[1], index = operands[2], kind = "tagged", indexed = access}
         end
         profile.assignTarget = function(ctx: any, node: any, target: any, receiver: integer, value: integer): nil
             if target.structField then
                 taggedstructs.assign(ctx, node, target, receiver, value)
+                return
+            end
+            if target.structElement then
+                taggedstructs.assignElement(ctx, node, target.structElement, receiver, value)
                 return
             end
             if target.indexed then
@@ -1653,6 +1668,19 @@ export function forVersion(version: integer): any
             end
             if node.runtimeLoader == "require" then
                 return call(ctx, node, expected)
+            end
+            -- `carray(T, n)` allocates n of struct T; T names a layout, not a
+            -- value the program reads.
+            if node.carrayElem then
+                local declared = need(
+                    taggedstructs.allocated(node.carrayElem.inferredType),
+                    "carray allocates an array of a struct"
+                )
+                local count = ctx.expression(need(node.args.exprs[2], "carray takes a count"), "tagged")
+                if count == nil then
+                    return nil as any
+                end
+                return taggedstructs.allocate(ctx, node, declared, count)
             end
             local library = graph.coreLibraryCall(node)
             -- A library call spreading `...` where its core form cannot calls

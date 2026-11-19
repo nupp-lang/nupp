@@ -241,6 +241,63 @@ export function construct(ctx: any, node: any, declared: any, names: {string}, v
     return result
 end
 
+-- The struct a `carray(T, n)` allocation's first argument names, given its
+-- checked type: a type object for T.
+export function allocated(t: any): any
+    local subject = bare(t)
+    if subject and subject.tag == "typeobject" then
+        return origin(subject.of)
+    end
+
+    return origin(subject)
+end
+
+-- The struct the elements of a `carray(T, n)` array are, or nil.
+export function element(t: any): any
+    local subject = bare(t)
+    if subject and subject.tag == "carray" then
+        return origin(subject.elem)
+    end
+
+    return nil
+end
+
+-- `carray(T, n)`: the zeroed bytes of `count` of struct `declared`, back to
+-- back as C lays out an array of them.
+export function allocate(ctx: any, node: any, declared: any, count: integer): integer
+    local size = integerConstant(ctx, node, layout(declared).size)
+    local bytes = ctx.emit(node, "Mul", {count, size}, "tagged")
+
+    return ctx.emit(node, "LibCall", {corelibrary.id("STORAGE_ALLOCBYTES"), bytes}, "tagged") as integer
+end
+
+-- Element `index` of an array of struct `declared`: a view of its bytes, a
+-- reference into the array's, as an element of a C array is. An index past
+-- either end is refused by the view.
+export function elementAt(ctx: any, node: any, declared: any, array: integer, index: integer): integer
+    local receiver = ctx.hold(array)
+    local size = layout(declared).size
+    local offset = ctx.emit(node, "Mul", {index, integerConstant(ctx, node, size)}, "tagged")
+    local kind = integerConstant(ctx, node, UINT8)
+    local n = integerConstant(ctx, node, size)
+    local value = ctx.emit(
+        node,
+        "LibCall",
+        {corelibrary.id("STORAGE_VIEW"), ctx.readHeld(receiver), kind, offset, n},
+        "tagged"
+    )
+    ctx.release(receiver)
+
+    return value as integer
+end
+
+-- Writes struct `value` over the element view `slot` of an array of struct
+-- `declared`: its bytes copied, as C assigns one.
+export function assignElement(ctx: any, node: any, declared: any, slot: integer, value: integer): nil
+    local size = integerConstant(ctx, node, layout(declared).size)
+    ctx.emit(node, "LibCall", {corelibrary.id("STORAGE_COPY"), slot, value, size}, "tagged")
+end
+
 -- Full recursive C types, so libffi classifies structs from their actual
 -- members. A size-only descriptor loses mixed floating/integer ABI classes.
 const CODES: {
