@@ -260,56 +260,18 @@ local function mapEntry(services: voidptr, field: int64, bytes: uint64): uint64
     return native.address(base as voidptr)
 end
 
--- Maps the heap's arena and creates the heap in it; maps the frame pool,
--- `poolBytes`, the first chunk of each initializer's frame stack, which
--- grows past it in chunks of its own (none when 0: the pool lies in
--- scratch, as deep as the program's calls nest), and, when
--- `storage` is 0, the storage of `slots` initializers `stride` bytes apart,
--- which otherwise lies at `storage` in scratch. The module world and each
--- initializer's frame stack, up to its cursor, become root ranges: their
--- words may be stale, which root marking tolerates. Answers 1, or 0 when a
--- mapping is refused, leaving what was mapped for close.
-export function open(
+-- The checked borrow lasts through heap initialization. The enclosing
+-- service scope owns the mapping through publication and guest close.
+local function initializeHeap(
     services: voidptr,
-    storage: uint64,
+    borrows a: arena.Arena*,
+    slotstorage: uint64,
     stride: uint64,
     slots: uint64,
-    poolBytes: uint64,
     world: uint64,
     stress: uint64
 ): uint64
-    if slots == 0ULL or stride == 0ULL then
-        return 0ULL
-    end
-    local slotstorage = storage
-    if slotstorage == 0ULL then
-        slotstorage = mapEntry(services, native.fieldOffset<Services>("storage"), slots * stride)
-        if slotstorage == 0ULL then
-            return 0ULL
-        end
-    end
-    if poolBytes ~= 0ULL and mapEntry(services, native.fieldOffset<Services>("pool"), poolBytes) == 0ULL then
-        return 0ULL
-    end
-    local metadata = roundUp(native.sizeOf<arena.Chunk>(), native.alignmentOf<arena.Arena>())
-    local header = roundUp(metadata + native.sizeOf<arena.Arena>(), 16ULL)
-    local mapped = roundUp(HEAP_BYTES + header, os.pageSize())
-    local base = os.mapPages(mapped)
-    if base == nil then
-        return 0ULL
-    end
     @unsafe do
-        local chunk = base as arena.Chunk*
-        local a = native.offset(base, native.index(metadata)) as arena.Arena*
-        chunk.previous = nil
-        chunk.bytes = mapped
-        a.chunk = chunk
-        a.cursor = native.address(base) + header
-        a.limit = native.address(base) + mapped
-        a.chunkBytes = mapped
-        -- The heap's metadata grows with the guest: further chunks are mapped
-        -- through the scope and unmapped by close.
-        a.growable = true
         local h = heap.create(a)
         -- Generations (Decision 20) are kept from the first allocation on.
         h.generational = collector.GENERATIONAL
@@ -384,6 +346,60 @@ export function open(
     end
 
     return 1ULL
+end
+
+-- Maps the heap's arena and creates the heap in it; maps the frame pool,
+-- `poolBytes`, the first chunk of each initializer's frame stack, which
+-- grows past it in chunks of its own (none when 0: the pool lies in
+-- scratch, as deep as the program's calls nest), and, when
+-- `storage` is 0, the storage of `slots` initializers `stride` bytes apart,
+-- which otherwise lies at `storage` in scratch. The module world and each
+-- initializer's frame stack, up to its cursor, become root ranges: their
+-- words may be stale, which root marking tolerates. Answers 1, or 0 when a
+-- mapping is refused, leaving what was mapped for close.
+export function open(
+    services: voidptr,
+    storage: uint64,
+    stride: uint64,
+    slots: uint64,
+    poolBytes: uint64,
+    world: uint64,
+    stress: uint64
+): uint64
+    if slots == 0ULL or stride == 0ULL then
+        return 0ULL
+    end
+    local slotstorage = storage
+    if slotstorage == 0ULL then
+        slotstorage = mapEntry(services, native.fieldOffset<Services>("storage"), slots * stride)
+        if slotstorage == 0ULL then
+            return 0ULL
+        end
+    end
+    if poolBytes ~= 0ULL and mapEntry(services, native.fieldOffset<Services>("pool"), poolBytes) == 0ULL then
+        return 0ULL
+    end
+    local metadata = roundUp(native.sizeOf<arena.Chunk>(), native.alignmentOf<arena.Arena>())
+    local header = roundUp(metadata + native.sizeOf<arena.Arena>(), 16ULL)
+    local mapped = roundUp(HEAP_BYTES + header, os.pageSize())
+    local base = os.mapPages(mapped)
+    if base == nil then
+        return 0ULL
+    end
+    @unsafe do
+        local chunk = base as arena.Chunk*
+        local a = native.offset(base, native.index(metadata)) as arena.Arena*
+        chunk.previous = nil
+        chunk.bytes = mapped
+        a.chunk = chunk
+        a.cursor = native.address(base) + header
+        a.limit = native.address(base) + mapped
+        a.chunkBytes = mapped
+        -- The heap's metadata grows with the guest: further chunks are mapped
+        -- through the scope and unmapped by close.
+        a.growable = true
+        return initializeHeap(services, a, slotstorage, stride, slots, world, stress)
+    end
 end
 
 -- Unmaps what `mapEntry` noted in `field`, and forgets it.
