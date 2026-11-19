@@ -39,6 +39,13 @@ jobs:
             --pattern "nupp-stage0-$SEED_TAG.image.gz" --dir build/seed
           gzip -dc "build/seed/nupp-stage0-$SEED_TAG.image.gz" > build/seed/compiler.image
           test "$(sha256sum build/seed/compiler.image | cut -d' ' -f1)" = "$IMAGE_SHA256"
+          vm=build/seed-target/release/nupp-vm
+          set +e
+          "$vm" verify build/seed/compiler.image; echo "verify: $?"
+          env NO_JIT=1 NO_AOT=1 SIMD_INTERPRET=1 NUPP_COMPILER_ROOT="$PWD" NUPP_VM_BINARY="$PWD/$vm" \
+            NUPP_VM_CLI_IMAGE="$PWD/build/seed/compiler.image" \
+            "$vm" exec build/seed/compiler.image nupp.tools.vm.root --help 2>&1 | head -40; echo "exec: ${PIPESTATUS[0]}"
+          set -e
           python3 scripts/bootstrap-seed pack \
             --runtime build/seed-target/release/nupp-vm --image build/seed/compiler.image \
             --source-revision "$SOURCE_REVISION" \
