@@ -265,6 +265,66 @@ static void thread_ownership (void) {
   assert(!nupp_uv_shutdown());
 }
 
+static void socket_timer_broker (void) {
+  int pair[2];
+  assert(!socketpair(AF_UNIX, SOCK_STREAM, 0, pair));
+  int64_t owner = nupp_uv_socket_open(pair[0]);
+  assert(owner > 0 && nupp_uv_socket_open(pair[0]) == -EEXIST);
+  int64_t observer = nupp_uv_socket_observe((uint64_t)owner);
+  assert(observer > 0);
+  assert(!nupp_uv_socket_arm((uint64_t)owner, 1));
+  assert(!nupp_uv_socket_arm((uint64_t)observer, 1));
+  assert(service->watches_count == 1);
+  assert(write(pair[1], "a", 1) == 1);
+  assert(!nupp_uv_socket_take((uint64_t)observer));
+  assert(!nupp_uv_nowait());
+  assert(nupp_uv_socket_take((uint64_t)observer) == 1);
+  assert(!nupp_uv_socket_take((uint64_t)observer));
+  assert(!nupp_uv_socket_drop((uint64_t)observer));
+  assert(fcntl(pair[0], F_GETFD) >= 0);
+  assert(nupp_uv_socket_take((uint64_t)owner) == 1);
+  assert(!nupp_uv_socket_retire((uint64_t)owner));
+
+  /* Replace the socket at the same fd before the old close callback. */
+  int fresh[2];
+  assert(!socketpair(AF_UNIX, SOCK_STREAM, 0, fresh));
+  assert(dup2(fresh[0], pair[0]) == pair[0]);
+  close(fresh[0]);
+  int64_t next = nupp_uv_socket_open(pair[0]);
+  assert(next > owner && nupp_uv_socket_observe((uint64_t)owner) == -EBADF);
+  assert(!nupp_uv_socket_arm((uint64_t)next, 1));
+  assert(!nupp_uv_nowait());
+  assert(!nupp_uv_socket_take((uint64_t)next));
+
+  int64_t timer = nupp_uv_timer_open();
+  assert(timer > 0);
+  assert(!nupp_uv_timer_replace((uint64_t)timer, 60000));
+  assert(!nupp_uv_timer_replace((uint64_t)timer, 0));
+  assert(!nupp_uv_timer_take((uint64_t)timer));
+  assert(!nupp_uv_nowait());
+  assert(nupp_uv_timer_take((uint64_t)timer) == 1);
+  assert(!nupp_uv_timer_take((uint64_t)timer));
+  assert(!nupp_uv_timer_replace((uint64_t)timer, 0));
+  assert(!nupp_uv_timer_replace((uint64_t)timer, -1));
+  assert(!nupp_uv_nowait());
+  assert(!nupp_uv_timer_take((uint64_t)timer));
+
+  assert(!nupp_uv_begin_shutdown());
+  assert(nupp_uv_shutdown() == -EBUSY);
+  assert(nupp_uv_timer_open() == -ECANCELED);
+  assert(nupp_uv_socket_observe((uint64_t)next) == -ECANCELED);
+  assert(nupp_uv_socket_arm((uint64_t)next, 1) == -ECANCELED);
+  assert(nupp_uv_timer_replace((uint64_t)timer, 0) == -ECANCELED);
+  assert(!nupp_uv_socket_retire((uint64_t)next));
+  assert(!nupp_uv_timer_close((uint64_t)timer));
+  assert(nupp_uv_timer_take((uint64_t)timer) == -EBADF);
+  assert(!nupp_uv_shutdown());
+  assert(fcntl(pair[0], F_GETFD) >= 0);
+  close(pair[0]);
+  close(pair[1]);
+  close(fresh[1]);
+}
+
 void nupp_test_uv (void) {
   assert(uv_version() == UV_VERSION_HEX);
   readiness();
@@ -272,5 +332,6 @@ void nupp_test_uv (void) {
   teardown();
   process_filter();
   thread_ownership();
+  socket_timer_broker();
   puts("libuv transport lifecycle contracts passed");
 }
