@@ -160,15 +160,8 @@ local function wordBytes(words: {integer}): string
     return table.concat(parts)
 end
 
---- The core bundle the C bridge runs for case `caseName` in normal mode with
---- `capacity` bytes of scratch: the guest's runtime and program, selected,
---- linked and encoded as `selectUnits` does, written without its published
---- hex. A case that loads binary chunks has none to load beside a bundle, and
---- is refused.
-export function bundle(caseName: string, capacity: integer): string
+local function bundleBytes(source: any, capacity: integer): string
     assert(capacity == 65536 or capacity == 131072 or capacity == 1048576, "explicit guest scratch capacity")
-    local source = guestbuild.guest(caseName, "normal", nil, false)
-    assert(#source.chunks == 0, "a bundle carries no binary chunks: " .. caseName)
     local output = shim.build(source, source.selected, capacity)
     local packed = writer.encode(source.executable, source.scopes, output.dispatch, #output.words * 4, source.raises)
     local code = wordBytes(output.words)
@@ -186,4 +179,20 @@ export function bundle(caseName: string, capacity: integer): string
         code,
         packed.bytes
     })
+end
+
+--- The core bundle the C bridge runs for case `caseName` in normal mode with
+--- `capacity` bytes of scratch: the guest's runtime and program, selected,
+--- linked and encoded as `selectUnits` does, written without its published
+--- hex. A case that loads binary chunks has none to load beside a bundle, and
+--- is refused.
+export function bundle(caseName: string, capacity: integer): string
+    local source = guestbuild.guest(caseName, "normal", nil, false)
+    assert(#source.chunks == 0, "a bundle carries no binary chunks: " .. caseName)
+
+    return bundleBytes(source, capacity)
+end
+
+export function projectBundle(entry: string, path: string, inc: any, embedded: string?): string
+    return bundleBytes(guestbuild.projectGuest(entry, path, inc, embedded), 1048576)
 end

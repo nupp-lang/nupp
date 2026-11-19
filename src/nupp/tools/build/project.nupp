@@ -312,6 +312,9 @@ local function buildOne(root: string?, opts: project.BuildOptions?): integer
     -- Coverage affects emitted Lua, therefore belongs in the configuration before the
     -- build key is calculated. A normal cache entry can never satisfy a coverage run.
     config._coverage = opts.coverage == true
+    local coreBinary = target.kind == "binary"
+        and rawget(_G, "__nupp_load_image") == nil
+        and os.getenv("NUPP_CORE_RUNTIME") ~= nil
     if target.kind == "docs" then
         -- A documentation target declares dependencies like any other. They are
         -- installed before the build rather than discovered missing halfway through
@@ -360,7 +363,9 @@ local function buildOne(root: string?, opts: project.BuildOptions?): integer
         if target.stub ~= "nupp" then
             refusal = "a binary target's stub must be \"nupp\": binaries are VM programs on the Nupp runtime"
         elseif selectedPlatform ~= nil then
-            refusal = "a binary builds for the machine building it; VM programs for another platform are not available"
+            refusal = "a binary builds for the machine building it"
+        elseif coreBinary and (target.standalone or target.reload or (target.aot ~= nil and target.aot ~= "off")) then
+            refusal = "core binary targets require a launcher with sidecars and do not support reload or AOT options"
         end
         if refusal ~= nil then
             say(opts, "NUPP0002", "nupp: " .. refusal .. "\n")
@@ -586,7 +591,42 @@ local function buildOne(root: string?, opts: project.BuildOptions?): integer
     local testHostHash: string? = nil
     local testRuntime: any = nil
     local primaryArtifact: string? = nil
-    if target.kind == "binary" then
+    if coreBinary then
+        report:at("bundle")
+        report:step("bundling " .. (target.name or "binary"))
+        local package = loadBuildTool("nupp.tools.build.package")
+        local name = target.name or opts.target or "binary"
+        local output = package.binaryOutput(root, target, name, outDir, nil, opts.outDir ~= nil)
+        local ok, outputs, bundle, host, unreachable, usedLibraries = pcall(
+            package.coreBinary,
+            root,
+            config,
+            target,
+            outDir,
+            output,
+            session.inc,
+            contentDigest
+        )
+        if not ok then
+            say(opts, "NUPP0004", "nupp: " .. tostring(outputs) .. "\n")
+            return 1
+        end
+        for path in pairs(outputs) do
+            newState.outputs[path] = true
+        end
+        primaryArtifact = output
+        testRuntime = {core = true, payload = bundle, vector = false, facilities = {}}
+        newState.nativeLibraries = cache.jsonArray(usedLibraries)
+        testHost = host
+        if testInput ~= nil then
+            local hostBytes = assert(readFile(host))
+            testHostHash = contentDigest(hostBytes)
+        end
+        if #unreachable > 0 then
+            say(opts, "NUPP0002", "nupp: resource could not be bundled: " .. tostring(unreachable[1]) .. "\n")
+        end
+        report:clear()
+    elseif target.kind == "binary" then
         report:at("bundle")
         report:step("bundling " .. (target.name or target.kind))
         local package = loadBuildTool("nupp.tools.build.package")
@@ -777,8 +817,12 @@ local function buildOne(root: string?, opts: project.BuildOptions?): integer
             caseOwnedOutputs[fs.absolute(output):lower()] = true
         end
     end
+    -- A launcher or a running program can still be opening an older core
+    -- generation's sidecars. Keep them until the output directory is cleaned.
+    local coreSidecars = coreBinary and primaryArtifact and primaryArtifact .. ".core/" or nil
     for _, output in ipairs(oldState.targets[targetKey] or {}) do
-        if not newState.outputs[output] and not caseOwnedOutputs[fs.absolute(output):lower()] then
+        local retained = coreSidecars ~= nil and output:sub(1, #coreSidecars) == coreSidecars
+        if not retained and not newState.outputs[output] and not caseOwnedOutputs[fs.absolute(output):lower()] then
             os.remove(output)
         end
     end
@@ -814,6 +858,7 @@ local function buildOne(root: string?, opts: project.BuildOptions?): integer
                 facilities = testRuntime.facilities,
                 vector = testRuntime.vector,
                 payload = testRuntime.payload,
+                core = testRuntime.core,
                 host = testHost,
                 hostHash = testHostHash,
                 modules = count,
@@ -931,14 +976,14 @@ function project.test(root: string?, args: {string}?, opts: project.TestOptions?
     local test = manifest.testConfig(config)
     local produced: {[string]: any} = {}
     local testTarget = targetConfig(config, test.build)
-    -- A binary on the compiler's own stub is a VM program, which the native
-    -- core neither builds nor runs. There the compiler is its own test runner,
-    -- as it is on the VM: the carried runner runs the suites from source, and a
-    -- test command that ran the binary runs that runner instead.
+    -- The compiler checkout's core runner loads suites from source. Builds of
+    -- other projects still produce and run their configured test artifact.
+    local checkout = os.getenv("NUPP_COMPILER_ROOT")
     local coreRunner = rawget(_G, "__nupp_load_image") == nil
+        and checkout ~= nil
+        and fs.absolute(root) == fs.absolute(checkout as string)
         and testTarget ~= nil
-        and testTarget.kind == "binary"
-        and testTarget.stub == "nupp"
+        and testTarget.name == "testRunner"
     if coreRunner then
         local configured = manifest.testArgv(test)
         if configured[1] == (testTarget as any).output then

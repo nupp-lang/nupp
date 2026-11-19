@@ -177,8 +177,10 @@ function reuse.input(
     for _, path in ipairs(require("nupp.compiler.bundledlist").list("/")) do
         parts[#parts + 1] = "<carried>" .. path .. "\0" .. digest(bundled.source(path) or "missing")
     end
-    -- Native images and their execution runtime replace generated Lua inputs.
-    for _, name in ipairs({"NUPP_VM_CLI_IMAGE", "NUPP_VM_BINARY"}) do
+    local core = rawget(_G, "__nupp_load_image") == nil and os.getenv("NUPP_CORE_RUNTIME") ~= nil
+    local inputs = core and {"NUPP_CORE_COMPILER", "NUPP_CORE_RUNTIME"} or {"NUPP_VM_CLI_IMAGE", "NUPP_VM_BINARY"}
+    parts[#parts + 1] = core and "core" or "vm"
+    for _, name in ipairs(inputs) do
         local path = os.getenv(name)
         if path == nil or path == "" then
             return nil
@@ -211,6 +213,13 @@ end
 function reuse.refresh(record: any, available: {[string]: boolean}): string?, string?
     if record.payload ~= nil and not available[record.payload] then
         return nil, "the completed test build has no retained native image"
+    end
+    if record.core then
+        local host = os.getenv("NUPP_CORE_RUNTIME")
+        if host == nil or not fs.exists(host) then
+            return nil, "the core runtime path is unavailable"
+        end
+        return host
     end
     local native = require("nupp.tools.build.native")
     if record.vector then
