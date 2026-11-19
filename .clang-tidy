@@ -1,0 +1,45 @@
+# clang-tidy's checks for the C the repository owns, run by scripts/lint-c.
+# Every finding fails the check. A false positive is suppressed where it is,
+# with `// NOLINT(check)` and the reason, not by widening this list.
+#
+# The families are the analyzer, bugprone, CERT's C rules, misc, performance
+# and portability. These are left out, each for the reason beside it:
+#
+# bugprone-easily-swappable-parameters: most functions here take several
+#   words of one type -- addresses, lengths, counts -- by design.
+# misc-include-cleaner: asks for each symbol's own header rather than the
+#   umbrella a library documents (cmark-gfm.h, curl.h, ffi.h).
+# misc-use-internal-linkage: most non-static functions here are found by
+#   name at run time -- by dlsym, by FFI, by the guest -- not by a header.
+# cert-err33-c: flags every unchecked fprintf to stderr and fclose of a file
+#   only read; the writes whose failure matters are checked where made.
+# performance-no-int-to-ptr: the bridge and the FFI fixtures carry guest
+#   addresses as integers, and turning them into pointers is their job.
+# clang-analyzer-security.insecureAPI.DeprecatedOrUnsafeBufferHandling: asks
+#   for Annex K's *_s functions in place of memcpy and fprintf, which no
+#   platform here but Windows provides.
+Checks: >
+  -*,
+  clang-analyzer-*,
+  bugprone-*,
+  cert-*-c,
+  misc-*,
+  performance-*,
+  portability-*,
+  -bugprone-easily-swappable-parameters,
+  -misc-include-cleaner,
+  -misc-use-internal-linkage,
+  -cert-err33-c,
+  -performance-no-int-to-ptr,
+  -clang-analyzer-security.insecureAPI.DeprecatedOrUnsafeBufferHandling
+WarningsAsErrors: ''
+HeaderFilterRegex: ''
+CheckOptions:
+  # Feature-test macros are reserved names the C library asks to be defined.
+  bugprone-reserved-identifier.AllowedIdentifiers: >-
+    _DARWIN_C_SOURCE;_GNU_SOURCE;_POSIX_C_SOURCE
+  cert-dcl37-c.AllowedIdentifiers: >-
+    _DARWIN_C_SOURCE;_GNU_SOURCE;_POSIX_C_SOURCE
+  # An integer measured in nanoseconds or bytes becomes a double to be
+  # printed or divided, and the precision lost past 2^53 is never there.
+  bugprone-narrowing-conversions.WarnOnIntegerToFloatingPointNarrowingConversion: false

@@ -1,6 +1,7 @@
 #!/bin/sh
 # Formats the C the repository owns and the CMake that builds it, or with
-# --check says whether they are.
+# --check says whether they are. --list names the C files, which
+# scripts/lint-c checks too.
 #
 # clang-format lays the code out (.clang-format), Uncrustify adds the blank
 # lines clang-format cannot place (.uncrustify.cfg), and clang-format runs
@@ -11,9 +12,9 @@
 set -eu
 
 case "$#:${1-}" in
-    1:--check|1:--write) mode=$1 ;;
+    1:--check|1:--write|1:--list) mode=$1 ;;
     *)
-        printf 'Usage: %s --check|--write\n' "$0" >&2
+        printf 'Usage: %s --check|--write|--list\n' "$0" >&2
         exit 2
         ;;
 esac
@@ -32,6 +33,11 @@ for file in $(git ls-files '*.c' '*.h'); do
         set -- "$@" "$file"
     fi
 done
+
+if [ "$mode" = --list ]; then
+    printf '%s\n' "$@"
+    exit 0
+fi
 
 # The CMake beside it, with the same exceptions.
 cmake=""

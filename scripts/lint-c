@@ -1,0 +1,237 @@
+#!/bin/sh
+# Lints the C the repository owns with clang-tidy (.clang-tidy), the same
+# files scripts/format-c formats, and exits non-zero on any finding.
+#
+#   scripts/lint-c [FILE...]
+#
+# clang-tidy is pinned through pipx, as clang-format is. Each file is checked
+# with the flags that build it, written to build/c-lint/compile_commands.json:
+# the third-party headers some of them include come from the pinned upstream
+# sources (scripts/toolchain.pins), verified, unpacked and configured just far
+# enough to generate their headers, once per pin under build/c-lint/sources.
+# Nothing is compiled. A header is checked as a file of its own and nowhere
+# else, so a finding in one is reported once.
+#
+# A few files are left out where they cannot be compiled: the NEON benchmark
+# kernels on a host that is not ARM64, base64.c, whose generated header only
+# exists in the older checkout its comment builds it in, and the two import-c
+# fixtures that are not complete C.
+set -eu
+
+cd "$(git rev-parse --show-toplevel)"
+ROOT=$(pwd)
+OUT=$ROOT/build/c-lint
+SOURCES=$OUT/sources
+. "$ROOT/scripts/toolchain.pins"
+
+die() {
+    printf 'lint-c: %s\n' "$*" >&2
+    exit 1
+}
+
+if command -v shasum >/dev/null 2>&1; then
+    hash() { shasum -a 256 | cut -d' ' -f1; }
+else
+    hash() { sha256sum | cut -d' ' -f1; }
+fi
+
+clangtidy() {
+    pipx run --spec clang-tidy==22.1.8 --pip-args=--only-binary=:all: \
+        clang-tidy "$@"
+}
+
+# The verified archives live where scripts/native-libraries keeps them, so a
+# machine that has built the libraries downloads nothing here.
+common=$(git rev-parse --path-format=absolute --git-common-dir)
+ARCHIVES=${NUPP_TOOLCHAIN_DIR:-$(dirname "$common")/.nupp-cache/toolchain}/archives
+
+# Unpacks a pinned archive once and prints its directory.
+unpack() {
+    asset=$1 url=$2 expected=$3 name=$4
+    tree=$SOURCES/$name
+    if [ -f "$tree/.unpacked" ]; then
+        printf '%s\n' "$tree"
+        return
+    fi
+    mkdir -p "$ARCHIVES" "$SOURCES"
+    archive=$ARCHIVES/$asset
+    if [ ! -f "$archive" ] || [ "$(hash < "$archive")" != "$expected" ]; then
+        pending=$(mktemp "$ARCHIVES/.download.XXXXXX")
+        curl --fail --location --silent --show-error --output "$pending" "$url" \
+            || die "cannot fetch $asset"
+        [ "$(hash < "$pending")" = "$expected" ] || die "$asset differs from its pin"
+        mv "$pending" "$archive"
+    fi
+    rm -rf "$tree" "$tree.pending"
+    mkdir -p "$tree.pending"
+    tar -xf "$archive" -C "$tree.pending"
+    mv "$tree.pending/$name" "$tree"
+    rmdir "$tree.pending"
+    : > "$tree/.unpacked"
+    printf '%s\n' "$tree"
+}
+
+# Runs a configure step once in a tree, logging it beside the tree.
+configured() {
+    tree=$1
+    shift
+    if [ ! -f "$tree/.configured" ]; then
+        (cd "$tree" && "$@") > "$tree.log" 2>&1 \
+            || { cat "$tree.log" >&2; die "cannot configure $(basename "$tree")"; }
+        : > "$tree/.configured"
+    fi
+}
+
+isal() {
+    unpack "isa-l-$ISAL_VERSION.tar.gz" "$ISAL_URL" "$ISAL_SHA256" \
+        "isa-l-$ISAL_VERSION"
+}
+
+# cmark-gfm's export, version and configuration headers are written by its
+# CMake configuration.
+cmark() {
+    tree=$(unpack "cmark-gfm-$CMARK_REV.tar.gz" "$CMARK_URL" "$CMARK_SHA256" \
+        "cmark-gfm-$CMARK_REV")
+    configured "$tree" cmake -S . -B generated -DCMARK_TESTS=OFF \
+        -DCMAKE_POLICY_VERSION_MINIMUM=3.5
+    printf '%s\n' "$tree"
+}
+
+zlib() {
+    unpack "zlib-$ZLIB_VERSION.tar.gz" "$ZLIB_URL" "$ZLIB_SHA256" \
+        "zlib-$ZLIB_VERSION"
+}
+
+# Most of OpenSSL's public headers are generated from templates.
+openssl() {
+    tree=$(unpack "openssl-$OPENSSL_VERSION.tar.gz" "$OPENSSL_URL" \
+        "$OPENSSL_SHA256" "openssl-$OPENSSL_VERSION")
+    configured "$tree" sh -c 'perl Configure no-asm && make build_generated'
+    printf '%s\n' "$tree"
+}
+
+libcurl() {
+    unpack "curl-$LIBCURL_VERSION.tar.xz" "$LIBCURL_URL" "$LIBCURL_SHA256" \
+        "curl-$LIBCURL_VERSION"
+}
+
+# libffi's ffi.h and ffitarget.h are written by its configure script, under
+# a directory named for the host.
+libffi() {
+    tree=$(unpack "libffi-$LIBFFI_VERSION.tar.gz" "$LIBFFI_URL" \
+        "$LIBFFI_SHA256" "libffi-$LIBFFI_VERSION")
+    configured "$tree" ./configure --disable-docs
+    header=$(find "$tree" -path '*/include/ffi.h' | head -n 1)
+    [ -n "$header" ] || die 'libffi wrote no ffi.h'
+    dirname "$header"
+}
+
+# The pinned WebGPU headers, as the GPU conformance job fetches them.
+wgpu() {
+    library=$(python3 "$ROOT/scripts/wgpu-native") || die 'cannot fetch wgpu-native'
+    printf '%s/include/webgpu\n' "$(dirname "$(dirname "$library")")"
+}
+
+case "$(uname -s)" in
+    Darwin) system="-isysroot $(xcrun --show-sdk-path)" ;;
+    *) system="" ;;
+esac
+case "$(uname -m)" in
+    arm64|aarch64) arm=1 ;;
+    *) arm=0 ;;
+esac
+
+# The flags that build FILE, beyond the language standard, or "skip".
+flags() {
+    case "$1" in
+        bench/simd11/handwritten/base64.c) echo skip ;;
+        # import-c inputs that are not C a compiler takes alone: partial.h
+        # is incomplete on purpose, and mini.h leans on its includer for
+        # size_t.
+        tests/fixtures/partial.h | tests/fixtures/mini.h) echo skip ;;
+        bench/simd11/handwritten/*)
+            if [ "$arm" = 0 ] && grep -q '<arm_neon.h>' "$1"; then
+                echo skip
+            else
+                echo "-D_POSIX_C_SOURCE=200809L"
+            fi
+            ;;
+        native/core-bridge/* | tests/core/*) echo "-pthread" ;;
+        native/crc/crc.c)
+            if [ "$arm" = 1 ]; then
+                echo "-isystem $(isal)/include -Daarch64"
+            else
+                echo "-isystem $(isal)/include"
+            fi
+            ;;
+        native/markdown/* | tests/fixtures/markdown/*)
+            tree=$(cmark)
+            echo "-DCMARK_NO_SHORT_NAMES -I$tree/src -I$tree/extensions" \
+                "-isystem $tree/generated/src -isystem $tree/generated/extensions -I$OUT/include"
+            ;;
+        tests/fixtures/c-libraries/crc/*)
+            defines="-DnuppCrcUpdate=crcbase -DnuppCrcLastError=crcbaseerror"
+            defines="$defines -DNUPP_FORCE_BASE"
+            if [ "$arm" = 1 ]; then
+                defines="$defines -DNUPP_TEST_ARM"
+            else
+                defines="$defines -DNUPP_TEST_X86"
+            fi
+            echo "-isystem $(isal)/include -I$ROOT/native/crc $defines"
+            ;;
+        tests/fixtures/c-libraries/probe.c)
+            echo "-isystem $(zlib) -isystem $(openssl)/include -isystem $(libcurl)/include" \
+                "'-DNUPP_EXPECT_TARGET=\\\"lint\\\"'"
+            ;;
+        scripts/c-libraries/libffiprobe.c) echo "-isystem $(libffi)" ;;
+        tests/fixtures/wgpu/abi.c) echo "-isystem $(wgpu)" ;;
+        *) echo "" ;;
+    esac
+}
+
+# The markdown fixtures include the adapter's header as it is installed.
+mkdir -p "$OUT/include"
+ln -sfn "$ROOT/native/markdown" "$OUT/include/nupp"
+
+if [ "$#" -eq 0 ]; then
+    set -- $(sh "$ROOT/scripts/format-c" --list)
+fi
+
+# One entry per file: a header is compiled as C on its own.
+database=$OUT/compile_commands.json
+checked=""
+{
+    printf '[\n'
+    separator=""
+    for file in "$@"; do
+        extra=$(flags "$file")
+        if [ "$extra" = skip ]; then
+            printf 'lint-c: skipping %s\n' "$file" >&2
+            continue
+        fi
+        language=""
+        case "$file" in
+            *.h) language="-x c" ;;
+        esac
+        printf '%s{"directory":"%s","file":"%s","command":"cc %s -std=c11 %s %s -c %s"}' \
+            "$separator" "$ROOT" "$ROOT/$file" "$language" "$system" "$extra" "$ROOT/$file"
+        separator=",
+"
+        checked="$checked $file"
+    done
+    printf '\n]\n'
+} > "$database.pending"
+mv "$database.pending" "$database"
+
+jobs=${NUPP_LINT_JOBS:-$(getconf _NPROCESSORS_ONLN 2>/dev/null || echo 4)}
+clangtidy --version >/dev/null
+# shellcheck disable=SC2086
+printf '%s\n' $checked | xargs -n 1 -P "$jobs" sh -c '
+    pipx run --spec clang-tidy==22.1.8 --pip-args=--only-binary=:all: \
+        clang-tidy --quiet -p "$0" "$1" 2>/dev/null
+' "$OUT" > "$OUT/findings.txt" || status=$?
+if [ -s "$OUT/findings.txt" ] || [ "${status:-0}" -ne 0 ]; then
+    cat "$OUT/findings.txt"
+    printf 'lint-c: clang-tidy found problems; see .clang-tidy\n' >&2
+    exit 1
+fi
