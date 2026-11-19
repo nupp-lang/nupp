@@ -48,7 +48,7 @@ local function coreProgram(path: string, projectEnv: any): (any, string?)
     if text == nil then
         return nil, "cannot read " .. path .. ": " .. tostring(readErr)
     end
-    local bytes, problem = (corechunk as any).compileProgram(text, path, "@" .. path, CORE_PROGRAM_MODULE)
+    local bytes, problem = (corechunk as any).compileProgram(text, path, "@" .. path, CORE_PROGRAM_MODULE, true)
     if bytes == nil then
         return nil, problem
     end
@@ -243,9 +243,19 @@ local function run(options: any): integer
 
     local previousCompiler = rawget(_G, "__nuppCompiler")
     rawset(_G, "__nuppCompiler", compilerIdentity)
+    -- The core's module instance reads the namespace through its global io
+    -- table. Publish the same CLI module whose arguments the command updates.
+    local coreIO: any = not loadImage and package.loaders == nil and rawget(_G, "io") or nil
+    local originalCLI: any = coreIO and rawget(coreIO, "cli")
+    if coreIO then
+        rawset(coreIO, "cli", cliModule)
+    end
     activateArguments(programArg)
     local ok, runErr = pcall(chunk, unpack(programArgs))
     activateArguments(toolArg)
+    if coreIO then
+        rawset(coreIO, "cli", originalCLI)
+    end
     local gpuCostsError: string? = nil
     if values.gpuCosts ~= nil then
         local closed, closeErr = configureGpuCosts(nil)

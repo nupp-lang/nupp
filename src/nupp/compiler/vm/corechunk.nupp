@@ -386,7 +386,13 @@ end
 -- environment. `display` names it in errors and `source` is its Lua source,
 -- "@" and `display` without it. A source with no module statement outside a
 -- checkout's src/ is module `named`, where it is given: a program run as one.
-export function describeModule(text: string, display: string, source: string?, named: string?): (any, string?)
+export function describeModule(
+    text: string,
+    display: string,
+    source: string?,
+    named: string?,
+    commandLine: boolean?
+): (any, string?)
     local path = string.sub(display, -#NUPP_SUFFIX) == NUPP_SUFFIX and display or display .. NUPP_SUFFIX
     -- The environment is declared where the module statement ends, on its
     -- line, so every line keeps its number.
@@ -399,6 +405,21 @@ export function describeModule(text: string, display: string, source: string?, n
     -- is declared where its first statement starts.
     local name, statement = cst.declaredModule(plain.root)
     local opening = ENVIRONMENT_OPENING
+    local arguments: string? = nil
+    if commandLine and text:find("...", 1, true) ~= nil then
+        -- The module initializer has no incoming parameters. Read argv from
+        -- the running command and bind a copy in the core's vararg pack format.
+        local name = "__nupp_script_arguments"
+        while text:find(name, 1, true) ~= nil do
+            name = name .. "_"
+        end
+        arguments = name
+        opening = opening .. (
+            'local %s: {[integer]: any} = {} do local argv = rawget(_G, "arg") as {string} '
+            .. '%s[0] = #argv for i, value in ipairs(argv) do %s[i] = value end end '
+        ):format(name, name, name)
+    end
+    local openingBytes = #opening
     local factoryName: string? = nil
     local factorySource: string? = nil
     if recordcallables.contains(plain.root) then
@@ -439,7 +460,7 @@ export function describeModule(text: string, display: string, source: string?, n
     end
     local factory: any = nil
     if factorySource then
-        local at = (openingAt as integer) + #ENVIRONMENT_OPENING
+        local at = (openingAt as integer) + openingBytes
         for _, block in ipairs(tree.root.blocks) do
             for _, stat in ipairs(block.stats) do
                 if stat.kind == "localFuncStmt"
@@ -462,7 +483,14 @@ export function describeModule(text: string, display: string, source: string?, n
     local catalog = program.describe(
         {{name = name, path = path, chunkname = source or "@" .. display, parsed = tree, diagnostics = diagnostics}},
         name,
-        {chunk = true, module = true, environment = ENVIRONMENT, builtins = BUILTINS, recordFactory = factory}
+        {
+            chunk = true,
+            module = true,
+            environment = ENVIRONMENT,
+            builtins = BUILTINS,
+            recordFactory = factory,
+            arguments = arguments,
+        }
     )
 
     return catalog, nil
@@ -522,10 +550,16 @@ end
 --- Compile the Nupp program `text` as compileModule does, as module `name`
 --- where it declares none: what `nupp run` runs on the core. Answers the
 --- chunk, or nil and a message.
-export function compileProgram(text: string, display: string, source: string?, name: string): (string?, string?)
+export function compileProgram(
+    text: string,
+    display: string,
+    source: string?,
+    name: string,
+    commandLine: boolean?
+): (string?, string?)
     return compiled(
         function(programText: string, programDisplay: string, programSource: string?): (any, string?)
-            return describeModule(programText, programDisplay, programSource, name)
+            return describeModule(programText, programDisplay, programSource, name, commandLine)
         end,
         text,
         display,
