@@ -772,6 +772,9 @@ export function ownership(ctx: any, node: any, count: integer): {integer}?
     if operands == nil then
         return nil
     end
+    if operation == "release" then
+        ctx.takeArgument(args[1])
+    end
     local results, at = {}, 0
     for index = 1, count do
         if index <= #sources and sources[index] then
