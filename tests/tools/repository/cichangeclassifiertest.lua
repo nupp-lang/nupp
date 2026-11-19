@@ -238,7 +238,7 @@ function M.theNativeCoreSelectsWhatNativeCodeDoes()
     for _, path in ipairs({
         "src/nupp/runtime/core/frames.nupp",
         "src/nupp/core/guestbuild.nupp",
-        "native/core-bridge/main.c"
+        "native/corebridge/main.c"
     }) do
         selects(path, {
             "fast-checks",
@@ -364,7 +364,7 @@ end
 
 function M.proofsRequireCoveredCChanges()
     for _, path in ipairs({
-        "native/core-bridge/process.c",
+        "native/corebridge/process.c",
         "native/markdown/CMakeLists.txt",
         "tests/core/proofs.nupp",
         ".github/workflows/compiler.yml",
@@ -384,20 +384,20 @@ function M.eachProofRunsForItsOwnCInputs()
     end
 
     local single = {
-        ["native/core-bridge/main.c"] = "bundle-header",
+        ["native/corebridge/main.c"] = "bundle-header",
         ["tests/core/bundleheaderproof.c"] = "bundle-header",
-        ["native/core-bridge/uv.c"] = "file-io-tickets",
-        ["native/core-bridge/filetickets.h"] = "file-io-tickets",
+        ["native/corebridge/uv.c"] = "file-io-tickets",
+        ["native/corebridge/filetickets.h"] = "file-io-tickets",
         ["tests/core/fileticketproof.c"] = "file-io-tickets",
-        ["native/http-curl/replyheaders.h"] = "http-response-headers",
+        ["native/httpcurl/replyheaders.h"] = "http-response-headers",
         ["tests/core/replyheadersproof.c"] = "http-response-headers",
         ["native/markdown/markdown.c"] = "markdown-allocator",
         ["native/markdown/allocationbudget.h"] = "markdown-allocator",
         ["tests/core/markdownallocatorproof.c"] = "markdown-allocator",
-        ["native/http-curl/ringbuffer.h"] = "ring-buffer",
+        ["native/httpcurl/ringbuffer.h"] = "ring-buffer",
         ["tests/core/ringbufferproof.c"] = "ring-buffer",
-        ["native/core-bridge/tcp.c"] = "tcp-lifecycle",
-        ["native/core-bridge/tcp.h"] = "tcp-lifecycle",
+        ["native/corebridge/tcp.c"] = "tcp-lifecycle",
+        ["native/corebridge/tcp.h"] = "tcp-lifecycle",
         ["tests/core/tcplifecycleproof.c"] = "tcp-lifecycle",
         ["tests/core/tcpmodel/uv.h"] = "tcp-lifecycle"
     }
@@ -406,15 +406,15 @@ function M.eachProofRunsForItsOwnCInputs()
         selects(path, {"proofs"})
     end
 
-    test.eq(picked("native/http-curl/transport.c"), "http-response-headers ring-buffer")
-    test.eq(picked("native/core-bridge/reactor.h"), "bundle-header file-io-tickets")
-    test.eq(picked("native/core-bridge/reactor.h", "native/core-bridge/uv.c"), "bundle-header file-io-tickets")
-    test.eq(picked("native/markdown/markdown.c", "native/core-bridge/tcp.c"), "markdown-allocator tcp-lifecycle")
+    test.eq(picked("native/httpcurl/transport.c"), "http-response-headers ring-buffer")
+    test.eq(picked("native/corebridge/reactor.h"), "bundle-header file-io-tickets")
+    test.eq(picked("native/corebridge/reactor.h", "native/corebridge/uv.c"), "bundle-header file-io-tickets")
+    test.eq(picked("native/markdown/markdown.c", "native/corebridge/tcp.c"), "markdown-allocator tcp-lifecycle")
     test.eq(
         picked("tests/core/proofintrinsics.h"),
         "bundle-header file-io-tickets http-response-headers markdown-allocator ring-buffer tcp-lifecycle"
     )
-    test.eq(picked("native/core-bridge/process.c", "tests/core/proofs.nupp"), "")
+    test.eq(picked("native/corebridge/process.c", "tests/core/proofs.nupp"), "")
 end
 
 function M.documentationOnlyChangesProvisionNoPlatform()

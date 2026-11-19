@@ -2,7 +2,7 @@
  * @file
  * @brief Checks native reactor operations and lifecycle contracts.
  */
-#include "../../native/core-bridge/uv.c" /* NOLINT(bugprone-suspicious-include) */
+#include "../../native/corebridge/uv.c" /* NOLINT(bugprone-suspicious-include) */
 #include <assert.h>
 #include <stdio.h>
 #include <pthread.h>

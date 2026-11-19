@@ -25,7 +25,7 @@ cdef function dlclose(borrows library: voidptr): int32
 
 const WORD: int64 = 8
 
--- The bridge's table (`symbols` in native/core-bridge/main.c) and the
+-- The bridge's table (`symbols` in native/corebridge/main.c) and the
 -- words of it the linked code keeps (nativeos.kernelCells): the guest's
 -- entries follow, each its key's length (0 past the last), the address and
 -- the key's bytes, a word at a time.

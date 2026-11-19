@@ -17,27 +17,27 @@ local proofInputs = {
     [
         "bundle-header"
     ] = {
-        "native/core-bridge/main.c",
-        "native/core-bridge/reactor.h",
-        "native/core-bridge/transport.h",
-        "native/http-curl/uriidna.h",
+        "native/corebridge/main.c",
+        "native/corebridge/reactor.h",
+        "native/corebridge/transport.h",
+        "native/httpcurl/uriidna.h",
         "tests/core/bundleheaderproof.c",
     },
     [
         "file-io-tickets"
     ] = {
-        "native/core-bridge/uv.c",
-        "native/core-bridge/filetickets.h",
-        "native/core-bridge/reactor.h",
-        "native/core-bridge/transport.h",
+        "native/corebridge/uv.c",
+        "native/corebridge/filetickets.h",
+        "native/corebridge/reactor.h",
+        "native/corebridge/transport.h",
         "tests/core/fileticketproof.c",
     },
     [
         "http-response-headers"
     ] = {
-        "native/http-curl/transport.c",
-        "native/http-curl/transport.h",
-        "native/http-curl/replyheaders.h",
+        "native/httpcurl/transport.c",
+        "native/httpcurl/transport.h",
+        "native/httpcurl/replyheaders.h",
         "tests/core/replyheadersproof.c",
     },
     [
@@ -46,16 +46,16 @@ local proofInputs = {
     [
         "ring-buffer"
     ] = {
-        "native/http-curl/transport.c",
-        "native/http-curl/transport.h",
-        "native/http-curl/ringbuffer.h",
+        "native/httpcurl/transport.c",
+        "native/httpcurl/transport.h",
+        "native/httpcurl/ringbuffer.h",
         "tests/core/ringbufferproof.c",
     },
     [
         "tcp-lifecycle"
     ] = {
-        "native/core-bridge/tcp.c",
-        "native/core-bridge/tcp.h",
+        "native/corebridge/tcp.c",
+        "native/corebridge/tcp.h",
         "tests/core/tcplifecycleproof.c",
         "tests/core/tcpmodel/uv.h",
     },
@@ -149,7 +149,7 @@ local rules = {
     {"^tests/core/", {"core"}},
     -- The C bridge the guests run through, which that leg also runs under
     -- the sanitizers.
-    {"^native/core%-bridge/", {"core"}},
+    {"^native/corebridge/", {"core"}},
     -- The host facility's browser and native providers both implement it.
     {"^src/os/host%.nupp$", {"library", "browser", "native"}},
     {"^src/math/random%.nupp$", {"library", "browser"}},

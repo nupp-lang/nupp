@@ -14,7 +14,7 @@
  * It is included rather than linked so the contracts reach its static
  * functions. */
 #define main bootstrapmain
-#include "../../native/core-bridge/main.c" /* NOLINT(bugprone-suspicious-include) */
+#include "../../native/corebridge/main.c" /* NOLINT(bugprone-suspicious-include) */
 #undef main
 
 #include <assert.h>

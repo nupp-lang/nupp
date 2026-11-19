@@ -1,5 +1,5 @@
 // Test-only AArch64 (AAPCS64) callee-saved register preservation probe,
-// for native/core-bridge/guard.c and tests/core/bridgecontracts.c. No guest
+// for native/corebridge/guard.c and tests/core/bridgecontracts.c. No guest
 // operations or frame policy.
 .text
 .p2align 2

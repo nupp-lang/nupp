@@ -19,6 +19,8 @@ Use the same spacing when editing C++ and assembly by hand.
 
 Name new Nupp-owned `.c` and `.h` files in luacase. Join words in lowercase
 with no underscores or hyphens, as in `definitionlist.c` and `definitionlist.h`.
+Use the same convention for Nupp-owned C directories under `native/`,
+as in `native/corebridge` and `native/httpcurl`.
 
 ## Doxygen comments
 

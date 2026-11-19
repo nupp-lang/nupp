@@ -45,7 +45,7 @@ static int register_socket (uv_loop_t *loop, uv_poll_t *poll,
 
 #define getsockopt validate_socket
 #define uv_poll_init_socket register_socket
-#include "../../native/core-bridge/uv.c" /* NOLINT(bugprone-suspicious-include) */
+#include "../../native/corebridge/uv.c" /* NOLINT(bugprone-suspicious-include) */
 #undef uv_poll_init_socket
 #undef getsockopt
 

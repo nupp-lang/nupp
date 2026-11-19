@@ -17,6 +17,6 @@ export NUPP_COMPILER_ROOT="$root"
 cd "$out"
 x86_64-w64-mingw32-gcc -std=c11 -O2 -Wall -Wextra -Werror \
     -DUSING_UV_SHARED=1 -I"$uv_include" "$here/win64startupsmoke.c" \
-    "$root/native/core-bridge/uv.c" "$here/../bridge-abi-win64.S" win64-call.S \
+    "$root/native/corebridge/uv.c" "$here/../bridge-abi-win64.S" win64-call.S \
     "$uv_import" -lws2_32 -Wl,--no-insert-timestamp -o win64-startup.exe
 x86_64-w64-mingw32-objdump -p -d win64-startup.exe > win64-startup.dump

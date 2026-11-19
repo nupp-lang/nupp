@@ -4,7 +4,7 @@
  */
 #define NUPP_CORE_GUARD 1
 #define wmain bootstrap_wmain
-#include "../../../native/core-bridge/main.c"
+#include "../../../native/corebridge/main.c"
 #undef wmain
 
 #include <assert.h>

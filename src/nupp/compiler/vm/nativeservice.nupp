@@ -3853,16 +3853,16 @@ export function buildWin64Startup(): any
         "src/nupp/runtime/vm/os.d.nupp",
         "src/nupp/compiler/vm/nativeservice.nupp",
         "src/nupp/compiler/vm/nativeos.nupp",
-        "native/core-bridge/hostpages-win64.nupp",
-        "native/core-bridge/hostwin64.h",
-        "native/core-bridge/main.c"
+        "native/corebridge/hostpages-win64.nupp",
+        "native/corebridge/hostwin64.h",
+        "native/corebridge/main.c"
     }) do
         need(snapshot.sources[source] == read(root .. "/" .. source), "Win64 startup policy differs: " .. source)
     end
     need(
         snapshot.sources[
             "src/nupp/runtime/core/hostpages.nupp"
-        ] == snapshot.sources["native/core-bridge/hostpages-win64.nupp"],
+        ] == snapshot.sources["native/corebridge/hostpages-win64.nupp"],
         "Win64 startup page hooks differ"
     )
     local programRoot = "tests/core/win64-startup-program"

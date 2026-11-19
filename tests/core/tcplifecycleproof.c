@@ -8,7 +8,7 @@
 
 #include "proofintrinsics.h"
 #define NUPP_TCP_WINDOW_BYTES 4
-#include "../../native/core-bridge/tcp.c" /* NOLINT(bugprone-suspicious-include) */
+#include "../../native/corebridge/tcp.c" /* NOLINT(bugprone-suspicious-include) */
 
 enum { SAMPLE = NUPP_TCP_WINDOW_BYTES };
 

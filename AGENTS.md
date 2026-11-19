@@ -211,6 +211,7 @@ bare numbers, and small functions over dense ones. Name C files and
 identifiers as Lua does: lowercase and run together, with no underscores or
 hyphens (`definitionlist.c`, `nuppmarkdownrender`, `storele64`), and
 UPPERCASE for constants and macros.
+Use luacase for Nupp-owned C directories under `native/`.
 
 `./bin/nupp task proofs` runs the CBMC proofs. Pass one or more names from
 `tests/core/proofs.nupp` to select individual proofs. The task finds `cbmc`

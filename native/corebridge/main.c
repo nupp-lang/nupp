@@ -22,7 +22,7 @@
 
 #include "reactor.h"
 #include "transport.h"
-#include "../http-curl/uriidna.h"
+#include "../httpcurl/uriidna.h"
 
 #include <errno.h>
 #include <limits.h>
@@ -43,7 +43,7 @@
 #endif
 
 #ifdef NUPP_CORE_HTTP
-#include "../http-curl/transport.h"
+#include "../httpcurl/transport.h"
 #include <curl/curl.h>
 #endif
 

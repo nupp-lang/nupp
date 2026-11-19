@@ -16,7 +16,7 @@ defaults=
 flags="-std=c11 -O2 -g -Wall -Wextra -Werror -pthread"
 if [ "$sanitize" = 1 ]; then
     OUT=${NUPP_CORE_BRIDGE_DIR:-"$ROOT/build/c-core-bridge-sanitize"}
-    defaults="$ROOT/native/core-bridge/sanitize.c"
+    defaults="$ROOT/native/corebridge/sanitize.c"
     flags="$flags -fsanitize=address,undefined -fno-sanitize-recover=all -fno-omit-frame-pointer"
 else
     OUT=${NUPP_CORE_BRIDGE_DIR:-"$ROOT/build/c-core-bridge"}
@@ -66,7 +66,7 @@ if [ "$win64_mode" = --win64-contracts ] || [ "$win64_mode" = --win64-http-link 
             -D_CRT_SECURE_NO_WARNINGS -DUSING_UV_SHARED=1 -I"$uv_native/include" "$@" \
             "$uv_native/lib/uv.lib" -lws2_32
     }
-    common="$root_native/native/core-bridge"
+    common="$root_native/native/corebridge"
     if [ "$win64_mode" = --win64-http-link ]; then
         for dll in $curl_dlls; do cp -P "$curl/bin/$dll" "$stage/"; done
         for notice in $curl_notices; do cp -P "$curl/notices/$notice" "$stage/notices/"; done
@@ -74,7 +74,7 @@ if [ "$win64_mode" = --win64-contracts ] || [ "$win64_mode" = --win64-http-link 
         curl_lib=$(cygpath -m "$curl_import")
         icu_headers=$(cygpath -m "$icu_include")
         icu_lib=$(cygpath -m "$icu_import")
-        http="$root_native/native/http-curl"
+        http="$root_native/native/httpcurl"
         # LINK accepts -DEF, which avoids a slash-prefixed MSYS argument.
         compile_win64 -DNUPP_CORE_HTTP -DNUPP_WIN64_HTTP_SYSTEM_ICU=1 -DNUPP_WIN64_PROCESS \
             -iquote "$common" -I"$curl_headers" -I"$icu_headers" \
@@ -136,8 +136,8 @@ esac
 
 # The deployment floor and SDK above select normal pinned cache entries.
 uv=$(sh "$ROOT/scripts/native-libraries" libuv)
-common="$ROOT/native/core-bridge"
-http="$ROOT/native/http-curl"
+common="$ROOT/native/corebridge"
+http="$ROOT/native/httpcurl"
 mkdir -p "$OUT"
 stage=$(mktemp -d "$OUT/.sidecars.XXXXXX")
 pending=".$$.pending"

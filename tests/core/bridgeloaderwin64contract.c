@@ -5,7 +5,7 @@
  * Build this probe with the same reactor inputs as the bridge.
  */
 #define wmain bootstrap_wmain
-#include "../../native/core-bridge/main.c" /* NOLINT(bugprone-suspicious-include) */
+#include "../../native/corebridge/main.c" /* NOLINT(bugprone-suspicious-include) */
 #undef wmain
 
 #include <assert.h>

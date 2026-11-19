@@ -69,10 +69,10 @@ def runtime_source_state():
     """The frozen runtime lowers src with native/crates VM libraries/declarations.
     Cargo's glue workspace also lives in native/crates. The independent core --
     its runtime and build tooling under src and its C bridge under
-    native/core-bridge -- is not an input to this build. Keep CLI freshness
+    native/corebridge -- is not an input to this build. Keep CLI freshness
     broader, and retain every other source/configuration input here.
     """
-    return source_state((b"src/nupp/runtime/core/", b"src/nupp/core/", b"native/core-bridge/"))
+    return source_state((b"src/nupp/runtime/core/", b"src/nupp/core/", b"native/corebridge/"))
 
 
 def selected():

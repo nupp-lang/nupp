@@ -4,7 +4,7 @@
  */
 
 #include "proofintrinsics.h"
-#include "../../native/http-curl/replyheaders.h"
+#include "../../native/httpcurl/replyheaders.h"
 
 /** Checks admission for any valid head and arbitrary incoming lengths. */
 static void provesizing (void) {

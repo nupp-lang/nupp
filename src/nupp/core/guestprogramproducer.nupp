@@ -134,7 +134,7 @@ export function selectUnits(
     return result
 end
 
--- What the C bridge reads (native/core-bridge/main.c): its magic, then the
+-- What the C bridge reads (native/corebridge/main.c): its magic, then the
 -- format and architecture versions, the entry's offset, the code's and the
 -- data's sizes, the scratch it maps and the words of output it keeps.
 const BUNDLE_MAGIC = "NUPPCORE"

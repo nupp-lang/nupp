@@ -209,7 +209,7 @@ a shim that records the attempt and fails, so a stage that reached for the VM
 is refused after it, however it got there.
 ]]
 
---- The first bytes of every core bundle (native/core-bridge/main.c).
+--- The first bytes of every core bundle (native/corebridge/main.c).
 const CORE_BUNDLE_MAGIC = "NUPPCORE"
 
 --- What the C bridge says when it is run with nothing to run, which is how a

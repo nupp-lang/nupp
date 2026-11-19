@@ -6,7 +6,7 @@ The real standalone core ran `cbridge guestffi ffiaggregates tasksreactor reacto
 
 `scripts/core-bridge --test` also passed with fail-fast replacements for Cargo, rustc, rustup and cargo-c. Native tests exercised malformed/truncated packets, extent/alignment/version refusals, W^X and ABI guard calibration, scratch canaries, queue cancellation, active-work settlement/draining and stale tickets. Building the C transport needs a C compiler and pthreads; producing the Nupp guest programs still uses the existing compiler toolchain.
 
-The function-family audit and reasons for retained C are in `native/core-bridge/README.md`. Initial mapping/entry precedes Nupp execution; the copied-byte blocking OS worker needs a native thread entry until checked foreign-thread callbacks exist. Library-path construction and loader policy are in Nupp through direct FFI. No SDK wrappers or Nupp value/GC/task layouts are added to C.
+The function-family audit and reasons for retained C are in `native/corebridge/README.md`. Initial mapping/entry precedes Nupp execution; the copied-byte blocking OS worker needs a native thread entry until checked foreign-thread callbacks exist. Library-path construction and loader policy are in Nupp through direct FFI. No SDK wrappers or Nupp value/GC/task layouts are added to C.
 
 The fixture shared library is built once, atomically, before parallel guest jobs start. An earlier run exposed per-job relinking races; the complete six-case run above passed after this correction. Unknown/empty explicit selections and unknown transport selectors now fail.
 

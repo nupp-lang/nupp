@@ -171,34 +171,34 @@ flags() {
             fi
             ;;
         # The Win64 probes compile with the target headers in scripts/core-bridge.
-        native/core-bridge/hostwin64.h | native/core-bridge/winpipe.c | tests/core/*win64*.c | tests/core/units/win64*.c)
+        native/corebridge/hostwin64.h | native/corebridge/winpipe.c | tests/core/*win64*.c | tests/core/units/win64*.c)
             echo skip
             ;;
-        native/core-bridge/main.c | native/core-bridge/guard.c | tests/core/bridgecontracts.c)
+        native/corebridge/main.c | native/corebridge/guard.c | tests/core/bridgecontracts.c)
             echo "-pthread -DNUPP_CORE_HTTP -isystem $(libcurl)/include"
             ;;
         tests/core/bundleheaderproof.c)
             # The proof includes main.c after its own system headers.
             echo "-pthread -D_GNU_SOURCE=1"
             ;;
-        native/http-curl/transport.c)
-            echo "-pthread -I$ROOT/native/core-bridge -isystem $(libcurl)/include -isystem $(libuv)/include"
+        native/httpcurl/transport.c)
+            echo "-pthread -I$ROOT/native/corebridge -isystem $(libcurl)/include -isystem $(libuv)/include"
             ;;
-        native/http-curl/uriidna.c)
+        native/httpcurl/uriidna.c)
             if [ "$(uname -s)" = Darwin ]; then
                 echo ""
             else
                 pkg-config --cflags icu-uc
             fi
             ;;
-        native/core-bridge/uv.c | native/core-bridge/process.c | tests/core/uvcontracts.c)
+        native/corebridge/uv.c | native/corebridge/process.c | tests/core/uvcontracts.c)
             echo "-pthread -isystem $(libuv)/include"
             ;;
-        native/core-bridge/tcp.* | native/core-bridge/streamio.* | tests/core/tcpcontracts.c | tests/core/tcplifecycleproof.c)
-            echo "-pthread -D_GNU_SOURCE=1 -I$ROOT/native/core-bridge -isystem $(libuv)/include"
+        native/corebridge/tcp.* | native/corebridge/streamio.* | tests/core/tcpcontracts.c | tests/core/tcplifecycleproof.c)
+            echo "-pthread -D_GNU_SOURCE=1 -I$ROOT/native/corebridge -isystem $(libuv)/include"
             ;;
-        tests/core/processcontracts.c) echo "-pthread -I$ROOT/native/core-bridge" ;;
-        native/core-bridge/* | tests/core/*) echo "-pthread" ;;
+        tests/core/processcontracts.c) echo "-pthread -I$ROOT/native/corebridge" ;;
+        native/corebridge/* | tests/core/*) echo "-pthread" ;;
         native/crc/crc.c)
             if [ "$arm" = 1 ]; then
                 echo "-isystem $(isal)/include -Daarch64"
