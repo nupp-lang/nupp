@@ -77,12 +77,37 @@ function program.onVm()
     return rawget(_G, "__nupp_load_image") ~= nil
 end
 
+-- On the native core there is no image to load. The chunk compiler the core
+-- compiler carries compiles the fragment's source as a module instance, as
+-- `nupp run` compiles a program there, and loading that chunk runs it.
+local function coreLoad(result, name, path)
+    local carried, corechunk = pcall(require, "nupp.compiler.vm.corechunk")
+    if not carried or type(result.source) ~= "string" then
+        return nil, "fragments run on the VM or the native core"
+    end
+    local display = path or (name or "main") .. ".nupp"
+    local compiled, bytes, problem = pcall(corechunk.compileProgram, result.source, display, "@" .. display, name or "main")
+    if not compiled then
+        return nil, tostring(bytes)
+    elseif not bytes then
+        return nil, problem
+    end
+
+    return function()
+        local value, failure = load(bytes, "@" .. display, "b")
+        if failure ~= nil then
+            error(failure, 0)
+        end
+        return value
+    end
+end
+
 --- Loads a checked parse as a function that runs the fragment's body and
 --- answers what it returns. Answers nil and a reason when it cannot load.
 function program.load(result, name, path)
     local loadImage = rawget(_G, "__nupp_load_image")
     if not loadImage then
-        return nil, "fragments run on the VM"
+        return coreLoad(result, name, path)
     end
     installSourceModules(loadImage)
     local ok, image = pcall(program.image, result, name, path)
