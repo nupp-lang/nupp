@@ -630,7 +630,19 @@ export function nextKey(table: uint64, key: uint64): uint64
         if packed then
             count = packedcount(packedof(o))
         end
-        if key == values.NIL or (index ~= 0ULL and index <= count) then
+        -- Clearing the array part's last slot during a traversal trims it, so
+        -- a key past its end that its backing still has room for, and that
+        -- the hash part does not hold, is one cleared there: the traversal
+        -- goes on from the end of the array part, as Lua lets it. A packed
+        -- part drops its last element the same way, one at a time.
+        local room = a.capacity
+        if packed then
+            room = count + 1ULL
+        end
+        local trimmed = index > count
+            and index <= room
+            and (t.ptr == 0ULL or hashes.coreposition(t, key) == 0xffffffffffffffffULL)
+        if key == values.NIL or (index ~= 0ULL and index <= count) or trimmed then
             if packed then
                 -- A packed part has no holes.
                 if index < count then

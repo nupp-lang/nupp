@@ -64,6 +64,24 @@ function M.nextContinuesFromAnyKeyAndSkipsNilValues()
     testAssert.eq(visited, 3, "clearing the current key during traversal visits every key once")
 end
 
+-- Clearing the array part's last entry trims it; the traversal standing on
+-- that key goes on to the hash part rather than refusing the key.
+function M.clearingTheLastArrayEntryDuringTraversalContinues()
+    local visited, cleared, last = run({
+        "local t: {[integer]: boolean} = {}",
+        "for i = 1, 5 do t[i] = true end",
+        "t[100] = true",
+        "local visited = 0",
+        "for k in pairs(t) do visited = visited + 1; t[k] = nil end",
+        "local u: {boolean} = {true, true, true}",
+        "for k in pairs(u) do if k == 3 then u[k] = nil end end",
+        "return visited, next(t) == nil, #u",
+    })
+    testAssert.eq(visited, 6, "every key is visited once")
+    testAssert.eq(cleared, true, "every key was cleared")
+    testAssert.eq(last, 2, "the last entry went")
+end
+
 function M.rehashDropsNilEntriesAndKeepsTheRest()
     local keys, absent = run({
         "local m: {[string]: any} = {}",
