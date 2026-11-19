@@ -34,6 +34,10 @@ drops below the 4-15 GB a self-emit takes now.
   a record leaking between checkouts with the same compiler before the
   change, then confirmed both checkouts keep their own record. The VM
   fixpoint passed.
+- `97fa10722` keeps the configured test-build key stable when checking
+  resolves an unused library. Used libraries and artifact bytes still
+  participate in validation. Both the VM regression and the native
+  completed binary reuse passed.
 - The original `wip/core-incremental-emit` and validated
   `wip/core-incremental-validation` branches are preserved. Their worktree
   and test logs are under `/Volumes/bigbertha/workspaces/core-incremental-emit`.

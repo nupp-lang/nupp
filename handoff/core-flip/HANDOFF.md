@@ -28,7 +28,9 @@ branch avoozl-plans). Follow AGENTS.md in each repo.
   `io.cli.args`. It lists 202 suites through the normal shared-lane command.
   A separate project built and executed its configured core binary with
   `nupp test` and received the forwarded argument. The build did not
-  record a completed test-build cache entry.
+  record a completed test-build cache entry. The fix at `97fa10722`
+  keeps the key stable when unused native libraries are resolved. A
+  native replay reused the binary with checker entry disabled.
   The project binary and script argument changes landed at `464a5a56f`
   and `b777eda50`. Repeating publication selected the same generation and
   the app still ran from a launcher path containing spaces.
@@ -52,7 +54,9 @@ branch avoozl-plans). Follow AGENTS.md in each repo.
   all nine failures in the five-suite replay. The two checked-module
   fixtures passed on both runtimes. C bitfield reads and writes landed
   at `cc781fe93` after the VM fixpoint and four native replays. Bare C
-  library names resolve on the core after `2190ded84`.
+  library names resolve on the core after `2190ded84`. The rebuilt
+  native CLI passed 42 of 48 tests in the five W1 suites. The six
+  remaining cases are recorded in [issue #136](https://github.com/nupp-lang/nupp/issues/136).
 - GitHub superseded runs `44540110785` and `44543722316`.
   [Run 44544039175](https://github.com/nupp-lang/nupp/actions/runs/44544039175)
   built the compiler and test runner on Linux ARM64 and passed the Linux
@@ -207,10 +211,9 @@ files beside it, and follow AGENTS.md.
    [issue #136](https://github.com/nupp-lang/nupp/issues/136). Enable
    `aarch64-apple-darwin` in `STAGE0_CORE_HOSTS` once every validation lane
    is usable on the core.
-2. Measure a full compiler source edit through opt-in `bin/nupp` and
-   verify warm reuse for configured binary tests.
-3. Run the five W1 suites on a rebuilt native compiler and check the
-   remaining interop and derive failures. Read the macOS core-guest legs of
+2. Measure a full compiler source edit through opt-in `bin/nupp`.
+3. Check the six remaining W1 interop and derive failures. Read the
+   macOS core-guest legs of
    [run 44567504364](https://github.com/nupp-lang/nupp/actions/runs/44567504364)
    when they report. The first scheduled run failed at Linux C lint.
 4. Confirm the HTTP pump fix on the Linux ARM64 and Windows CI shards.

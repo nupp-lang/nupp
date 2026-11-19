@@ -141,7 +141,5 @@ Verified: the touched suites on the VM (156 tests, 155 passed, 1 skipped as core
 2. Follow [issue #136](https://github.com/nupp-lang/nupp/issues/136) for
    the remaining shared failures. The M1 and libuv owners keep their
    existing lanes.
-3. Verify warm test-build reuse on the core. The external binary test
-   built and ran. Its completed state contained no reuse entry. A native
-   trace showed that the key changes between lookup and publication
-   even though all output files are available.
+3. The configured binary test cache fix landed at `97fa10722`. A native
+   replay verified completed artifact reuse with checker entry disabled.
