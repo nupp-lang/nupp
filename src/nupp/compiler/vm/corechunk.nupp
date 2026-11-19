@@ -23,6 +23,7 @@ local lexer = require("nupp.compiler.syntax.lexer")
 local recordcallables = require("nupp.compiler.vm.recordcallables")
 local recordruntime = require("nupp.runtime.provider.corerecord")
 local fs = require("nupp.compiler.fs")
+local builtinextensions = require("nupp.compiler.builtinextensions")
 
 -- The graph profile and executable version the core runs.
 const VERSION = 8
@@ -334,8 +335,13 @@ local function requiresThroughEnvironment(root: any, path: string): nil
             return
         end
         -- A standard library root (`io`, `require("io")`) projects the
-        -- running program's builtin library, and stays as it is.
-        if node.standardRoot ~= nil then
+        -- running program's builtin library, and stays as it is. A require of
+        -- a direct root (`require("assert")`) loads its module, not a table a
+        -- library extends, and goes through the environment as any require.
+        local directRequire = node.kind == "call"
+            and node.standardRoot ~= nil
+            and builtinextensions.installer(node.standardRoot, nil) == nil
+        if node.standardRoot ~= nil and not directRequire then
             return
         end
         -- So do the opening's require and a require of types alone, which
