@@ -1588,6 +1588,7 @@ local function loadSuite(suite)
             if failure ~= nil then
                 error(failure, 0)
             end
+
             return value
         end)
         if not ok then
@@ -3873,7 +3874,7 @@ local function runSuite(suiteInfo, slices)
     else
         for _, name in ipairs(cases) do
             local case = suite[name]
-            if sharedProgressStream or traceCases then
+            if workerReportPath or sharedProgressStream or traceCases then
                 io.stderr:write("__case__:", name, "\n")
             end
             local caseBefore = now()
@@ -4187,7 +4188,7 @@ local function takeWork()
         local spec = specs[took]
         claimed[#claimed + 1] = spec
         if freshQueuePieces then
-            if sharedProgressStream then
+            if workerReportPath or sharedProgressStream then
                 io.stderr:write("__suite__:", spec, "\n")
             end
             runFreshPiece(spec)
@@ -4205,7 +4206,7 @@ local function takeWork()
                 -- error, which for a worker is the file the parent keeps for exactly
                 -- this question, and is marked so the parent can take the last one and
                 -- leave the rest out of what it prints.
-                if sharedProgressStream then
+                if workerReportPath or sharedProgressStream then
                     io.stderr:write("__suite__:", spec, "\n")
                 end
                 local beforeTotal, beforePassed = total, passed
@@ -4238,7 +4239,7 @@ else
         -- which for a worker is the file the parent keeps for exactly this
         -- question, and is marked so the parent can take the last one and leave
         -- the rest out of what it prints.
-        if sharedProgressStream then
+        if workerReportPath or sharedProgressStream then
             io.stderr:write("__suite__:", suiteInfo.name, "\n")
         end
         runSuite(suiteInfo, wanted and wanted[suiteInfo.name] or nil)
