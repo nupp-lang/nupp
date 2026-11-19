@@ -19,6 +19,16 @@ const ADDRESS = 12
 const NODELAY = 13
 const KEEPALIVE = 14
 const ERROR = 15
+const BIND_DATAGRAM = 16
+const RECEIVE_DATAGRAM = 17
+const SEND_DATAGRAM = 18
+const BROADCAST = 19
+const MULTICAST_TTL = 20
+const MULTICAST_LOOP = 21
+const JOIN = 22
+const LEAVE = 23
+const LISTEN_LOCAL = 24
+const CONNECT_LOCAL = 25
 const AGAIN = -2147483648
 const MAX_WAIT_MS = 2147483647
 const NANOS_PER_MS = 1000000
@@ -143,7 +153,12 @@ export function noDelay(stream: integer, enable: boolean): (boolean, string?)
 end
 
 export function keepAlive(stream: integer, enable: boolean, delay: integer): (boolean, string?)
-    return changed(netcalls.number(KEEPALIVE, stream, enable and delay or 0))
+    if delay < 0 or delay > 4294967295 then
+        return false, "invalid keepalive delay"
+    end
+    const enabledDelay = delay > 0 and delay + 1 or 2
+
+    return changed(netcalls.number(KEEPALIVE, stream, enable and enabledDelay or 0))
 end
 
 local poller: integer? = nil
@@ -168,15 +183,60 @@ export function snapshot(): nil
 end
 
 export function listenPath(path: string, backlog: integer): (integer?, string?)
-    return nil, "local sockets are unavailable on the core"
+    return handle(netcalls.send(LISTEN_LOCAL, backlog, path))
 end
 
 export function connectPath(path: string, timeout: integer): (integer?, string?)
-    return nil, "local sockets are unavailable on the core"
+    return handle(netcalls.send(CONNECT_LOCAL, timeout, path))
 end
 
 export function bindDatagram(host: string, port: integer, reuse: boolean): (integer?, string?)
-    return nil, "datagrams are unavailable on the core"
+    if port < 0 or port > 65535 then
+        return nil, "invalid datagram port"
+    end
+
+    return handle(netcalls.send(BIND_DATAGRAM, port | (reuse and (1 << 48) or 0), host))
+end
+
+export const datagramPort = listenerPort
+export const closeDatagram = close
+
+export function receive(socket: integer, maximum: integer): (string?, string?, integer?, boolean?, string?)
+    const result = netcalls.receive(RECEIVE_DATAGRAM, socket, maximum)
+    if type(result) == "number" then
+        if result == AGAIN then
+            return nil
+        end
+
+        return nil, nil, nil, nil, reason(result as integer)
+    end
+    const wire = result as string
+    local port, truncated, host, start = string.match(wire, "^(%d+)\n([01])\n([^\n]+)\n()")
+    if start == nil then
+        return nil, nil, nil, nil, "invalid datagram address from the reactor"
+    end
+
+    return wire:sub(start), host, math.tointeger(tonumber(port)), truncated == "1"
+end
+
+export function sendTo(socket: integer, host: string, port: integer, bytes: string): (boolean, string?)
+    return changed(netcalls.send(SEND_DATAGRAM, socket, tostring(port) .. "\n" .. host .. "\n" .. bytes))
+end
+
+export function broadcast(socket: integer, enabled: boolean): (boolean, string?)
+    return changed(netcalls.number(BROADCAST, socket, enabled and 1 or 0))
+end
+
+export function multicastTtl(socket: integer, ttl: integer): (boolean, string?)
+    return changed(netcalls.number(MULTICAST_TTL, socket, ttl))
+end
+
+export function multicastLoop(socket: integer, enabled: boolean): (boolean, string?)
+    return changed(netcalls.number(MULTICAST_LOOP, socket, enabled and 1 or 0))
+end
+
+export function membership(socket: integer, group: string, interface: string, join: boolean): (boolean, string?)
+    return changed(netcalls.send(join and JOIN or LEAVE, socket, group .. "\n" .. interface .. "\n"))
 end
 
 export function tlsWrap(

@@ -12,10 +12,15 @@ typedef struct NuppTcp NuppTcp;
 
 /** Allocates an endpoint for the owning reactor thread. */
 int nupptcpopen (uv_loop_t *loop, NuppTcp **out);
+int nupptcpopenlocal (uv_loop_t *loop, NuppTcp **out);
 
 /** Starts listening at a numeric address. Address storage is borrowed. */
 int nupptcplisten (NuppTcp *tcp, const struct sockaddr *address, int backlog,
                    unsigned int flags);
+
+/** Listens on a POSIX local path, whose directory entry is caller-owned. */
+int nupptcplistenlocal (NuppTcp *tcp, const char *path, size_t size,
+                        int backlog);
 
 /** Copies the local address into caller storage. */
 int nupptcplocal (NuppTcp *tcp, struct sockaddr *address, int *size);
@@ -31,6 +36,7 @@ int nupptcpaccept (NuppTcp *listener, NuppTcp *stream);
 
 /** Submits one connection attempt. Address storage is borrowed. */
 int nupptcpconnect (NuppTcp *tcp, const struct sockaddr *address);
+int nupptcpconnectlocal (NuppTcp *tcp, const char *path, size_t size);
 
 /** Reports the connection result or UV_EAGAIN while it is still pending. */
 int nupptcpconnected (const NuppTcp *tcp);

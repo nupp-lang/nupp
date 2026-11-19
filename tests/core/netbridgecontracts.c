@@ -3,7 +3,9 @@
  * @brief Exercises scoped TCP calls and DNS on the bridge's owned reactor.
  */
 
-#ifndef _WIN32
+#if defined(__APPLE__)
+#define _DARWIN_C_SOURCE
+#elif !defined(_WIN32)
 #define _POSIX_C_SOURCE 200809L
 #endif
 
@@ -14,10 +16,103 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#ifndef _WIN32
+#include <unistd.h>
+#endif
 
 static int64_t call (void *scope, uint64_t op, int64_t key, uint64_t option) {
   return nuppnetcall(scope, op, (uint64_t)key, NULL, 0, option);
 }
+
+static void datagrams (void *scope, uint64_t poller, uint64_t deadline) {
+  int64_t from =
+      nuppnetcall(scope, NUPP_NET_BIND_DATAGRAM, 0, "127.0.0.1", 9, 0);
+  int64_t to = nuppnetcall(scope, NUPP_NET_BIND_DATAGRAM, 0, "127.0.0.1", 9, 0);
+  assert(from > 0 && to > 0 && from != to);
+  char address[64], packet[64], out[64];
+  assert(nuppnetcall(scope, NUPP_NET_ADDRESS, (uint64_t)to, address,
+                     sizeof(address), 0) > 0);
+  unsigned long port = strtoul(address, NULL, 10);
+  assert(port > 0 && port <= UINT16_MAX);
+  int head = snprintf(packet, sizeof(packet), "%lu\n127.0.0.1\n", port);
+  assert(head > 0 && head + 3 < (int)sizeof(packet));
+
+  for (int size = 0; size <= 3; size += 3) {
+    memcpy(packet + head, "x\0z", (size_t)size);
+    assert(nuppnetcall(scope, NUPP_NET_SEND_DATAGRAM, (uint64_t)from, packet,
+                       (uint64_t)(head + size), 0) == size);
+    int64_t copied;
+
+    do {
+      assert(uv_hrtime() < deadline);
+      copied = nuppnetcall(scope, NUPP_NET_RECEIVE_DATAGRAM, (uint64_t)to, out,
+                           sizeof(out) - 1, 2);
+      assert(copied >= 0 || copied == NUPP_NET_AGAIN);
+      assert(nupp_uv_wait(poller, 1000000) == 0);
+    } while (copied == NUPP_NET_AGAIN);
+
+    out[copied] = '\0';
+    char *sizeflag = strchr(out, '\n');
+    assert(sizeflag && sizeflag[1] == (size ? '1' : '0'));
+    char *body = strchr(sizeflag + 1, '\n');
+    assert(body && strncmp(body + 1, "127.0.0.1\n", 10) == 0);
+    body += 11;
+
+    if (size) {
+      assert(copied - (body - out) == 2 && body[0] == 'x' && body[1] == 0);
+    }
+    else {
+      assert(out + copied == body);
+    }
+  }
+}
+
+#ifndef _WIN32
+static void localsockets (void *scope, uint64_t poller, uint64_t deadline) {
+  char directory[] = "/tmp/nupp-local-socket.XXXXXX";
+  assert(mkdtemp(directory));
+  char path[64];
+  int length = snprintf(path, sizeof(path), "%s/listener", directory);
+  assert(length > 0 && length < (int)sizeof(path));
+  int64_t listener =
+      nuppnetcall(scope, NUPP_NET_LISTEN_LOCAL, 0, path, (uint64_t)length, 4);
+  int64_t request = nuppnetcall(scope, NUPP_NET_CONNECT_LOCAL, 0, path,
+                                (uint64_t)length, 2000);
+  assert(listener > 0 && request > 0);
+  int64_t from = NUPP_NET_AGAIN, to = NUPP_NET_AGAIN;
+
+  while (from == NUPP_NET_AGAIN || to == NUPP_NET_AGAIN) {
+    assert(uv_hrtime() < deadline);
+    assert(nupp_uv_wait(poller, 1000000) == 0);
+
+    if (from == NUPP_NET_AGAIN) {
+      from = call(scope, NUPP_NET_CONNECT_POLL, request, 0);
+      assert(from > 0 || from == NUPP_NET_AGAIN);
+    }
+
+    if (to == NUPP_NET_AGAIN) {
+      to = call(scope, NUPP_NET_ACCEPT, listener, 0);
+      assert(to > 0 || to == NUPP_NET_AGAIN);
+    }
+  }
+
+  assert(nuppnetcall(scope, NUPP_NET_WRITE, (uint64_t)from, "x", 1, 0) == 1);
+  char byte;
+  int64_t got;
+
+  do {
+    assert(uv_hrtime() < deadline);
+    assert(nupp_uv_wait(poller, 1000000) == 0);
+    got = nuppnetcall(scope, NUPP_NET_READ, (uint64_t)to, &byte, 1, 0);
+    assert(got == 1 || got == NUPP_NET_AGAIN);
+  } while (got == NUPP_NET_AGAIN);
+
+  assert(byte == 'x');
+  assert(call(scope, NUPP_NET_CLOSE, listener, 0) == 0);
+  assert(nupp_uv_nowait() == 0);
+  assert(unlink(path) == 0 && rmdir(directory) == 0);
+}
+#endif
 
 int main (void) {
   int server, client;
@@ -80,6 +175,10 @@ int main (void) {
 
   assert(copied == 3 && memcmp(got, "net", 3) == 0);
   assert(call(&server, NUPP_NET_ENDED, to, 0) == 1);
+  datagrams(&client, (uint64_t)poller, deadline);
+#ifndef _WIN32
+  localsockets(&client, (uint64_t)poller, deadline);
+#endif
   assert(nuppnetcall(&client, NUPP_NET_CONNECT, 0, "localhost", 9, options) >
          0);
   nuppnetdetach(&client);
@@ -87,7 +186,7 @@ int main (void) {
   nuppnetdetach(&server);
   assert(call(&server, NUPP_NET_ACCEPT, listener, 0) == UV_EBADF);
   assert(nupp_uv_shutdown() == 0 && !nuppnetpending());
-  puts("core TCP and DNS contracts passed");
+  puts("core socket and DNS contracts passed");
 
   return 0;
 }

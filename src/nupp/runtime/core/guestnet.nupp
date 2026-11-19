@@ -22,7 +22,15 @@ const WRITE: uint64 = 7ULL
 const ADDRESS: uint64 = 12ULL
 const ERROR: uint64 = 15ULL
 const OPEN_LAST: uint64 = 2ULL
+const BIND_DATAGRAM: uint64 = 16ULL
+const RECEIVE_DATAGRAM: uint64 = 17ULL
+const SEND_DATAGRAM: uint64 = 18ULL
+const JOIN: uint64 = 22ULL
+const LEAVE: uint64 = 23ULL
+const LISTEN_LOCAL: uint64 = 24ULL
+const CONNECT_LOCAL: uint64 = 25ULL
 const WINDOW: uint64 = 16384ULL
+const DATAGRAM_WINDOW: uint64 = 65536ULL
 const TEXT_ROOM: uint64 = 272ULL
 
 local function word(value: uint64): uint64
@@ -44,7 +52,8 @@ export function call(ctx: voidptr, method: uint64, a: uint64, b: uint64, payload
         if method == layouts.NET_NUMBER then
             return ints.make(h, native.word(nuppnetcall(scope, op, key, absent, 0ULL, word(payload))))
         elseif method == layouts.NET_SEND then
-            if op > OPEN_LAST and op ~= WRITE then
+            local opening = op <= OPEN_LAST or op == BIND_DATAGRAM or op == LISTEN_LOCAL or op == CONNECT_LOCAL
+            if not opening and op ~= WRITE and op ~= SEND_DATAGRAM and op ~= JOIN and op ~= LEAVE then
                 error("socket host calls: invalid send operation")
             end
             local input = strings.header(payload)
@@ -53,7 +62,7 @@ export function call(ctx: voidptr, method: uint64, a: uint64, b: uint64, payload
             end
             local pointer = native.pointer(strings.bytes(input))
             local count = strings.length(input)
-            if op <= OPEN_LAST then
+            if opening then
                 return ints.make(h, native.word(nuppnetcall(scope, op, 0ULL, pointer, count, key)))
             end
 
@@ -66,6 +75,11 @@ export function call(ctx: voidptr, method: uint64, a: uint64, b: uint64, payload
             room = WINDOW
             if option < WINDOW then
                 room = option
+            end
+        elseif op == RECEIVE_DATAGRAM then
+            room = TEXT_ROOM + DATAGRAM_WINDOW
+            if option < DATAGRAM_WINDOW then
+                room = TEXT_ROOM + option
             end
         elseif op ~= ADDRESS and op ~= ERROR then
             error("socket host calls: invalid receive operation")

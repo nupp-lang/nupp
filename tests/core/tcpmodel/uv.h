@@ -23,6 +23,7 @@ typedef struct {
 } uv_handle_t;
 
 typedef uv_handle_t uv_tcp_t;
+typedef uv_handle_t uv_pipe_t;
 typedef uv_handle_t uv_stream_t;
 
 typedef struct {
@@ -48,14 +49,24 @@ enum {
   UV_EBADF = -9,
   UV_EBUSY = -16,
   UV_ECANCELED = -125,
+  UV_EINVAL = -22,
   UV_EOF = -4095,
   UV_EIO = -5,
   UV_ENOMEM = -12,
+  UV_ENOSYS = -38,
+  UV_ENOTSUP = -95,
   UV_ENOTCONN = -107,
   UV_EPIPE = -32
 };
 
+enum { UV_PIPE_NO_TRUNCATE = 1 };
+
 int uv_tcp_init (uv_loop_t *, uv_tcp_t *);
+int uv_pipe_init (uv_loop_t *, uv_pipe_t *, int);
+int uv_pipe_open (uv_pipe_t *, int);
+int uv_pipe_connect2 (uv_connect_t *, uv_pipe_t *, const char *, size_t,
+                      unsigned, uv_connect_cb);
+int uv_translate_sys_error (int);
 int uv_tcp_bind (uv_tcp_t *, const struct sockaddr *, unsigned);
 int uv_listen (uv_stream_t *, int, uv_connection_cb);
 int uv_tcp_getsockname (const uv_tcp_t *, struct sockaddr *, int *);

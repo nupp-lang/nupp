@@ -1,12 +1,11 @@
 module nupp.core.catalognet
 
-const net = require("nupp.runtime.provider.corenethost")
+const net = require("nupp.vm.net")
+const public = require("io.net")
+const bytes = require("bytes")
+const system = require("nupp.runtime.provider.coresystem")
 
-local function run(): integer
-    const listener = assert(net.listen("127.0.0.1", 0, 4, false))
-    const port = net.listenerPort(listener)
-    assert(port > 0)
-    const request = assert(net.connect("localhost", port, 2000))
+local function exchange(listener: integer, request: integer): nil
     local client: integer? = nil
     local server: integer? = nil
     for _ = 1, 500 do
@@ -30,17 +29,59 @@ local function run(): integer
     net.closeConnect(request)
     assert(net.write(connected, "socket") == 6)
     assert(net.shutdownWrite(connected))
-    local bytes = ""
+    local message = ""
     for _ = 1, 500 do
-        bytes = bytes .. assert(net.read(accepted, 6))
+        message = message .. assert(net.read(accepted, 6))
         if net.ended(accepted) then
             break
         end
         net.sleep(2)
     end
-    assert(bytes == "socket" and net.ended(accepted))
+    assert(message == "socket" and net.ended(accepted))
     net.closeStream(connected)
     net.closeStream(accepted)
+end
+
+local function localSocket(): nil
+    if system.platform == "windows" then
+        local handle, reason = net.listenPath("a-local-socket", 4)
+        assert(handle == nil and reason ~= nil)
+
+        return
+    end
+    const path = os.tmpname()
+    assert(os.remove(path))
+    const listener = assert(net.listenPath(path, 4))
+    const request = assert(net.connectPath(path, 2000))
+    exchange(listener, request)
+    net.closeListener(listener)
+    assert(os.remove(path))
+end
+
+local function datagram(): nil
+    const left = assert(public.bind({host = "127.0.0.1", port = 0}))
+    const right = assert(public.bind({host = "127.0.0.1", port = 0}))
+    const buffer = bytes.Buffer.create(16)
+    const peer = {host = "127.0.0.1", port = right:port()}
+    assert(left:sendto(peer, ""))
+    const empty = assert(right:receivefrom(buffer, 3))
+    assert(empty.len == 0 and not empty.truncated and empty.address.port == left:port())
+    assert(left:sendto(peer, "ab\0cdef"))
+    const prefix = assert(right:receivefrom(buffer, 4))
+    assert(prefix.len == 4 and prefix.truncated and buffer:readstring(0, 4) == "ab\0c")
+    buffer:close()
+    right:close()
+    left:close()
+end
+
+local function run(): integer
+    const listener = assert(net.listen("127.0.0.1", 0, 4, false))
+    const port = net.listenerPort(listener)
+    assert(port > 0)
+    const request = assert(net.connect("localhost", port, 2000))
+    exchange(listener, request)
+    localSocket()
+    datagram()
     -- The entry retires the remaining listener before releasing backing.
 
     return 7

@@ -11,17 +11,36 @@
 #include "streamio.h"
 #include <stdlib.h>
 
+#ifndef _WIN32
+#include <errno.h>
+#include <fcntl.h>
+#include <string.h>
+#include <sys/socket.h>
+#include <sys/un.h>
+#include <unistd.h>
+#endif
+
 struct NuppTcp {
   NuppStreamIO io;
-  uv_tcp_t stream;
+
+  union {
+    uv_tcp_t internet;
+    uv_pipe_t local;
+  } socket;
+
   uv_connect_t connection;
   uv_shutdown_t shutdown;
   int connecting, connectstatus, listenerror, listenready;
   int shuttingdown, shutdownstatus;
-  int closing, closed;
+  int closing, closed, local;
 };
 
-int nupptcpopen (uv_loop_t *loop, NuppTcp **out) {
+static uv_stream_t *handle (NuppTcp *tcp) {
+  return tcp->local ? (uv_stream_t *)&tcp->socket.local
+                    : (uv_stream_t *)&tcp->socket.internet;
+}
+
+static int openstream (uv_loop_t *loop, int local, NuppTcp **out) {
   *out = NULL;
   NuppTcp *tcp = calloc(1, sizeof(*tcp));
 
@@ -29,7 +48,9 @@ int nupptcpopen (uv_loop_t *loop, NuppTcp **out) {
     return UV_ENOMEM;
   }
 
-  int status = uv_tcp_init(loop, &tcp->stream);
+  tcp->local = local;
+  int status = local ? uv_pipe_init(loop, &tcp->socket.local, 0)
+                     : uv_tcp_init(loop, &tcp->socket.internet);
 
   if (status < 0) {
     free(tcp);
@@ -37,12 +58,28 @@ int nupptcpopen (uv_loop_t *loop, NuppTcp **out) {
     return status;
   }
 
-  tcp->stream.data = &tcp->io;
+  handle(tcp)->data = &tcp->io;
   tcp->connectstatus = UV_ENOTCONN;
   tcp->shutdownstatus = UV_ENOTCONN;
   *out = tcp;
 
   return 0;
+}
+
+int nupptcpopen (uv_loop_t *loop, NuppTcp **out) {
+  return openstream(loop, 0, out);
+}
+
+int nupptcpopenlocal (uv_loop_t *loop, NuppTcp **out) {
+#ifdef _WIN32
+  (void)loop;
+  (void)out;
+
+  return UV_ENOSYS;
+#else
+
+  return openstream(loop, 1, out);
+#endif
 }
 
 static void waiting (uv_stream_t *stream, int status) {
@@ -56,24 +93,78 @@ static void waiting (uv_stream_t *stream, int status) {
 
 int nupptcplisten (NuppTcp *tcp, const struct sockaddr *address, int backlog,
                    unsigned int flags) {
-  if (tcp->closing) {
+  if (tcp->closing || tcp->local) {
     return UV_EBADF;
   }
 
-  int status = uv_tcp_bind(&tcp->stream, address, flags);
+  int status = uv_tcp_bind(&tcp->socket.internet, address, flags);
 
-  return status < 0 ? status
-                    : uv_listen((uv_stream_t *)&tcp->stream, backlog, waiting);
+  return status < 0 ? status : uv_listen(handle(tcp), backlog, waiting);
+}
+
+int nupptcplistenlocal (NuppTcp *tcp, const char *path, size_t size,
+                        int backlog) {
+#ifdef _WIN32
+  (void)tcp;
+  (void)path;
+  (void)size;
+  (void)backlog;
+
+  return UV_ENOSYS;
+#else
+  struct sockaddr_un address = {0};
+
+  if (tcp->closing || !tcp->local || !size ||
+      size >= sizeof(address.sun_path)) {
+    return UV_EINVAL;
+  }
+
+  socklen_t length =
+      (socklen_t)(offsetof(struct sockaddr_un, sun_path) + size + 1);
+  address.sun_family = AF_UNIX;
+#ifdef __APPLE__
+  address.sun_len = (unsigned char)length;
+#endif
+  memcpy(address.sun_path, path, size);
+
+  /* Own the descriptor without giving libuv an unlinkable pathname. A caller
+   * controls the lifetime of the directory entry, including any replacement. */
+  int fd = socket(AF_UNIX, SOCK_STREAM, 0);
+
+  if (fd < 0) {
+    return uv_translate_sys_error(errno);
+  }
+
+  if (fcntl(fd, F_SETFD, FD_CLOEXEC) < 0 ||
+      bind(fd, (const struct sockaddr *)&address, length) < 0) {
+    int status = uv_translate_sys_error(errno);
+    close(fd);
+
+    return status;
+  }
+
+  int status = uv_pipe_open(&tcp->socket.local, fd);
+
+  if (status < 0) {
+    close(fd);
+
+    return status;
+  }
+
+  return uv_listen(handle(tcp), backlog, waiting);
+#endif
 }
 
 int nupptcplocal (NuppTcp *tcp, struct sockaddr *address, int *size) {
-  return tcp->closing ? UV_EBADF
-                      : uv_tcp_getsockname(&tcp->stream, address, size);
+  return tcp->closing || tcp->local
+             ? UV_EBADF
+             : uv_tcp_getsockname(&tcp->socket.internet, address, size);
 }
 
 int nupptcppeer (NuppTcp *tcp, struct sockaddr *address, int *size) {
-  return tcp->closing ? UV_EBADF
-                      : uv_tcp_getpeername(&tcp->stream, address, size);
+  return tcp->closing || tcp->local
+             ? UV_EBADF
+             : uv_tcp_getpeername(&tcp->socket.internet, address, size);
 }
 
 int nupptcplistenready (NuppTcp *tcp) {
@@ -88,7 +179,8 @@ int nupptcplistenready (NuppTcp *tcp) {
 }
 
 int nupptcpaccept (NuppTcp *listener, NuppTcp *stream) {
-  if (listener->closing || stream->closing) {
+  if (listener->closing || stream->closing ||
+      listener->local != stream->local) {
     return UV_EBADF;
   }
 
@@ -99,8 +191,7 @@ int nupptcpaccept (NuppTcp *listener, NuppTcp *stream) {
     return status;
   }
 
-  int status = uv_accept((uv_stream_t *)&listener->stream,
-                         (uv_stream_t *)&stream->stream);
+  int status = uv_accept(handle(listener), handle(stream));
 
   if (status == UV_EAGAIN) {
     listener->listenready = 0;
@@ -127,13 +218,30 @@ int nupptcpconnect (NuppTcp *tcp, const struct sockaddr *address) {
     return UV_EBADF;
   }
 
-  if (tcp->connecting) {
+  if (tcp->connecting || tcp->local) {
     return UV_EALREADY;
   }
 
   tcp->connection.data = tcp;
-  int status =
-      uv_tcp_connect(&tcp->connection, &tcp->stream, address, connected);
+  int status = uv_tcp_connect(&tcp->connection, &tcp->socket.internet, address,
+                              connected);
+
+  if (status == 0) {
+    tcp->connecting = 1;
+    tcp->connectstatus = UV_EAGAIN;
+  }
+
+  return status;
+}
+
+int nupptcpconnectlocal (NuppTcp *tcp, const char *path, size_t size) {
+  if (tcp->closing || !tcp->local || tcp->connecting) {
+    return UV_EINVAL;
+  }
+
+  tcp->connection.data = tcp;
+  int status = uv_pipe_connect2(&tcp->connection, &tcp->socket.local, path,
+                                size, UV_PIPE_NO_TRUNCATE, connected);
 
   if (status == 0) {
     tcp->connecting = 1;
@@ -148,9 +256,7 @@ int nupptcpconnected (const NuppTcp *tcp) {
 }
 
 int nupptcpreceive (NuppTcp *tcp, void *bytes, size_t size) {
-  return tcp->closing
-             ? UV_EBADF
-             : nuppstreamread((uv_stream_t *)&tcp->stream, bytes, size);
+  return tcp->closing ? UV_EBADF : nuppstreamread(handle(tcp), bytes, size);
 }
 
 int nupptcpsend (NuppTcp *tcp, const void *bytes, size_t size) {
@@ -162,7 +268,7 @@ int nupptcpsend (NuppTcp *tcp, const void *bytes, size_t size) {
     return UV_EPIPE;
   }
 
-  return nuppstreamwrite((uv_stream_t *)&tcp->stream, bytes, size);
+  return nuppstreamwrite(handle(tcp), bytes, size);
 }
 
 int nupptcppending (const NuppTcp *tcp) {
@@ -174,11 +280,13 @@ int nupptcpended (const NuppTcp *tcp) {
 }
 
 int nupptcpnodelay (NuppTcp *tcp, int enable) {
-  return uv_tcp_nodelay(&tcp->stream, enable);
+  return tcp->local ? UV_ENOTSUP
+                    : uv_tcp_nodelay(&tcp->socket.internet, enable);
 }
 
 int nupptcpkeepalive (NuppTcp *tcp, int enable, unsigned int seconds) {
-  return uv_tcp_keepalive(&tcp->stream, enable, seconds);
+  return tcp->local ? UV_ENOTSUP
+                    : uv_tcp_keepalive(&tcp->socket.internet, enable, seconds);
 }
 
 int nupptcpshutting (const NuppTcp *tcp) {
@@ -200,8 +308,7 @@ int nupptcpshutdown (NuppTcp *tcp) {
   }
 
   tcp->shutdown.data = tcp;
-  int status =
-      uv_shutdown(&tcp->shutdown, (uv_stream_t *)&tcp->stream, halfclosed);
+  int status = uv_shutdown(&tcp->shutdown, handle(tcp), halfclosed);
 
   if (status == 0) {
     tcp->shuttingdown = 1;
@@ -223,7 +330,7 @@ static void closed (uv_handle_t *handle) {
 void nupptcpclose (NuppTcp *tcp) {
   if (!tcp->closing) {
     tcp->closing = 1;
-    uv_close((uv_handle_t *)&tcp->stream, closed);
+    uv_close((uv_handle_t *)handle(tcp), closed);
   }
 }
 

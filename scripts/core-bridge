@@ -80,7 +80,7 @@ if [ "$win64_mode" = --win64-contracts ] || [ "$win64_mode" = --win64-http-link 
             -iquote "$common" -I"$curl_headers" -I"$icu_headers" \
             "$common/main.c" "$common/uv.c" "$http/transport.c" "$http/uriidna.c" \
             "$common/process.c" "$common/winpipe.c" "$common/streamio.c" \
-            "$common/netbridge.c" "$common/tcp.c" \
+            "$common/netbridge.c" "$common/tcp.c" "$common/udp.c" \
             "$curl_lib" "$icu_lib" -Xlinker "-DEF:$common/http-win64.def" \
             -o "$stage_native/nupp-core.exe"
         printf '%s\n' "$stage"
@@ -103,7 +103,7 @@ if [ "$win64_mode" = --win64-contracts ] || [ "$win64_mode" = --win64-http-link 
         -o "$stage_native/tcp.exe"
     compile_win64 -DNUPP_CORE_NET -iquote "$common" \
         "$tests/netbridgecontracts.c" "$common/netbridge.c" "$common/tcp.c" \
-        "$common/streamio.c" "$common/uv.c" -o "$stage_native/net.exe"
+        "$common/streamio.c" "$common/udp.c" "$common/uv.c" -o "$stage_native/net.exe"
     for probe in socket-broker bridge-loader bridge-abi process tcp net; do
         "$stage/$probe.exe" >&2
     done
@@ -189,7 +189,7 @@ link_bridge() {
         set -- "$@" -Wl,--disable-new-dtags -Wl,-rpath-link,"$stage/lib" -ldl
     fi
     compile "$export_flag" -Wl,-rpath,"$rpath" "$@" "$common/process.c" \
-        "$common/netbridge.c" "$common/tcp.c" "$common/streamio.c" \
+        "$common/netbridge.c" "$common/tcp.c" "$common/streamio.c" "$common/udp.c" \
         ${defaults:+"$defaults"} \
         "$http/transport.c" "$stage/uriidna.o" "$stage/lib/libcurl.$shared_suffix" \
         "$icu" "$stage/lib/$uv_name"
