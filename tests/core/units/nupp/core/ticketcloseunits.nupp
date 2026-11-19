@@ -11,6 +11,9 @@ const guestentry = require("nupp.runtime.core.guestentry")
 const instances = require("nupp.runtime.core.instances")
 
 const ARENA_BYTES: uint64 = 67108864ULL
+-- Past corestrings.INLINE_LIMIT: a string with a shared allocation, whose
+-- block the tickets below are taken on.
+const EXTERNAL: uint64 = 4153ULL
 
 local function miss(ok: boolean): uint64
     if ok then
@@ -86,8 +89,13 @@ export function scopeclose(stress: uint64, ticketFirst: uint64): uint64
                 local h = native.pointer(
                     native.load64(services, native.fieldOffset<guestscope.Services>("heap"))
                 ) as heap.Heap*
-                local input = data(a, 97ULL)
-                local text = strings.make(h, input, 97ULL)
+                -- A string kept inline has no block: reading one as a tail
+                -- would follow its bytes as a pointer.
+                if EXTERNAL <= strings.INLINE_LIMIT then
+                    error("ticket close units: the string fits inline")
+                end
+                local input = data(a, EXTERNAL)
+                local text = strings.make(h, input, EXTERNAL)
                 local textHeader = native.pointer(text) as heap.Header*
                 local block = native.pointer(heap.corestringtail(textHeader).block)
                 wrong = wrong + miss(shared.retain(block) and pages.sharedreferences(block) == 2ULL)
