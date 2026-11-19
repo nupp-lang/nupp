@@ -603,6 +603,10 @@ export function describe(modules: {any}, entryModule: string, options: any?): an
         -- The definition of the record each method or constructor written in
         -- a record body belongs to, by its node.
         recordMembers = {},
+        -- The methods written in an interface's body, by their node:
+        -- defaults a record that implements the interface may override, so
+        -- a call of one reads the receiver's method as it runs.
+        interfaceMethods = {},
         -- The definitions of the functions a module exports, which the checker
         -- hoists: a closure made above the declaration may already name one.
         hoistedFunctions = {},
@@ -770,6 +774,9 @@ export function describe(modules: {any}, entryModule: string, options: any?): an
                 if entry.kind == "inlineMethod" or entry.kind == "constructorDecl" then
                     inlineRecords[entry] = node.name
                     p.recordMembers[entry] = node.name.definition
+                    if node.declKind == "interface" then
+                        p.interfaceMethods[entry] = true
+                    end
                 end
             end
         end
@@ -1848,6 +1855,11 @@ export function describe(modules: {any}, entryModule: string, options: any?): an
         -- synthetic token per call, which capture analysis then transports.
         local method = node.kind == "methodCall" and node.name and node.name.definition
         local target = method and p.functionsByDefinition[method]
+        -- An interface's default is the method only of the records that do
+        -- not override it: the call reads the receiver's when it runs.
+        if target and p.interfaceMethods[target.node] then
+            target = nil
+        end
         local base = target and target.node.kind == "funcStmt" and target.node.name.method and target.node.name.base
             or target
             and target.node.kind == "inlineMethod"
@@ -2508,7 +2520,10 @@ export function verify(p: any): boolean
                 node.kind == "methodCall"
                 and p.callByNode[node] == item
                 and item.definition == nil
-                and p.functionsByDefinition[node.name.definition] == nil,
+                and (
+                    p.functionsByDefinition[node.name.definition] == nil
+                    or p.interfaceMethods[p.functionsByDefinition[node.name.definition].node]
+                ),
                 "dynamic method callsite identity mismatch"
             )
         elseif item.method then

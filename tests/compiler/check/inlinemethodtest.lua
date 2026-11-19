@@ -222,6 +222,34 @@ return decoder:decode("yes") .. "," .. decoder:decode(3)
     testAssert.eq(value, "loud:yes,number:3", "one overload is replaced while the other default is inherited")
 end
 
+-- A call through an interface reaches the receiver's method, the default only
+-- where its record does not override it.
+function M.aCallThroughAnInterfaceReachesTheOverride()
+    local value = runs(
+        [[
+local interface Speaker
+    function speak(self): string return "default" end
+end
+
+local record Dog is Speaker
+    @override
+    function speak(self): string return "woof" end
+end
+
+local record Mute is Speaker
+end
+
+local function hear(speaker: Speaker): string
+    return speaker:speak()
+end
+
+return hear(Dog()) .. "," .. hear(Mute())
+]],
+        "interface dispatch"
+    )
+    testAssert.eq(value, "woof,default")
+end
+
 function M.separateInterfacesCanContributeOverloadEntries()
     local value = runs(
         [[
