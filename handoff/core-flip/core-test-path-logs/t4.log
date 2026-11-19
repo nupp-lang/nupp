@@ -1,0 +1,129 @@
+7 suites across 4 VM processes
+E
+  compressionnativeprovidertest / independentBlockKindsMatchTheFacadeAtOneByteBoundaries
+      ...re-test-path/src/nupp/runtime/core/compressioncodec.nupp:194: number expected
+E.
+  callableconstructiontest / computedCalleeRunsBeforeArgumentsOnce
+      tests/compiler/check/callableconstructiontest.lua:179 (case definition): vc9
+
+  callableconstructiontest / declarationsWorkAsTypedReferences
+      tests/compiler/check/callableconstructiontest.lua:163 (case definition): assertion failed!
+
+  callableconstructiontest / defaultConstructionAndAliases
+      tests/compiler/check/callableconstructiontest.lua:44 (case definition): assertion failed!
+
+  callableconstructiontest / instanceCallIsSeparateFromConstruction
+      tests/compiler/check/callableconstructiontest.lua:70 (case definition): assertion failed!
+
+  callableconstructiontest / interfacesCanOwnFactoryAndDescriptorNamespaces
+      tests/compiler/check/callableconstructiontest.lua:288 (case definition): callable7.nupp: function graph: capture requires an initialized lexical binding at callable7.nupp:1:3181
+
+  callableconstructiontest / overloadsAgreeWithLuaCalls
+      tests/compiler/check/callableconstructiontest.lua:89 (case definition): assertion failed!
+
+  callableconstructiontest / runtimeOverloadsUseArityLiteralsNominalsAndOptionalArguments
+      tests/compiler/check/callableconstructiontest.lua:212: attempt to call a nil value
+
+  callableconstructiontest / structAliasesUseExplicitConstructors
+      callable12.nupp: ...es/core-test-path/src/nupp/compiler/vm/taggedvalues.nupp:38: tagged graph: only plain record declarations are admitted: struct Vec at callable12.nupp:1:89
+E.
+__status__:1
+
+  inlinemethodtest / repeatedStaticNamesSelectDistinctBodies
+      tests/compiler/check/inlinemethodtest.lua:133: overloaded statics: raised: test.nupp:5: attempt to call a nil value
+
+  inlinemethodtest / safeNavigationKeepsOverloadSelection
+      tests/compiler/check/inlinemethodtest.lua:368: expected nil, got "absent": a nil receiver suppresses the selected hidden call
+E
+__status__:1
+nupp-core: Nupp entry refused with transport status 4
+__status__:1
+.
+__status__:0
+
+  Nupp worker 1 / <shard>
+      the worker wrote no report (exit 0; 0 bytes on stdout; artifacts: tests/../build/test-runner/.nupp-test-cache/reports-lua_oySDd1-0-1301827a0-1795094984-2/worker-1.json, tests/../build/test-runner/.nupp-test-cache/reports-lua_oySDd1-0-1301827a0-1795094984-2/worker-1.out, tests/../build/test-runner/.nupp-test-cache/reports-lua_oySDd1-0-1301827a0-1795094984-2/worker-1.err; cannot read report: tests/../build/test-runner/.nupp-test-cache/reports-lua_oySDd1-0-1301827a0-1795094984-2/worker-1.json: No such file or directory; exit 1; stderr: nupp-core: Nupp entry refused with transport status 4
+      )
+
+  graphguestbranchtest / <unrun>
+      no worker reported running graphguestbranchtest#1/2
+
+
+Failures:
+
+  Nupp worker 1 / <shard>
+      the worker wrote no report (exit 0; 0 bytes on stdout; artifacts: tests/../build/test-runner/.nupp-test-cache/reports-lua_oySDd1-0-1301827a0-1795094984-2/worker-1.json, tests/../build/test-runner/.nupp-test-cache/reports-lua_oySDd1-0-1301827a0-1795094984-2/worker-1.out, tests/../build/test-runner/.nupp-test-cache/reports-lua_oySDd1-0-1301827a0-1795094984-2/worker-1.err; cannot read report: tests/../build/test-runner/.nupp-test-cache/reports-lua_oySDd1-0-1301827a0-1795094984-2/worker-1.json: No such file or directory; exit 1; stderr: nupp-core: Nupp entry refused with transport status 4
+      )
+
+  callableconstructiontest / computedCalleeRunsBeforeArgumentsOnce
+      tests/compiler/check/callableconstructiontest.lua:179 (case definition): vc9
+
+  callableconstructiontest / declarationsWorkAsTypedReferences
+      tests/compiler/check/callableconstructiontest.lua:163 (case definition): assertion failed!
+
+  callableconstructiontest / defaultConstructionAndAliases
+      tests/compiler/check/callableconstructiontest.lua:44 (case definition): assertion failed!
+
+  callableconstructiontest / instanceCallIsSeparateFromConstruction
+      tests/compiler/check/callableconstructiontest.lua:70 (case definition): assertion failed!
+
+  callableconstructiontest / interfacesCanOwnFactoryAndDescriptorNamespaces
+      tests/compiler/check/callableconstructiontest.lua:288 (case definition): callable7.nupp: function graph: capture requires an initialized lexical binding at callable7.nupp:1:3181
+
+  callableconstructiontest / overloadsAgreeWithLuaCalls
+      tests/compiler/check/callableconstructiontest.lua:89 (case definition): assertion failed!
+
+  callableconstructiontest / runtimeOverloadsUseArityLiteralsNominalsAndOptionalArguments
+      tests/compiler/check/callableconstructiontest.lua:212: attempt to call a nil value
+
+  callableconstructiontest / structAliasesUseExplicitConstructors
+      callable12.nupp: ...es/core-test-path/src/nupp/compiler/vm/taggedvalues.nupp:38: tagged graph: only plain record declarations are admitted: struct Vec at callable12.nupp:1:89
+
+  compressionnativeprovidertest / independentBlockKindsMatchTheFacadeAtOneByteBoundaries
+      ...re-test-path/src/nupp/runtime/core/compressioncodec.nupp:194: number expected
+
+  gpudevicetest / <load>
+      module 'nupp.vm.foreign' not found:
+      	no module of that name in the image
+
+  graphguestbranchtest / <unrun>
+      no worker reported running graphguestbranchtest#1/2
+
+  inlinemethodtest / repeatedStaticNamesSelectDistinctBodies
+      tests/compiler/check/inlinemethodtest.lua:133: overloaded statics: raised: test.nupp:5: attempt to call a nil value
+
+  inlinemethodtest / safeNavigationKeepsOverloadSelection
+      tests/compiler/check/inlinemethodtest.lua:368: expected nil, got "absent": a nil receiver suppresses the selected hidden call
+
+98 tests, 84 passed, 0 skipped, 14 failed (14062.4ms)
+  package . exceeds 60s of suite work (341.1s)
+  package compiler/check exceeds 60s of suite work (244.6s)
+
+Timing: 14.1s wall, 636.5s of suite work
+  3 Nupp worker shards: busiest 299.7s, idlest 229.4s, mean 257.9s, predicted 188.0s from 571.9s over 4 lanes, heaviest piece 188.0s
+
+  slowest suites                  wall     load    hooks    cases  tests
+  graphguestbranchtest          299.7s    30.5s      0ms   268.6s     19
+  callableconstructiontest      223.9s    15.0s      0ms   208.9s     21
+  corelibrarycallstest           41.4s     5.9s      0ms    35.4s      8
+  bitsettest                     27.0s    15.7s      0ms    11.4s     28
+  compressionnativeproviderte    23.8s    23.8s      0ms      2ms      1
+  inlinemethodtest               20.6s     2.6s      0ms    18.0s     18
+
+  slowest tests                                             wall
+  callableconstructiontest / exportedInterfacesExposeTh   191.0s
+  gpudevicetest / <load>                                  137.2s
+  graphguestbranchtest / scalarVectorCapabilityDoesNotP   110.4s
+  graphguestbranchtest / bindingConditionGuestRetainsSc    96.3s
+  graphguestbranchtest / checkedDynamicNumericStepsKeep    21.4s
+  corelibrarycallstest / checkedGroupedOperationsRefuse    15.3s
+  corelibrarycallstest / checkedGroupedOperationsUseOnl    13.5s
+  bitsettest / clearAllKeepsCapacity                        6.7s
+  graphguestbranchtest / checkedNumericForRefusesInvali     6.6s
+  graphguestbranchtest / armCallsJoinTheUpdatedLocalAft     5.7s
+  graphguestbranchtest / checkedNumericForBuildsHeaderB     3.5s
+  graphguestbranchtest / checkedNumericWhileCarriesBoth     3.3s
+  graphguestbranchtest / literalBooleanConditionsRetain     3.2s
+  callableconstructiontest / computedCalleeRunsBeforeAr     3.2s
+  callableconstructiontest / largeGeneratedConstructors     3.0s
+                                                        (83 more)
