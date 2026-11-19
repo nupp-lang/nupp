@@ -35,7 +35,7 @@ if command -v shasum >/dev/null 2>&1; then sha() { shasum -a 256 "$1" | cut -d' 
 else sha() { sha256sum "$1" | cut -d' ' -f1; }; fi
 old_sha=$(sha "$ADVANCE_FIXTURE/old.image")
 jq -n '{format:"nupp-bootstrap-seed-1",hosts:{}}' > scripts/bootstrap-seeds.json
-hosts=(aarch64-apple-darwin x86_64-pc-windows-gnu x86_64-unknown-linux-gnu)
+hosts=(aarch64-apple-darwin aarch64-unknown-linux-gnu x86_64-pc-windows-gnu x86_64-unknown-linux-gnu)
 for host in "${hosts[@]}"; do
     # A script, so Git for Windows reports it executable: NTFS keeps no mode bit,
     # and the archive's runtime member must carry one.

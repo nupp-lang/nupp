@@ -21,7 +21,7 @@ Usage: scripts/advance-stage0 TOPIC [OPTIONS]
 Prepare emits a three-stage fixpoint image and an immutable preparation receipt.
 Publish pushes no source: the exact source commit must already be on origin.
 The default then dispatches refresh-native-bootstrap-seed.yml and waits for it.
-Resume verifies all three published host archives, checks the current host's
+Resume verifies every published host archive, checks the current host's
 published pair with fixpoint, and commits only scripts/bootstrap-seeds.json.
 Nothing pushes the pin commit or changes the latest/product release.
 
@@ -98,8 +98,8 @@ revision=$(git rev-parse HEAD)
 require_clean
 repository=$(gh repo view --json nameWithOwner --jq .nameWithOwner)
 [[ "$repository" =~ ^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$ ]] || fail 'invalid GitHub repository'
-hosts='["aarch64-apple-darwin","x86_64-pc-windows-gnu","x86_64-unknown-linux-gnu"]'
-jq -e --argjson hosts "$hosts" '.format == "nupp-bootstrap-seed-1" and (.hosts | keys | sort) == ($hosts | sort)' scripts/bootstrap-seeds.json >/dev/null || fail 'expected all three native host pins'
+hosts='["aarch64-apple-darwin","aarch64-unknown-linux-gnu","x86_64-pc-windows-gnu","x86_64-unknown-linux-gnu"]'
+jq -e --argjson hosts "$hosts" '.format == "nupp-bootstrap-seed-1" and (.hosts | keys | sort) == ($hosts | sort)' scripts/bootstrap-seeds.json >/dev/null || fail 'expected all four native host pins'
 
 if test -z "$resume"; then
     [[ "$topic" =~ ^[A-Za-z0-9][A-Za-z0-9._-]*$ ]] || fail 'supply an experimental release topic'
