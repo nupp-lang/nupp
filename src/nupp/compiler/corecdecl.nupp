@@ -195,6 +195,10 @@ const CURSOR_VARIABLE = 9
 const CURSOR_TYPEDEF = 20
 const TYPE_BOOL = 3
 const TYPE_VOID = 2
+-- Plain `char` where the target makes it unsigned (`Char_U`), as ARM64 Linux
+-- does and x86 and ARM64 macOS do not. It is modeled signed everywhere, so a
+-- header types alike on every host and a const `char *` stays C text.
+const TYPE_PLAIN_CHAR_UNSIGNED = 4
 const TYPE_LAST_UNSIGNED = 12
 const TYPE_LAST_INTEGER = 20
 const TYPE_POINTER = 101
@@ -808,7 +812,8 @@ typeModel = function(model: Model, given: Type, depth: integer): any
     elseif kind == TYPE_BOOL then
         value = object({kind = "boolean"})
     elseif kind >= 4 and kind <= TYPE_LAST_INTEGER then
-        value = object({kind = "integer", bits = size * 8, unsigned = kind <= TYPE_LAST_UNSIGNED})
+        local unsigned = kind ~= TYPE_PLAIN_CHAR_UNSIGNED and kind <= TYPE_LAST_UNSIGNED
+        value = object({kind = "integer", bits = size * 8, unsigned = unsigned})
     elseif kind >= 21 and kind <= 23 or kind >= 30 and kind <= 32 or kind == 39 then
         value = object({kind = "float", bits = size * 8})
     elseif kind == TYPE_POINTER then

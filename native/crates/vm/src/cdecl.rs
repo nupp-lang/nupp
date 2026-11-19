@@ -591,7 +591,11 @@ impl Model {
         let mut value = match ty.kind {
             2 => json!({"kind":"void"}),
             3 => json!({"kind":"boolean"}),
-            4..=20 => json!({"kind":"integer","bits":size * 8,"unsigned":ty.kind <= 12}),
+            // Plain `char` is `Char_U` (4) where the target makes it unsigned,
+            // as ARM64 Linux does and x86 and ARM64 macOS do not. It is modeled
+            // signed everywhere, so a header types alike on every host and a
+            // const `char *` stays C text.
+            4..=20 => json!({"kind":"integer","bits":size * 8,"unsigned":ty.kind != 4 && ty.kind <= 12}),
             21..=23 | 30..=32 | 39 => json!({"kind":"float","bits":size * 8}),
             101 => {
                 let pointee = (api.clang_getPointeeType)(ty);
