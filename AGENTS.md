@@ -212,9 +212,10 @@ identifiers as Lua does: lowercase and run together, with no underscores or
 hyphens (`definitionlist.c`, `nuppmarkdownrender`, `storele64`), and
 UPPERCASE for constants and macros.
 
-`./bin/nupp task proofs` runs the CBMC proofs. Pass one or more names to select
-`bundle-header`, `ring-buffer`, or `markdown-allocator`. The task finds `cbmc`
-on `PATH` or uses the executable named by `CBMC`.
+`./bin/nupp task proofs` runs the CBMC proofs. Pass one or more names from
+`tests/core/proofs.nupp` to select individual proofs. The task finds `cbmc`
+on `PATH` or uses the executable named by `CBMC`. See
+[the C proofs skill](.agents/skills/nupp-c-proofs/SKILL.md) when adding a proof.
 
 - `./bin/nupp test [SUITE...]` runs the test suite, or only the named suites:
   `./bin/nupp test doctest` finishes in seconds where the whole suite takes
@@ -262,9 +263,9 @@ on `PATH` or uses the executable named by `CBMC`.
   byte-identically, starting from the pinned stage-zero image.
 - What CI runs for a change is decided by `.github/scripts/classify-changes.lua`
   from the paths it touches, and `required-ci` is the single status that
-  summarises the run. A path no rule classifies selects every job, which is the
-  property that makes the classifier safe to trust: adding a file in a new place
-  cannot quietly lose coverage. `tests/tools/repository/cichangeclassifiertest.lua` and
+  summarizes the run. A path no rule classifies selects the general jobs.
+  The C proofs run only when a covered C source or header changes.
+  `tests/tools/repository/cichangeclassifiertest.lua` and
   `.github/ci-coverage.json` hold the classifier, the workflow and the test
   groups to one account of what is covered.
 - Push the finished work straight to `main`. Nothing gates it: no pull request,

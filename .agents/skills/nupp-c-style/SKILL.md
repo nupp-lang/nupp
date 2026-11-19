@@ -47,3 +47,5 @@ uint64_t nuppiotake (void);
 From the repository root with pipx installed, run `scripts/format-c --write`
 to format the Nupp-owned files listed by `scripts/format-c --list`. Use
 `scripts/format-c --check` to verify their layout.
+
+For CBMC harnesses and proof coverage, use the [Nupp C proofs skill](../nupp-c-proofs/SKILL.md).
