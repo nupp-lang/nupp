@@ -228,8 +228,9 @@ local function coreHost()
     end
 end
 
--- A packaged stand-in seed, and a toolchain cache of its own to install it in.
-local function packagedSeed()
+-- A packaged stand-in seed, and a toolchain cache of its own to install it in;
+-- with `library`, the compiler carries lib/libnuppffi beside it.
+local function packagedSeed(library)
     coreHost()
     local dir = os.tmpname()
     os.remove(dir)
@@ -244,6 +245,10 @@ local function packagedSeed()
     plant("pair/runtime", CORE_RUNTIME)
     assert(os.execute(("chmod 755 '%s/pair/runtime'"):format(dir)) == 0)
     plant("pair/compiler.bundle", "NUPPCORE" .. string.rep("\0", 64) .. "a compiler")
+    if library then
+        assert(os.execute(("mkdir -p '%s/pair/lib'"):format(dir)) == 0)
+        plant("pair/lib/libnuppffi", "a library\n")
+    end
     local seed, problem = require(
         "nupp.tools.vm.packaging"
     ).coreSeed(ROOT, dir .. "/pair/runtime", dir .. "/pair/compiler.bundle", "test", dir .. "/seed")
@@ -300,6 +305,18 @@ function M.aPackagedCoreSeedInstallsColdAndRuns()
     assert(readFile(installed .. "/compiler.bundle") == readFile(dir .. "/pair/compiler.bundle"))
     assert(readFile(installed .. "/manifest.json"):find('"format": "nupp-core-seed-1"', 1, true))
     assert(install("/nonexistent", seed.sha256) == out, "the installed seed is not reused from the cache")
+    os.execute("rm -rf '" .. dir .. "'")
+end
+
+-- A compiler that loads libffi relative to itself takes it into its seed.
+function M.aCoreSeedCarriesTheLibrariesBesideItsCompiler()
+    local dir, seed, install = packagedSeed(true)
+    local listing = capture(("tar -tzf '%s'"):format(seed.archive))
+    assert(listing == "NOTICE.md\ncompiler.bundle\nlib/libnuppffi\nmanifest.json\nruntime\n", listing)
+    local out = install(seed.archive, seed.sha256)
+    local installed = out:match("([^\n]+)\n?$")
+    assert(installed == dir .. "/toolchain/core-seed/" .. seed.sha256, "the seed did not install: " .. out)
+    assert(readFile(installed .. "/lib/libnuppffi") == "a library\n", "the library did not install beside it")
     os.execute("rm -rf '" .. dir .. "'")
 end
 
