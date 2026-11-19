@@ -1,0 +1,17 @@
+#!/bin/sh
+# Check the core bridge's ARM64 bundle header contract with CBMC.
+set -eu
+
+root=$(CDPATH= cd -- "$(dirname "$0")/.." && pwd)
+cbmc=${CBMC:-cbmc}
+
+if ! command -v "$cbmc" >/dev/null 2>&1; then
+    printf '%s\n' 'prove-bundle-header: install CBMC or set CBMC to its executable' >&2
+    exit 127
+fi
+
+# The largest loop walks all 72 header bytes. The extra iteration lets
+# CBMC check that the loop really terminates within the bound.
+exec "$cbmc" "$root/tests/core/bundleheaderproof.c" --arch arm64 \
+    --unwind 73 --unwinding-assertions --bounds-check --pointer-check \
+    --pointer-overflow-check --unsigned-overflow-check --verbosity 4
