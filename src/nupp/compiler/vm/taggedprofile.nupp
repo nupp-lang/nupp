@@ -277,7 +277,7 @@ export function unary(ctx: any, node: any, expected: string?): integer
     return literal(ctx, node, expected)
 end
 
-export function binary(ctx: any, node: any, expected: string?): integer
+export function binary(ctx: any, node: any, expected: string?): integer?
     return taggedstatements.binary(ctx, node, expected, 2)
 end
 
@@ -401,7 +401,7 @@ export function closure(ctx: any, node: any, expected: string?): integer
     return value
 end
 
-export function call(ctx: any, node: any, expected: string?): integer
+export function call(ctx: any, node: any, expected: string?): integer?
     need(expected == nil or expected == "tagged", "call requires tagged destination")
     if node.runtimeLoader == "require" then
         local projected = qualifiedvalue(ctx, node)
@@ -438,7 +438,7 @@ export function call(ctx: any, node: any, expected: string?): integer
         return landed(ctx, node, ctx.invoke(node, callee, {kind}, contract, true)) as integer
     end
 
-    return invoke(ctx, node, true) as integer
+    return invoke(ctx, node, true)
 end
 
 export function statementCall(ctx: any, node: any): nil
@@ -662,7 +662,7 @@ export function forVersion(version: integer): any
             )
         )
     end
-    profile.binary = function(ctx: any, node: any, expected: string?): integer
+    profile.binary = function(ctx: any, node: any, expected: string?): integer?
         return taggedstatements.binary(ctx, node, expected, version)
     end
     if version >= 6 then
@@ -1667,12 +1667,12 @@ export function forVersion(version: integer): any
             ctx.block.term = {kind = "return", value = value, edges = {}, pos = ctx.position(node.eof or node)}
             ctx.block = nil
         end
-        local libraryCallOrCall: function(any, any, string?): integer
+        local libraryCallOrCall: function(any, any, string?): integer?
         -- A chunk's library call through a global: the core's own operation
         -- while the chunk's environment holds the function the program
         -- started with there, else a call of what it holds, as Lua resolves
         -- a global name through its environment.
-        profile.call = function(ctx: any, node: any, expected: string?): integer
+        profile.call = function(ctx: any, node: any, expected: string?): integer?
             if catalog(ctx).guarded[node] == nil then
                 return libraryCallOrCall(ctx, node, expected)
             end
@@ -1716,14 +1716,14 @@ export function forVersion(version: integer): any
 
             return value
         end
-        libraryCallOrCall = function(ctx: any, node: any, expected: string?): integer
+        libraryCallOrCall = function(ctx: any, node: any, expected: string?): integer?
             if scalarwitness(ctx, node) then
                 return call(ctx, node, expected)
             end
             if node.ownershipIntrinsic then
                 local results = ownership(ctx, node, 1)
                 if results == nil then
-                    return nil as any
+                    return nil
                 end
                 return results[1]
             end
@@ -1744,7 +1744,7 @@ export function forVersion(version: integer): any
                 )
                 local count = ctx.expression(need(node.args.exprs[2], "carray takes a count"), "tagged")
                 if count == nil then
-                    return nil as any
+                    return nil
                 end
                 return taggedstructs.allocate(ctx, node, declared, count)
             end
@@ -1752,7 +1752,7 @@ export function forVersion(version: integer): any
             -- A library call spreading `...` where its core form cannot calls
             -- the library function's value with that pack, as Lua does.
             if graphcalls.spreadsLibrary(node) then
-                return invoke(ctx, node, true, true) as integer
+                return invoke(ctx, node, true, true)
             end
             if library == "tostring" or library == "table.concat" then
                 return libraryCall(
@@ -1777,7 +1777,7 @@ export function forVersion(version: integer): any
                     node.args.exprs
                 )
             elseif library == "pcall" or library == "xpcall" then
-                return invokeProtected(ctx, node, true) as integer
+                return invokeProtected(ctx, node, true)
             elseif library == "error" then
                 -- error(value [, level]): a string value gets the position the
                 -- level names.
@@ -1806,20 +1806,20 @@ export function forVersion(version: integer): any
                 if pooled and pooled.kind == "str" and pooled.bytes == "#" then
                     local pack = values()
                     if pack == nil or ctx.block == nil then
-                        return nil as any
+                        return nil
                     end
                     local zero = ctx.emit(node, "K", {pool(ctx, "int64", "0")}, "tagged")
                     return ctx.emit(node, "GetIdx", {pack, zero}, "tagged") as integer
                 end
                 local index = ctx.expression(first, "tagged")
                 if index == nil then
-                    return nil as any
+                    return nil
                 end
                 local held = ctx.hold(index)
                 local pack = values()
                 if pack == nil or ctx.block == nil then
                     ctx.release(held)
-                    return nil as any
+                    return nil
                 end
                 local value = ctx.emit(node, "LibCall", {corelibrary.id("SELECT"), pack, ctx.readHeld(held)}, "tagged")
                 ctx.release(held)
@@ -1886,7 +1886,7 @@ export function forVersion(version: integer): any
                 need(#args == spec.arguments, tostring(library) .. " argument count is not admitted")
                 local evaluated = taggedOperands(ctx, args)
                 if evaluated == nil then
-                    return nil as any
+                    return nil
                 end
                 local operation = ctx.emit(node, "K", {pool(ctx, "int64", tostring(spec.operation))}, "tagged")
                 local operands: {any} = {corelibrary.opcall(library as string), operation}
@@ -1912,7 +1912,7 @@ export function forVersion(version: integer): any
                 -- Kept as one value: its pack's first.
                 local pack = coroutinepack(ctx, node)
                 if pack == nil then
-                    return nil as any
+                    return nil
                 end
                 local key = ctx.emit(node, "K", {pool(ctx, "int64", "1")}, "tagged")
                 return ctx.emit(node, "GetIdx", {pack, key}, "tagged") as integer
@@ -1931,7 +1931,7 @@ export function forVersion(version: integer): any
                 )
                 local operands = taggedOperands(ctx, args)
                 if operands == nil then
-                    return nil as any
+                    return nil
                 end
                 local held = {}
                 for index, value in ipairs(operands) do
@@ -1961,7 +1961,7 @@ export function forVersion(version: integer): any
                         for previous = #held, 1, -1 do
                             ctx.release(held[previous])
                         end
-                        return nil as any
+                        return nil
                     end
                     text = ctx.hold(byte)
                 end
@@ -1976,7 +1976,7 @@ export function forVersion(version: integer): any
                 local args = node.args.exprs
                 local body = ctx.expression(args[1], "tagged")
                 if body == nil then
-                    return nil as any
+                    return nil
                 end
                 local held = ctx.hold(body)
                 local rest = {}
@@ -1986,7 +1986,7 @@ export function forVersion(version: integer): any
                 local pack = valuespack(ctx, node, rest)
                 if pack == nil then
                     ctx.release(held)
-                    return nil as any
+                    return nil
                 end
                 local value = ctx.readHeld(held)
                 ctx.release(held)
@@ -2004,27 +2004,27 @@ export function forVersion(version: integer): any
                 need(#(node.args.exprs or {}) == 1, "math.floor takes one number")
                 local operand = ctx.expression(node.args.exprs[1], "tagged")
                 if operand == nil then
-                    return nil as any
+                    return nil
                 end
                 return ctx.emit(node, "MathFloor", {operand}, "tagged") as integer
             end
             need(expected == nil or expected == "tagged", "call requires tagged destination")
 
-            return invoke(ctx, node, true, true) as integer
+            return invoke(ctx, node, true, true)
         end
         -- s:format(...) on a checked string.
-        profile.methodCall = function(ctx: any, node: any, expected: string?): integer
+        profile.methodCall = function(ctx: any, node: any, expected: string?): integer?
             need(expected == nil or expected == "tagged", "method call requires tagged destination")
             local site = catalog(ctx).callByNode[node]
             if site and site.method then
-                return invokeMethod(ctx, node, true) as integer
+                return invokeMethod(ctx, node, true)
             end
             local library = graph.coreLibraryCall(node)
             -- A thread's methods (`co:resume(x)`) are the coroutine library's.
             if coroutinepacked[library or ""] then
                 local pack = coroutinepack(ctx, node)
                 if pack == nil then
-                    return nil as any
+                    return nil
                 end
                 local key = ctx.emit(node, "K", {pool(ctx, "int64", "1")}, "tagged")
                 return ctx.emit(node, "GetIdx", {pack, key}, "tagged") as integer
@@ -2068,7 +2068,7 @@ export function forVersion(version: integer): any
                 invoke(ctx, node, false, true)
             end
         end
-        profile.unary = function(ctx: any, node: any, expected: string?): integer
+        profile.unary = function(ctx: any, node: any, expected: string?): integer?
             if node.fixedArithmetic then
                 return taggedstatements.scalar(ctx, node, node.fixedArithmetic, {node.operand})
             elseif node.op
@@ -2083,7 +2083,7 @@ export function forVersion(version: integer): any
                 need(expected == nil or expected == "tagged", "negation requires tagged destination")
                 local operand = ctx.expression(node.operand, "tagged")
                 if operand == nil then
-                    return nil as any
+                    return nil
                 end
                 return ctx.emit(node, "Not", {operand}, "tagged") as integer
             end
@@ -2091,7 +2091,7 @@ export function forVersion(version: integer): any
                 need(expected == nil or expected == "tagged", "length requires tagged destination")
                 local operand = ctx.expression(node.operand, "tagged")
                 if operand == nil then
-                    return nil as any
+                    return nil
                 end
                 local view = indexedviews.describe(node.operand.inferredType)
                 local marked = node.indexedLength
@@ -2119,7 +2119,7 @@ export function forVersion(version: integer): any
                 need(expected == nil or expected == "tagged", "negation requires tagged destination")
                 local operand = ctx.expression(node.operand, "tagged")
                 if operand == nil then
-                    return nil as any
+                    return nil
                 end
                 -- An operand not known to be a number may be a table with
                 -- __unm, which the library call tries first.
