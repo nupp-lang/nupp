@@ -459,7 +459,7 @@ export function erasedPattern(ctx: any, stat: any): nil
     end
 end
 
-export function erasedStatement(ctx: any, stat: any): nil
+export function erasedStatement(ctx: any, stat: any, physicalStructs: boolean?): nil
     -- An interface declares a type only, and has no value.
     if stat.kind == "recordDecl" and stat.declKind == "interface" then
         return
@@ -470,8 +470,8 @@ export function erasedStatement(ctx: any, stat: any): nil
         -- name holds (`recordValue`).
         -- A record's type parameters erase: its instances hold values.
         need(
-            stat.declKind == "record",
-            "only plain record declarations are admitted: " .. tostring(
+            stat.declKind == "record" or physicalStructs and stat.declKind == "struct",
+            "unsupported record declaration: " .. tostring(
                 stat.declKind
             ) .. " " .. tostring(stat.name and stat.name.text)
         )
@@ -514,6 +514,9 @@ export function forVersion(version: integer): any
     -- Every export of this module, which is the version 2 profile.
     for name, member in pairs(require("nupp.compiler.vm.taggedprofile")) do
         profile[name] = member
+    end
+    profile.erasedStatement = function(ctx: any, stat: any): nil
+        erasedStatement(ctx, stat, version >= 8)
     end
     profile.checkStatement = function(ctx: any, stat: any): nil
         taggedstatements.checkStatement(ctx, stat, version)
@@ -815,7 +818,12 @@ export function forVersion(version: integer): any
         -- record with an array part already is. Records are identity objects,
         -- so this is exact; a dedicated record layout is a later optimization.
         profile.structValue = function(ctx: any, node: any): integer
-            return ctx.emit(node, "NewTable", {}, "tagged")
+            local class = ctx.hold(ctx.emit(node, "NewTable", {}, "tagged"))
+            taggedstructs.attachLayout(ctx, node, class)
+            local value = ctx.readHeld(class)
+            ctx.release(class)
+
+            return value
         end
         profile.foreignValue = function(ctx: any, node: any): integer?
             if catalog(ctx).foreignValues[node.name.definition] then
@@ -1280,6 +1288,9 @@ export function forVersion(version: integer): any
             local held = ctx.hold(ctx.emit(stat, "NewTable", {}, "tagged"))
             local indexKey = ctx.emit(stat, "K", {pool(ctx, "str", "__index")}, "tagged")
             ctx.emit(stat, "SetIdx", {ctx.readHeld(held), indexKey, ctx.readHeld(held)}, nil)
+            if stat.declKind == "struct" then
+                taggedstructs.attachLayout(ctx, stat, held)
+            end
             -- A default it takes from an interface is read from that
             -- interface's table, under the member it has here.
             for _, taken in ipairs(stat.inheritedDefaultNames or {}) do
@@ -1603,9 +1614,8 @@ export function forVersion(version: integer): any
             end
             local declared: integer = ctx.fn.signature and #ctx.fn.signature.rets or 1
             local lastSite = catalog(ctx).callByNode[last]
-            -- A construction answers its one instance, whatever its constructor
-            -- returns, so it is a value here and never spreads.
-            local scalarLast = scalarwitness(ctx, last) ~= nil or construction.bare(last)
+            -- A construction or layout query always answers one value.
+            local scalarLast = scalarwitness(ctx, last) ~= nil or construction.bare(last) or last.layoutOf ~= nil
             local libraryLast = graph.coreLibraryCall(last)
             local spreads = last.kind == "call"
                 and not scalarLast
@@ -1779,6 +1789,9 @@ export function forVersion(version: integer): any
         libraryCallOrCall = function(ctx: any, node: any, expected: string?): integer?
             if node.cheaderCdef and catalog(ctx).chunk then
                 return taggedforeign.header(ctx, node)
+            end
+            if node.layoutOf then
+                return taggedstructs.queryLayout(ctx, node)
             end
             if scalarwitness(ctx, node) then
                 return call(ctx, node, expected)
@@ -2117,7 +2130,7 @@ export function forVersion(version: integer): any
         end
         profile.statementCall = function(ctx: any, node: any): nil
             local site = catalog(ctx).callByNode[node]
-            if graph.dynamicRequire(node) or node.ownershipIntrinsic or scalarwitness(ctx, node) then
+            if node.layoutOf or graph.dynamicRequire(node) or node.ownershipIntrinsic or scalarwitness(ctx, node) then
                 profile.call(ctx, node, nil)
             elseif node.runtimeLoader == "require" then
                 statementCall(ctx, node)

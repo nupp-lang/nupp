@@ -7,15 +7,16 @@ module nupp.compiler.vm.taggedstructs
 -- the field's storage kind; a nested struct or fixed array is that view
 -- itself, a reference into its parent's bytes, as the language states.
 --
--- The layout is Apple arm64's, the one target the core runs on and whose C
--- layout the checker verifies before libffi classifies its foreign calls.
+-- The layout is the host project's C ABI, which libffi also uses for calls.
 const taggedvalues = require("nupp.compiler.vm.taggedvalues")
 const corelibrary = require("nupp.compiler.vm.corelibrary")
 const layouts = require("nupp.compiler.targetlayout")
+const metadata = require("nupp.compiler.vm.metadata")
+const derivedmembers = require("nupp.compiler.vm.derivedmembers")
 const need = taggedvalues.need
 const pool = taggedvalues.pool
 
-const TARGET = "aarch64-apple-darwin"
+const LAYOUT_KEY = "\0nupp:structLayout"
 -- The storage element kinds (corestorage): each scalar's code.
 const UINT8 = 1
 const KINDS: {
@@ -75,12 +76,44 @@ local laid: any = setmetatable({}, {__mode = "k"})
 local function layout(declared: any): any
     local known = laid[declared]
     if known == nil then
-        local measured, reason = layouts.of(declared, TARGET)
+        local target: string = need(layouts.hostKey(), "the core host's C layout is unavailable")
+        local measured, reason = layouts.of(declared, target)
         known = need(measured, "a struct has no C layout: " .. tostring(reason))
         laid[declared] = known
     end
 
     return known
+end
+
+-- A type object keeps one descriptor, shared by all queries that name it.
+export function attachLayout(ctx: any, declaration: any, class: any): nil
+    local descriptor = metadata.structLayout(declaration, layouts.hostKey())
+    local facts = ctx.hold(derivedmembers.plainData(ctx, declaration, descriptor))
+    local key = ctx.emit(declaration, "K", {pool(ctx, "str", LAYOUT_KEY)}, "tagged")
+    ctx.emit(declaration, "SetIdx", {ctx.readHeld(class), key, ctx.readHeld(facts)}, nil)
+    ctx.release(facts)
+end
+
+export function queryLayout(ctx: any, node: any): integer?
+    local subject = node.args.exprs[1]
+    local witness = ctx.expression(subject, "tagged")
+    if witness == nil then
+        return nil
+    end
+    local key = ctx.emit(node, "K", {pool(ctx, "str", LAYOUT_KEY)}, "tagged")
+    local facts = ctx.hold(ctx.emit(node, "GetIdx", {witness, key}, "tagged"))
+    local supported = ctx.emit(node, "K", {pool(ctx, "str", "supported")}, "tagged")
+    local present = ctx.emit(node, "GetIdx", {ctx.readHeld(facts), supported}, "tagged")
+    local unsupported = ctx.emit(node, "Not", {present}, "tagged")
+    ctx.when(node, unsupported, function(c: any): nil
+        local key = c.emit(node, "K", {pool(c, "str", "error")}, "tagged")
+        local message = c.emit(node, "GetIdx", {c.readHeld(facts), key}, "tagged")
+        taggedvalues.landed(c, node, c.emit(node, "LibCall", {corelibrary.id("ERROR"), message}, "tagged"))
+    end)
+    local value = ctx.readHeld(facts)
+    ctx.release(facts)
+
+    return value
 end
 
 -- A pointer the core passes as its address: any C pointer, nullable or not.

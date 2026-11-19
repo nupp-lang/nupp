@@ -1574,6 +1574,7 @@ export function expandsResults(expr: any): boolean
     end
     if expr == nil
         or (expr.kind ~= "call" and expr.kind ~= "methodCall")
+        or expr.layoutOf ~= nil
         or expr.runtimeLoader ~= nil
         or coreLibraryCall(expr) ~= nil
     then

@@ -1830,6 +1830,11 @@ export function describe(modules: {any}, entryModule: string, options: any?): an
         -- `own.recoveralias(v)` calls coremanaged's factory in its place: its
         -- callee is never read, nor called.
         local recovered = managedcalls.recovering(node)
+        -- The layout query reads the checked witness, not a namespace value.
+        if node.kind == "call" and node.layoutOf then
+            collect(node.args, owner)
+            return
+        end
         -- pcall is a library form whose name is never read, but it calls its
         -- first argument, so it is a callsite all the same.
         local protected = node.kind == "call"
