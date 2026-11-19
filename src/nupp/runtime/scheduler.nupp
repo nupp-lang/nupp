@@ -29,6 +29,7 @@ local calls = require("nupp.runtime.taskcalls")
 local pollcalls = require("nupp.runtime.pollcalls")
 local reactor = require("nupp.runtime.reactor")
 local suspension = require("nupp.suspension")
+local taskCancellation = require("nupp.suspension.cancellation")
 local suspensionHost = require("nupp.suspension.host")
 local taskownership = require("nupp.runtime.taskownership")
 
@@ -48,23 +49,8 @@ local CANCEL: any = {}
 -- Cancellation
 ----------------------------------------------------------------------------
 
-local CancellationMT: any = {}
-
-CancellationMT.__tostring = function(value: any): string
-    if value.reason ~= nil then
-        return "nupp: " .. tostring(value.operation) .. " was cancelled: " .. tostring(value.reason)
-    end
-
-    return "nupp: " .. tostring(value.operation) .. " was cancelled"
-end
-
-local function cancellation(operation: string, reason: any): any
-    return setmetatable({operation = operation, reason = reason}, CancellationMT)
-end
-
-local function iscancelled(value: any): boolean
-    return type(value) == "table" and getmetatable(value) == CancellationMT
-end
+local cancellation = taskCancellation.create
+local iscancelled = taskCancellation.is
 
 local FailureMT: any = {}
 
