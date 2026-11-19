@@ -858,6 +858,26 @@ const packsLast: {
     ["coroutine.yield"] = true
 }
 
+-- The library functions Lua refuses to call with fewer arguments than these,
+-- though it takes a nil for each: `tonumber()` raises where `tonumber(nil)`
+-- answers nil. A core form cannot tell a missing argument from a nil one, so
+-- a call passing fewer calls the library function's value, which counts them.
+const requiredArguments: {
+    [string]: integer
+} = {
+    tonumber = 1,
+    tostring = 1,
+    type = 1,
+    getmetatable = 1,
+    ipairs = 1,
+    rawget = 2,
+    rawequal = 2,
+    setmetatable = 2,
+    rawset = 3
+}
+-- Defined with spreadsLibrary, below.
+local missesArguments: function(any): boolean
+
 -- The library name `node` reads when it names a library function, `tostring`
 -- or `string.upper`, outside the callee of a call the core makes itself.
 -- The task surface (Decision 18), which the scheduler written in Nupp
@@ -1506,11 +1526,14 @@ export function dynamicInvokeContract(call: any, count: integer?): any
     -- One the checker could not type (a plain Lua chunk's, which compiles
     -- whatever its checking found) is a call through `any` too.
     local called = call.calleeType
+    -- A library call passing fewer arguments than its function requires
+    -- passes exactly those, which the function counts (spreadsLibrary).
     if called == nil
         or called.tag ~= "func"
         or alternativeresults(called)
         or call.chunkDynamic
         or not fitsArity(called, call)
+        or missesArguments(call)
     then
         called = anySignature(call, count or 1)
     end
@@ -1566,17 +1589,27 @@ export function spreadsLast(call: any): boolean
     return last ~= nil and (last.kind == "vararg" or expandsResults(last) or library == "pcall" or library == "xpcall")
 end
 
+-- Whether library call `node` passes fewer arguments than its function
+-- requires (requiredArguments), none of them spread.
+missesArguments = function(node: any): boolean
+    local required = requiredArguments[coreLibraryCall(node) or ""]
+
+    return required ~= nil and not spreadsLast(node) and #(node.args.exprs or {}) < required
+end
+
 -- Whether a library call spreads `...` or a call's results last where its core
 -- form, which takes a fixed count of arguments, cannot, as `string.char(...)`
 -- or `assert(io.open(path))`: it calls the library function's value with the
--- pack instead, as Lua does, so none of the values is lost.
+-- pack instead, as Lua does, so none of the values is lost. So does a call
+-- passing fewer arguments than the function requires (requiredArguments),
+-- whose value raises as Lua's does.
 export function spreadsLibrary(node: any): boolean
     if type(node) ~= "table" or node.kind ~= "call" or libraryValue(node.obj) == nil then
         return false
     end
     local library = coreLibraryCall(node)
 
-    return library ~= nil and not packsLast[library] and spreadsLast(node)
+    return library ~= nil and (missesArguments(node) or not packsLast[library] and spreadsLast(node))
 end
 
 -- The argument a library call calls back, by its index among the call's

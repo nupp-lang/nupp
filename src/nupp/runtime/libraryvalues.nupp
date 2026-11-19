@@ -110,6 +110,15 @@ local function getinfo(...: any): any
     return info
 end
 
+-- Lua's luaL_checkany: library function `name` was passed `count` values,
+-- fewer than reach its argument `index`. Lua refuses a missing argument where
+-- it takes a nil one, `tonumber()` where `tonumber(nil)` answers nil.
+local function present(count: integer, index: integer, name: string): nil
+    if count < index then
+        error(string.format("bad argument #%d to '%s' (value expected)", index, name), 3)
+    end
+end
+
 export const functions: {[string]: any} = {
     package = ambient,
     -- `require` as a value looks where Lua's looks first, package.loaded
@@ -126,17 +135,23 @@ export const functions: {[string]: any} = {
 
         return require(name)
     end,
-    tostring = function(value: any): string
+    tostring = function(...: any): string
+        present(select("#", ...), 1, "tostring")
+        local value: any = ...
         return tostring(value)
     end,
-    tonumber = function(value: any, base: integer?): number?
+    tonumber = function(...: any): number?
+        present(select("#", ...), 1, "tonumber")
+        local value: any, base: any = ...
         if base == nil then
             return tonumber(value)
         end
 
-        return tonumber(value, base)
+        return tonumber(value, base as integer)
     end,
-    type = function(value: any): string
+    type = function(...: any): string
+        present(select("#", ...), 1, "type")
+        local value: any = ...
         return type(value)
     end,
     error = function(value: any, level: integer?): nil
@@ -161,16 +176,28 @@ export const functions: {[string]: any} = {
 
         return ...
     end,
-    rawget = function(t: table, key: any): any
+    rawget = function(t: table, ...: any): any
+        present(select("#", ...) + 1, 2, "rawget")
+        local key: any = ...
         return rawget(t, key)
     end,
-    rawset = function(t: table, key: any, value: any): table
+    rawset = function(t: table, ...: any): table
+        present(select("#", ...) + 1, 3, "rawset")
+        local key: any, value: any = ...
         return rawset(t, key, value)
     end,
-    setmetatable = function(t: table, metatable: table?): table
-        return setmetatable(t, metatable)
+    setmetatable = function(t: table, ...: any): table
+        -- Lua takes a nil metatable, but not a missing one.
+        if select("#", ...) == 0 then
+            error("bad argument #2 to 'setmetatable' (nil or table expected, got no value)", 2)
+        end
+        local metatable: any = ...
+
+        return setmetatable(t, metatable as table?)
     end,
-    getmetatable = function(value: any): any
+    getmetatable = function(...: any): any
+        present(select("#", ...), 1, "getmetatable")
+        local value: any = ...
         return getmetatable(value)
     end,
     ["math.floor"] = function(x: number): number
@@ -234,7 +261,10 @@ export const functions: {[string]: any} = {
     end,
     -- ipairs as a value: Lua's step through t[1], t[2], ... until a nil,
     -- read with the indexing t's metatable gives.
-    ipairs = function(t: any): (function(any, integer): (integer?, any), any, integer)
+    ipairs = function(...: any): (function(any, integer): (integer?, any), any, integer)
+        present(select("#", ...), 1, "ipairs")
+        local t: any = ...
+
         local function step(source: any, index: integer): (integer?, any)
             local following = index + 1
             local value = source[following]
@@ -282,7 +312,12 @@ export const functions: {[string]: any} = {
     xpcall = function(f: any, handler: any, ...: any): ...any
         return xpcall(f, handler, ...)
     end,
-    rawequal = function(a: any, b: any): boolean
+    rawequal = function(...: any): boolean
+        local count = select("#", ...)
+        present(count, 1, "rawequal")
+        present(count, 2, "rawequal")
+        local a: any, b: any = ...
+
         return rawequal(a, b)
     end,
     select = function(n: any, ...: any): ...any

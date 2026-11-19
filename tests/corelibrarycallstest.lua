@@ -188,4 +188,120 @@ function M.checkedManagedAlignmentPredicateRetainsItsCanonicalCallAndArity()
     assert(not okay and tostring(why):find("argument count is not admitted", 1, true), tostring(why))
 end
 
+-- Lua refuses `tonumber()` where it takes `tonumber(nil)`, and a core form
+-- cannot tell the two apart, so a call passing fewer arguments than its
+-- library function requires calls the function's value, which counts them.
+function M.callsMissingRequiredArgumentsGoThroughTheLibraryValue()
+    local graphcalls = require("nupp.compiler.vm.graphcalls")
+    local name = "nupp.core.missingarguments"
+    local path = "=missing-arguments.lua"
+    local source = table.concat(
+        {
+            "local t = {}",
+            "local a = tonumber()",
+            "local b = tonumber(nil)",
+            "local c = rawget(t)",
+            "local d = setmetatable(t)",
+            "local e = type()",
+            "local f = tostring(1)",
+            "return a, b, c, d, e, f",
+        },
+        "\n"
+    )
+    local parsed = parser.parse(source, path)
+    assert(#parsed.errors == 0, parsed.errors[1] and parsed.errors[1].msg)
+    checker.check(
+        parsed,
+        path,
+        environment.new(".", {
+            cache = false,
+            memoryOnly = true
+        }),
+        {
+            moduleName = name,
+            strict = false,
+            lints = {["unused-binding"] = "off"}
+        }
+    )
+    local calls = {}
+
+    local function walk(node)
+        if type(node) ~= "table" then
+            return
+        end
+        if node.kind == "call" and node.obj and node.obj.kind == "name" then
+            calls[#calls + 1] = node
+        end
+        for _, child in ipairs(node) do
+            walk(child)
+        end
+    end
+
+    walk(parsed.root)
+    local through = {}
+    for _, call in ipairs(calls) do
+        local count = #(call.args.exprs or {})
+        through[#through + 1] = ("%s/%d=%s"):format(call.obj.token.text, count, graphcalls.spreadsLibrary(call))
+    end
+    table.sort(through)
+    local joined = table.concat(through, " ")
+    local expected = "rawget/1=true setmetatable/1=true tonumber/0=true tonumber/1=false tostring/1=false type/0=true"
+    assert(joined == expected, joined)
+    -- And each passes exactly the arguments it was given, never padded with
+    -- nils up to the function's declared parameters.
+    for _, call in ipairs(calls) do
+        if graphcalls.spreadsLibrary(call) then
+            local contract = graph.dynamicInvokeContract(call)
+            assert(#contract.callSignature.params == #(call.args.exprs or {}), call.obj.token.text)
+        end
+    end
+end
+
+-- What those calls do on the core: Lua 5.5's refusals for a missing argument,
+-- and its answers for a nil one.
+function M.missingRequiredArgumentsRaiseAsLuaDoes()
+    local test = require("assert")
+    if rawget(_G, "__nupp_load_image") ~= nil then
+        return test.suite.skip("the Rust VM passes a missing argument as nil")
+    end
+    local refusals = {
+        {"tonumber", tonumber, {}, "bad argument #1 to 'tonumber' (value expected)"},
+        {"tostring", tostring, {}, "bad argument #1 to 'tostring' (value expected)"},
+        {"type", type, {}, "bad argument #1 to 'type' (value expected)"},
+        {"getmetatable", getmetatable, {}, "bad argument #1 to 'getmetatable' (value expected)"},
+        {"ipairs", ipairs, {}, "bad argument #1 to 'ipairs' (value expected)"},
+        {"rawget", rawget, {{}}, "bad argument #2 to 'rawget' (value expected)"},
+        {"rawequal", rawequal, {1}, "bad argument #2 to 'rawequal' (value expected)"},
+        {"rawset", rawset, {{}, 1}, "bad argument #3 to 'rawset' (value expected)"},
+        {"setmetatable", setmetatable, {{}}, "bad argument #2 to 'setmetatable' (nil or table expected, got no value)"},
+    }
+    for _, case in ipairs(refusals) do
+        local ok, problem = pcall(case[2], table.unpack(case[3]))
+        test.eq(ok, false, case[1] .. " with too few arguments")
+        test.contains(tostring(problem), case[4], case[1])
+    end
+
+    -- Spread from a call that gives nothing, the value is missing too.
+    local function none()
+    end
+
+    local ok, problem = pcall(function()
+        return tonumber(none())
+    end)
+    test.eq(ok, false)
+    test.contains(tostring(problem), "value expected")
+    -- A chunk compiled here makes the call directly.
+    local chunk = assert(load("return tonumber()"))
+    ok, problem = pcall(chunk)
+    test.eq(ok, false)
+    test.contains(tostring(problem), "bad argument #1 to 'tonumber' (value expected)")
+    -- A nil passed is an argument.
+    test.eq(tonumber(nil), nil)
+    test.eq(tostring(nil), "nil")
+    test.eq(type(nil), "nil")
+    test.eq(rawget({}, nil), nil)
+    test.eq(select("#", rawequal(1, nil)), 1)
+    test.eq(getmetatable(setmetatable({}, nil)), nil)
+end
+
 return M

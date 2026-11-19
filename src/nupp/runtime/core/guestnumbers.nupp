@@ -201,9 +201,9 @@ end
 -- decimal or wrapping hexadecimal, surrounding space); nil for any other
 -- value or text that is not a numeral. Other text, a decimal past int64
 -- included, is read as a float by C's strtod through the host. A nil is
--- answered nil, as Lua answers `tonumber(nil)`: the call arrives here with no
--- way to tell it from `tonumber()`, which Lua refuses, and the nil a table
--- read gives is by far the commoner of the two.
+-- answered nil, as Lua answers `tonumber(nil)`; `tonumber()`, which Lua
+-- refuses, never arrives here: a call passing no argument calls the library
+-- function's value, which counts them (graphcalls.spreadsLibrary).
 export function tonumber(ctx: voidptr, value: uint64): uint64
     local cell = strings.Builder(0ULL, 0ULL)
     if ints.isInteger(value) or guestvalues.floatof(value) ~= values.NIL then
