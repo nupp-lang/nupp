@@ -197,10 +197,26 @@ local type Pending = {
     pairs: {any}?
 }
 
+local keyRanks: {[string]: integer} = {number = 1, string = 2, boolean = 3}
+
+local function keyBefore(left: any, right: any): boolean
+    local a, b = type(left), type(right)
+    if a ~= b then
+        return keyRanks[a] < keyRanks[b]
+    end
+    if a == "boolean" then
+        return left == false and right == true
+    end
+
+    return left < right
+end
+
 --- Encodes plain `value` in the VM's plain graph format.
+--- `ordered` gives identical bytes for the same graph regardless of key
+--- insertion order. Ordered graphs require scalar keys.
 --- @raises string when the value holds a function, a thread, a userdata, or
 --- more than the format allows.
-export function encode(value: any): string
+export function encode(value: any, ordered: boolean?): string
     local ids: {[any]: integer} = {}
     local objects: {Pending} = {}
     -- Strings used as table keys are interned on the VM, which looks keys up
@@ -240,16 +256,34 @@ export function encode(value: any): string
                 discover(array[length])
             end
             local list: {any} = {}
+            local sorted: {any}? = ordered and {} or nil
             for key, item in next, tableValue do
                 if not (math.type(key) == "integer" and (key as integer) >= 1 and (key as integer) <= length) then
-                    list[#list + 1] = key
-                    list[#list + 1] = item
-                    if type(key) == "string" then
-                        keyed[key as string] = true
+                    if sorted == nil then
+                        list[#list + 1] = key
+                        list[#list + 1] = item
+                    else
+                        if rawget(keyRanks, type(key)) == nil then
+                            error("ordered plain data requires scalar keys", 0)
+                        end
+                        sorted[#sorted + 1] = key
                     end
-                    discover(key)
-                    discover(item)
                 end
+            end
+            if sorted ~= nil then
+                table.sort(sorted, keyBefore)
+                for _, key in ipairs(sorted) do
+                    list[#list + 1] = key
+                    list[#list + 1] = rawget(tableValue, key)
+                end
+            end
+            for offset = 1, #list, 2 do
+                local key = list[offset]
+                if type(key) == "string" then
+                    keyed[key as string] = true
+                end
+                discover(key)
+                discover(list[offset + 1])
             end
             pending.array = array
             pending.pairs = list
