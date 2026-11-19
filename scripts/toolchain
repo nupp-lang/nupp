@@ -1150,7 +1150,13 @@ build_vm_program() {
     build_rust_vm_aot_tool
     build_rust_vm_program_archive "$facilities"
     image_digest=$(tail -n +2 "$payload" | sha256_stdin)
-    digest=$(printf '%s|%s|%s|%s\n' "$image_digest" "$RUST_VM_PROGRAM_ARCHIVE" "$RUST_VM_AOT_TOOL_OUT" "$KEY" \
+    # The archive and the tool are named under the build root by their own
+    # digests, so their paths below it say which they are; the root itself
+    # differs from one worktree to the next, and a program linked in another
+    # worktree of the same sources is this one.
+    archive=${RUST_VM_PROGRAM_ARCHIVE#"$RUST_BUILD_ROOT"/}
+    tool=${RUST_VM_AOT_TOOL_OUT#"$RUST_BUILD_ROOT"/}
+    digest=$(printf '%s|%s|%s|%s\n' "$image_digest" "$archive" "$tool" "$KEY" \
         | sha256_stdin | cut -c1-16)
     out="$RUST_BUILD_ROOT/vm-program/programs/$digest"
     VM_PROGRAM_OUT="$out/nupp-vm"
