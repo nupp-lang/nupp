@@ -77,7 +77,9 @@ export function program(p: any, profile: any): any
     programgraph.admit(p)
     local owners: {{any}} = {}
     local byScope: {[any]: integer} = {}
+    local carried: {[string]: boolean} = {}
     for index, module in ipairs(p.modules) do
+        carried[module.name] = true
         local chunk = need(p.owners[module.chunk + 1], "module initializer is missing")
         need(chunk.kind == "module" and module.chunk == index - 1, "module initializer binding differs")
         owners[index], byScope[chunk.scope] = {chunk}, index
@@ -97,6 +99,8 @@ export function program(p: any, profile: any): any
         keys = keys(p),
         -- By module name, its initializer's result kind once known.
         results = {},
+        -- The names of the program's modules.
+        carried = carried,
         -- By module index, what a started piece holds until it finishes.
         started = {}
     }
@@ -330,6 +334,36 @@ export function finish(state: any, index: integer): any
     }
 end
 
+-- Whether the started `index`th module can finish now and come out as it
+-- would once every module had started: what finishing reads of the rest of
+-- the program is the initializer result of each module it names, and every
+-- one of those the program carries is known.
+export function ready(state: any, index: integer): boolean
+    local started = need(state.started[index], "module piece has not started")
+    for name in pairs(started.byModule as {[string]: integer}) do
+        if state.results[name] == nil and state.carried[name] then
+            return false
+        end
+    end
+
+    return true
+end
+
+-- Finishes each started module in `waiting` that is `ready`, in order, telling
+-- `finished` its index and piece; answers the ones still waiting.
+export function finishReady(state: any, waiting: {integer}, finished: function(integer, any): nil): {integer}
+    local still: {integer} = {}
+    for _, index in ipairs(waiting) do
+        if ready(state, index) then
+            finished(index, finish(state, index))
+        else
+            still[#still + 1] = index
+        end
+    end
+
+    return still
+end
+
 -- Takes `piece`, kept from an earlier build, as the `index`th module's: what the
 -- modules after it read of it. It takes no part in starting or finishing.
 export function adopt(state: any, index: integer, piece: any): nil
@@ -338,14 +372,21 @@ export function adopt(state: any, index: integer, piece: any): nil
     state.results[module.name] = piece.signatures[piece.owners[1].signature + 1].result
 end
 
--- Every module of checked catalog `p` as a piece, in program order.
+-- Every module of checked catalog `p` as a piece, in program order. Each is
+-- finished as soon as it is `ready`, so what is held at once is the pieces
+-- waiting on a module later in the program, not every module's lowering.
 export function compile(p: any, profile: any): {any}
     local state = program(p, profile)
     local pieces: {any} = {}
+    local waiting: {integer} = {}
     for index in ipairs(p.modules) do
         start(state, index)
+        waiting[#waiting + 1] = index
+        waiting = finishReady(state, waiting, function(at: integer, piece: any): nil
+            pieces[at] = piece
+        end)
     end
-    for index in ipairs(p.modules) do
+    for _, index in ipairs(waiting) do
         pieces[index] = finish(state, index)
     end
 

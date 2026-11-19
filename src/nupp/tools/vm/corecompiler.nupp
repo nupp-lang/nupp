@@ -20,8 +20,14 @@ way the libraries it loads relative to itself are staged under OUTPUT/lib:
 libffi, and the native libraries it binds (zlib, the ISA-L CRC, Markdown),
 which it names as `@lib/FILE` rather than by a path of the building machine.
 libclang is not among them: the C declaration service opens it as it runs,
-from NUPP_LIBCLANG or the system's toolchain (`nupp.compiler.corecdecl`). Nothing is kept between builds: what it emits follows from
-the sources alone.
+from NUPP_LIBCLANG or the system's toolchain (`nupp.compiler.corecdecl`).
+
+What it keeps between builds -- each module's piece (`nupp.core.piecestore`)
+and, on the core, the runtime's kernels (`nupp.core.kernelcompiler`) -- is
+kept in the shared store under everything it was made from, the compiler
+running included, so what it emits follows from the sources and that compiler
+alone: a rebuild emits the bytes a cold build does
+(tests/core/guests/incremental.lua).
 ]]
 const fs = require("nupp.compiler.fs")
 const process = require("nupp.compiler.process")
@@ -108,6 +114,7 @@ export function main(argv: {string}): integer
         -- What the bundle binds, it loads from beside itself: no path of
         -- this machine is part of it.
         guestbuild.packageLibraries()
+        guestbuild.singleProgram()
         if entry ~= nil then
             local fixture = (entry as string):gsub("%.nupp$", "")
             local base = fs.basename(fixture)
