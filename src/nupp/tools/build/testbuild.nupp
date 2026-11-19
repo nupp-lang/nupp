@@ -85,10 +85,19 @@ function reuse.input(
         end
     end
     table.sort(values)
+    -- Checking can resolve additional lazy bindings. The manifest settings
+    -- and the fingerprints of the libraries the artifact actually uses
+    -- describe the inputs, independent of which other bindings were resolved.
+    local settings = {}
+    for name, value in pairs(config) do
+        if name ~= "_nativeLibraryBindings" then
+            settings[name] = value
+        end
+    end
     local parts = {
         state.compilerHash or "",
         state.moduleCompilerHash or "",
-        stable(config),
+        stable(settings),
         stable(state.dependencies),
         stable(state.generators),
         buildLibraries.input(config._nativeLibraryBindings or {}, state.nativeLibraries or {}, digest),

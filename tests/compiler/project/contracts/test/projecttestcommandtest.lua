@@ -76,7 +76,8 @@ function M.completedTestBuildReusesTheArtifactAndChecksItsBytes()
     })
     local modules = require("nupp.tools.build.modules")
     local original = modules.session
-    -- An extensionless `output` gains the host's suffix, so Windows writes out/tests.exe.
+    -- An extensionless `output` gains the host's suffix, so Windows writes
+    -- out/tests.exe.
     local artifact = fixture.executableName(dir .. "/out/tests")
 
     local function build()
@@ -86,6 +87,15 @@ function M.completedTestBuildReusesTheArtifactAndChecksItsBytes()
     end
 
     local ok, why = pcall(function()
+        modules.session = function(root, outDir, config, ...)
+            config._nativeLibraryBindings.cachefixture = {
+                name = "cachefixture",
+                reference = "cachefixture",
+                dependencies = {},
+            }
+
+            return original(root, outDir, config, ...)
+        end
         assert(not build().testBuildReused)
         local first = read(artifact)
         modules.session = function()
