@@ -215,8 +215,7 @@ rust_sources_digest() {
             scripts/toolchain scripts/patches/luajit.patch \
             scripts/native-libraries scripts/c-libraries/isal.sh \
             native/crc/CMakeLists.txt \
-            host/notices/ISA-L-LICENSE.txt host/notices/ISA-L-CRC-LICENSE.txt \
-            host/include/nupp.exports; do
+            host/notices/ISA-L-LICENSE.txt host/notices/ISA-L-CRC-LICENSE.txt; do
             [ -f "$ROOT/$file" ] && printf '%s\n' "$file"
         done
         (cd "$ROOT" && find native/crates native/crc -type f \

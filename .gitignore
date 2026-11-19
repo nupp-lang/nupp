@@ -9,7 +9,6 @@
 .claude/
 .DS_Store
 scratch/
-host/target/
 vendor/
 tests/build/
 /src/**/*.lua
