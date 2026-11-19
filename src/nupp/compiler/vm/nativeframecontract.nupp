@@ -596,6 +596,68 @@ export function buildWin64Foreign(entry: any): any
     return buildWin64(entry, nil)
 end
 
+-- Issue the scalar service graphs from the exact reviewed Win64 program and
+-- its service catalogue. The startup packet and executable use separate
+-- entry checks, so none of these graphs is an executable root on its own.
+export function buildWin64Startup(): any
+    need(current == nil, "nested construction")
+    local build = service.buildWin64Startup()
+    local unit = require("nupp.compiler.vm.nativeunit")
+    local prepare = build.entries[1]
+    local context = unit.ownerContext(prepare)
+    build.checkedProgram(prepare, context)
+    local state = {
+        win64Startup = true,
+        serviceCatalog = build.catalog,
+        roles = {},
+        resolved = {},
+        finalOwners = {},
+        context = context
+    }
+    local all = service.owners(build.catalog)
+    for _, owner in ipairs(all) do
+        need(not owners[owner], "Win64 startup service owner already issued")
+        need(unit.ownerContext(owner) == context, "Win64 startup service context differs")
+        owners[owner], owner.nativeABI = state, "leaf"
+    end
+    local lowerName, profileName, cleanupName = "lower", "nativegraph", "nativecleanup"
+    local lower: any = require("nupp.compiler.vm." .. lowerName)
+    local base: any = require("nupp.compiler.vm." .. profileName)
+    local cleanup: any = require("nupp.compiler.vm." .. cleanupName)
+    local scoped = cleanup.profile(base)
+    local resolved = {}
+    local name: string = ""
+    local ok, problem = pcall(function(): nil
+        for _, owner in ipairs(all) do
+            name = owner.scope.name .. "." .. owner.name
+            local options = service.options(build.catalog, owner)
+            local signature = service.signature(owner, options)
+            current = {state = state, owner = owner}
+            local graph = lower.functionGraph(owner, options, service.needsCleanup(signature) and scoped or base)
+            state.resolved[owner] = graph
+            resolved[name] = {owner = owner, graph = graph}
+            current = nil
+        end
+    end)
+    current = nil
+    if not ok then
+        for _, owner in ipairs(all) do
+            owners[owner] = nil
+        end
+        error("native final frame: Win64 startup service " .. name .. ": " .. tostring(problem), 0)
+    end
+    validateSource(state)
+
+    return {resolved = resolved, entries = build.entries, context = context}
+end
+
+export function requireWin64StartupService(g: any, owner: any, context: any): nil
+    need(requireOriginal(g, owner), "Win64 startup requires its issued service graph")
+    local held = graphs[g]
+    need(held.state.win64Startup and held.state.resolved[owner] == g, "graph is outside the Win64 startup catalogue")
+    requireContext(g, owner, context)
+end
+
 -- Independent fixed build entries: the accepted publish proof never reads the
 -- return probe or its snapshot. No public source/effect/owner parameters exist.
 export function build(): any

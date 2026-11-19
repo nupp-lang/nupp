@@ -1,0 +1,310 @@
+module nupp.compiler.s0.win64stack
+
+local ir = require("nupp.compiler.s0.ir")
+
+-- Win64 startup currently uses integer and pointer words only. Every SSA word
+-- has a fixed home so calls and simultaneous block arguments share one path.
+const HOME_BYTES = 32
+const PAGE_BYTES = 4096
+const FRAME_LIMIT = 16773120
+const WORD_BYTES = 8
+local arguments = {"rcx", "rdx", "r8", "r9"}
+local widths: {[integer]: integer} = {[ir.I8] = 8, [ir.I16] = 16, [ir.I32] = 32, [ir.I64] = 64}
+local accumulator: {[integer]: string} = {[8] = "al", [16] = "ax", [32] = "eax", [64] = "rax"}
+local operand: {[integer]: string} = {[8] = "r10b", [16] = "r10w", [32] = "r10d", [64] = "r10"}
+local compare = {"e", "ne", "l", "le", "g", "ge", "b", "be", "a", "ae"}
+local binary: {
+    [integer]: string
+} = {
+    [ir.OP_IADD] = "add",
+    [ir.OP_ISUB] = "sub",
+    [ir.OP_IMUL] = "imul",
+    [ir.OP_BAND] = "and",
+    [ir.OP_BOR] = "or",
+    [ir.OP_BXOR] = "xor",
+}
+local shifts: {[integer]: string} = {[ir.OP_ISHL] = "shl", [ir.OP_USHR] = "shr", [ir.OP_SSHR] = "sar"}
+
+local function align(bytes: integer, boundary: integer): integer
+    return ((bytes + boundary - 1) // boundary) * boundary
+end
+
+local function width(kind: integer): integer
+    return (assert(widths[kind], "Win64 startup: unsupported value kind"))
+end
+
+local function labelName(label: string): string
+    assert(label:match("^[%w_]+$"), "Win64 startup: invalid assembler label")
+    return label
+end
+
+export function select(f: ir.Function, symbol: string, imports: {string}): string
+    assert(
+        f.signature.convention == ir.INTERNAL and f.signature.fixed == nil and #f.signature.results <= 1,
+        "Win64 startup: unsupported signature"
+    )
+    assert(#imports == #f.importNames, "Win64 startup: import inventory differs")
+    labelName(symbol)
+    for _, label in ipairs(imports) do
+        labelName(label)
+    end
+    for _, kind in ipairs(f.valueKinds) do
+        if kind ~= 0 then
+            width(kind)
+        end
+    end
+
+    local locals = #f.valueKinds * WORD_BYTES
+    local slots: {integer} = {}
+    for index, bytes in ipairs(f.stackBytes) do
+        local alignment = f.stackAlign[index]
+        assert(alignment <= 16 and alignment > 0 and bytes > 0, "Win64 startup: unsupported local slot")
+        locals = align(locals + bytes, alignment)
+        slots[index] = -locals
+    end
+    local edgeStorage = align(locals, WORD_BYTES)
+    local edgeWords: integer = 0
+    for _, count in ipairs(f.edgeNargs) do
+        edgeWords = math.max(edgeWords, count)
+    end
+    local outgoing: integer = 0
+    for at, op in ipairs(f.op) do
+        assert(f.result2[at] == 0, "Win64 startup: multiple results")
+        if op == ir.OP_CALL then
+            local signature = f.signatures[f.importSignatures[f.aux[at]]]
+            assert(
+                signature.fixed == nil and #signature.params == f.nargs[at] and #signature.results <= 1,
+                "Win64 startup: unsupported call signature"
+            )
+            outgoing = math.max(outgoing, f.nargs[at] - #arguments)
+        end
+    end
+    local frame = align(edgeStorage + (edgeWords + outgoing) * WORD_BYTES + HOME_BYTES, 16)
+    assert(frame <= FRAME_LIMIT, "Win64 startup: stack frame exceeds limit")
+
+    local pieces: {string} = {}
+
+    local function line(text: string): nil
+        pieces[#pieces + 1] = text
+    end
+
+    local function emit(text: string): nil
+        line("\t" .. text)
+    end
+
+    local function location(value: integer): string
+        assert(value > 0 and f.valueKinds[value] ~= 0, "Win64 startup: missing SSA word")
+        return "[rbp-" .. tostring(value * WORD_BYTES) .. "]"
+    end
+
+    local function load(value: integer, reg: string): nil
+        emit("mov " .. reg .. "," .. location(value))
+    end
+
+    local function save(value: integer): nil
+        emit("mov " .. location(value) .. ",rax")
+    end
+
+    local function narrow(bits: integer): nil
+        if bits == 8 then
+            emit("movzx eax,al")
+        elseif bits == 16 then
+            emit("movzx eax,ax")
+        elseif bits == 32 then
+            emit("mov eax,eax")
+        end
+    end
+
+    local function signed(bits: integer): nil
+        if bits < 64 then
+            local count = tostring(64 - bits)
+            emit("shl rax," .. count)
+            emit("sar rax," .. count)
+        end
+    end
+
+    local function branch(edge: integer): nil
+        local block = f.edgeTarget[edge]
+        local count = f.edgeNargs[edge]
+        assert(count == f.nparams[block], "Win64 startup: edge arity")
+        for index = 1, count do
+            load(f.edgeArgs[f.edgeFirstArg[edge] + index - 1], "rax")
+            emit("mov [rbp-" .. tostring(edgeStorage + index * WORD_BYTES) .. "],rax")
+        end
+        for index = 1, count do
+            emit("mov rax,[rbp-" .. tostring(edgeStorage + index * WORD_BYTES) .. "]")
+            save(f.params[f.firstParam[block] + index - 1])
+        end
+        emit("jmp .L" .. symbol .. "_" .. tostring(block))
+    end
+
+    line(".globl " .. symbol)
+    line(".seh_proc " .. symbol)
+    line(symbol .. ":")
+    emit("push rbp")
+    emit(".seh_pushreg rbp")
+    if frame >= PAGE_BYTES then
+        emit("mov eax," .. tostring(frame))
+        emit("call __chkstk")
+        emit("sub rsp,rax")
+    else
+        emit("sub rsp," .. tostring(frame))
+    end
+    emit(".seh_stackalloc " .. tostring(frame))
+    emit(".seh_endprologue")
+    emit("lea rbp,[rsp+" .. tostring(frame) .. "]")
+    assert(#f.signature.params == f.nparams[1], "Win64 startup: entry arity")
+    for index, kind in ipairs(f.signature.params) do
+        local value = f.params[f.firstParam[1] + index - 1]
+        local reg = arguments[index]
+        if not reg then
+            -- Saved RBP, return address, then the caller's four home words.
+            emit("mov rax,[rbp+" .. tostring(16 + HOME_BYTES + (index - 5) * WORD_BYTES) .. "]")
+            reg = "rax"
+        end
+        if width(kind) < 64 then
+            if reg ~= "rax" then
+                emit("mov rax," .. reg)
+            end
+            narrow(width(kind))
+            reg = "rax"
+        end
+        emit("mov " .. location(value) .. "," .. reg)
+    end
+
+    for block, start in ipairs(f.blockStart) do
+        line(".L" .. symbol .. "_" .. tostring(block) .. ":")
+        for at = start, f.blockEnd[block] do
+            local op, aux = f.op[at], f.aux[at]
+            local first, count = f.firstArg[at], f.nargs[at]
+            local bits = f.kind[at] == 0 and 64 or width(f.kind[at])
+            local literal = f.imm[at]
+            local x, y, z = f.args[first], f.args[first + 1], f.args[first + 2]
+            local stem = ".L" .. symbol .. "_op" .. tostring(at)
+            local arithmetic, shift = binary[op], shifts[op]
+            if op == ir.OP_ICONST then
+                emit(("movabs rax,0x%016x"):format(literal))
+                narrow(bits)
+            elseif arithmetic then
+                load(x, "rax")
+                load(y, "r10")
+                emit(arithmetic .. " rax,r10")
+                narrow(bits)
+            elseif op == ir.OP_UDIV or op == ir.OP_UREM then
+                load(x, "rax")
+                load(y, "r10")
+                emit("xor edx,edx")
+                emit("test r10,r10")
+                emit("jne " .. stem .. "_divide")
+                if op == ir.OP_UDIV then
+                    emit("xor eax,eax")
+                end
+                emit("jmp " .. stem .. "_done")
+                line(stem .. "_divide:")
+                emit("div r10")
+                if op == ir.OP_UREM then
+                    emit("mov rax,rdx")
+                end
+                line(stem .. "_done:")
+                narrow(bits)
+            elseif op == ir.OP_BNOT then
+                load(x, "rax")
+                emit("not rax")
+                narrow(bits)
+            elseif shift then
+                load(x, "rax")
+                load(y, "rcx")
+                if bits < 64 then
+                    emit("and ecx," .. tostring(bits - 1))
+                end
+                if op == ir.OP_SSHR then
+                    signed(bits)
+                end
+                emit(shift .. " rax,cl")
+                narrow(bits)
+            elseif op == ir.OP_ICMP then
+                load(x, "rax")
+                load(y, "r10")
+                local source = width(f.valueKinds[x])
+                emit("cmp " .. assert(accumulator[source]) .. "," .. assert(operand[source]))
+                emit("set" .. assert(compare[aux], "Win64 startup: unsupported comparison") .. " al")
+                narrow(8)
+            elseif op == ir.OP_SELECT then
+                load(x, "r10")
+                load(y, "rax")
+                load(z, "r11")
+                emit("test r10,r10")
+                emit("cmove rax,r11")
+            elseif op == ir.OP_LOAD or op == ir.OP_SLOAD then
+                assert(literal == 0, "Win64 startup: unexpected load displacement")
+                load(x, "r10")
+                local access = aux == 0 and bits or aux
+                if access == 64 then
+                    emit("mov rax,[r10]")
+                elseif access == 32 then
+                    emit(op == ir.OP_LOAD and "mov eax,[r10]" or "movsxd rax,dword ptr [r10]")
+                else
+                    assert(access == 8 or access == 16, "Win64 startup: unsupported load width")
+                    local instruction = op == ir.OP_LOAD and "movzx" or "movsx"
+                    emit(instruction .. " rax," .. (access == 8 and "byte" or "word") .. " ptr [r10]")
+                end
+                narrow(bits)
+            elseif op == ir.OP_STORE then
+                assert(literal == 0, "Win64 startup: unexpected store displacement")
+                load(x, "rax")
+                load(y, "r10")
+                local access = aux == 0 and width(f.valueKinds[x]) or aux
+                emit("mov [r10]," .. assert(accumulator[access], "Win64 startup: unsupported store width"))
+            elseif op == ir.OP_IREDUCE or op == ir.OP_UEXTEND or op == ir.OP_SEXTEND then
+                load(x, "rax")
+                if op == ir.OP_SEXTEND then
+                    signed(width(f.valueKinds[x]))
+                end
+                narrow(bits)
+            elseif op == ir.OP_STACK_ADDR then
+                assert(literal >= 0 and literal < f.stackBytes[aux], "Win64 startup: local address outside slot")
+                emit("lea rax,[rbp" .. tostring(slots[aux] + literal) .. "]")
+            elseif op == ir.OP_CALL then
+                for index = 1, count do
+                    local value = f.args[first + index - 1]
+                    local reg = arguments[index]
+                    if reg then
+                        load(value, reg)
+                    else
+                        load(value, "rax")
+                        emit("mov [rsp+" .. tostring(HOME_BYTES + (index - 5) * WORD_BYTES) .. "],rax")
+                    end
+                end
+                emit("call " .. assert(imports[aux], "Win64 startup: call target is missing"))
+                if f.result[at] ~= 0 then
+                    narrow(bits)
+                end
+            elseif op == ir.OP_JUMP then
+                branch(f.firstEdge[at])
+            elseif op == ir.OP_BRIF then
+                load(x, "rax")
+                emit("test rax,rax")
+                emit("je " .. stem .. "_false")
+                branch(f.firstEdge[at])
+                line(stem .. "_false:")
+                branch(f.firstEdge[at] + 1)
+            elseif op == ir.OP_RETURN then
+                assert(count == #f.signature.results, "Win64 startup: return arity differs")
+                if count == 1 then
+                    load(x, "rax")
+                end
+                emit("add rsp," .. tostring(frame))
+                emit("pop rbp")
+                emit("ret")
+            else
+                error("Win64 startup: unsupported operation " .. ir.opNames[op], 0)
+            end
+            if f.result[at] ~= 0 then
+                save(f.result[at])
+            end
+        end
+    end
+    emit(".seh_endproc")
+
+    return table.concat(pieces, "\n") .. "\n"
+end

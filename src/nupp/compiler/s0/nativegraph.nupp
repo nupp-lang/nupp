@@ -1007,13 +1007,19 @@ local function unchanged(actual: any, saved: any): boolean
     return true
 end
 
--- Build-time checked compiler graphs only; no public runtime graph admission.
-function sink.compilerGraph(g: any, name: string, owner: any, resolved: any?, context: any?): sink.Result
+local function compilerGraph(
+    g: any,
+    name: string,
+    owner: any,
+    resolved: any?,
+    context: any?,
+    target: string?
+): sink.Result
     local authenticated = finalframe.requireOriginal(g, owner)
     if authenticated then
         finalframe.requireContext(g, owner, context)
     end
-    local result = lower({graph = g, body = owner, pc = 0, count = 1}, name, true, resolved, context)
+    local result = lower({graph = g, body = owner, pc = 0, count = 1}, name, true, resolved, context, target)
     if authenticated then
         local callees = {}
         for symbol, item in pairs(result.callees) do
@@ -1028,10 +1034,75 @@ function sink.compilerGraph(g: any, name: string, owner: any, resolved: any?, co
         end
         issuedResults[
             result
-        ] = {graph = g, owner = owner, machine = machine, callees = callees, osImports = pageImports}
+        ] = {graph = g, owner = owner, machine = machine, callees = callees, osImports = pageImports, target = target}
     end
 
     return result
+end
+
+-- Build-time checked compiler graphs only.
+function sink.compilerGraph(g: any, name: string, owner: any, resolved: any?, context: any?): sink.Result
+    return compilerGraph(g, name, owner, resolved, context, nil)
+end
+
+function sink.win64StartupGraph(g: any, owner: any, resolved: any, context: any): sink.Result
+    local target = "x86_64-pc-windows-msvc"
+    finalframe.requireWin64StartupService(g, owner, context)
+    assert(context.target == target, "S0 graph: Win64 startup target differs")
+
+    return compilerGraph(g, owner.scope.name .. "." .. owner.name, owner, resolved, context, target)
+end
+
+-- This target-specific object input keeps native calls and relocations bound
+-- to the verified startup closure. The platform linker supplies the external
+-- imports and their relocations separately.
+function sink.emitWin64Startup(): any
+    local build = finalframe.buildWin64Startup()
+    local selector = require("nupp.compiler.s0.win64stack")
+    local symbols: {[string]: string} = {}
+    local names: {string} = {}
+    for name in pairs(build.resolved) do
+        names[#names + 1] = name
+    end
+    table.sort(names)
+    for index, name in ipairs(names) do
+        symbols[name] = "nupp_win64_service_" .. tostring(index)
+    end
+
+    local texts: {string} = {".intel_syntax noprefix\n.text\n"}
+    local imported: {[string]: string} = {}
+    local externals: {{
+        name: string,
+        symbol: string
+    }} = {}
+    for _, name in ipairs(names) do
+        local item = build.resolved[name]
+        local result = sink.win64StartupGraph(item.graph, item.owner, build.resolved, build.context)
+        local held = issuedResults[result]
+        assert(unchanged(result.machine, held.machine), "S0 graph: Win64 Result changed")
+        local imports: {string} = {}
+        for index, import in ipairs(result.machine.importNames) do
+            local callee = held.callees[import]
+            if callee then
+                imports[index] = (assert(symbols[import], "S0 graph: Win64 callee missing"))
+            else
+                if imported[import] == nil then
+                    local label = "nupp_win64_import_" .. tostring(#externals + 1)
+                    externals[#externals + 1] = {name = import, symbol = label}
+                    imported[import] = label
+                end
+                imports[index] = (assert(imported[import]))
+            end
+        end
+        texts[#texts + 1] = selector.select(result.machine, (assert(symbols[name])), imports)
+    end
+    local entries: {[string]: string} = {}
+    for _, owner in ipairs(build.entries) do
+        local name = owner.scope.name .. "." .. owner.name
+        entries[name] = (assert(symbols[name], "S0 graph: Win64 startup root missing"))
+    end
+
+    return {assembly = table.concat(texts), entries = entries, imports = externals}
 end
 
 local function win64Graph(g: any, owner: any, context: any, resolved: any?): sink.Result
@@ -1097,6 +1168,7 @@ end
 -- and the exact MIR that compilerGraph produced. There is no annotateCode API.
 function sink.selectAuthenticated(result: sink.Result, mode: string): any
     local held = assert(issuedResults[result], "S0 graph: original authenticated Result required")
+    assert(held.target == nil, "S0 graph: Win64 startup requires a Win64 selector")
     assert(result.body == held.owner and unchanged(result.machine, held.machine), "S0 graph: Result changed")
     assert(finalframe.requireOriginal(held.graph, held.owner))
     graph.verify(held.graph)
