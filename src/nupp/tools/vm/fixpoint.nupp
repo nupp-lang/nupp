@@ -199,7 +199,9 @@ the core seed after it. Stages two and three are each the previous stage's
 compiler running on the core runtime, never on the Rust VM. Each stage writes
 into a directory of its own, and two and three must agree over everything in
 it, not only the compiler: a runtime output that differs is a failed fixpoint
-named by its path.
+named by its path. Stage three is not run when stage two already rebuilt stage
+one byte for byte: stage one's compiler, on the core, then emits itself, which
+is the claim, and stage three could only repeat it.
 
 Rust VM refusal is by construction rather than by trust: a core stage runs
 with every variable a compiler or `bin/nupp` would start the VM by pointing at
@@ -267,11 +269,16 @@ export type CoreResult = {
     --- Why not, in one phrase.
     reason: string?,
 
-    --- Stage three's directory, kept when they agree.
+    --- The last stage's directory, kept when the fixpoint holds.
     directory: string?,
 
-    --- Stage three's compiler.
+    --- The last stage's compiler.
     image: string?,
+
+    --- The stage the fixpoint was reached at: 2 when stage two rebuilt stage
+    --- one's bytes on the core, which stage three could only repeat, and 3
+    --- when stage three rebuilt stage two's.
+    fixedAt: integer?,
 
     --- Its digest.
     digest: string?,
@@ -470,6 +477,22 @@ export function runCore(root: string, outDir: string, say: function(line: string
     end
     stages[1] = stageRecord(1, recipe.seedRuntime, nil, first, recipe.compiler)
     for index = 2, 3 do
+        -- Stage two that rebuilt stage one's every byte on the core is a fixed
+        -- point already: stage three is stage two's compiler building the same
+        -- sources again, which is stage two again. Stage one can differ, as
+        -- when the pinned seed lowers code differently, and then stage three
+        -- is what decides.
+        if index == 3 and compareStages(first, fs.join(outDir, "stage2")) == nil then
+            say("stage 3: not run; stage 2 rebuilt stage 1 byte for byte on the core")
+            return {
+                ok = true,
+                directory = fs.join(outDir, "stage2"),
+                image = previous,
+                digest = stages[2].compilerSha256,
+                fixedAt = 2,
+                stages = stages
+            }
+        end
         local directory = fs.join(outDir, "stage" .. index)
         removeTree(directory)
         fs.mkdir(directory)
@@ -495,7 +518,14 @@ export function runCore(root: string, outDir: string, say: function(line: string
         return coreFailed(differs as string, stages)
     end
 
-    return {ok = true, directory = third, image = previous, digest = stages[3].compilerSha256, stages = stages}
+    return {
+        ok = true,
+        directory = third,
+        image = previous,
+        digest = stages[3].compilerSha256,
+        fixedAt = 3,
+        stages = stages
+    }
 end
 
 --- The compiler's own recipe: its stages are built by scripts/core-self-build,

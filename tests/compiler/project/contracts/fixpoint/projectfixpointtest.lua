@@ -119,6 +119,7 @@ function M.coreFixpointAgreesOverEveryStageArtifact()
         assert(found.ok, "the fixpoint holds")
         testAssert.eq(found.image, dir .. "/out/stage3/compiler.bundle", "stage three's compiler is kept")
         testAssert.eq(#found.stages, 3, "every stage is recorded")
+        testAssert.eq(found.fixedAt, 3, "stage one differs, so stage three decides")
         testAssert.eq(found.stages[1].runtime, "vm", "stage one ran on the pinned seed")
         testAssert.eq(found.stages[2].runtime, "core", "stage two ran on the core")
         testAssert.eq(found.stages[3].runtime, "core", "stage three ran on the core")
@@ -126,6 +127,36 @@ function M.coreFixpointAgreesOverEveryStageArtifact()
     end)
     remove(dir)
     assert(ok, problem)
+end
+
+-- Stage two that rebuilt stage one byte for byte is a fixed point already;
+-- stage three is not run, and the result says where it was reached.
+function M.coreFixpointStopsWhenStageTwoRebuildsStageOne()
+    if noCore then
+        return
+    end
+    local dir, recipe = coreFixture("same")
+    recipe.seed = function(directory)
+        write(directory .. "/compiler.bundle", BUNDLE)
+        write(directory .. "/runtime/core.o", "runtime\n")
+        return nil
+    end
+    local lines = {}
+    local found = corefixpoint.runCore(dir, dir .. "/out", function(line)
+        lines[#lines + 1] = line
+    end, recipe)
+    local third = io.open(dir .. "/out/stage3/compiler.bundle", "rb")
+    if third then
+        third:close()
+    end
+    remove(dir)
+    testAssert.eq(found.reason, nil, "the fixpoint holds")
+    assert(found.ok, "stage two rebuilt stage one")
+    testAssert.eq(found.fixedAt, 2, "reached at stage two")
+    testAssert.eq(#found.stages, 2, "stage three is not run")
+    assert(third == nil, "nothing built stage three")
+    testAssert.eq(found.image, dir .. "/out/stage2/compiler.bundle", "stage two's compiler is kept")
+    assert(lines[#lines]:find("stage 2 rebuilt stage 1", 1, true), "the output says why: " .. tostring(lines[#lines]))
 end
 
 -- The negative control: the compilers agree byte for byte, and only what the

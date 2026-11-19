@@ -148,8 +148,9 @@ local function coreFixpoint(
     if not asJson then
         io.write(
             (
-                "fixpoint ok: the core compiler emits itself and its runtime outputs byte-identically (%s, %s)\n"
-            ):format(tostring(found.image), tostring(found.digest))
+                "fixpoint ok: the core compiler emits itself and its runtime outputs byte-identically;"
+                .. " stage %d rebuilt stage %d (%s, %s)\n"
+            ):format(found.fixedAt or 3, (found.fixedAt or 3) - 1, tostring(found.image), tostring(found.digest))
         )
     end
 
