@@ -306,6 +306,21 @@ static int error (const char *message) {
   return 1;
 }
 
+#ifndef _WIN32
+
+/** The host page size, or zero when the platform cannot provide it. */
+uint64_t nupp_core_page_size (void) {
+  long size = sysconf(_SC_PAGESIZE);
+
+  return size > 0 ? (uint64_t)size : 0;
+}
+
+/** Releases one exact page mapping, returning the host error code. */
+uint64_t nupp_core_release_pages (void *region, size_t bytes) {
+  return munmap(region, bytes) ? (uint64_t)errno : 0;
+}
+#endif
+
 static void *mapregion (size_t bytes) {
   if (!bytes) {
     return NULL;
@@ -322,12 +337,20 @@ static void *mapregion (size_t bytes) {
 #endif
 }
 
+#ifndef _WIN32
+
+/** Maps zeroed pages through the host's anonymous mapping ABI. */
+void *nupp_core_map_pages (size_t bytes) {
+  return mapregion(bytes);
+}
+#endif
+
 static void unmap_region (void *region, size_t bytes) {
 #ifdef _WIN32
   (void)bytes;
   win64_release_pages(region);
 #else
-  munmap(region, bytes);
+  nupp_core_release_pages(region, bytes);
 #endif
 }
 
@@ -456,18 +479,15 @@ static int readheader (FILE *file, int64_t filebytes, struct bundle *bundle) {
 static int pagesize (size_t *page) {
 #ifdef _WIN32
   size_t size = win64_page_size();
-
-  if (!size || (size & (size - 1))) {
 #else
-  long size = sysconf(_SC_PAGESIZE);
-
-  if (size <= 0 || (size & (size - 1))) {
+  size_t size = (size_t)nupp_core_page_size();
 #endif
 
+  if (!size || (size & (size - 1))) {
     return error("invalid host page size");
   }
 
-  *page = (size_t)size;
+  *page = size;
 
   return 0;
 }
