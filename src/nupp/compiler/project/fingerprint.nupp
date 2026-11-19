@@ -1061,4 +1061,8 @@ fingerprint.hashFiles = hashFiles
 fingerprint.toolFingerprint = toolFingerprint
 fingerprint.graphFingerprint = graphFingerprint
 
+--- The identity of the core compiler running, or nil off the core or when its
+--- bundle is kept where nothing names it.
+fingerprint.coreCompilerIdentity = coreBundleIdentity
+
 export = fingerprint

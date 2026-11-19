@@ -7,9 +7,11 @@ module nupp.core.piecestore
 -- A piece is trusted as the output of the compiler that made it, and is
 -- reused only under the key of everything it was made from:
 --
--- - the producer: the compiler generation running the build, and the source
---   of every module the build reaches that the generation does not carry,
---   which this process loads from source (the guest lowering and builder);
+-- - the producer: the compiler generation running the build, and on the VM
+--   the source of every module the build reaches that the generation does
+--   not carry, which this process loads from source (the guest lowering and
+--   builder). A core compiler carries all of it, so its generation alone is
+--   the producer (`fingerprint.coreCompilerIdentity`);
 -- - the program: its modules in order, its entry and the modules a require
 --   cycle re-enters, which numbering, eager loads and forwarders follow;
 -- - the module: its name, path and the bytes its check read;
@@ -34,6 +36,18 @@ local imagemodules = require("nupp.compiler.imagemodules")
 local producermodules = require("nupp.core.producermodules")
 local persisted, persist = pcall(require, "nupp.vm.persist")
 
+-- Entries are the VM's durable data encoding where it has one, and otherwise
+-- the plain codec both runtimes read (`nupp.compiler.project.plaincodec`).
+-- The producer is part of every key, so neither reads the other's entries.
+local saveData: function(any): string
+local loadData: function(string): any
+if persisted then
+    saveData, loadData = persist.saveData, persist.loadData
+else
+    local plain: any = rawget(_G, "__nupp_plain_codec") or require("nupp.compiler.project.plaincodec")
+    saveData, loadData = plain.encode, plain.decode
+end
+
 -- Bumped when an entry's shape or meaning changes.
 const FORMAT = "guest-piece/2"
 const KIND = "pieces"
@@ -57,13 +71,26 @@ local function producerOf(root: string): string?
     if producer ~= nil or disabled then
         return producer
     end
-    local image = os.getenv("NUPP_VM_CLI_IMAGE")
-    local generation = image and image:match(GENERATION)
-    local installed = image and fs.readFile(image)
-    disabled = not persisted or installed == nil or generation == nil or os.getenv("NUPP_GUEST_PIECE_STORE") == "0"
+    disabled = os.getenv("NUPP_GUEST_PIECE_STORE") == "0"
     for _, variable in ipairs(REPORTING) do
         disabled = disabled or os.getenv(variable) ~= nil
     end
+    if disabled then
+        return nil
+    end
+    -- On the core: the bundle running, named by where it is kept, or nothing.
+    if rawget(_G, "__nupp_load_image") == nil then
+        local core = fingerprint.coreCompilerIdentity()
+        disabled = core == nil
+        if core ~= nil then
+            producer = contentDigest(FORMAT .. "\0" .. corepiece.FORMAT .. "\0" .. (core as string))
+        end
+        return producer
+    end
+    local image = os.getenv("NUPP_VM_CLI_IMAGE")
+    local generation = image and image:match(GENERATION)
+    local installed = image and fs.readFile(image)
+    disabled = not persisted or installed == nil or generation == nil
     if disabled then
         return nil
     end
@@ -103,12 +130,12 @@ end
 -- `value` as an entry kept under `key`: a header holding the format, the key
 -- and the body's digest, then the body.
 local function sealed(key: string, value: any): string?
-    local encoded, body = pcall(persist.saveData, value)
+    local encoded, body = pcall(saveData, value)
     if not encoded then
         io.stderr:write("guest piece store keeps nothing for ", key, ": ", tostring(body), "\n")
         return nil
     end
-    local header = persist.saveData({format = FORMAT, key = key, seal = contentDigest(body as string)})
+    local header = saveData({format = FORMAT, key = key, seal = contentDigest(body as string)})
 
     return tostring(#header) .. "\n" .. header .. (body as string)
 end
@@ -121,7 +148,7 @@ local function unsealed(key: string, text: string?): any
         return nil
     end
     local at = #tostring(length) + 2
-    local opened, envelope = pcall(persist.loadData, (text as string):sub(at, at + length - 1))
+    local opened, envelope = pcall(loadData, (text as string):sub(at, at + length - 1))
     local body = (text as string):sub(at + length)
     if not opened
         or type(envelope) ~= "table"
@@ -131,7 +158,7 @@ local function unsealed(key: string, text: string?): any
     then
         return nil
     end
-    local decoded, value = pcall(persist.loadData, body)
+    local decoded, value = pcall(loadData, body)
 
     return decoded and value or nil
 end

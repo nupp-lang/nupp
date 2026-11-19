@@ -24,6 +24,7 @@ local contentDigest = fingerprint.contentDigest(true)
 -- Bumped when what the digest covers changes.
 const FORMAT = "kernel-compiler/2"
 const OBSERVED_FORMAT = "kernel-observed/1"
+const CORE_FORMAT = "kernel-core/1"
 -- The module the selection starts from: whatever it reaches is an input.
 const ROOT_MODULE = "nupp.core.unitrunner"
 -- The module the guest program's build starts from, and where the lowering
@@ -238,6 +239,27 @@ export function digest(root: string): string
     return digestOf(root, inputs(root))
 end
 
+-- The compiler part on the core, and whether it may be kept: the bundle
+-- running, which carries every compiler module the selection runs, and the
+-- data it reads from the checkout as it checks, the declarations and the units
+-- project. A bundle kept where nothing names it keeps nothing.
+local function onCore(root: string): (string, boolean)
+    local core = fingerprint.coreCompilerIdentity()
+    if core == nil then
+        return "", false
+    end
+    local files: {[string]: boolean} = {}
+    local listed = true
+    for _, directory in ipairs(DATA_DIRECTORIES) do
+        listed = collect(root, directory, ".d.nupp", true, files) and listed
+    end
+    if fs.exists(root .. "/" .. UNITS_PROJECT) then
+        files[UNITS_PROJECT] = true
+    end
+
+    return contentDigest(CORE_FORMAT .. "\0" .. (core as string) .. "\0" .. digestOf(root, sorted(files))), listed
+end
+
 -- The inner loop may pin the compiler part of every key: NUPP_UNIT_COMPILER_PIN
 -- names a file holding it, written on first use. A lowering edit then reuses
 -- the code the previous compiler selected, and a handler edit still misses by
@@ -251,6 +273,9 @@ export function keyed(root: string, observe: (function(): string?)?): (string, b
     -- builds keep only the kernels whose detached inputs were validated.
     local reusable = not requested or made ~= nil and observe ~= nil
     local pin = os.getenv("NUPP_UNIT_COMPILER_PIN")
+    if (pin == nil or pin == "") and rawget(_G, "__nupp_load_image") == nil then
+        return onCore(root)
+    end
     if pin == nil or pin == "" then
         local observed: string? = nil
         if made ~= nil and observe ~= nil then
