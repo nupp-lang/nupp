@@ -616,10 +616,13 @@ int main (int argc, char **argv) {
 
       if (g.written != h.written || g.status != h.status ||
           g.position != h.position ||
-          memcmp(gentape, handtape, sizeof(uint32_t) * g.written)) {
+          memcmp(gentape, handtape, sizeof(uint32_t) * g.written) != 0) {
         printf("MISMATCH %s %zu: %u/%u/%u vs %u/%u/%u\n", names[kind], n,
                g.written, g.status, g.position, h.written, h.status,
                h.position);
+        free(doc);
+        free(gentape);
+        free(handtape);
 
         return 1;
       }
@@ -627,6 +630,9 @@ int main (int argc, char **argv) {
       if (g.status != SCAN_OK) {
         printf("%s %zu did not scan: status %u at %u\n", names[kind], n,
                g.status, g.position);
+        free(doc);
+        free(gentape);
+        free(handtape);
 
         return 1;
       }

@@ -429,10 +429,11 @@ uint32_t handutf8prefix (const uint8_t *source, size_t count) {
 
     uint32_t low = CONTINUATION_FIRST, high = CONTINUATION_LAST, need;
 
-    if (lead < LEAD2_FIRST) {
+    if (lead < LEAD2_FIRST || lead >= LEAD4_LIMIT) {
       return (uint32_t)at;
     }
-    else if (lead < LEAD3_FIRST) {
+
+    if (lead < LEAD3_FIRST) {
       need = 1;
     }
     else if (lead < LEAD4_FIRST) {
@@ -445,7 +446,7 @@ uint32_t handutf8prefix (const uint8_t *source, size_t count) {
         high = AFTER_ED_LAST;
       }
     }
-    else if (lead < LEAD4_LIMIT) {
+    else {
       need = 3;
 
       if (lead == LEAD_F0) {
@@ -454,9 +455,6 @@ uint32_t handutf8prefix (const uint8_t *source, size_t count) {
       else if (lead == LEAD_F4) {
         high = AFTER_F4_LAST;
       }
-    }
-    else {
-      return (uint32_t)at;
     }
 
     if (at + 1 >= count || source[at + 1] < low || source[at + 1] > high) {

@@ -23,11 +23,11 @@
 
 /* The map kernel's coefficients: output = input * MAP_SCALE + MAP_BIAS. */
 #define MAP_SCALE 1.25
-#define MAP_BIAS -0.5
+#define MAP_BIAS (-0.5)
 
 /* Written past the end of each output and checked afterward, to catch a
  * kernel that stores beyond its count. */
-#define CANARY -777.0
+#define CANARY (-777.0)
 #define CANARY_SLOTS 4
 
 /* The algebraic dot product's error bound, relative to the scalar answer. */
