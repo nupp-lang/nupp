@@ -11,10 +11,12 @@
  * CORE_TEST_ARGUMENTS for the guest's command-line arguments, and
  * CORE_TEST_HIGH_WATER for its scratch canary (main.c). */
 
-/* The transport itself, with its main renamed so this file can have one. */
+/* The transport itself, with its main renamed so this file can have one.
+ * It is included rather than linked so the guard reaches its static
+ * functions, compiled under NUPP_CORE_GUARD. */
 #define NUPP_CORE_GUARD 1
 #define main bootstrapmain
-#include "main.c"
+#include "main.c" /* NOLINT(bugprone-suspicious-include) */
 #undef main
 
 #ifdef __APPLE__
@@ -68,7 +70,7 @@ static int presentarguments (const char *bundle, const char *input) {
   /* A string of n bytes holds at most n / 2 + 1 words; leave room for those,
    * the leading arguments and the terminating NULL. */
   size_t capacity = strlen(extra) / 2 + 1 + GUEST_LEADING_ARGUMENTS + 1;
-  char **arguments = calloc(capacity, sizeof(char *));
+  char **arguments = (char **)calloc(capacity, sizeof(char *));
 
   if (!arguments) {
     free(extra);
@@ -83,10 +85,14 @@ static int presentarguments (const char *bundle, const char *input) {
   arguments[count++] = "";
   char *save = NULL;
 
+  /* The words point into extra, which lives until exit as the arguments do.
+   * NOLINTBEGIN(clang-analyzer-unix.Malloc) */
   for (char *word = strtok_r(extra, " ", &save); word;
        word = strtok_r(NULL, " ", &save)) {
     arguments[count++] = word;
   }
+
+  /* NOLINTEND(clang-analyzer-unix.Malloc) */
 
   *_NSGetArgc() = count;
   *_NSGetArgv() = arguments;
@@ -122,7 +128,7 @@ static int checkoutput (const char *bundle, const uint64_t *words,
       invoke(bundle, words, count, &answer, &length, &status) ||
       readwords(required("CORE_TEST_EXPECTED"), &expected, &expectedcount) ||
       status || expectedcount != length ||
-      memcmp(expected, answer, length * sizeof(uint64_t));
+      memcmp(expected, answer, length * sizeof(uint64_t)) != 0;
   free(expected);
   free(answer);
 

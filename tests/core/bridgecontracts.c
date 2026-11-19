@@ -5,9 +5,11 @@
  * the I/O pool's cancellation, settling and completion order. They
  * complement, rather than replace, running actual Nupp guests. */
 
-/* The transport itself, with its main renamed so this file can have one. */
+/* The transport itself, with its main renamed so this file can have one.
+ * It is included rather than linked so the contracts reach its static
+ * functions. */
 #define main bootstrapmain
-#include "../../native/core-bridge/main.c"
+#include "../../native/core-bridge/main.c" /* NOLINT(bugprone-suspicious-include) */
 #undef main
 
 #include <assert.h>

@@ -229,7 +229,7 @@ static int readheader (FILE *file, off_t filebytes, struct bundle *bundle) {
 
   if (filebytes < HEADER_BYTES ||
       fread(header, 1, HEADER_BYTES, file) != HEADER_BYTES ||
-      memcmp(header, BUNDLE_MAGIC, MAGIC_BYTES)) {
+      memcmp(header, BUNDLE_MAGIC, MAGIC_BYTES) != 0) {
     return error("invalid bundle header");
   }
 

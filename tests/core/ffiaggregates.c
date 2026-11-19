@@ -128,7 +128,8 @@ int64_t l12sum (L12 v) {
  * integer registers then spent. */
 int64_t l12spill (int64_t a, int64_t b, int64_t c, int64_t d, int64_t e,
                   int64_t f, int64_t g, L12 v, int64_t tail) {
-  return a + b + c + d + e + f + g + v.a * 100 + v.b * 1000 + tail * 10000;
+  return a + b + c + d + e + f + g + v.a * 100 + (int64_t)v.b * 1000 +
+         tail * 10000;
 }
 
 /* Larger composites: by reference to the caller's copy, and answered
@@ -143,7 +144,7 @@ L3 l3add (L3 x, L3 y) {
 int64_t l3spill (int64_t a, int64_t b, int64_t c, int64_t d, int64_t e,
                  int64_t f, int64_t g, int64_t h, L3 v, int32_t t) {
   return a + b + c + d + e + f + g + h + v.a * 100 + v.b * 1000 + v.c * 10000 +
-         t * 100000;
+         (int64_t)t * 100000;
 }
 
 L3 l3make (int64_t a, int64_t b, int64_t c) {
