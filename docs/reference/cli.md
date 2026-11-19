@@ -1704,7 +1704,9 @@ Stages two and three are compared over everything they emitted, the compiler
 and every runtime output beside it, and a mismatch names the first file that
 differs. The stages stay under `build/core-fixpoint`, with a `receipt.json`
 of what each ran on and emitted. Without `--runtime`, the fixpoint runs on
-whichever runtime the host's pinned stage zero does (`scripts/stage0-runtime`).
+whichever runtime the host's pinned stage zero does (`scripts/stage0-runtime`),
+and on the core when the compiler running it does, as it does under
+`NUPP_RUNTIME=core`.
 
 `--package-seed DIR` then packages stage three's compiler and runtime as a
 release-ready seed archive in `DIR`, with its SHA-256 digest beside it, and

@@ -105,6 +105,17 @@ A failed rebuild leaves the previous generation selected and says so, with the
 log in `.nupp/vm-cli/rebuild.log`; later commands do not try again until
 another source changes. `scripts/vm-cli build` rebuilds explicitly.
 
+On ARM64, `NUPP_RUNTIME=core` runs every command on the native core instead,
+through the C bridge, until the pins flip the host there for good. The core
+compiler is installed under `.nupp/core-cli`, built from these sources by the
+VM compiler with `nupp __core-compiler`, and rebuilt the same way when a
+compiler source changes by content; the log is `.nupp/core-cli/build.log`.
+`scripts/core-smoke` runs each everyday command once on it, with its time.
+
+```bash
+NUPP_RUNTIME=core ./bin/nupp check
+```
+
 ### Shared toolchain cache
 
 Downloaded sources and the toolchain components land beside the repository's
