@@ -972,14 +972,14 @@ function project.test(root: string?, args: {string}?, opts: project.TestOptions?
     local test = manifest.testConfig(config)
     local produced: {[string]: any} = {}
     local testTarget = targetConfig(config, test.build)
-    -- A binary on the compiler's own stub is a VM program, which the native
-    -- core neither builds nor runs. There the compiler is its own test runner,
-    -- as it is on the VM: the carried runner runs the suites from source, and a
-    -- test command that ran the binary runs that runner instead.
+    -- The compiler checkout's core runner loads suites from source. Builds of
+    -- other projects still produce and run their configured test artifact.
+    local checkout = os.getenv("NUPP_COMPILER_ROOT")
     local coreRunner = rawget(_G, "__nupp_load_image") == nil
+        and checkout ~= nil
+        and fs.absolute(root) == fs.absolute(checkout as string)
         and testTarget ~= nil
-        and testTarget.kind == "binary"
-        and testTarget.stub == "nupp"
+        and testTarget.name == "testRunner"
     if coreRunner then
         local configured = manifest.testArgv(test)
         if configured[1] == (testTarget as any).output then
