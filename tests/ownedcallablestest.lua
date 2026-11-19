@@ -102,9 +102,11 @@ end
 
 local function catalog()
     local input = fixture()
-    return compiler()(
-        "nupp.compiler.vm.programgraph"
-    ).describe({module(FACTORY), module("nupp.runtime.provider.corerecord"), input}, input.name)
+    local inputs = require(
+        "helpers.recordfactory"
+    ).inputs({module(FACTORY), module("nupp.runtime.provider.corerecord"), input}, input.name)
+
+    return compiler()("nupp.compiler.vm.programgraph").describe(inputs, input.name)
 end
 
 function M.checkedCapturesReachCompleteExecutableLowering()

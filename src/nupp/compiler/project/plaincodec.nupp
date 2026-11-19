@@ -257,7 +257,8 @@ export function encode(value: any, ordered: boolean?): string
             end
             local list: {any} = {}
             local sorted: {any}? = ordered and {} or nil
-            for key, item in next, tableValue do
+            local key, item = next(tableValue)
+            while key ~= nil do
                 if not (math.type(key) == "integer" and (key as integer) >= 1 and (key as integer) <= length) then
                     if sorted == nil then
                         list[#list + 1] = key
@@ -269,6 +270,7 @@ export function encode(value: any, ordered: boolean?): string
                         sorted[#sorted + 1] = key
                     end
                 end
+                key, item = next(tableValue, key)
             end
             if sorted ~= nil then
                 table.sort(sorted, keyBefore)

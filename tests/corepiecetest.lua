@@ -104,6 +104,16 @@ local function pieces(alpha)
     return corepiece.compile(checkedProgram(sources(alpha)), tagged.forVersion(8))
 end
 
+local function copyPieces(original, first)
+    local copy = {}
+    for index, piece in ipairs(original) do
+        copy[index] = piece
+    end
+    copy[1] = first or copy[1]
+
+    return copy
+end
+
 -- Module alpha alone, as `text` spells it, as a piece.
 local function alone(text)
     local built = corepiece.compile(checkedProgram({{name = "pieces.alpha", text = text}}), tagged.forVersion(8))
@@ -187,8 +197,8 @@ end
 
 function M.linkedProgramMatchesItsWholeProgramBuild()
     local built = pieces()
-    test.eq(built[3].module.name, "nupp.runtime.provider.corerecord")
-    test.eq(built[4].module.name, "pieces.main")
+    test.eq(built[#built - 1].module.name, "nupp.runtime.provider.corerecord")
+    test.eq(built[#built].module.name, "pieces.main")
     local linked = corelink.link(built, "pieces.main")
     same(linked, whole())
     executable.validate(linked)
@@ -213,7 +223,7 @@ function M.unchangedPiecesRelinkAfterAnEarlyModuleGainsAFunction()
     local after = pieces(edited)
     -- The new function precedes every function of the later modules, so each
     -- of their owners moves; their pieces do not change.
-    local relinked = corelink.link({after[1], before[2], before[3], before[4]}, "pieces.main")
+    local relinked = corelink.link(copyPieces(before, after[1]), "pieces.main")
     local expected = whole(edited)
     same(relinked, expected)
     same(corelink.link(after, "pieces.main"), expected)
@@ -231,7 +241,7 @@ function M.linkingHoldsSymbolsToTheirTargets()
 
     local function linked(first)
         return function()
-            return corelink.link({first, before[2], before[3], before[4]}, "pieces.main")
+            return corelink.link(copyPieces(before, first), "pieces.main")
         end
     end
 
@@ -239,19 +249,26 @@ function M.linkingHoldsSymbolsToTheirTargets()
     refuses(linked(retyped), "not the")
     refuses(
         function()
-            return corelink.link({before[2], before[3], before[4]}, "pieces.main")
+            local missing = copyPieces(before)
+            table.remove(missing, 1)
+            return corelink.link(missing, "pieces.main")
         end,
         "is not linked"
     )
     refuses(
         function()
-            return corelink.link({before[1], before[3], before[4], before[2]}, "pieces.main")
+            local wrongOrder = copyPieces(before)
+            local beta = table.remove(wrongOrder, 2)
+            wrongOrder[#wrongOrder + 1] = beta
+            return corelink.link(wrongOrder, "pieces.main")
         end,
         "entry module must initialize last"
     )
     refuses(
         function()
-            return corelink.link({before[1], before[1], before[3], before[4]}, "pieces.main")
+            local duplicate = copyPieces(before)
+            duplicate[2] = duplicate[1]
+            return corelink.link(duplicate, "pieces.main")
         end,
         "duplicate module"
     )
@@ -336,13 +353,16 @@ function M.keptPiecesLinkAsTheyWereBuilt()
     end
 
     local before = pieces()
-    same(corelink.link({kept(before[1]), kept(before[2]), kept(before[3]), kept(before[4])}, "pieces.main"), whole())
+    for index, piece in ipairs(before) do
+        before[index] = kept(piece)
+    end
+    same(corelink.link(before, "pieces.main"), whole())
     local edited = ALPHA:gsub(
         "^module pieces.alpha\n",
         "module pieces.alpha\nexport function zero(): integer return 0 end\n"
     )
     local after = pieces(edited)
-    same(corelink.link({after[1], kept(before[2]), kept(before[3]), kept(before[4])}, "pieces.main"), whole(edited))
+    same(corelink.link(copyPieces(before, after[1]), "pieces.main"), whole(edited))
 end
 
 -- A catalog holding a module as a stub (nupp.compiler.vm.stubmodules)
@@ -379,14 +399,16 @@ function M.stubbedModulesKeepTheirPieces()
 
     local full = checkedProgram(sources())
     local kept = corepiece.compile(full, tagged.forVersion(8))
-    local catalog = program.describe(inputs(full, {[4] = true}), "pieces.main")
+    local catalog = program.describe(inputs(full, {[#kept] = true}), "pieces.main")
     test.eq(catalog.stubs["pieces.main"], true)
     local state = corepiece.program(catalog, tagged.forVersion(8))
     corepiece.start(state, 1)
     corepiece.start(state, 2)
-    corepiece.adopt(state, 3, kept[3])
-    corepiece.adopt(state, 4, kept[4])
-    local built = {corepiece.finish(state, 1), corepiece.finish(state, 2), kept[3], kept[4]}
+    for index = 3, #kept do
+        corepiece.adopt(state, index, kept[index])
+    end
+    local built = copyPieces(kept, corepiece.finish(state, 1))
+    built[2] = corepiece.finish(state, 2)
     same(corelink.link(built, "pieces.main"), whole())
     refuses(
         function()
@@ -485,8 +507,12 @@ function M.keptCatalogChecksEditsAndRefusesChangedInputs()
         }
         original.checkedProject, original.requests = project, requests
         original.openingRequests = {"pieces.main"}
-        keptcatalog.remember(".", "fixture", 8, original, store, {"alpha", "beta", "record-factory", "main"})
-        assert(record and #record.modules == 4, "kept record contains every module")
+        local keys = {}
+        for index, module in ipairs(original.modules) do
+            keys[index] = module.name
+        end
+        keptcatalog.remember(".", "fixture", 8, original, store, keys)
+        assert(record and #record.modules == #original.modules, "kept record contains every module")
         local changed = ALPHA:gsub("value %* 2", "value + value")
         texts[paths["pieces.alpha"]] = changed
         local cold = checkedProgram(sources(changed))
@@ -509,8 +535,9 @@ function M.keptCatalogChecksEditsAndRefusesChangedInputs()
         test.eq(checked[1], "pieces.alpha")
         test.eq(checked[2], "nupp.runtime.provider.corerecord")
         test.eq(keptcatalog.keyOf(reused, 1), nil)
-        test.eq(keptcatalog.keyOf(reused, 2), "beta")
-        test.eq(keptcatalog.keyOf(reused, 3), "record-factory")
+        test.eq(keptcatalog.keyOf(reused, 2), "pieces.beta")
+        local factory = #original.modules - 1
+        test.eq(keptcatalog.keyOf(reused, factory), "nupp.runtime.provider.corerecord")
         test.eq(keptcatalog.unchanged(reused, store), true)
         local state = corepiece.program(reused, tagged.forVersion(8))
         corepiece.start(state, 1)

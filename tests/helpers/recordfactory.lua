@@ -1,32 +1,38 @@
 local program = require("nupp.compiler.vm.programgraph")
-local factory
+local checked = {}
 local M = setmetatable({}, {__index = program})
+local factoryName = "nupp.runtime.provider.corerecord"
+local providers = {
+    "nupp.compiler.floatparts",
+    "nupp.compiler.vm.imagebytes",
+    "nupp.compiler.project.plaincodec",
+    factoryName,
+}
 
-local function provider()
-    if factory then
-        return factory
+local function provider(name)
+    if checked[name] then
+        return checked[name]
     end
     local root = require("helpers.paths").tests .. "/.."
-    local path = root .. "/src/nupp/runtime/provider/corerecord.nupp"
+    local path = root .. "/src/" .. name:gsub("%.", "/") .. ".nupp"
     local file = assert(io.open(path, "rb"))
     local parsed = require("nupp.compiler.syntax.parser").parse(file:read("*a"), path)
     file:close()
     assert(#parsed.errors == 0)
-    local name = "nupp.runtime.provider.corerecord"
     local env = require("nupp.compiler.project.env").new(root, {cache = false})
     local diagnostics = require("nupp.compiler.check").check(parsed, path, env, {moduleName = name})
     for _, diagnostic in ipairs(diagnostics) do
         assert(diagnostic.severity == "warning", diagnostic.msg)
     end
-    factory = {name = name, path = path, parsed = parsed, diagnostics = diagnostics}
+    checked[name] = {name = name, path = path, parsed = parsed, diagnostics = diagnostics}
 
-    return factory
+    return checked[name]
 end
 
 -- Adds the checked factory without moving existing inputs. Piece fixtures
 -- can put it before their entry, whose initializer must remain last.
 function M.inputs(inputs, beforeEntry)
-    local records, carried = false, false
+    local records, carried = false, {}
 
     local function visit(node)
         if type(node) ~= "table" or node.kind == "name" and node.text then
@@ -39,10 +45,10 @@ function M.inputs(inputs, beforeEntry)
     end
 
     for _, input in ipairs(inputs) do
-        carried = carried or input.name == "nupp.runtime.provider.corerecord"
+        carried[input.name] = true
         visit(input.parsed.root)
     end
-    if records and not carried then
+    if records or carried[factoryName] then
         local expanded = {}
         for _, input in ipairs(inputs) do
             expanded[#expanded + 1] = input
@@ -54,7 +60,12 @@ function M.inputs(inputs, beforeEntry)
                 break
             end
         end
-        table.insert(expanded, index, provider())
+        for _, name in ipairs(providers) do
+            if not carried[name] then
+                table.insert(expanded, index, provider(name))
+                index = index + 1
+            end
+        end
         inputs = expanded
     end
 
