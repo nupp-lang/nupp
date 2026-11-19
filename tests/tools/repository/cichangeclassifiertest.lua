@@ -364,19 +364,7 @@ end
 
 function M.proofsRequireCoveredCChanges()
     for _, path in ipairs({
-        "native/core-bridge/main.c",
-        "native/core-bridge/reactor.h",
-        "native/http-curl/transport.c",
-        "native/http-curl/replyheaders.h",
-        "native/http-curl/ringbuffer.h",
-        "native/markdown/markdown.c",
-        "native/markdown/allocationbudget.h",
-        "tests/core/replyheadersproof.c",
-        "tests/core/proofintrinsics.h"
-    }) do
-        selects(path, {"proofs"})
-    end
-    for _, path in ipairs({
+        "native/core-bridge/process.c",
         "native/markdown/CMakeLists.txt",
         "tests/core/proofs.nupp",
         ".github/workflows/compiler.yml",
@@ -388,37 +376,44 @@ function M.proofsRequireCoveredCChanges()
     test(jobsFor("AGENTS.md", "tests/core/replyheadersproof.c").proofs)
 end
 
-function M.libuvProofsRunForTheirOwnCInputs()
+function M.eachProofRunsForItsOwnCInputs()
     local classify = classifier().classify
 
     local function picked(...)
         return table.concat(classify({...}).proofs, " ")
     end
 
-    for _, path in ipairs({
-        "native/core-bridge/uv.c",
-        "native/core-bridge/filetickets.h",
-        "tests/core/fileticketproof.c"
-    }) do
-        test.eq(picked(path), "file-io-tickets")
+    local single = {
+        ["native/core-bridge/main.c"] = "bundle-header",
+        ["tests/core/bundleheaderproof.c"] = "bundle-header",
+        ["native/core-bridge/uv.c"] = "file-io-tickets",
+        ["native/core-bridge/filetickets.h"] = "file-io-tickets",
+        ["tests/core/fileticketproof.c"] = "file-io-tickets",
+        ["native/http-curl/replyheaders.h"] = "http-response-headers",
+        ["tests/core/replyheadersproof.c"] = "http-response-headers",
+        ["native/markdown/markdown.c"] = "markdown-allocator",
+        ["native/markdown/allocationbudget.h"] = "markdown-allocator",
+        ["tests/core/markdownallocatorproof.c"] = "markdown-allocator",
+        ["native/http-curl/ringbuffer.h"] = "ring-buffer",
+        ["tests/core/ringbufferproof.c"] = "ring-buffer",
+        ["native/core-bridge/tcp.c"] = "tcp-lifecycle",
+        ["native/core-bridge/tcp.h"] = "tcp-lifecycle",
+        ["tests/core/tcplifecycleproof.c"] = "tcp-lifecycle",
+        ["tests/core/tcpmodel/uv.h"] = "tcp-lifecycle"
+    }
+    for path, proof in pairs(single) do
+        test.eq(picked(path), proof)
         selects(path, {"proofs"})
     end
 
-    for _, path in ipairs({
-        "native/core-bridge/tcp.c",
-        "native/core-bridge/tcp.h",
-        "tests/core/tcplifecycleproof.c",
-        "tests/core/tcpmodel/uv.h"
-    }) do
-        test.eq(picked(path), "tcp-lifecycle")
-        selects(path, {"proofs"})
-    end
-
-    test.eq(picked("native/core-bridge/uv.c", "native/core-bridge/tcp.c"), "file-io-tickets tcp-lifecycle")
-    local original = "bundle-header http-response-headers markdown-allocator ring-buffer"
-    test.eq(picked("native/http-curl/transport.c"), original)
-    test.eq(picked("native/core-bridge/reactor.h"), original .. " file-io-tickets")
-    test.eq(picked("tests/core/proofintrinsics.h"), original .. " file-io-tickets tcp-lifecycle")
+    test.eq(picked("native/http-curl/transport.c"), "http-response-headers ring-buffer")
+    test.eq(picked("native/core-bridge/reactor.h"), "bundle-header file-io-tickets")
+    test.eq(picked("native/core-bridge/reactor.h", "native/core-bridge/uv.c"), "bundle-header file-io-tickets")
+    test.eq(picked("native/markdown/markdown.c", "native/core-bridge/tcp.c"), "markdown-allocator tcp-lifecycle")
+    test.eq(
+        picked("tests/core/proofintrinsics.h"),
+        "bundle-header file-io-tickets http-response-headers markdown-allocator ring-buffer tcp-lifecycle"
+    )
     test.eq(picked("native/core-bridge/process.c", "tests/core/proofs.nupp"), "")
 end
 

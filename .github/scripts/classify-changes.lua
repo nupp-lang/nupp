@@ -11,6 +11,56 @@
 
 local classifier = {}
 
+-- Repository-relative C inputs keyed by the names accepted by nupp task proofs.
+-- The shared proofintrinsics.h header applies to every harness.
+local proofInputs = {
+    [
+        "bundle-header"
+    ] = {
+        "native/core-bridge/main.c",
+        "native/core-bridge/reactor.h",
+        "native/core-bridge/transport.h",
+        "native/http-curl/uri-idna.h",
+        "tests/core/bundleheaderproof.c",
+    },
+    [
+        "file-io-tickets"
+    ] = {
+        "native/core-bridge/uv.c",
+        "native/core-bridge/filetickets.h",
+        "native/core-bridge/reactor.h",
+        "native/core-bridge/transport.h",
+        "tests/core/fileticketproof.c",
+    },
+    [
+        "http-response-headers"
+    ] = {
+        "native/http-curl/transport.c",
+        "native/http-curl/transport.h",
+        "native/http-curl/replyheaders.h",
+        "tests/core/replyheadersproof.c",
+    },
+    [
+        "markdown-allocator"
+    ] = {"native/markdown/markdown.c", "native/markdown/allocationbudget.h", "tests/core/markdownallocatorproof.c",},
+    [
+        "ring-buffer"
+    ] = {
+        "native/http-curl/transport.c",
+        "native/http-curl/transport.h",
+        "native/http-curl/ringbuffer.h",
+        "tests/core/ringbufferproof.c",
+    },
+    [
+        "tcp-lifecycle"
+    ] = {
+        "native/core-bridge/tcp.c",
+        "native/core-bridge/tcp.h",
+        "tests/core/tcplifecycleproof.c",
+        "tests/core/tcpmodel/uv.h",
+    },
+}
+
 -- Ordered, but not first-match-wins: a path contributes every surface whose
 -- pattern it matches. `src/nupp/compiler/aot/lower.nupp` is both the AOT surface
 -- and the compiler surface, and dropping either would lose a real obligation.
@@ -107,29 +157,6 @@ local rules = {
     {"^src/math/internal/random%.nupp$", {"library", "browser"}},
     {"^src/package/nupp/", {"compiler", "library", "browser", "native"}},
     {"^src/nupp/", {"library"}},
-
-    -- The C inputs to the CBMC harnesses and their production callers.
-    {"^native/core%-bridge/main%.c$", {"proofs"}},
-    {"^native/core%-bridge/reactor%.h$", {"proofs", "file-io-proof"}},
-    {"^native/core%-bridge/transport%.h$", {"proofs", "file-io-proof"}},
-    {"^native/http%-curl/uri%-idna%.h$", {"proofs"}},
-    {"^native/http%-curl/transport%.c$", {"proofs"}},
-    {"^native/http%-curl/transport%.h$", {"proofs"}},
-    {"^native/http%-curl/ringbuffer%.h$", {"proofs"}},
-    {"^native/http%-curl/replyheaders%.h$", {"proofs"}},
-    {"^native/markdown/markdown%.c$", {"proofs"}},
-    {"^native/markdown/allocationbudget%.h$", {"proofs"}},
-    {"^tests/core/bundleheaderproof%.c$", {"proofs"}},
-    {"^tests/core/markdownallocatorproof%.c$", {"proofs"}},
-    {"^tests/core/replyheadersproof%.c$", {"proofs"}},
-    {"^tests/core/ringbufferproof%.c$", {"proofs"}},
-    {"^native/core%-bridge/uv%.c$", {"file-io-proof"}},
-    {"^native/core%-bridge/filetickets%.h$", {"file-io-proof"}},
-    {"^tests/core/fileticketproof%.c$", {"file-io-proof"}},
-    {"^native/core%-bridge/tcp%.[ch]$", {"tcp-proof"}},
-    {"^tests/core/tcplifecycleproof%.c$", {"tcp-proof"}},
-    {"^tests/core/tcpmodel/uv%.h$", {"tcp-proof"}},
-    {"^tests/core/proofintrinsics%.h$", {"proofs", "file-io-proof", "tcp-proof"}},
 
     {"^native/", {"native"}},
     {"^runtime/wasm/", {"browser"}},
@@ -230,10 +257,15 @@ end
 ---
 --- `jobs` is a set of job names, `surfaces` the union of the surfaces the paths
 --- reached, and `reasons` says which surface selected each job, so a run can
---- print why it is doing what it is doing.
+--- print why it is doing what it is doing. `proofs` lists the selected CBMC
+--- task arguments in a stable order.
 function classifier.classify(paths)
     local surfaces, jobs, reasons = {}, {}, {}
+    local changedC = {}
     for _, path in ipairs(paths) do
+        if path:match("%.[ch]$") then
+            changedC[path] = true
+        end
         for surface in pairs(classifier.surfacesOf(path)) do
             surfaces[surface] = true
         end
@@ -262,15 +294,17 @@ function classifier.classify(paths)
     end
 
     local proofs = {}
-    if surfaces.proofs then
-        proofs = {"bundle-header", "http-response-headers", "markdown-allocator", "ring-buffer"}
+    local shared = changedC["tests/core/proofintrinsics.h"]
+    for name, inputs in pairs(proofInputs) do
+        local matched = shared
+        for _, path in ipairs(inputs) do
+            matched = matched or changedC[path]
+        end
+        if matched then
+            proofs[#proofs + 1] = name
+        end
     end
-    if surfaces["file-io-proof"] then
-        proofs[#proofs + 1] = "file-io-tickets"
-    end
-    if surfaces["tcp-proof"] then
-        proofs[#proofs + 1] = "tcp-lifecycle"
-    end
+    table.sort(proofs)
     if #proofs > 0 then
         select(jobs, "proofs", "C inputs to the proofs changed", reasons)
     end
