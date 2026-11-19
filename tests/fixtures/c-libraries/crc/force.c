@@ -13,12 +13,11 @@
 
 /* ISA-L declares the base IEEE entry with a non-const buffer, unlike the
  * dispatched one, so it is wrapped to the dispatched one's type. */
-static uint32_t gzip_base (uint32_t seed, const uint8_t *data,
-                           uint64_t length) {
+static uint32_t gzipbase (uint32_t seed, const uint8_t *data, uint64_t length) {
   return crc32_gzip_refl_base(seed, (uint8_t *)data, length);
 }
 
-#define crc32_gzip_refl gzip_base
+#define crc32_gzip_refl gzipbase
 #define crc32_iscsi crc32_iscsi_base
 #define crc64_ecma_norm crc64_ecma_norm_base
 #define crc64_rocksoft_refl crc64_rocksoft_refl_base

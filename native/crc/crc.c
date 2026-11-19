@@ -1,9 +1,9 @@
 /* The adapter between Nupp's resumable CRC state and ISA-L, which crccodec.nupp
- * calls through nupp_crc.h. It converts state only: all CRC arithmetic and CPU
+ * calls through nuppcrc.h. It converts state only: all CRC arithmetic and CPU
  * dispatch belong to ISA-L. ISA-L takes and answers finalized checksums, while
  * Nupp keeps the raw register so a stream can be resumed. */
 
-#include "nupp_crc.h"
+#include "nuppcrc.h"
 
 #include "crc.h"
 #include "crc64.h"
@@ -13,7 +13,7 @@
 /* What nuppCrcUpdate answers. */
 enum status { UPDATED = 0, INVALID = 1 };
 
-/* The algorithm ids nupp_crc.h documents. */
+/* The algorithm ids nuppcrc.h documents. */
 enum algorithm {
   CRC32_IEEE = 1,
   CRC32_CASTAGNOLI = 2,
@@ -23,7 +23,7 @@ enum algorithm {
 
 /* What each algorithm XORs into its register to finish a checksum. It is also
  * each one's initial register. */
-static uint64_t final_xor (enum algorithm id) {
+static uint64_t finalxor (enum algorithm id) {
   switch (id) {
     case CRC32_IEEE:
     case CRC32_CASTAGNOLI:
@@ -37,7 +37,7 @@ static uint64_t final_xor (enum algorithm id) {
   return UINT64_MAX;
 }
 
-/* Whether a call's arguments are ones nupp_crc.h allows. */
+/* Whether a call's arguments are ones nuppcrc.h allows. */
 static int valid (uint32_t id, int32_t reset, const uint64_t *words,
                   const uint8_t *data, size_t length) {
   /* NULL data is valid at this boundary for an empty update only. */
@@ -70,7 +70,7 @@ int32_t nuppCrcUpdate (uint32_t id, int32_t reset, uint64_t words[2],
     return INVALID;
   }
 
-  const uint64_t xorout = final_xor(id);
+  const uint64_t xorout = finalxor(id);
   uint64_t state = reset ? xorout : words[0];
 
   /* iSCSI takes a signed int length, so feed every algorithm at most

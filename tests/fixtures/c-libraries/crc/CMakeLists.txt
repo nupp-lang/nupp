@@ -28,18 +28,18 @@ function(forced name)
   )
   target_compile_definitions(
     ${name}
-    PRIVATE nuppCrcUpdate=${name} nuppCrcLastError=${name}Error ${ARGN}
+    PRIVATE nuppCrcUpdate=${name} nuppCrcLastError=${name}error ${ARGN}
   )
 endfunction()
 
-forced(crc_base NUPP_FORCE_BASE)
-forced(crc_small_chunks NUPP_FORCE_BASE NUPP_FORCE_SMALL_CHUNKS)
+forced(crcbase NUPP_FORCE_BASE)
+forced(crcsmall NUPP_FORCE_BASE NUPP_FORCE_SMALL_CHUNKS)
 
 add_executable(
   crc-probe
   probe.c
-  $<TARGET_OBJECTS:crc_base>
-  $<TARGET_OBJECTS:crc_small_chunks>
+  $<TARGET_OBJECTS:crcbase>
+  $<TARGET_OBJECTS:crcsmall>
 )
 target_include_directories(crc-probe PRIVATE "${NUPP_ISAL}/include")
 target_link_libraries(crc-probe PRIVATE "${CRC_LIBRARY}")
@@ -59,15 +59,15 @@ target_link_libraries(crc-shared-probe PRIVATE "${CRC_SHARED_LIBRARY}")
 
 # The host's SIMD path, where it has one.
 if(CMAKE_SYSTEM_PROCESSOR MATCHES "^(x86_64|AMD64|amd64)$")
-  forced(crc_simd NUPP_FORCE_X86)
+  forced(crcsimd NUPP_FORCE_X86)
   target_compile_definitions(crc-probe PRIVATE NUPP_TEST_X86)
 elseif(CMAKE_SYSTEM_PROCESSOR MATCHES "^(aarch64|arm64)$")
-  forced(crc_simd NUPP_FORCE_ARM)
+  forced(crcsimd NUPP_FORCE_ARM)
   target_compile_definitions(crc-probe PRIVATE NUPP_TEST_ARM)
 endif()
 
-if(TARGET crc_simd)
-  target_sources(crc-probe PRIVATE $<TARGET_OBJECTS:crc_simd>)
+if(TARGET crcsimd)
+  target_sources(crc-probe PRIVATE $<TARGET_OBJECTS:crcsimd>)
 endif()
 
 # Assertions are the probe, including in release builds.

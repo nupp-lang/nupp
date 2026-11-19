@@ -11,7 +11,7 @@ CRC-32 frames. No Nupp CRC arithmetic was added, and no Rust CRC code remains.
 `scripts/toolchain isal` builds a digest-pinned CRC-only subset of ISA-L
 2.32.1 using upstream's CMake source lists, assembly, runtime CPU dispatch,
 and portable C fallback. It installs matching public upstream CRC headers,
-`nupp_crc.h`, shared and static libraries, upstream/contributor BSD notices, and the
+`nuppcrc.h`, shared and static libraries, upstream/contributor BSD notices, and the
 existing hash-checked artifact identity. Cache keys include the C adapter,
 build files, compiler/SDK, assembler version, flags and upstream source digest.
 An x86 build needs NASM 2.14.01 or later. ARM builds use the C compiler's

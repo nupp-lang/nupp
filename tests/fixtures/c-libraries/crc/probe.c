@@ -5,7 +5,7 @@
  * (force.c), all against an independent bit-at-a-time model. Then it prints
  * throughput for the dispatching and portable builds. */
 
-#include "nupp_crc.h"
+#include "nuppcrc.h"
 
 #include <assert.h>
 #include <inttypes.h>
@@ -29,7 +29,7 @@
 
 #endif
 
-/* The algorithm ids nupp_crc.h documents. */
+/* The algorithm ids nuppcrc.h documents. */
 enum algorithm {
   CRC32_IEEE = 1,
   CRC32_CASTAGNOLI = 2,
@@ -61,22 +61,21 @@ enum {
 /* The bytes each throughput measurement feeds through. */
 enum { BENCH_BYTES = 64 * 1024 * 1024 };
 
-typedef int32_t (*update_fn)(uint32_t, int32_t, uint64_t *, const uint8_t *,
-                             size_t);
+typedef int32_t (*updatefn)(uint32_t, int32_t, uint64_t *, const uint8_t *,
+                            size_t);
 
 /* The adapter built by force.c, once per choice of ISA-L entries. */
-int32_t crc_base (uint32_t, int32_t, uint64_t *, const uint8_t *, size_t);
-int32_t crc_small_chunks (uint32_t, int32_t, uint64_t *, const uint8_t *,
-                          size_t);
+int32_t crcbase (uint32_t, int32_t, uint64_t *, const uint8_t *, size_t);
+int32_t crcsmall (uint32_t, int32_t, uint64_t *, const uint8_t *, size_t);
 
 #if defined(NUPP_TEST_X86) || defined(NUPP_TEST_ARM)
 
-int32_t crc_simd (uint32_t, int32_t, uint64_t *, const uint8_t *, size_t);
+int32_t crcsimd (uint32_t, int32_t, uint64_t *, const uint8_t *, size_t);
 
 #endif
 
-/* Whether this CPU can run the SIMD entries crc_simd was forced onto. */
-static int has_simd (void) {
+/* Whether this CPU can run the SIMD entries crcsimd was forced onto. */
+static int hassimd (void) {
 #if defined(NUPP_TEST_X86) && defined(_MSC_VER)
   int regs[4];
   __cpuid(regs, CPUID_FEATURES);
@@ -128,7 +127,7 @@ static uint64_t reference (unsigned id, uint64_t state, const uint8_t *p,
 }
 
 /* A fixed xorshift sequence, so every run checks the same input. */
-static uint64_t random_word (void) {
+static uint64_t randomword (void) {
   static uint64_t state = 0x250dc6b5f65d8c4b;
   state ^= state << 13;
   state ^= state >> 7;
@@ -141,14 +140,14 @@ static uint64_t random_word (void) {
  * and empty updates, raw seeds, every short length and random long ones at
  * every offset, the same messages fed in random chunks, and that each
  * invalid call is refused without touching its state. */
-static void check (update_fn update) {
+static void check (updatefn update) {
   /* Each algorithm's CRC of "123456789", indexed by its id. */
   const uint64_t known[] = {0, 0xcbf43926, 0xe3069283, 0x6c40df5f0b497347,
                             0xae8b14860a799888};
   uint8_t bytes[MAX_MESSAGE + 2 * MAX_OFFSET];
 
   for (size_t i = 0; i < sizeof(bytes); ++i) {
-    bytes[i] = (uint8_t)random_word();
+    bytes[i] = (uint8_t)randomword();
   }
 
   for (unsigned id = CRC32_IEEE; id <= CRC64_NVME; ++id) {
@@ -169,9 +168,9 @@ static void check (update_fn update) {
     for (unsigned trial = 0; trial < TRIALS; ++trial) {
       const size_t n = trial < SHORT_MESSAGES
                            ? trial
-                           : (size_t)(random_word() % (MAX_MESSAGE + 1));
+                           : (size_t)(randomword() % (MAX_MESSAGE + 1));
       const uint8_t *p = bytes + trial % MAX_OFFSET;
-      const uint64_t seed = random_word() & mask;
+      const uint64_t seed = randomword() & mask;
       const uint64_t want = reference(id, seed, p, n);
       words[0] = seed;
       words[1] = 99;
@@ -181,7 +180,7 @@ static void check (update_fn update) {
       size_t offset = 0;
 
       while (offset < n) {
-        size_t count = (size_t)(random_word() % MAX_CHUNK + 1);
+        size_t count = (size_t)(randomword() % MAX_CHUNK + 1);
 
         if (count > n - offset) {
           count = n - offset;
@@ -213,7 +212,7 @@ static void check (update_fn update) {
 
 /* Prints each algorithm's throughput over a short, a page-sized and a
  * megabyte message, each fed BENCH_BYTES in all. */
-static void bench (update_fn update, const char *path) {
+static void bench (updatefn update, const char *path) {
   static uint8_t bytes[1048576];
 
   for (size_t i = 0; i < sizeof(bytes); ++i) {
@@ -241,13 +240,13 @@ static void bench (update_fn update, const char *path) {
 
 int main (void) {
   check(nuppCrcUpdate);
-  check(crc_base);
-  check(crc_small_chunks);
-  int simd = has_simd();
+  check(crcbase);
+  check(crcsmall);
+  int simd = hassimd();
 #if defined(NUPP_TEST_X86) || defined(NUPP_TEST_ARM)
 
   if (simd) {
-    check(crc_simd);
+    check(crcsimd);
   }
 
 #endif
@@ -255,7 +254,7 @@ int main (void) {
          "bounded-chunks=pass SIMD=%s\n",
          simd ? "pass" : "unsupported");
   bench(nuppCrcUpdate, "dispatch");
-  bench(crc_base, "base");
+  bench(crcbase, "base");
 
   return 0;
 }

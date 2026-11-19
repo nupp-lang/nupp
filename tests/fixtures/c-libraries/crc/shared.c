@@ -4,12 +4,12 @@
  * its new place. It checks each algorithm's check value, split across a
  * resumed stream with an empty update between. */
 
-#include "nupp_crc.h"
+#include "nuppcrc.h"
 
 #include <assert.h>
 #include <stdio.h>
 
-/* The algorithm ids nupp_crc.h documents. */
+/* The algorithm ids nuppcrc.h documents. */
 enum { FIRST_ALGORITHM = 1, LAST_ALGORITHM = 4 };
 
 int main (void) {

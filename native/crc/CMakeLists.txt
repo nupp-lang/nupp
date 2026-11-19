@@ -63,7 +63,7 @@ install(
   ARCHIVE DESTINATION lib
   RUNTIME DESTINATION bin
 )
-install(FILES nupp_crc.h DESTINATION include)
+install(FILES nuppcrc.h DESTINATION include)
 install(
   FILES "${ISAL_SOURCE}/include/crc.h" "${ISAL_SOURCE}/include/crc64.h"
   DESTINATION include/isa-l
