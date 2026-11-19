@@ -101,8 +101,8 @@
     {"id": "guest:corecdecl:spill", "status": "pass", "source": "b25aa2da09d16d92ac6b248f79abb631d3161e03e86ba8a1e26cb18f954bd2b1"},
     {"id": "guest:coreforms:normal", "status": "pass", "source": "91cb52d7219a44da9b7b13f93d0b605fd8dc1a17e0ee0cdbe37dccc2c3d28fdc"},
     {"id": "guest:coreforms:spill", "status": "pass", "source": "91cb52d7219a44da9b7b13f93d0b605fd8dc1a17e0ee0cdbe37dccc2c3d28fdc"},
-    {"id": "guest:coreoperators:normal", "status": "pass", "source": "903571cee0c4fc7ad23eaca44145423efa6b7ca68f4e695c87abc2cfe08de9f9"},
-    {"id": "guest:coreoperators:spill", "status": "pass", "source": "903571cee0c4fc7ad23eaca44145423efa6b7ca68f4e695c87abc2cfe08de9f9"},
+    {"id": "guest:coreoperators:normal", "status": "pass", "source": "5b5150f2c70424b9ca2dc9a56cd6252cc739d8e8e0a7993648ba0c5241f35eec"},
+    {"id": "guest:coreoperators:spill", "status": "pass", "source": "5b5150f2c70424b9ca2dc9a56cd6252cc739d8e8e0a7993648ba0c5241f35eec"},
     {"id": "guest:coroutineinheritance:normal", "status": "pass", "source": "f16d38f465017033078be435acef85c6c997aa8c919acd72c7b11dbd90d0cf86"},
     {"id": "guest:coroutineinheritance:spill", "status": "pass", "source": "f16d38f465017033078be435acef85c6c997aa8c919acd72c7b11dbd90d0cf86"},
     {"id": "guest:cryptocodec:normal", "status": "pass", "source": "9a00b1b75a98cd591e270554f906fff70953bbdc29e6de570b7e1f4eff909707"},
@@ -147,16 +147,8 @@
     {"id": "guest:gcexit:spill", "status": "pass", "source": "b289312fdec50b385b11f967e9e46465d95ba4f57d6fb475c52319175017124d"},
     {"id": "guest:gcfinalizers:normal", "status": "pass", "source": "47eb98c36e3c45eb9a7dfe58c3b5e57723b804e972cd752c8b40951288efd8b9"},
     {"id": "guest:gcfinalizers:spill", "status": "pass", "source": "47eb98c36e3c45eb9a7dfe58c3b5e57723b804e972cd752c8b40951288efd8b9"},
-    {"id": "guest:gcoptions:normal", "status": "fail", "owner": "nr-gc-fault-matrix", "source": "ba5d66d0433bbc9c57e6526bdc33d89bca384d1cbf74613177fad468bf1dd8d8", "failures": [
-      "guard",
-      "result 7fff000000007fff",
-      "result under collect-at-every-allocation"
-    ]},
-    {"id": "guest:gcoptions:spill", "status": "fail", "owner": "nr-gc-fault-matrix", "source": "ba5d66d0433bbc9c57e6526bdc33d89bca384d1cbf74613177fad468bf1dd8d8", "failures": [
-      "bridge stress timed out after 1800s",
-      "guard",
-      "result 7fff000000007fff"
-    ]},
+    {"id": "guest:gcoptions:normal", "status": "pass", "source": "ba5d66d0433bbc9c57e6526bdc33d89bca384d1cbf74613177fad468bf1dd8d8"},
+    {"id": "guest:gcoptions:spill", "status": "pass", "source": "ba5d66d0433bbc9c57e6526bdc33d89bca384d1cbf74613177fad468bf1dd8d8"},
     {"id": "guest:gcraise:normal", "status": "pass", "source": "932183cbb75085ceb64ffd64487a476adfb178f5f905fbe5836a2f24cf283f58"},
     {"id": "guest:gcraise:spill", "status": "pass", "source": "932183cbb75085ceb64ffd64487a476adfb178f5f905fbe5836a2f24cf283f58"},
     {"id": "guest:gcwarn:normal", "status": "pass", "source": "5ed5ab5415ff385de43ac2ccd56d6dd714e3c108acb543f108c96f83e03509b8"},
@@ -510,6 +502,8 @@
     {"id": "unit:builderunits:spill", "status": "pass", "source": "86507727d029db14866487eb2f13f44494fd8715b0fcb165c4ae7f6366404c11"},
     {"id": "unit:entropyunits:normal", "status": "pass", "source": "84f378a0c13ec3f2ddd177a438d5801233c54f4caffa2135e076fec9e21fbbb6"},
     {"id": "unit:entropyunits:spill", "status": "pass", "source": "84f378a0c13ec3f2ddd177a438d5801233c54f4caffa2135e076fec9e21fbbb6"},
+    {"id": "unit:gcoptionunits:normal", "status": "pass", "source": "79822b9d7353a4508f322e35c76be1a9c1711d14722abf929cf0939ccf9f317e"},
+    {"id": "unit:gcoptionunits:spill", "status": "pass", "source": "79822b9d7353a4508f322e35c76be1a9c1711d14722abf929cf0939ccf9f317e"},
     {"id": "unit:gcunits:normal", "status": "pass", "source": "e4f0d8a0dde25695d0a36fe4976742e8dd23f6fa7a18b2025fbc582ff4ace845"},
     {"id": "unit:gcunits:spill", "status": "pass", "source": "e4f0d8a0dde25695d0a36fe4976742e8dd23f6fa7a18b2025fbc582ff4ace845"},
     {"id": "unit:genunits:normal", "status": "pass", "source": "a211fc75605a6ffa6897e52283bae382b46a3c14956eb1e320d1a2e8243f4c0c"},
@@ -526,14 +520,8 @@
     {"id": "unit:longstringlandingunits:spill", "status": "pass", "source": "975f7040b3ab59c5e5c1d5588865717137dd5678a5fb3725a07a47570f35ef75"},
     {"id": "unit:longstringscopeunits:normal", "status": "pass", "source": "55ff85b1646eb2114e76ea809ec54b3d204968c45629e52d6066f956bba66455"},
     {"id": "unit:longstringscopeunits:spill", "status": "pass", "source": "55ff85b1646eb2114e76ea809ec54b3d204968c45629e52d6066f956bba66455"},
-    {"id": "unit:longstringunits:normal", "status": "fail", "owner": "nr-value-conformance", "source": "55ff85b1646eb2114e76ea809ec54b3d204968c45629e52d6066f956bba66455", "failures": [
-      "bridge keys(0): expected 0, got 1 (error 0)",
-      "bridge keys(1): expected 0, got 1 (error 0)"
-    ]},
-    {"id": "unit:longstringunits:spill", "status": "fail", "owner": "nr-value-conformance", "source": "55ff85b1646eb2114e76ea809ec54b3d204968c45629e52d6066f956bba66455", "failures": [
-      "bridge keys(0): expected 0, got 1 (error 0)",
-      "bridge keys(1): expected 0, got 1 (error 0)"
-    ]},
+    {"id": "unit:longstringunits:normal", "status": "pass", "source": "573cf66eb710a1c5a6d1e4cc90ee95f20920ad1c3d46b684982c9534cc3fc9bc"},
+    {"id": "unit:longstringunits:spill", "status": "pass", "source": "573cf66eb710a1c5a6d1e4cc90ee95f20920ad1c3d46b684982c9534cc3fc9bc"},
     {"id": "unit:longstringweakunits:normal", "status": "pass", "source": "55ff85b1646eb2114e76ea809ec54b3d204968c45629e52d6066f956bba66455"},
     {"id": "unit:longstringweakunits:spill", "status": "pass", "source": "55ff85b1646eb2114e76ea809ec54b3d204968c45629e52d6066f956bba66455"},
     {"id": "unit:mappingfaultunits:normal", "status": "pass", "source": "d56a4c2663020326e8d59ad55020896bf04647e3fac6339be210ed70bc3e3e1f"},
@@ -572,14 +560,8 @@
     {"id": "unit:stringviewunits:spill", "status": "pass", "source": "6de55b1c6a1715a18efe9987532fbb526e8e80a9b66ffecb71cd3cf446b85886"},
     {"id": "unit:systemunits:normal", "status": "pass", "source": "68f11555d9de6be9c3795faef6a27a1837f249b9e73778faf4b49bf19dce229d"},
     {"id": "unit:systemunits:spill", "status": "pass", "source": "68f11555d9de6be9c3795faef6a27a1837f249b9e73778faf4b49bf19dce229d"},
-    {"id": "unit:tablekeyunits:normal", "status": "fail", "owner": "nr-value-conformance", "source": "f8cb7ac54d7ee6a179fbb005092ccc8e3e7fc887207f18bb6c1141a3b90473d2", "failures": [
-      "bridge scans(0): expected 0, got 1 (error 0)",
-      "bridge scans(1): expected 0, got 1 (error 0)"
-    ]},
-    {"id": "unit:tablekeyunits:spill", "status": "fail", "owner": "nr-value-conformance", "source": "f8cb7ac54d7ee6a179fbb005092ccc8e3e7fc887207f18bb6c1141a3b90473d2", "failures": [
-      "bridge scans(0): expected 0, got 1 (error 0)",
-      "bridge scans(1): expected 0, got 1 (error 0)"
-    ]},
+    {"id": "unit:tablekeyunits:normal", "status": "pass", "source": "4944dedf6d3623e7068cfc8be072cabc400efbc125c5319148f4dc07c5193e2b"},
+    {"id": "unit:tablekeyunits:spill", "status": "pass", "source": "4944dedf6d3623e7068cfc8be072cabc400efbc125c5319148f4dc07c5193e2b"},
     {"id": "unit:tableunits:normal", "status": "fail", "owner": "nr-value-conformance", "source": "7953135dff00bcef00e83c361658b6750b3b3f45f052f0d81b7b08bbac4456f9", "failures": [
       "bridge traversal(100): expected 198001191901, got 198001191900 (error 0)",
       "bridge traversal(1000): expected 1998030009901, got 1998030009900 (error 0)",
