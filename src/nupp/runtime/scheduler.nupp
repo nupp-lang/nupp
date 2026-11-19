@@ -437,7 +437,7 @@ local function settle(record: any, status: string, value: any): nil
     unlink(scope, record)
     if scope.onSettle ~= nil then
         scope.onSettle(record)
-    elseif status == "failed" then
+    elseif status == "failed" and not scope.soft then
         ownfailure(scope, value)
     end
     local waiters = record.waiters
@@ -451,6 +451,19 @@ local function settle(record: any, status: string, value: any): nil
         scope.closers = {}
         wakeall(closers)
     end
+end
+
+-- A consuming callable releases only captures that it has yet to consume.
+local function releaseFamily(branches: {function(): any}): (boolean, any)
+    local released, releaseProblem = true, nil
+    for _, body in ipairs(branches) do
+        local ok, problem = pcall(taskownership.release, body)
+        if not ok and released then
+            released, releaseProblem = false, problem
+        end
+    end
+
+    return released, releaseProblem
 end
 
 runone = function(record: any): nil
@@ -721,14 +734,7 @@ export function race(takes bodies: {function(): any}): (any, integer?)
         error(drainProblem, 0)
     end
     scope.onSettle = nil
-    -- A consuming callable's release is a no-op after it has run.
-    local released, releaseProblem = true, nil
-    for _, body in ipairs(branches) do
-        local ok, problem = pcall(taskownership.release, body)
-        if not ok and released then
-            released, releaseProblem = false, problem
-        end
-    end
+    local released, releaseProblem = releaseFamily(branches)
     if not drained then
         error(drainProblem, 0)
     elseif not entered then
@@ -750,6 +756,57 @@ export function race(takes bodies: {function(): any}): (any, integer?)
     end
 
     return results[2], index
+end
+
+-- Branch failures belong to their result positions and leave siblings running.
+export function gather<T>(takes bodies: {function(): T}): ({T?}, {any})
+    local branches: {function(): T} = @unsafe own.release(bodies)
+    local values: {T?} = {}
+    local errors: {any} = {}
+    if #branches == 0 then
+        return values, errors
+    end
+    local scope = open(nil, nil)
+    scope.soft = true
+    local records: {any} = {}
+    local entered, entryProblem = pcall(function(): nil
+        for index, body in ipairs(branches) do
+            local thread = start(scope, "branch " .. tostring(index), body, {[0] = 0})
+            records[index] = calls.data(thread)
+        end
+    end)
+    if not entered then
+        cancelscope(scope, "the task family could not start", true)
+    end
+    local drained, drainProblem = pcall(ScopeMethods.close, scope)
+    if not scope.closed then
+        error(drainProblem, 0)
+    end
+    local released, releaseProblem = releaseFamily(branches)
+    if not drained then
+        error(drainProblem, 0)
+    elseif not entered then
+        error(entryProblem, 0)
+    elseif not released then
+        error(releaseProblem, 0)
+    end
+    for index, record in ipairs(records) do
+        if record.status == "failed" then
+            errors[index] = record.problem
+        elseif record.status == "done" then
+            local results = record.results
+            local count = (results[0] as integer) - 1
+            if count > 1 then
+                errors[
+                    index
+                ] = ("nupp: branch %d returned %d values, and a family branch answers one"):format(index, count)
+            else
+                values[index] = results[2]
+            end
+        end
+    end
+
+    return values, errors
 end
 
 ----------------------------------------------------------------------------
@@ -929,6 +986,7 @@ export const functions: {
     ["coroutine.scope"] = open,
     ["coroutine.checkpoint"] = checkpoint,
     ["coroutine.deadline"] = deadline,
+    ["coroutine.gather"] = gather,
     ["coroutine.iscancelled"] = iscancelled,
     ["coroutine.sleep"] = sleep,
     ["coroutine.sleepuntil"] = sleepuntil
