@@ -46,4 +46,17 @@ print(value)
     os.execute("rm -rf " .. string.format("%q", dir))
 end
 
+function M.runPassesEveryArgumentToTheEntry()
+    local dir = tempProject({
+        ["nupp.lua"] = 'return {include = {"src"}}\n',
+        ["src/main.nupp"] = [[
+print(select("#", ...), ...)
+print(io.cli.args[0], io.cli.args[1])
+]],
+    })
+    local actual = capture(("cd %q && %q run src/main.nupp %q %q %q"):format(dir, NUPP, "one", "two words", ""))
+    os.execute("rm -rf " .. string.format("%q", dir))
+    assert(actual == "3\tone\ttwo words\t\nsrc/main.nupp\tone\n", actual)
+end
+
 return M
