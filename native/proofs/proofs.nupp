@@ -9,7 +9,7 @@ const proofs: {[string]: {
     ["http-response-headers"] = {file = "replyheadersproof.c", unwind = "17"},
     ["ring-buffer"] = {file = "ringbufferproof.c", unwind = "9"},
     ["markdown-allocator"] = {file = "markdownallocatorproof.c", unwind = "1"},
-    ["tcp-lifecycle"] = {file = "tcplifecycleproof.c", unwind = "5", include = "tests/core/tcpmodel"},
+    ["tcp-lifecycle"] = {file = "tcplifecycleproof.c", unwind = "5", include = "native/proofs/tcpmodel"},
 }
 
 local names: {string} = {}
@@ -42,7 +42,7 @@ for _, name in ipairs(selected) do
         string
     } = {
         executable,
-        "tests/core/" .. proof.file,
+        "native/proofs/" .. proof.file,
         "--arch",
         "arm64",
         "--unwind",

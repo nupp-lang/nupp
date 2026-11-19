@@ -362,18 +362,27 @@ function M.anEmptyChangeSelectsEverything()
     test(not jobs.proofs, "an empty change should skip C proofs")
 end
 
+-- A harness proves the C it includes; it does not rebuild the compiler or
+-- reach the GPU adapters the way the rest of native/ does.
+function M.proofHarnessesSelectWhatTheCoreTestsDo()
+    for _, path in ipairs({"native/proofs/ringbufferproof.c", "native/proofs/proofs.nupp"}) do
+        selects(path, {"fast-checks", "linux-integration", "macos-integration", "windows-integration"})
+        doesNotSelect(path, {"fixpoint", "gpu-linux", "gpu-windows"})
+    end
+end
+
 function M.proofsRequireCoveredCChanges()
     for _, path in ipairs({
         "native/corebridge/process.c",
         "native/markdown/CMakeLists.txt",
-        "tests/core/proofs.nupp",
+        "native/proofs/proofs.nupp",
         ".github/workflows/compiler.yml",
         "some/unclassified/file",
         "AGENTS.md"
     }) do
         doesNotSelect(path, {"proofs"})
     end
-    test(jobsFor("AGENTS.md", "tests/core/replyheadersproof.c").proofs)
+    test(jobsFor("AGENTS.md", "native/proofs/replyheadersproof.c").proofs)
 end
 
 function M.eachProofRunsForItsOwnCInputs()
@@ -385,24 +394,24 @@ function M.eachProofRunsForItsOwnCInputs()
 
     local single = {
         ["native/corebridge/main.c"] = "bundle-header",
-        ["tests/core/bundleheaderproof.c"] = "bundle-header",
+        ["native/proofs/bundleheaderproof.c"] = "bundle-header",
         ["native/corebridge/uv.c"] = "file-io-tickets",
         ["native/corebridge/filetickets.h"] = "file-io-tickets",
-        ["tests/core/fileticketproof.c"] = "file-io-tickets",
+        ["native/proofs/fileticketproof.c"] = "file-io-tickets",
         ["native/httpcurl/replyheaders.h"] = "http-response-headers",
-        ["tests/core/replyheadersproof.c"] = "http-response-headers",
+        ["native/proofs/replyheadersproof.c"] = "http-response-headers",
         ["native/markdown/markdown.c"] = "markdown-allocator",
         ["native/markdown/allocationbudget.h"] = "markdown-allocator",
-        ["tests/core/markdownallocatorproof.c"] = "markdown-allocator",
+        ["native/proofs/markdownallocatorproof.c"] = "markdown-allocator",
         ["native/httpcurl/ringbuffer.h"] = "ring-buffer",
-        ["tests/core/ringbufferproof.c"] = "ring-buffer",
+        ["native/proofs/ringbufferproof.c"] = "ring-buffer",
         ["native/corebridge/tcp.c"] = "tcp-lifecycle",
         ["native/corebridge/tcp.h"] = "tcp-lifecycle",
         ["native/corebridge/streamio.c"] = "tcp-lifecycle",
         ["native/corebridge/streamio.h"] = "tcp-lifecycle",
         ["native/corebridge/netbridge.h"] = "bundle-header",
-        ["tests/core/tcplifecycleproof.c"] = "tcp-lifecycle",
-        ["tests/core/tcpmodel/uv.h"] = "tcp-lifecycle"
+        ["native/proofs/tcplifecycleproof.c"] = "tcp-lifecycle",
+        ["native/proofs/tcpmodel/uv.h"] = "tcp-lifecycle"
     }
     for path, proof in pairs(single) do
         test.eq(picked(path), proof)
@@ -414,10 +423,10 @@ function M.eachProofRunsForItsOwnCInputs()
     test.eq(picked("native/corebridge/reactor.h", "native/corebridge/uv.c"), "bundle-header file-io-tickets")
     test.eq(picked("native/markdown/markdown.c", "native/corebridge/tcp.c"), "markdown-allocator tcp-lifecycle")
     test.eq(
-        picked("tests/core/proofintrinsics.h"),
+        picked("native/proofs/proofintrinsics.h"),
         "bundle-header file-io-tickets http-response-headers markdown-allocator ring-buffer tcp-lifecycle"
     )
-    test.eq(picked("native/corebridge/process.c", "tests/core/proofs.nupp"), "")
+    test.eq(picked("native/corebridge/process.c", "native/proofs/proofs.nupp"), "")
 end
 
 function M.documentationOnlyChangesProvisionNoPlatform()

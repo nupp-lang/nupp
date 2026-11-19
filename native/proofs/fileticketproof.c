@@ -4,7 +4,7 @@
  */
 
 #include "proofintrinsics.h"
-#include "../../native/corebridge/filetickets.h"
+#include "../corebridge/filetickets.h"
 
 #include <stdlib.h>
 

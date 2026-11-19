@@ -9,8 +9,8 @@ Start with a specific property of production C, such as copy bounds, size
 arithmetic, or a state invariant. Use the [Nupp C style](../nupp-c-style/SKILL.md)
 for code and Doxygen comments.
 
-- Put the harness in `tests/core/<name>proof.c` and include
-  [proofintrinsics.h](../../../tests/core/proofintrinsics.h) for symbolic inputs.
+- Put the harness in `native/proofs/<name>proof.c` and include
+  [proofintrinsics.h](../../../native/proofs/proofintrinsics.h) for symbolic inputs.
   Exercise the production implementation. A small private header works for
   shared C helpers that can run independently of the host or a native library.
 - Model inputs symbolically. Use assumptions for caller contracts and explain
@@ -23,7 +23,7 @@ for code and Doxygen comments.
   the production code.
 
 Register a stable task argument, harness filename, and unwind bound in
-[proofs.nupp](../../../tests/core/proofs.nupp). Allow for the loop's final exit
+[proofs.nupp](../../../native/proofs/proofs.nupp). Allow for the loop's final exit
 check and keep the task's unwinding assertions enabled. Add the same name to
 `proofInputs` in [classify-changes.lua](../../../.github/scripts/classify-changes.lua).
 List the harness and the production C sources and headers that affect its

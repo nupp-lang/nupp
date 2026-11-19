@@ -22,7 +22,7 @@ local proofInputs = {
         "native/corebridge/reactor.h",
         "native/corebridge/transport.h",
         "native/httpcurl/uriidna.h",
-        "tests/core/bundleheaderproof.c",
+        "native/proofs/bundleheaderproof.c",
     },
     [
         "file-io-tickets"
@@ -31,7 +31,7 @@ local proofInputs = {
         "native/corebridge/filetickets.h",
         "native/corebridge/reactor.h",
         "native/corebridge/transport.h",
-        "tests/core/fileticketproof.c",
+        "native/proofs/fileticketproof.c",
     },
     [
         "http-response-headers"
@@ -39,18 +39,18 @@ local proofInputs = {
         "native/httpcurl/transport.c",
         "native/httpcurl/transport.h",
         "native/httpcurl/replyheaders.h",
-        "tests/core/replyheadersproof.c",
+        "native/proofs/replyheadersproof.c",
     },
     [
         "markdown-allocator"
-    ] = {"native/markdown/markdown.c", "native/markdown/allocationbudget.h", "tests/core/markdownallocatorproof.c",},
+    ] = {"native/markdown/markdown.c", "native/markdown/allocationbudget.h", "native/proofs/markdownallocatorproof.c",},
     [
         "ring-buffer"
     ] = {
         "native/httpcurl/transport.c",
         "native/httpcurl/transport.h",
         "native/httpcurl/ringbuffer.h",
-        "tests/core/ringbufferproof.c",
+        "native/proofs/ringbufferproof.c",
     },
     [
         "tcp-lifecycle"
@@ -59,14 +59,16 @@ local proofInputs = {
         "native/corebridge/tcp.h",
         "native/corebridge/streamio.c",
         "native/corebridge/streamio.h",
-        "tests/core/tcplifecycleproof.c",
-        "tests/core/tcpmodel/uv.h",
+        "native/proofs/tcplifecycleproof.c",
+        "native/proofs/tcpmodel/uv.h",
     },
 }
 
 -- Ordered, but not first-match-wins: a path contributes every surface whose
 -- pattern it matches. `src/nupp/compiler/aot/lower.nupp` is both the AOT surface
 -- and the compiler surface, and dropping either would lose a real obligation.
+-- A rule's third entry exempts exact paths from it, and `except` exempts
+-- patterns.
 local rules = {
     {"^docs/", {"docs"}},
     {"%.md$", {"docs"}},
@@ -153,6 +155,9 @@ local rules = {
     -- The C bridge the guests run through, which that leg also runs under
     -- the sanitizers.
     {"^native/corebridge/", {"core"}},
+    -- The CBMC harnesses run in their own job, selected by proofInputs above.
+    -- Like the core tests, they are linted with the bridge they prove.
+    {"^native/proofs/", {"core", "tests"}},
     -- The host facility's browser and native providers both implement it.
     {"^src/os/host%.nupp$", {"library", "browser", "native"}},
     {"^src/math/random%.nupp$", {"library", "browser"}},
@@ -160,7 +165,7 @@ local rules = {
     {"^src/package/nupp/", {"compiler", "library", "browser", "native"}},
     {"^src/nupp/", {"library"}},
 
-    {"^native/", {"native"}},
+    {"^native/", {"native"}, except = {"^native/proofs/"}},
     {"^runtime/wasm/", {"browser"}},
     {"^runtime/", {"native"}},
     {"^host/", {"native"}},
@@ -236,7 +241,11 @@ function classifier.surfacesOf(path)
     local found, any = {}, false
     for _, rule in ipairs(rules) do
         local excluded = rule[3]
-        if path:match(rule[1]) and not (excluded and excluded[path]) then
+        local skipped = excluded and excluded[path]
+        for _, pattern in ipairs(rule.except or {}) do
+            skipped = skipped or path:match(pattern)
+        end
+        if path:match(rule[1]) and not skipped then
             for _, surface in ipairs(rule[2]) do
                 found[surface], any = true, true
             end
@@ -296,7 +305,7 @@ function classifier.classify(paths)
     end
 
     local proofs = {}
-    local shared = changedC["tests/core/proofintrinsics.h"]
+    local shared = changedC["native/proofs/proofintrinsics.h"]
     for name, inputs in pairs(proofInputs) do
         local matched = shared
         for _, path in ipairs(inputs) do

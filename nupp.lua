@@ -701,7 +701,7 @@ return {
         },
         proofs = {
             description = "Run all CBMC proofs or the named proofs",
-            argv = {"sh", "bin/nupp", "run", "tests/core/proofs.nupp"},
+            argv = {"sh", "bin/nupp", "run", "native/proofs/proofs.nupp"},
         },
         [
             "docs-serve"

@@ -20,7 +20,7 @@ static int proofprint (FILE *stream, const char *format, ...);
 #define fread proofread
 #define fprintf proofprint
 #define main bridgemain
-#include "../../native/corebridge/main.c" /* NOLINT(bugprone-suspicious-include) */
+#include "../corebridge/main.c" /* NOLINT(bugprone-suspicious-include) */
 #undef main
 #undef fprintf
 #undef fread

@@ -8,8 +8,8 @@
 
 #include "proofintrinsics.h"
 #define NUPP_STREAM_WINDOW_BYTES 4
-#include "../../native/corebridge/tcp.c" /* NOLINT(bugprone-suspicious-include) */
-#include "../../native/corebridge/streamio.c" /* NOLINT(bugprone-suspicious-include) */
+#include "../corebridge/tcp.c" /* NOLINT(bugprone-suspicious-include) */
+#include "../corebridge/streamio.c" /* NOLINT(bugprone-suspicious-include) */
 
 enum { SAMPLE = NUPP_STREAM_WINDOW_BYTES };
 

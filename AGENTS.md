@@ -214,7 +214,7 @@ UPPERCASE for constants and macros.
 Use luacase for Nupp-owned C directories under `native/`.
 
 `./bin/nupp task proofs` runs the CBMC proofs. Pass one or more names from
-`tests/core/proofs.nupp` to select individual proofs. The task finds `cbmc`
+`native/proofs/proofs.nupp` to select individual proofs. The task finds `cbmc`
 on `PATH` or uses the executable named by `CBMC`. See
 [the C proofs skill](.agents/skills/nupp-c-proofs/SKILL.md) when adding a proof.
 

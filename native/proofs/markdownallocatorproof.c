@@ -4,7 +4,7 @@
  */
 
 #include "proofintrinsics.h"
-#include "../../native/markdown/allocationbudget.h"
+#include "../markdown/allocationbudget.h"
 
 /** Checks exact fit and accounting independently of the checked multiply. */
 static void provedebit (void) {

@@ -4,7 +4,7 @@
  */
 
 #include "proofintrinsics.h"
-#include "../../native/httpcurl/ringbuffer.h"
+#include "../httpcurl/ringbuffer.h"
 
 enum { SAMPLE_CAPACITY = 8 };
 
