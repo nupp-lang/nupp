@@ -160,10 +160,20 @@ static void *open_library (const char *path, int mode) {
   return library;
 }
 
+#ifndef NUPP_CORE_HTTP
+int nupp_http_scope_detach (void *scope);
+#endif
+
 static void *find_symbol (void *library, const char *name) {
   if (library && library == GetModuleHandleW(NULL)) {
     /* Bind guest self imports to this executable's linked CRT. Named
      * libraries resolve only their own exports. */
+    /* Resolve the CRT import expression at runtime. GCC can otherwise
+     * materialize its import thunk in the constant table. */
+    if (!strcmp(name, "strerror")) {
+      return (void *)(uintptr_t)strerror;
+    }
+
     const struct {
       const char *name;
       void (*address)(void);
@@ -180,11 +190,13 @@ static void *find_symbol (void *library, const char *name) {
         {"nupp_core_open_poller", (void (*)(void))win64_open_poller},
         {"nupp_core_page_size", (void (*)(void))win64_page_size},
         {"nupp_core_release_pages", (void (*)(void))win64_release_pages},
+#ifndef NUPP_CORE_HTTP
+        {"nupp_http_scope_detach", (void (*)(void))nupp_http_scope_detach},
+#endif
         {"nupp_uv_close", (void (*)(void))nupp_uv_close},
         {"nupp_uv_owner_active", (void (*)(void))nupp_uv_owner_active},
         {"nupp_uv_wait", (void (*)(void))nupp_uv_wait},
         {"nupp_uv_wait_owner", (void (*)(void))nupp_uv_wait_owner},
-        {"strerror", (void (*)(void))strerror},
         {"strlen", (void (*)(void))strlen},
     };
 
