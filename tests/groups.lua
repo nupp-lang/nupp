@@ -78,11 +78,8 @@ local groups = {
 
     ["gpu"] = {"gputest", "gpudevicetest"},
 
-    -- Capabilities the Rust VM will not grow before the flip deletes it:
-    -- cooperative channels between sibling tasks and the dedicated-worker
-    -- exchange need endpoint and message primitives the VM never had. They are
-    -- built on the native core, and these suites are part of what the flip has
-    -- to pass there. Until then CI's VM lanes leave them out.
+    -- Worker-channel delivery runs separately on the VM platforms. The native
+    -- core still needs worker lanes before its platform can run these suites.
     ["awaits-core"] = {"bundlechanneltest", "bundlededicatedtest"},
     -- Dependency ABI/provisioning only; HTTP/TLS behavior stays in its own suites.
     ["c-library-pins"] = {"opensslpintest", "libcurlpintest"},

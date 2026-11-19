@@ -182,6 +182,14 @@
         },
         {
           "name": "Run the compiler suite",
+          "platforms": ["linux", "windows"],
+          "groups": ["awaits-core"],
+          "guarantees": [
+            "standalone programs exchange owned channel messages across cooperative tasks and worker VMs"
+          ]
+        },
+        {
+          "name": "Run the compiler suite",
           "lanes": ["shared", "isolated", "shell"],
           "excludes": {
             "groups": ["external-corpus", "windows-preflight", "measurement", "native-runtime", "awaits-core"]

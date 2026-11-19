@@ -316,6 +316,21 @@ function M.theCoreLegsRunOnlyOnMacosWhenTheCoreIsSelected()
     end
 end
 
+function M.workerChannelDeliveryRunsOnTheVmPlatforms()
+    local composer = dofile(".github/scripts/compose-integration-matrix.lua")
+    for _, platform in ipairs(composer.platforms) do
+        local count = 0
+        for _, entry in ipairs(composer.compose(platform, true, true)) do
+            if entry.select == "--group=awaits-core" then
+                test.eq(entry.kind, "lane")
+                test.eq(entry.jobs, 1)
+                count = count + 1
+            end
+        end
+        test.eq(count, platform.key == "macos" and 0 or 1)
+    end
+end
+
 function M.packagingChangeSelectsEveryPlatform()
     selects("templates/library/nupp.lua", {"linux-integration", "macos-integration", "windows-integration"})
 end

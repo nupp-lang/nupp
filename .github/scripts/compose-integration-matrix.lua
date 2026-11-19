@@ -64,6 +64,7 @@ composer.platforms = {
             -- subset ran failed, and the full shards were stopped at forty
             -- minutes by the runner's shutdown signal (19 November). A `core`
             -- leg here, as on macOS below, is all it takes once the core runs.
+            {kind = "lane", title = "worker channels", select = "--group=awaits-core", jobs = 1},
             lane("shared", GROUPED, 4, 32),
             lane("isolated", GROUPED, 4),
             lane("shell", GROUPED, 4),
@@ -109,6 +110,7 @@ composer.platforms = {
         -- group runs in the gates leg.
         legs = {
             {kind = "gates", title = "native gates"},
+            {kind = "lane", title = "worker channels", select = "--group=awaits-core", jobs = 1},
             lane("shared", GROUPED .. ",windows-preflight", 3, 32),
             lane("isolated", GROUPED .. ",windows-preflight", 3),
             lane("shell", GROUPED .. ",windows-preflight", 2, 0, 2),
