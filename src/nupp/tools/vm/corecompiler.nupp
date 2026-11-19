@@ -15,8 +15,10 @@ names it, and `nupp fixpoint --runtime core` holds two stages of it to the
 same bytes.
 
 With ENTRY, a source under the checkout without its `.nupp`, it emits that
-program instead, as OUTPUT/NAME.bundle after the entry's file name. Nothing is
-kept between builds: what it emits follows from the sources alone.
+program instead, as OUTPUT/NAME.bundle after the entry's file name. Either
+way OUTPUT/lib/libnuppffi is staged beside it, the libffi a bundle loads
+relative to itself. Nothing is kept between builds: what it emits follows from
+the sources alone.
 ]]
 const fs = require("nupp.compiler.fs")
 const process = require("nupp.compiler.process")
@@ -54,6 +56,24 @@ local function stageMarkdown(root: string): nil
     assert(os.rename(pending, destination), "cannot stage " .. destination)
 end
 
+-- What a bundle's foreign calls with signatures known only as they run load,
+-- relative to the bundle (`nupp.runtime.core.foreignabi`): libffi's core C API.
+const FFI_LIBRARY = "lib/libnuppffi"
+
+-- Stages the pinned libffi beside the bundles in `output`, where they load it
+-- from (`scripts/native-libraries libffi`).
+local function stageFfi(root: string, output: string): nil
+    local status, built = process.capture({"sh", fs.join(root, "scripts/native-libraries"), "libffi"}, {cwd = root})
+    assert(status == 0, "libffi did not build: " .. built)
+    local prefix = assert(built:match("([^\r\n]+)\r?\n?$"), "scripts/native-libraries libffi named no library")
+    local directory = fs.join(output, "lib")
+    assert(fs.exists(directory) or fs.mkdir(directory), "cannot create " .. directory)
+    local destination = fs.join(output, FFI_LIBRARY)
+    local pending = destination .. "." .. fs.stagingSuffix()
+    assert(fs.copyFile(fs.join(prefix, FFI_LIBRARY), pending), "cannot stage " .. FFI_LIBRARY)
+    assert(os.rename(pending, destination), "cannot stage " .. destination)
+end
+
 local function fail(message: string, status: integer): integer
     io.stderr:write("nupp: ", message, "\n")
 
@@ -87,6 +107,7 @@ export function main(argv: {string}): integer
         local path = fs.join(output, name)
         local written, why = fs.writeFile(path, bytes)
         assert(written, "cannot write " .. path .. ": " .. tostring(why))
+        stageFfi(root as string, output as string)
     end)
     if not ok then
         return fail("the core bundle did not build: " .. tostring(problem), FAILURE_STATUS)

@@ -9,7 +9,8 @@
 #
 # The installed compiler is `.nupp/core-cli/current`, which names a generation
 # directory by its digest: the bridge (`runtime`), the compiler
-# (`compiler.bundle`) and `format`. A checkout with none builds one from these
+# (`compiler.bundle`), the libraries it loads relative to itself (`lib`) and
+# `format`. A checkout with none builds one from these
 # sources with the pinned core seed (`scripts/toolchain stage0-seed`); one whose
 # compiler sources changed since rebuilds with the compiler it has. Both build
 # through scripts/core-self-build. A rebuild that fails leaves the previous
@@ -43,9 +44,11 @@ selected() {
     printf '%s\n' "$CLI/$generation"
 }
 
-# Installs RUNTIME and COMPILER as a generation and selects it.
+# Installs RUNTIME and COMPILER as a generation and selects it, with the
+# libraries the compiler loads relative to itself (`lib` beside it).
 install_pair() {
     runtime=$1 compiler=$2
+    libraries=$(dirname "$compiler")/lib
     "$runtime" 2>&1 | grep -q '^nupp-core: usage: nupp-core BUNDLE INPUT OUTPUT' \
         || die "$runtime is not the core's C bridge"
     [ "$(head -c 8 "$compiler")" = NUPPCORE ] || die "$compiler is not a core compiler"
@@ -53,6 +56,11 @@ install_pair() {
     key=$({
         digest_stdin < "$runtime"
         digest_stdin < "$compiler"
+        if [ -d "$libraries" ]; then
+            for library in "$libraries"/*; do
+                [ -f "$library" ] && digest_stdin < "$library"
+            done
+        fi
     } | digest_stdin)
     destination="$CLI/$key"
     if [ ! -d "$destination" ]; then
@@ -62,6 +70,7 @@ install_pair() {
         cp "$runtime" "$staged/runtime"
         chmod 755 "$staged/runtime"
         cp "$compiler" "$staged/compiler.bundle"
+        [ ! -d "$libraries" ] || cp -RP "$libraries" "$staged/lib"
         printf '%s\n' "$FORMAT" > "$staged/format"
         mv "$staged" "$destination" 2>/dev/null || rm -rf "$staged"
     fi
