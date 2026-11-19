@@ -15,6 +15,7 @@ const ints = require("nupp.runtime.core.coreintegers")
 const guestscope = require("nupp.runtime.core.guestscope")
 const librarylayouts = require("nupp.runtime.core.librarylayouts")
 const hostpoll = require("nupp.runtime.core.hostpoll")
+const hostuv = require("nupp.runtime.core.hostuv")
 const hostfiles = require("nupp.runtime.core.hostfiles")
 const servicescope = require("nupp.runtime.core.servicescope")
 
@@ -77,6 +78,27 @@ local function finishText(ctx: voidptr, ticket: uint64, room: uint64): uint64
         end
         return values.TAG_OBJ | strings.finish(h, builder)
     end
+end
+
+-- Private scheduler call. Catalog routing is supplied by the composition.
+export function waitOwner(ctx: voidptr, a: uint64, b: uint64): uint64
+    @unsafe do
+        local h = heapOf(ctx)
+        local poller = integerOf(a)
+        if not servicescope.ownsPoller(native.loadPointer(ctx, context.SERVICE_SCOPE), poller) then
+            return ints.make(h, native.word(0 - INVALID))
+        end
+        return ints.make(h, native.word(hostpoll.waitOwner(h, poller, integerOf(b))))
+    end
+end
+
+-- Private query paired with waitOwner by the composition.
+export function ownerActive(): uint64
+    if hostuv.ownerActive() then
+        return values.TRUE
+    end
+
+    return values.FALSE
 end
 
 -- Reactor operation `operation` with its arguments a, b and c.

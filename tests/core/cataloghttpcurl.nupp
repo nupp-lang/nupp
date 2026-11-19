@@ -1,0 +1,458 @@
+module nupp.core.cataloghttpcurl
+
+-- Runs against tests/fixtures/http_server.mjs with its port in NUPP_HTTP_PORT.
+-- The core HTTP bundle must carry the native adapter and URI provider.
+local http = require("io.http")
+local io = require("io")
+local host = require("coroutine.host")
+local transport = require("nupp.io.http.internal.transport")
+local port = assert(os.getenv("NUPP_HTTP_PORT"))
+
+local function endpoint(path: string): io.URI
+    local url = assert(io.URI.of("http://127.0.0.1:" .. port .. path))
+    return url
+end
+
+local function checkHost(): nil
+    for host, expected in pairs({
+        ["café.example"] = "xn--caf-dma.example",
+        ["caf%C3%A9.example"] = "xn--caf-dma.example",
+        ["cafe%CC%81%E3%80%82EXAMPLE"] = "xn--caf-dma.example",
+        ["%78n--caf-dma.example"] = "xn--caf-dma.example",
+        ["faß.example"] = "xn--fa-hia.example",
+        ["-abc.example"] = "-abc.example",
+    }) do
+        local address = assert(io.URI.of("https://" .. host .. "/"))
+        assert(address:host() == expected)
+    end
+    assert(io.URI.of("https://a%E2%80%8Db.example/") == nil)
+    assert(io.URI.of("https://xn--.example/") == nil)
+
+    local normalized = assert(io.URI.of("https://EXAMPLE.com/a/../b?q=1"))
+    assert(normalized:tostring() == "https://example.com/b?q=1")
+    assert(normalized:host() == "example.com" and normalized:path() == "/b")
+    assert(normalized:query() == "q=1" and normalized:username() == "")
+    assert(normalized:password() == nil and normalized:port() == nil and normalized:fragment() == nil)
+
+    local absent = assert(io.URI.of("http://example.com"))
+    assert(absent:tostring() == "http://example.com/")
+    assert(absent:query() == nil and absent:fragment() == nil)
+    local empty = assert(io.URI.of("http://example.com/?#"))
+    assert(empty:tostring() == "http://example.com/?#")
+    assert(empty:query() == "" and empty:fragment() == "")
+
+    local relative, reason = io.URI.of("nonsense")
+    assert(relative == nil and reason == "relative URL without a base")
+end
+
+local function checkRequests(): nil
+    local client = http.Client.create({proxy = "", timeoutms = 5000})
+    do
+        local response = assert(client:send(http.Request(url = endpoint("/echo"), method = "POST", body = "a\0b")))
+        assert(response.status == 200)
+        assert(response.body:read(8) == "a\0b")
+        assert(response.body:read(1) == "")
+    end
+    do
+        local response = assert(
+            client:send(http.Request(url = endpoint("/echo"), method = "POST", headers = {["Content-Length"] = "0"}))
+        )
+        assert(response.status == 200)
+        assert(response.body:read(1) == "")
+    end
+    do
+        local response = assert(
+            client:send(http.Request(url = endpoint("/redirect"), headers = {Authorization = "secret"}))
+        )
+        assert(response.url:host() == "localhost")
+        assert(response.body:read(16) == "none")
+    end
+    do
+        local response = assert(client:send(http.Request(url = endpoint("/gzip"))))
+        assert(response.status == 200 and response.body:read(32) == "gzip\0response\n")
+        assert(response:header("Content-Encoding") == nil and response:header("Content-Length") == nil)
+    end
+    local response, issue = client:send(http.Request(url = endpoint("/slow"), timeoutms = 50))
+    assert(response == nil and issue ~= nil and issue.kind == "timeout")
+end
+
+local function checkLargeResponse(): nil
+    local client = http.Client.create({proxy = "", timeoutms = 5000})
+    local response = assert(client:send(http.Request(url = endpoint("/large"), headers = {["X-Asked"] = "please"})))
+    local expected = 4 * 1024 * 1024
+    local limit: integer = 8191
+    assert(response.status == 200 and response.version == "1.1")
+    assert(response:header("Content-Type") == "application/octet-stream")
+    assert(response:header("Content-Length") == tostring(expected))
+    assert(response:header("X-Repeated") == "one, two")
+    assert(response:header("X-Asked-Seen") == "please")
+    assert(client:pending() == 1, "/large must still be pending before reading")
+
+    local received = 0
+    while received < expected do
+        local part = assert(response.body:read(limit))
+        assert(#part > 0 and #part <= limit, "/large returned an empty or oversized chunk")
+        received = received + #part
+    end
+    assert(received == expected, "/large body length must match Content-Length")
+    assert(response.body:read(1) == "", "/large must return EOF")
+    response:close()
+    assert(client:pending() == 0, "/large must release its pending transfer")
+    client:close()
+end
+
+local function checkAdmission(): nil
+    local owner = own.manage(http.Client.create({proxy = "", maxpendingrequests = 1, timeoutms = 5000}))
+    local shared = owner:alias()
+    assert(
+        shared:with(function(borrows client: http.Client): boolean
+            local first = assert(client:send(http.Request(url = endpoint("/slow-body"))))
+            assert(first.status == 200 and client:pending() == 1)
+
+            local parked = false
+            local park = host.delegatedpark()
+            local canPark = host.delegatedcanpark()
+            local installation = host.install(
+                host.Handler(
+                    park = function(_: host.Handler, waiting: host.Waiting, cancel: function(): nil): nil
+                        if waiting.operation == "HTTP request admission" then
+                            assert(not parked and not waiting:ready())
+                            parked = true
+                            coroutine.yield()
+                        end
+                        park(waiting, cancel)
+                    end,
+                    canpark = function(_: host.Handler): boolean
+                        return canPark()
+                    end,
+                    shutdown = function(_: host.Handler): nil
+                    end
+                )
+            )
+
+            local second = coroutine.create(function(): nil
+                assert(
+                    shared:with(function(borrows other: http.Client): boolean
+                        local response = assert(other:send(http.Request(url = endpoint("/small"))))
+                        assert(response.status == 200 and response.body:read(64) == "small response\n")
+                        assert(response.body:read(1) == "")
+                        response:close()
+
+                        return true
+                    end)
+                )
+            end)
+            local ok, problem = coroutine.resume(second)
+            assert(ok, problem)
+            assert(parked and coroutine.status(second) == "suspended" and client:pending() == 1)
+            first:close()
+            assert(client:pending() == 0)
+            ok, problem = coroutine.resume(second)
+            assert(ok, problem)
+            assert(coroutine.status(second) == "dead" and client:pending() == 0)
+            installation:close()
+
+            return true
+        end)
+    )
+    owner:close()
+end
+
+local function checkProxy(): nil
+    local client = http.Client.create({
+        proxy = "http://127.0.0.1:" .. port,
+        noproxy = "127.0.0.1",
+        proxycredentials = "test:secret",
+        timeoutms = 5000
+    })
+    do
+        local url = assert(io.URI.of("http://origin.invalid/proxy"))
+        local response = assert(client:send(http.Request(url = url)))
+        assert(response.status == 200 and response.body:read(64) == "Basic dGVzdDpzZWNyZXQ=")
+    end
+    do
+        local response = assert(client:send(http.Request(url = endpoint("/authorization"))))
+        assert(response.status == 200 and response.body:read(32) == "none")
+    end
+end
+
+local function checkRequestFraming(): nil
+    local client = http.Client.create({proxy = "", timeoutms = 5000})
+    for _, case in ipairs({
+        {text = "hello!", reason = "the upload is longer than its declared 5 bytes"},
+        {text = "hel", reason = "the upload ended after 3 of its declared 5 bytes"},
+    }) do
+        local response, issue = client:send(
+            http.Request(
+                url = endpoint("/slow-upload"),
+                method = "POST",
+                body = http.reader(io.Reader.of(case.text), 5)
+            )
+        )
+        assert(response == nil and tostring(issue) == case.reason)
+    end
+
+    do
+        local response, issue = client:send(http.Request(url = endpoint("/echo"), headers = {["Content-Length"] = "5"}))
+        assert(response == nil and tostring(issue) == "Content-Length does not match the request body")
+        assert(client:pending() == 0)
+    end
+    do
+        local response, issue = client:send(
+            http.Request(url = endpoint("/echo"), method = "POST", body = "four", headers = {["Content-Length"] = "5"})
+        )
+        assert(response == nil and tostring(issue) == "Content-Length does not match the request body")
+        assert(client:pending() == 0)
+    end
+    do
+        local response, issue = client:send(
+            http.Request(
+                url = endpoint("/echo"),
+                method = "POST",
+                body = "four",
+                headers = {["Transfer-Encoding"] = "chunked"}
+            )
+        )
+        assert(response == nil and tostring(issue) == "Transfer-Encoding is chosen by the transport")
+        assert(client:pending() == 0)
+    end
+end
+
+local function checkFileBody(): nil
+    local scratch = assert(os.mktempdir("nupp-http-", ".test", os.getenv("NUPP_GUEST_TEMP") or "/tmp"))
+    local root = scratch:path():tostring()
+    local path = root .. "/body"
+    local payload = ("body\0\n"):rep(32768)
+    do
+        local file = assert(io.open(path, "wb"))
+        assert(file:write(payload))
+        file:close()
+    end
+    local completed = false
+    do
+        local scope = coroutine.scope()
+        scope:spawn(function(): nil
+            local client = http.Client.create({proxy = "", timeoutms = 5000})
+            local response = assert(
+                client:send(
+                    http.Request(
+                        url = endpoint("/redirect-upload"),
+                        method = "POST",
+                        headers = {["Content-Length"] = tostring(#payload)},
+                        body = http.file(path)
+                    )
+                )
+            )
+            assert(response.status == 200 and response.url:path() == "/echo")
+            local chunks: {string} = {}
+            while true do
+                local part = assert(response.body:read(32768))
+                if part == "" then
+                    break
+                end
+                chunks[#chunks + 1] = part
+            end
+            assert(table.concat(chunks) == payload)
+            completed = true
+        end)
+    end
+    assert(completed)
+    local client = http.Client.create({proxy = "", timeoutms = 5000})
+    local response, issue = client:send(http.Request(url = endpoint("/echo"), method = "POST", body = http.file(root)))
+    assert(response == nil and tostring(issue):find("is not a regular file", 1, true))
+
+    if os.info().platform ~= "windows" then
+        local device, deviceIssue = client:send(
+            http.Request(url = endpoint("/echo"), method = "POST", body = http.file("/dev/null"))
+        )
+        assert(
+            device == nil and tostring(deviceIssue) == "request body /dev/null is not a regular file",
+            tostring(deviceIssue)
+        )
+        assert(client:pending() == 0)
+    end
+
+    local wrongLength, lengthIssue = client:send(
+        http.Request(
+            url = endpoint("/echo"),
+            method = "POST",
+            headers = {["Content-Length"] = "1"},
+            body = http.file(path)
+        )
+    )
+    assert(
+        wrongLength == nil
+        and tostring(lengthIssue):find("request body file length changed before it was opened", 1, true)
+    )
+
+    local absent = root .. "/absent"
+    local missing, openIssue = client:send(
+        http.Request(url = endpoint("/echo"), method = "POST", body = http.file(absent))
+    )
+    assert(missing == nil and tostring(openIssue):find("cannot open request body " .. absent .. ":", 1, true))
+end
+
+local function checkEarlyResponse(): nil
+    local client = http.Client.create({proxy = "", timeoutms = 5000})
+    local chunk = ("x"):rep(65536)
+    local offered, unwound, closed = false, false, false
+    local reader = {
+        readinto = function(_: any, destination: any, offset: integer, count: integer): integer
+            if not offered then
+                offered = true
+                local part = chunk:sub(1, count)
+                destination:resize(offset + #part)
+                destination:writestring(offset, part)
+                return #part
+            end
+            local ok, problem = pcall(coroutine.sleep, 10000)
+            if not ok then
+                unwound = coroutine.iscancelled(problem) and not closed
+                error(problem, 0)
+            end
+
+            return 0
+        end,
+        read = function()
+            error("readInto is the upload path")
+        end,
+        close = function(_: any): nil
+            closed = true
+        end
+    }
+    do
+        local request = http.Request(
+            url = endpoint("/early"),
+            method = "POST",
+            body = http.reader(reader as any, 131072)
+        )
+        local response = assert(client:send(request))
+        assert(response.status == 413 and offered and unwound and not closed)
+        response:close()
+    end
+    assert(closed and client:pending() == 0)
+    client:close()
+end
+
+local function checkEarlyChunkedWire(): nil
+    local observer = http.Client.create({proxy = "", timeoutms = 5000})
+    local fixture = assert(observer:send(http.Request(url = endpoint("/early-wire"))))
+    assert(fixture.status == 200)
+    local address = assert(fixture.body:read(64))
+    assert(fixture.body:read(1) == "")
+    fixture:close()
+    local uploadPort, id = address:match("^(%d+)/(%d+)$")
+    assert(uploadPort and id, address)
+
+    local client = assert(
+        transport.newClient({
+            connectTimeoutMs = 5000,
+            maxRedirects = 0,
+            maxPendingRequests = 1,
+            maxConnections = 1,
+            maxConnectionsPerHost = 1,
+            insecureHosts = {},
+            proxy = ""
+        })
+    )
+    local url = assert(io.URI.of("http://127.0.0.1:" .. uploadPort .. "/upload"))
+    local upload = assert(
+        client:send({
+            uri = url,
+            method = "POST",
+            bodyKind = transport.BODY_UPLOAD,
+            timeoutMs = 5000,
+            stallTimeoutMs = 0,
+            maxBytes = 0,
+        })
+    )
+    assert(upload:offer(("x"):rep(8192)) == "accepted")
+    client:watch(true)
+
+    local function waitForIO(): nil
+        transport.snapshot()
+        if client:poll() == 0 then
+            transport.sleep(5000)
+        end
+    end
+
+    local head, status, _, _, _, reason = upload:head()
+    while head == "pending" do
+        waitForIO()
+        head, status, _, _, _, reason = upload:head()
+    end
+    assert(head == "ready" and status == 200, reason)
+    local postHeadOffer = upload:offer("after head")
+    assert(upload:takeBody())
+    local response = ""
+    local bodyState = "pending"
+    local bodyProblem: string? = nil
+    while true do
+        local state, bytes, problem = upload:bodyRead(2)
+        if state == "data" then
+            response = response .. bytes
+        elseif state == "pending" then
+            local forget = upload:onBody(function(): nil
+            end)
+            waitForIO()
+            forget()
+        else
+            bodyState, bodyProblem = state, problem
+            break
+        end
+    end
+    upload:close()
+    local pending = client:pending()
+    client:close()
+
+    local wireStatus = 0
+    local wire = ""
+    local wireProblem: string? = nil
+    local report, reportIssue = observer:send(http.Request(url = endpoint("/early-wire-result/" .. id)))
+    if report ~= nil then
+        wireStatus = report.status
+        local bytes, issue = report.body:read(128)
+        wire = bytes or ""
+        wireProblem = issue and tostring(issue) or nil
+        report:close()
+    else
+        wireProblem = tostring(reportIssue)
+    end
+    observer:close()
+
+    local observation = (
+        "early wire: bytes=%d body=%q terminal=%s error=%q offer=%s pending=%d wire_status=%d wire=%q wire_error=%q"
+    ):format(
+        #response,
+        response,
+        bodyState,
+        bodyProblem or "",
+        postHeadOffer,
+        pending,
+        wireStatus,
+        wire,
+        wireProblem or ""
+    )
+    assert(
+        response == "ok"
+        and bodyState == "eof"
+        and postHeadOffer == "closed"
+        and pending == 0
+        and wireStatus == 200
+        and wire == "open"
+        and wireProblem == nil,
+        observation
+    )
+end
+
+checkHost()
+checkRequests()
+checkLargeResponse()
+checkAdmission()
+checkProxy()
+checkRequestFraming()
+checkFileBody()
+checkEarlyResponse()
+checkEarlyChunkedWire()
+
+export const result = 1

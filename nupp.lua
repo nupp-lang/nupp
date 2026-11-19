@@ -109,10 +109,7 @@ local RESOURCES = {
         source = "src/nupp/runtime/provider/suspension.nupp",
         output = "nupp/compiler/nupp/runtime/provider/suspension.nupp"
     },
-    {
-        source = "src/nupp/runtime/provider/osuuid.nupp",
-        output = "nupp/compiler/nupp/runtime/provider/osuuid.nupp"
-    },
+    {source = "src/nupp/runtime/provider/osuuid.nupp", output = "nupp/compiler/nupp/runtime/provider/osuuid.nupp"},
     {
         source = "src/nupp/runtime/provider/nativeuri.nupp",
         output = "nupp/compiler/nupp/runtime/provider/nativeuri.nupp"
@@ -349,10 +346,7 @@ local RESOURCES = {
         source = "src/nupp/runtime/provider/osentropy.nupp",
         output = "nupp/compiler/nupp/runtime/provider/osentropy.nupp"
     },
-    {
-        source = "src/nupp/runtime/uuidspelling.nupp",
-        output = "nupp/compiler/nupp/runtime/uuidspelling.nupp"
-    },
+    {source = "src/nupp/runtime/uuidspelling.nupp", output = "nupp/compiler/nupp/runtime/uuidspelling.nupp"},
     {
         source = "src/nupp/runtime/provider/entropybytes.nupp",
         output = "nupp/compiler/nupp/runtime/provider/entropybytes.nupp"
@@ -462,6 +456,7 @@ for _, resource in ipairs({
     "src/nupp/io/internal/bufferstate.nupp",
     "src/nupp/io/internal/ownedreader.nupp",
     "src/nupp/io/internal/scalars.nupp",
+    "src/nupp/io/http/internal/readiness.nupp",
     "src/nupp/io/http/internal/transport.nupp",
 
     "src/nupp/gpu/internal.nupp",

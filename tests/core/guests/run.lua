@@ -267,11 +267,12 @@ local CASES = {
     {"iostandard", 0x7FFF00000000000F},
     {"reactorpipes", 0x7FFF001FFFFFFFFF},
     {"reactorfiles", 0x7FFF000000001FFF},
+    {"cataloghttpcurl", 0x7FFF000000000001},
     {"processexecute", 0x7FFF000000001FFF},
     {"processpopen", 0x7FFF00003FFFFFFF},
     {"processhandle", 0x7FFF000001FFFFFF},
     {"runnerlowering", 0x7FFF0000000000FF},
-    {"affineconstructors", 0x7FFF0000000000FF},
+    {"affineconstructors", 0x7FFF000000001FFF},
     {"absentffi", 0x7FFF000000000007},
     {"guestffi", 0x7FFF000000001FFF},
     {"cbridge", 0x7FFF00000000003F},
@@ -566,6 +567,7 @@ local STRESS = {
     iostandard = true,
     reactorpipes = true,
     reactorfiles = true,
+    cataloghttpcurl = true,
     processexecute = true,
     processpopen = true,
     processhandle = true,
@@ -1615,12 +1617,41 @@ local function shards(selectedCases, bridge, guard)
     os.exit(failed == 0 and 0 or 1)
 end
 
+local httpServer, httpPortFile
+
+local function startHttpFixture()
+    httpPortFile = os.tmpname()
+    httpServer = assert(
+        io.popen({"node", ROOT .. "/tests/fixtures/http_server.mjs", httpPortFile}, {
+            stdin = "null",
+            stdout = "null",
+            stderr = "null"
+        })
+    )
+    local deadline = os.monotonic() + 5000
+    local clock = require("nupp.vm.clock")
+    repeat
+        local port = math.tointeger(tonumber(read(httpPortFile)) or 0)
+        if port and port > 0 and port <= 65535 then
+            SETUP.cataloghttpcurl = "NUPP_HTTP_PORT=" .. port .. " "
+            return
+        end
+        assert(httpServer:isrunning(), "HTTP loopback fixture exited before publishing its port")
+        clock.sleep(10)
+    until os.monotonic() >= deadline
+    error("HTTP loopback fixture did not publish its port")
+end
+
 local function main()
+    local host = os.info()
+    local hasHttp = UNITS and host.platform == "macos" and host.arch == "aarch64"
     -- `run.lua --list` names every case, and whether a run of every case
     -- includes it, for acceptance.nupp's inventory.
     if arg[1] == "--list" then
         for _, case in ipairs(CASES) do
-            print(("case %s %s"):format(case[1], EXPLICIT[case[1]] and "explicit" or "default"))
+            if case[1] ~= "cataloghttpcurl" or hasHttp then
+                print(("case %s %s"):format(case[1], EXPLICIT[case[1]] and "explicit" or "default"))
+            end
         end
         return
     end
@@ -1634,7 +1665,7 @@ local function main()
     local selectedCases = {}
     if #arg == 0 then
         for _, case in ipairs(CASES) do
-            if not EXPLICIT[case[1]] then
+            if not EXPLICIT[case[1]] and (case[1] ~= "cataloghttpcurl" or hasHttp) then
                 selectedCases[#selectedCases + 1] = case
             end
         end
@@ -1642,6 +1673,7 @@ local function main()
     local selectedProcessLines = false
     for _, name in ipairs(arg) do
         local caseName = name == "processreuse" and "processlines" or name
+        assert(name ~= "cataloghttpcurl" or hasHttp, "cataloghttpcurl requires the macOS ARM64 unit-built core")
         local matched = false
         for _, case in ipairs(CASES) do
             if case[1] == caseName then
@@ -1702,6 +1734,14 @@ local function main()
         bridge, guard = tools(selectedCases)
         if shards(selectedCases, bridge, guard) then
             return
+        end
+    end
+    if not EMIT_ONLY then
+        for _, case in ipairs(selectedCases) do
+            if case[1] == "cataloghttpcurl" then
+                startHttpFixture()
+                break
+            end
         end
     end
     local started = os.time()
@@ -2283,7 +2323,26 @@ local function main()
     if shard then
         print(("shard result %d %d"):format(checks, #failures))
     end
-    os.exit(#failures == 0 and 0 or 1)
+
+    return #failures == 0 and 0 or 1
 end
 
-main()
+local ok, status = xpcall(main, debug.traceback)
+local cleaned, cleanupError = pcall(function()
+    if httpServer then
+        if httpServer:isrunning() then
+            httpServer:kill(true)
+        end
+        httpServer:close()
+    end
+end)
+if httpPortFile then
+    os.remove(httpPortFile)
+end
+if not ok then
+    error(status, 0)
+end
+if not cleaned then
+    error(cleanupError, 0)
+end
+os.exit(status or 0)

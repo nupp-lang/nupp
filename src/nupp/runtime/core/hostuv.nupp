@@ -8,6 +8,8 @@ cdef function nupp_uv_open(processDescriptor: int64): int64
 cdef function nupp_uv_processfd(token: uint64): int64
 cdef function nupp_uv_arm(token: uint64, descriptor: int64, interest: uint64): int64
 cdef function nupp_uv_wait(token: uint64, nanos: uint64): int64
+cdef function nupp_uv_wait_owner(token: uint64, nanos: uint64): int64
+cdef function nupp_uv_owner_active(): int32
 cdef function nupp_uv_close(token: uint64): int64
 cdef function nupp_uv_preserve_file(descriptor: uint64)
 
@@ -25,6 +27,14 @@ end
 
 export function wait(token: uint64, nanos: uint64): int64
     return nupp_uv_wait(token, nanos)
+end
+
+export function waitOwner(token: uint64, nanos: uint64): int64
+    return nupp_uv_wait_owner(token, nanos)
+end
+
+export function ownerActive(): boolean
+    return nupp_uv_owner_active() ~= 0
 end
 
 export function close(token: uint64): int64

@@ -1,0 +1,36 @@
+@!internal
+
+--- Private operations on the core's borrowed native loop. The service scope
+--- owns the tokens. Callbacks never enter guest code.
+local record HttpCalls
+    --- Connect timeout, admission limit, connection limits, compressed,
+    --- proxy mode, proxy, noProxy, and proxy credentials.
+    open: function(options: {any}): integer | string
+
+    close: function(client: integer): nil
+    pending: function(client: integer): integer
+    watch: function(client: integer, watching: boolean): nil
+
+    --- URL, method, headers, bytes, body kind and length, request and stall
+    --- timeouts, byte limit, and whether this host opted out of TLS checks.
+    --- A positive token is a request, zero is full, and text is an error.
+    send: function(client: integer, request: {any}): integer | string
+
+    release: function(request: integer): nil
+    cancel: function(request: integer): nil
+    ready: function(request: integer): integer
+    offer: function(request: integer, bytes: string, count: integer): integer
+    arm: function(request: integer): nil
+
+    --- Nil is pending, -1 is failure, and text holds the two little-endian
+    --- status bytes, one version byte, and the packed response headers.
+    head: function(request: integer): string | integer | nil
+
+    --- Empty text is EOF, -1 is pending, and -2 is failure.
+    read: function(request: integer, count: integer): string | integer
+
+    failure: function(request: integer): string?
+end
+
+local calls: HttpCalls
+return calls

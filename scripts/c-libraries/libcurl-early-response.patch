@@ -1,0 +1,53 @@
+--- a/include/curl/curl.h
++++ b/include/curl/curl.h
+@@ -2288,5 +2288,8 @@
+   /* Space-separated list of components to sign for HTTP Message Signatures */
+   CURLOPT(CURLOPT_HTTPSIG_HEADERS, CURLOPTTYPE_STRINGPOINT, 332),
+-
++
++  /* Nupp: stop an unfinished HTTP/1 upload when a final head arrives. */
++  CURLOPT(CURLOPT_NUPP_STOP_UPLOAD_ON_RESPONSE, CURLOPTTYPE_LONG, 333),
++
+   CURLOPT_LASTENTRY /* the last unused */
+ } CURLoption;
+--- a/lib/urldata.h
++++ b/lib/urldata.h
+@@ -1081,6 +1081,7 @@
+ #endif
+   BIT(http_fail_on_error);  /* fail on HTTP error codes >= 400 */
+   BIT(http_keep_sending_on_error); /* for HTTP status codes >= 300 */
++  BIT(nupp_stop_upload_on_response);
+   BIT(http_transfer_encoding); /* request compressed HTTP transfer-encoding */
+   BIT(allow_auth_to_other_hosts);
+   BIT(include_header); /* include received protocol headers in data output */
+--- a/lib/setopt.c
++++ b/lib/setopt.c
+@@ -400,6 +400,9 @@
+      * return error.
+      */
+     s->http_fail_on_error = enabled;
++    break;
++  case CURLOPT_NUPP_STOP_UPLOAD_ON_RESPONSE:
++    s->nupp_stop_upload_on_response = enabled;
+     break;
+   case CURLOPT_KEEP_SENDING_ON_ERROR:
+     s->http_keep_sending_on_error = enabled;
+--- a/lib/http.c
++++ b/lib/http.c
+@@ -4250,5 +4250,16 @@
+   if(k->httpcode >= 300) {
+     result = http_handle_send_error(data);
++    if(result)
++      goto out;
++  }
++
++  if(data->set.nupp_stop_upload_on_response && k->httpversion < 20 &&
++     !k->newurl && !Curl_creader_will_rewind(data) &&
++     !Curl_req_done_sending(data)) {
++    /* An incomplete HTTP/1 request makes this connection unusable for
++     * another request. Let normal receive framing finish this one. */
++    streamclose(conn);
++    result = Curl_req_abort_sending(data);
+     if(result)
+       goto out;
+   }

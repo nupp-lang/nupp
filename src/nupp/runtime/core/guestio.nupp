@@ -23,6 +23,8 @@ const clock = require("nupp.runtime.core.hostclock")
 const guestgc = require("nupp.runtime.core.guestgc")
 const guesttime = require("nupp.runtime.core.guesttime")
 const guestfiles = require("nupp.runtime.core.guestfiles")
+const guesthttp = require("nupp.runtime.core.guesthttp")
+const guesturi = require("nupp.runtime.core.guesturi")
 const librarytexts = require("nupp.runtime.core.librarytexts")
 const hostfiles = require("nupp.runtime.core.hostfiles")
 const guesthash = require("nupp.runtime.core.guesthash")
@@ -184,6 +186,47 @@ end
 -- number, as the bridge's system call answered it.
 export function files(ctx: voidptr, op: uint64, a: uint64, b: uint64, c: uint64): uint64
     local operation = integerOf(op)
+    if operation == librarylayouts.POLL_WAIT_OWNER then
+        return guestreactor.waitOwner(ctx, a, b)
+    elseif operation == librarylayouts.POLL_OWNER_ACTIVE then
+        return guestreactor.ownerActive()
+    elseif operation >= librarylayouts.HTTP_FIRST and operation <= librarylayouts.HTTP_LAST then
+        if operation == librarylayouts.HTTP_OPEN then
+            @unsafe do
+                local scope = native.loadPointer(ctx, context.SERVICE_SCOPE)
+                if servicescope.attachHttp(scope) ~= 0 then
+                    error("HTTP host calls: native owner attachment failed")
+                end
+            end
+            return guesthttp.open(ctx, a)
+        elseif operation == librarylayouts.HTTP_CLOSE then
+            return guesthttp.close(ctx, a)
+        elseif operation == librarylayouts.HTTP_PENDING then
+            return guesthttp.pending(ctx, a)
+        elseif operation == librarylayouts.HTTP_WATCH then
+            return guesthttp.watch(ctx, a, b)
+        elseif operation == librarylayouts.HTTP_SEND then
+            return guesthttp.send(ctx, a, b)
+        elseif operation == librarylayouts.HTTP_RELEASE then
+            return guesthttp.release(ctx, a)
+        elseif operation == librarylayouts.HTTP_CANCEL then
+            return guesthttp.cancel(ctx, a)
+        elseif operation == librarylayouts.HTTP_READY then
+            return guesthttp.ready(ctx, a)
+        elseif operation == librarylayouts.HTTP_OFFER then
+            return guesthttp.offer(ctx, a, b, c)
+        elseif operation == librarylayouts.HTTP_ARM then
+            return guesthttp.arm(ctx, a)
+        elseif operation == librarylayouts.HTTP_HEAD then
+            return guesthttp.head(ctx, a)
+        elseif operation == librarylayouts.HTTP_READ then
+            return guesthttp.read(ctx, a, b)
+        elseif operation == librarylayouts.HTTP_FAILURE then
+            return guesthttp.errorOf(ctx, a)
+        end
+    elseif operation == librarylayouts.URI_ASCII_DOMAIN then
+        return guesturi.asciiDomain(ctx, a)
+    end
     if operation >= librarylayouts.FILESYSTEM_FIRST and operation <= librarylayouts.FILESYSTEM_LAST then
         return guestfiles.call(ctx, operation, a, b)
     end

@@ -17,48 +17,14 @@ spill check runs against it. Unsupported hosts fail explicitly.
 | readiness callbacks | `reactor.h` is the internal shared-loop boundary: opaque subscriptions multiplex one `uv_poll_t` per descriptor on one thread-owned loop. Nupp keeps delivery and scheduler policy. These callbacks only queue readiness; Nupp's checked FFI cannot currently supply this raw callback entry. |
 | Rust `#[cfg(test)]` guards and fixtures | `guard.c`, `tests/core/bridgecontracts.c` and `bridgeabi.S` are test-only. The Rust-only shared-memory fault guards were never selected by a runner and were deleted with the crate. |
 
-No libcurl, OpenSSL, zlib or wgpu wrapper is introduced. The production C knows
-no Nupp values, signatures, heap layout, task objects or HTTP/TLS policy.
-Thread workers receive copied bytes and descriptors and never call Nupp.
-The loop owner alone calls `uv_run`, with `UV_RUN_ONCE` for waiting and
-`UV_RUN_NOWAIT` for a nonblocking turn. It refuses recursive entry. Native file
-queues hold at most 256 requests and 128 MiB of copied buffers; Nupp retains
-its existing entry resource budget. Cancellation before native submission spends
-the ticket; afterward it returns zero and must be collected or settled.
-Active reads and writes hold a close-on-exec duplicate through the callback.
-If Nupp closes a descriptor first, the close path captures any queued work
-before the descriptor number can be reused.
+The macOS ARM64 build links the libcurl transport and the selected SDK ICU
+stub at a macOS 11.0 deployment floor. Linux ARM64 builds the C bridge with
+libuv. HTTP and URI adapter support is limited to the macOS ARM64 core.
+The native callbacks work on copied bytes and descriptors. Nupp owns the
+managed task and HTTP policy.
 
-`pollcalls.close` retires an opaque subscription, never an OS descriptor.
-Nupp journals poller ownership separately from files and drains native requests
-before closing watchers, then files. `uv_close` callbacks release handle storage
-and owned compatibility descriptors. The bootstrap's final shutdown drains all
-remaining native callbacks before unmapping the entry; the pinned shared library
-remains linked throughout. If an adapter still owns a live handle, shutdown
-refuses and the standalone process exits with the entry still mapped.
-
-Current macOS `posix_spawn` process groups/reaping remain unchanged: a process
-exit filter descriptor is watched through the shared libuv loop. This limited
-compatibility path ends with the dedicated `uv_spawn` migration. Later process,
-socket, DNS and curl adapters must reuse this owned loop and preserve Nupp's
-normal completion/delivery boundary. No frozen VM, browser or Tokio caller is
-migrated by this transport change.
-
-Native adapters borrow `nupp_uv_loop()` from `reactor.h` on the owning thread;
-they do not create or drive another loop. They must retire their native handles
-and requests before final shutdown. Nupp uses `hostuv.nupp` and the existing six
-pool imports, with `servicescope.pollOpen/pollClose` as the concrete poller owner.
-`pollClose` returns zero only after withdrawal and close-callback drain, or a
-negative error without consuming the journal owner. It never spends file jobs.
-`nupp_io_cancel` returns one only for an unsubmitted, spent ticket; zero always
-requires `take` plus `finish`, or `nupp_io_settle`. Settlement drives the owner
-loop until that request's callback/cleanup, spends its ticket and transfers the
-open result descriptor to its caller. Scope cleanup closes that descriptor.
-Read settlement discards its copied bytes. Native jobs remain counted until
-finish/settle even after their language waiter has canceled.
-
-`scripts/core-bridge --test` builds using the C compiler and pinned libuv SDK.
-Its tests reject malformed packets, calibrate executable-memory and AAPCS64
+`scripts/core-bridge --test` uses the same pinned native libraries as the
+bridge. Its tests reject malformed packets, calibrate executable-memory and AAPCS64
 guards, and exercise queued cancellation, active-work draining, stale tickets
 and independent completion queues. Full Nupp fixture acceptance is separate
 from these native contract tests.

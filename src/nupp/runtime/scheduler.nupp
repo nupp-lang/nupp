@@ -26,9 +26,11 @@ nothing else can run.
 ]]
 
 local calls = require("nupp.runtime.taskcalls")
+local pollcalls = require("nupp.runtime.pollcalls")
 local reactor = require("nupp.runtime.reactor")
 local suspension = require("nupp.suspension")
 local suspensionHost = require("nupp.suspension.host")
+local taskownership = require("nupp.runtime.taskownership")
 
 -- What a run of a task answers first.
 const RETURNED = 1
@@ -177,12 +179,36 @@ local function fire(entry: any): nil
     end
 end
 
+-- How many tasks are parked on a nupp.suspension wait.
+local suspended: integer = 0
+
+local ownerWait: reactor.OwnerWait? = nil
+local ownerActive: (function(): boolean)? = nil
+
+-- Only a native composition with a bound owner call installs this route.
+export function installOwnerWait(poll: reactor.OwnerWait?, active: (function(): boolean)?): nil
+    ownerWait = poll
+    ownerActive = poll ~= nil and active or nil
+end
+
+local function ownerWork(): boolean
+    local active = ownerActive
+    return suspended > 0 or reactor.owesPoolWork() or (active ~= nil and active())
+end
+
+local function ownerTurn(poll: reactor.OwnerWait, deadline: number): nil
+    reactor.waitOwner(poll, deadline)
+    suspension.poll()
+end
+
 -- The scheduler's wait while nothing can run: the reactor's, taking I/O
 -- completions too with the nearest deadline as its timeout, once any I/O is
 -- pending; with none, the bridge's sleep. Both clocks are the monotonic one
 -- in milliseconds.
-local function wait(milliseconds: number): nil
-    if reactor.pending() > 0 then
+local function wait(milliseconds: number, poll: reactor.OwnerWait?): nil
+    if poll ~= nil then
+        ownerTurn(poll, (calls.now() as number) + milliseconds)
+    elseif reactor.pending() > 0 then
         reactor.wait((calls.now() as number) + milliseconds)
     else
         calls.sleep(milliseconds)
@@ -191,12 +217,13 @@ end
 
 local runone: function(any): nil
 
--- How many tasks are parked on a nupp.suspension wait.
-local suspended: integer = 0
-
 -- Runs one runnable task, or waits for the nearest timer and fires what is
 -- due. Raises when nothing could ever wake the caller.
 local function step(): nil
+    local poll = ownerWait
+    if head <= tail and poll ~= nil and ownerWork() then
+        ownerTurn(poll, calls.now() as number)
+    end
     if head <= tail then
         local record = queue[head]
         queue[head] = nil
@@ -215,12 +242,13 @@ local function step(): nil
             return
         end
     end
+    local owner = poll ~= nil and ownerWork() and poll or nil
     while #timers > 0 and stale(timers[1]) do
         poptimer()
     end
     if #timers == 0 then
-        if polling then
-            wait(SOURCE_SLICE_MS)
+        if polling or owner ~= nil then
+            wait(SOURCE_SLICE_MS, owner)
             return
         end
         -- Only I/O can wake a task now: the reactor waits for it.
@@ -233,7 +261,7 @@ local function step(): nil
     local now = calls.now() as number
     local at = timers[1].at as number
     if at > now then
-        wait(polling and math.min(at - now, SOURCE_SLICE_MS) or at - now)
+        wait((polling or owner ~= nil) and math.min(at - now, SOURCE_SLICE_MS) or at - now, owner)
         now = calls.now() as number
     end
     while #timers > 0 and timers[1].at <= now do
@@ -407,7 +435,9 @@ local function settle(record: any, status: string, value: any): nil
     local scope = record.scope
     scope.live = scope.live - 1
     unlink(scope, record)
-    if status == "failed" then
+    if scope.onSettle ~= nil then
+        scope.onSettle(record)
+    elseif status == "failed" then
         ownfailure(scope, value)
     end
     local waiters = record.waiters
@@ -658,6 +688,68 @@ ScopeMethods.close = function(scope: any): nil
     end
 end
 
+-- A racing scope records the first settlement and drains through the same
+-- shielded close as an ordinary scope.
+export function race(takes bodies: {function(): any}): (any, integer?)
+    local branches: {function(): any} = @unsafe own.release(bodies)
+    if #branches == 0 then
+        return nil, nil
+    end
+
+    local scope = open(nil, nil)
+    local winner: any = nil
+    scope.onSettle = function(record: any): nil
+        if scope.cancellation == nil and record.status ~= "cancelled" then
+            winner = record
+            cancelscope(scope, "another branch settled first", true)
+        end
+    end
+    local entered, entryProblem = pcall(function(): nil
+        for index, body in ipairs(branches) do
+            local thread = start(scope, "a racing branch", body, {[0] = 0})
+            local record = calls.data(thread)
+            record.raceIndex = index
+        end
+    end)
+    if not entered then
+        cancelscope(scope, "the racing family could not start", true)
+    end
+    local drained, drainProblem = pcall(ScopeMethods.close, scope)
+    if not scope.closed then
+        error(drainProblem, 0)
+    end
+    scope.onSettle = nil
+    -- A consuming callable's release is a no-op after it has run.
+    local released, releaseProblem = true, nil
+    for _, body in ipairs(branches) do
+        local ok, problem = pcall(taskownership.release, body)
+        if not ok and released then
+            released, releaseProblem = false, problem
+        end
+    end
+    if not drained then
+        error(drainProblem, 0)
+    elseif not entered then
+        error(entryProblem, 0)
+    elseif winner ~= nil and winner.status == "failed" then
+        error(winner.problem, 0)
+    elseif not released then
+        error(releaseProblem, 0)
+    end
+    if winner == nil then
+        return nil, nil
+    end
+
+    local index = winner.raceIndex as integer
+    local results = winner.results
+    local count = (results[0] as integer) - 1
+    if count > 1 then
+        error(("nupp: branch %d returned %d values, and a family branch answers one"):format(index, count), 0)
+    end
+
+    return results[2], index
+end
+
 ----------------------------------------------------------------------------
 -- Threads' methods
 ----------------------------------------------------------------------------
@@ -744,6 +836,10 @@ local function checkpoint(): nil
     if record == nil then
         -- The main thread's stack lets what is runnable now run once.
         local count = tail - head + 1
+        local poll = ownerWait
+        if count == 0 and poll ~= nil and ownerWork() then
+            ownerTurn(poll, calls.now() as number)
+        end
         for _ = 1, count do
             if head <= tail then
                 step()
@@ -813,7 +909,17 @@ local function iopark(): reactor.Completion
     )
 end
 
+-- Core call modules supply direct calls, so pass ordinary functions here.
+local function waitOwnerCall(poller: integer, nanos: integer): integer
+    return pollcalls.waitOwner(poller, nanos)
+end
+
+local function ownerActiveCall(): boolean
+    return pollcalls.ownerActive()
+end
+
 reactor.install(reactor.Parker(waker = iowaker, park = iopark))
+installOwnerWait(waitOwnerCall, ownerActiveCall)
 
 export const functions: {
     [string]: any

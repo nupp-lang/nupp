@@ -477,12 +477,12 @@ stage0_image() {
 CORE_SEED_FILES='NOTICE.md compiler.bundle manifest.json runtime'
 # Beside them, `lib/FILE`: the libraries the compiler loads relative to itself
 # (libffi, zlib, the ISA-L CRC, Markdown; `nupp.tools.vm.corecompiler`), each
-# named in the manifest with its digest. The libuv notices travel with its
-# shared library.
+# named in the manifest with its digest. Runtime notices travel with their shared libraries.
 core_seed_sidecar() {
     case "$1" in
         notices/libuv-LICENSE.txt | notices/libuv-LICENSE-extra.txt | \
-        notices/libuv-inet-LICENSE.txt | notices/libuv-tree-LICENSE.txt) ;;
+        notices/libuv-inet-LICENSE.txt | notices/libuv-tree-LICENSE.txt | \
+        notices/libcurl-LICENSE.txt | notices/OpenSSL-LICENSE.txt | notices/zlib-LICENSE.txt) ;;
         lib/*/* | lib/.* | lib/) return 1 ;;
         lib/*) case "${1#lib/}" in *[!A-Za-z0-9._-]*) return 1 ;; esac ;;
         *) return 1 ;;

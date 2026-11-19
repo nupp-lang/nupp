@@ -46,6 +46,17 @@ const BODY_INLINE = transport.BODY_INLINE
 const BODY_UPLOAD = transport.BODY_UPLOAD
 const BODY_FILE = transport.BODY_FILE
 
+local record FileUploadOwner is own.Closeable
+    upload: transport.UploadFile?
+
+    function close(takes self): nil
+        local file = self.upload
+        if file ~= nil then
+            file.close()
+        end
+    end
+end
+
 local interface BodyClient
     _native: NativeClient
     _retainSource: function(self: BodyClient, context: suspension.Context): nil
@@ -847,7 +858,7 @@ record http.Client is BodyClient, contracts.Client
             -- nothing settled, so an event between the drain and the sleep still wakes
             -- it.
             transport.snapshot()
-            if self._native:poll() == 0 and waitMs > 0 then
+            if self._native:poll() == 0 then
                 transport.sleep(waitMs)
                 self._native:poll()
             end
@@ -871,6 +882,7 @@ function http.Client._retainSource(self: http.Client, context: suspension.Contex
                 return backend:poll()
             end)
         )
+        backend:watch(true)
     end
     self._sourceUsers = self._sourceUsers + 1
     context:uses(self._source as suspension.Source)
@@ -879,6 +891,7 @@ end
 function http.Client._releaseSource(self: http.Client): nil
     self._sourceUsers = self._sourceUsers - 1
     if self._sourceUsers == 0 and self._source ~= nil then
+        self._native:watch(false)
         self._source:release()
         self._source = nil
     end
@@ -959,7 +972,6 @@ function http.Client:send(borrows request: http.Request): (http.Response?, io.Er
     end
     local requestBody = given.body
     local body, bodyKind, bodyLength = requestBody, 0, nil
-    local reader: io.Reader? = nil
     local contentType = nil
     if body ~= nil then
         local concrete: any = body
@@ -973,8 +985,8 @@ function http.Client:send(borrows request: http.Request): (http.Response?, io.Er
             bodyLength = #source
             body = spanText(source:ref(), #source)
         elseif concrete.reader ~= nil then
-            reader = concrete.reader
             bodyKind = BODY_UPLOAD
+            body = nil
             bodyLength = concrete.len
             contentType = concrete.contenttype
             if bodyLength ~= nil then
@@ -1031,6 +1043,19 @@ function http.Client:send(borrows request: http.Request): (http.Response?, io.Er
     if not suspension.canSuspend() then
         error("nupp: HTTP request cannot suspend here", 2)
     end
+    local fileOwner: affine(FileUploadOwner) = FileUploadOwner(upload = nil)
+    local openUpload = transport.openUploadFile
+    if bodyKind == BODY_FILE and openUpload ~= nil then
+        local opened, message = openUpload(body as string)
+        if opened == nil then
+            return nil, privateIo.toError(message)
+        end
+        fileOwner.upload = opened
+        bodyLength = opened.size
+        descriptor.bodyKind = BODY_UPLOAD
+        descriptor.bodyLength = bodyLength
+        descriptor.body = nil
+    end
     local transfer, reason
     while transfer == nil do
         remaining = math.floor(deadline - self._native:now()) as integer
@@ -1041,6 +1066,9 @@ function http.Client:send(borrows request: http.Request): (http.Response?, io.Er
         local full: boolean?
         transfer, reason, full = self._native:send(descriptor)
         if transfer == nil and not full then
+            if fileOwner.upload ~= nil and reason == "Content-Length does not match the request body" then
+                return nil, privateIo.toError("request body file length changed before it was opened")
+            end
             return nil, privateIo.toError(reason)
         elseif transfer == nil then
             waitAdmission(self)
@@ -1050,31 +1078,53 @@ function http.Client:send(borrows request: http.Request): (http.Response?, io.Er
         end
     end
     local head, problem
-    if reader ~= nil then
-        local scratch = byteapi.Buffer.create(UPLOAD_SIZE)
+    local file = fileOwner.upload
+    if bodyKind == BODY_UPLOAD or file ~= nil then
         local uploadTransfer = transfer
+        local fileRemaining = file ~= nil and file.size or 0
 
-        local function uploadAndWait(): any takes (scratch)
-            local transferred: integer = 0
+        local function fill(exclusive destination: byteapi.Buffer, offset: integer, count: integer): (integer?, string?)
+            if file == nil then
+                return readUpload((request.body as messages.ReaderBody).reader, destination, offset, count)
+            end
+            if fileRemaining == 0 then
+                return 0, nil
+            end
+            local bytes, failure = file.read(math.min(count, fileRemaining) as integer)
+            if bytes == nil then
+                return nil, failure
+            end
+            fileRemaining = fileRemaining - #bytes
+            if #bytes ~= 0 then
+                destination:resize(offset + #bytes)
+                destination:writestring(offset, bytes)
+            end
+
+            return #bytes, nil
+        end
+
+        local function failed(message: string): any
+            transfer:cancel()
+            if file ~= nil then
+                return {reason = message}
+            end
+            error(message, 0)
+        end
+
+        local function uploadAndWait(): any
+            local scratch = byteapi.Buffer.create(UPLOAD_SIZE)
             while true do
                 scratch:reset()
-                local got, failure = readUpload(reader, scratch, 0, UPLOAD_SIZE)
+                local got, failure = fill(scratch, 0, UPLOAD_SIZE)
                 if got == nil then
-                    transfer:cancel()
-                    error(failure or "HTTP request reader failed", 0)
+                    return failed(failure or "HTTP request reader failed")
                 end
                 local finished = got == 0
                 if not finished and (got as integer) < COALESCE_BELOW then
                     while scratch:len() < UPLOAD_PAGE do
-                        local more, moreFailure = readUpload(
-                            reader,
-                            scratch,
-                            scratch:len(),
-                            UPLOAD_PAGE - scratch:len()
-                        )
+                        local more, moreFailure = fill(scratch, scratch:len(), UPLOAD_PAGE - scratch:len())
                         if more == nil then
-                            transfer:cancel()
-                            error(moreFailure or "HTTP request reader failed", 0)
+                            return failed(moreFailure or "HTTP request reader failed")
                         elseif more == 0 then
                             finished = true
                             break
@@ -1093,25 +1143,15 @@ function http.Client:send(borrows request: http.Request): (http.Response?, io.Er
                         end
                         appendWaiter(self, transfer, "upload space", false)
                     end
-                    transferred = transferred + offered
                 end
                 if finished then
-                    if bodyLength ~= nil and transferred ~= bodyLength then
-                        transfer:cancel()
-                        error(
-                            ("HTTP request reader ended after %d bytes; expected %d"):format(transferred, bodyLength),
-                            0
-                        )
-                    end
-                    if transfer:finishUpload() == "closed" then
-                        return waitHead(self, transfer, false)
-                    end
+                    transfer:finishUpload()
                     return waitHead(self, transfer, false)
                 end
             end
         end
 
-        local ok, value = pcall(function(): any takes (uploadAndWait)
+        local ok, value = pcall(function(): any
             local answer = tasks.race({
                 uploadAndWait,
                 function(): any
@@ -1121,6 +1161,11 @@ function http.Client:send(borrows request: http.Request): (http.Response?, io.Er
 
             return answer
         end)
+        -- The race drains its losing task before the file descriptor closes.
+        if file ~= nil then
+            fileOwner.upload = nil
+            file.close()
+        end
         if not ok then
             transfer:cancel()
             transfer:close()
@@ -1193,7 +1238,7 @@ function http.Client:send(borrows request: http.Request): (http.Response?, io.Er
                         merged[spelling] = nil
                     end
                 end
-            elseif reader ~= nil then
+            elseif bodyKind == BODY_UPLOAD then
                 transfer:close()
                 return nil, privateIo.toError("HTTP redirect cannot replay a ReaderBody", "unsupported")
             end

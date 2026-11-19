@@ -6,6 +6,7 @@
 #include "transport.h"
 #include "reactor.h"
 #include "process.h"
+#include "transport.h"
 #include <uv.h>
 #include <errno.h>
 #include <fcntl.h>
@@ -63,13 +64,16 @@ struct Job {
 typedef struct Service {
   uv_loop_t loop;
   uv_timer_t timer;
+  nupp_uv_owner_step_fn owner_step;
+  nupp_uv_owner_ready_fn owner_ready;
+  void *owner_ctx;
   Poller *pollers;
   Timer *timers;
   Watch *watches;
   Job *jobs, *finished, **finished_tail;
   size_t jobs_count, active_jobs, active_limit, bytes, watches_count,
       subscriptions_count;
-  size_t adapter_count, closing_timers;
+  size_t adapter_count, closing_timers, closing_watches;
   int wake[2], running, shutting_down;
 } Service;
 
@@ -184,6 +188,7 @@ static void closed (uv_handle_t *handle) {
   }
 
   service->watches_count--;
+  service->closing_watches--;
   free(w);
 }
 
@@ -286,6 +291,64 @@ static int64_t open_poller (int process_fd, int socket_fd, uint64_t owner) {
   return (int64_t)p->token;
 }
 
+static int subscribe (Poller *p, int fd, Subscription **out) {
+  if (service->subscriptions_count == MAX_SUBSCRIPTIONS) {
+    return -EAGAIN;
+  }
+
+  Subscription *s = calloc(1, sizeof(*s));
+
+  if (!s) {
+    return -ENOMEM;
+  }
+
+  Watch *w = service->watches;
+
+  while (w && w->fd != fd) {
+    w = w->next;
+  }
+
+  if (!w) {
+    if (service->watches_count == MAX_WATCHES) {
+      free(s);
+
+      return -EAGAIN;
+    }
+
+    w = calloc(1, sizeof(*w));
+
+    if (!w) {
+      free(s);
+
+      return -ENOMEM;
+    }
+
+    int status = uv_poll_init(&service->loop, &w->handle, fd);
+
+    if (status) {
+      free(w);
+      free(s);
+
+      return status;
+    }
+
+    w->handle.data = w;
+    w->fd = fd;
+    w->close_fd = -1;
+    w->next = service->watches;
+    service->watches = w;
+    service->watches_count++;
+  }
+
+  s->watch = w;
+  s->next = p->subscriptions;
+  p->subscriptions = s;
+  service->subscriptions_count++;
+  *out = s;
+
+  return 0;
+}
+
 static int disarm (Subscription **at) {
   Subscription *s = *at;
 
@@ -329,6 +392,7 @@ static int disarm (Subscription **at) {
 
   *wat = w->next;
   uv_poll_stop(&w->handle);
+  service->closing_watches++;
   uv_close((uv_handle_t *)&w->handle, closed);
 
   return 0;
@@ -352,59 +416,13 @@ static int arm (Poller *p, int fd, int interest) {
   }
 
   if (!s) {
-    if (service->subscriptions_count == MAX_SUBSCRIPTIONS) {
-      return -EAGAIN;
+    int status = subscribe(p, fd, &s);
+
+    if (status) {
+      return status;
     }
 
-    s = calloc(1, sizeof(*s));
-
-    if (!s) {
-      return -ENOMEM;
-    }
-
-    Watch *w = service->watches;
-
-    while (w && w->fd != fd) {
-      w = w->next;
-    }
-
-    if (!w) {
-      if (service->watches_count == MAX_WATCHES) {
-        free(s);
-
-        return -EAGAIN;
-      }
-
-      w = calloc(1, sizeof(*w));
-
-      if (!w) {
-        free(s);
-
-        return -ENOMEM;
-      }
-
-      int status = uv_poll_init(&service->loop, &w->handle, (int)fd);
-
-      if (status) {
-        free(w);
-        free(s);
-
-        return status;
-      }
-
-      w->handle.data = w;
-      w->fd = (int)fd;
-      w->close_fd = -1;
-      w->next = service->watches;
-      service->watches = w;
-      service->watches_count++;
-    }
-
-    s->watch = w;
-    s->next = p->subscriptions;
-    p->subscriptions = s;
     at = &p->subscriptions;
-    service->subscriptions_count++;
   }
 
   s->ready = 0;
@@ -446,7 +464,7 @@ int64_t nupp_uv_arm (uint64_t token, int64_t fd, uint64_t interest) {
   return arm(p, (int)fd, (int)interest);
 }
 
-int64_t nupp_uv_socket_open (int64_t fd) {
+static int adapter_available (int64_t fd) {
   if (fd < 0 || fd > INT_MAX) {
     return -EBADF;
   }
@@ -455,6 +473,16 @@ int64_t nupp_uv_socket_open (int64_t fd) {
     if (p->owner == p->token && p->socket_fd == fd) {
       return -EEXIST;
     }
+  }
+
+  return 0;
+}
+
+int64_t nupp_uv_socket_open (int64_t fd) {
+  int status = adapter_available(fd);
+
+  if (status) {
+    return status;
   }
 
   int type;
@@ -491,6 +519,18 @@ int nupp_uv_socket_arm (uint64_t token, uint64_t interest) {
   return arm(p, p->socket_fd, (int)interest);
 }
 
+int nupp_uv_socket_ready (uint64_t token) {
+  Poller *p = poller(token);
+
+  if (!p || !p->owner) {
+    return -EBADF;
+  }
+
+  const Subscription *s = p->subscriptions;
+
+  return s ? s->ready : 0;
+}
+
 int nupp_uv_socket_take (uint64_t token) {
   Poller *p = poller(token);
 
@@ -516,6 +556,36 @@ static void drop_socket (Poller **at) {
   *at = p->next;
   free(p);
   service->adapter_count--;
+}
+
+int64_t nupp_uv_descriptor_open (int64_t fd) {
+  int status = adapter_available(fd);
+
+  if (status) {
+    return status;
+  }
+
+  if (fcntl((int)fd, F_GETFD) < 0) {
+    return -errno;
+  }
+
+  int64_t token = open_poller(-1, (int)fd, 0);
+
+  if (token < 0) {
+    return token;
+  }
+
+  /* open_poller prepends the owner. Validate without arming any interest. */
+  Subscription *s;
+  status = subscribe(service->pollers, (int)fd, &s);
+
+  if (status) {
+    drop_socket(&service->pollers);
+
+    return status;
+  }
+
+  return token;
 }
 
 int nupp_uv_socket_drop (uint64_t observer) {
@@ -646,6 +716,12 @@ int nupp_uv_timer_replace (uint64_t token, int64_t delay_ms) {
   return uv_timer_start(&timer->handle, timer_ready, (uint64_t)delay_ms, 0);
 }
 
+int nupp_uv_timer_ready (uint64_t token) {
+  const Timer *timer = service ? *timer_at(token) : NULL;
+
+  return timer ? timer->ready : -EBADF;
+}
+
 int nupp_uv_timer_take (uint64_t token) {
   Timer *timer = service ? *timer_at(token) : NULL;
 
@@ -712,12 +788,7 @@ static void completed (uv_fs_t *request) {
   Job *job = request->data;
   job->result = request->result;
   uv_fs_req_cleanup(request);
-
-  if (job->descriptor >= 0) {
-    close(job->descriptor);
-    job->descriptor = -1;
-  }
-
+  /* The ticket owns its duplicate and bytes until dispose at collection. */
   service->active_jobs--;
   job->done = 1;
   *service->finished_tail = job;
@@ -794,16 +865,122 @@ static void submit_jobs (void) {
   }
 }
 
-static int pump (uv_run_mode mode, uint64_t nanos) {
+int nupp_uv_set_owner_driver (nupp_uv_owner_step_fn step,
+                              nupp_uv_owner_ready_fn ready, void *ctx) {
+  if ((step == NULL) != (ready == NULL) || (!step && ctx)) {
+    return -EINVAL;
+  }
+
+  if (service && service->running) {
+    return -EBUSY;
+  }
+
+  if (step) {
+    int status = admit();
+
+    if (status) {
+      return status;
+    }
+
+    if (service->owner_step) {
+      return -EBUSY;
+    }
+  }
+
+  if (service) {
+    service->owner_step = step;
+    service->owner_ready = ready;
+    service->owner_ctx = ctx;
+  }
+
+  return 0;
+}
+
+int nupp_uv_owner_active (void) {
+  if (!service || service->running) {
+    return 0;
+  }
+
+  if (service->closing_watches || service->closing_timers) {
+    return 1;
+  }
+
+  if (!service->owner_step || service->shutting_down) {
+    return 0;
+  }
+
+  for (const Timer *timer = service->timers; timer; timer = timer->next) {
+    if (timer->ready || uv_is_active((const uv_handle_t *)&timer->handle)) {
+      return 1;
+    }
+  }
+
+  for (const Poller *p = service->pollers; p; p = p->next) {
+    const Subscription *s = p->subscriptions;
+
+    if (p->owner == p->token && s && (s->interest || s->ready)) {
+      return 1;
+    }
+  }
+
+  return 0;
+}
+
+static int poller_ready (Poller *poller) {
+  for (Subscription *s = poller->subscriptions; s; s = s->next) {
+    if (s->ready) {
+      return 1;
+    }
+  }
+
+  return 0;
+}
+
+static int pump (uv_run_mode mode, uint64_t nanos, Poller *owner_wait) {
   if (service->running) {
     return -EBUSY;
   }
 
   service->running = 1;
+
+  enum { OWNER_BUDGET = 32 };
+
+  uint64_t started = owner_wait ? uv_hrtime() : 0;
+  int drive = service->owner_step && !service->shutting_down;
+
+  if (drive) {
+    service->owner_step(service->owner_ctx, OWNER_BUDGET);
+  }
+
+  if (owner_wait && mode == UV_RUN_ONCE) {
+    uint32_t ready = drive ? service->owner_ready(service->owner_ctx) : 0;
+
+    if (poller_ready(owner_wait) ||
+        (ready & (NUPP_UV_OWNER_NATIVE_READY | NUPP_UV_OWNER_MANAGED_READY))) {
+      mode = UV_RUN_NOWAIT;
+    }
+  }
+
   submit_jobs();
+
+  if (owner_wait && mode == UV_RUN_ONCE && nanos != UINT64_MAX) {
+    uint64_t elapsed = uv_hrtime() - started;
+
+    if (elapsed >= nanos) {
+      mode = UV_RUN_NOWAIT;
+    }
+    else {
+      nanos -= elapsed;
+    }
+  }
+
   int has_deadline = !uv_is_closing((uv_handle_t *)&service->timer);
 
   if (has_deadline && mode == UV_RUN_ONCE && nanos != UINT64_MAX) {
+    if (owner_wait) {
+      uv_update_time(&service->loop);
+    }
+
     uint64_t millis = nanos / 1000000 + (nanos % 1000000 != 0);
     uv_timer_start(&service->timer, timeout, millis, 0);
   }
@@ -814,13 +991,17 @@ static int pump (uv_run_mode mode, uint64_t nanos) {
     uv_timer_stop(&service->timer);
   }
 
+  if (drive) {
+    service->owner_step(service->owner_ctx, OWNER_BUDGET);
+  }
+
   service->running = 0;
 
   return 0;
 }
 
 int nupp_uv_nowait (void) {
-  return service ? pump(UV_RUN_NOWAIT, 0) : 0;
+  return service ? pump(UV_RUN_NOWAIT, 0, NULL) : 0;
 }
 
 static int64_t event (Poller *p) {
@@ -857,7 +1038,19 @@ int64_t nupp_uv_wait (uint64_t token, uint64_t nanos) {
     return found;
   }
 
-  int status = pump(nanos ? UV_RUN_ONCE : UV_RUN_NOWAIT, nanos);
+  int status = pump(nanos ? UV_RUN_ONCE : UV_RUN_NOWAIT, nanos, NULL);
+
+  return status ? status : event(p);
+}
+
+int64_t nupp_uv_wait_owner (uint64_t token, uint64_t nanos) {
+  Poller *p = poller(token);
+
+  if (!p || p->owner) {
+    return -EBADF;
+  }
+
+  int status = pump(nanos ? UV_RUN_ONCE : UV_RUN_NOWAIT, nanos, p);
 
   return status ? status : event(p);
 }
@@ -911,7 +1104,7 @@ int64_t nupp_uv_close (uint64_t token) {
   free(p);
 
   /* Close callbacks retain native storage through a normal loop turn. */
-  return pump(UV_RUN_NOWAIT, 0);
+  return pump(UV_RUN_NOWAIT, 0, NULL);
 }
 
 uint64_t nuppiostart (uint64_t threads) {
@@ -1026,7 +1219,7 @@ uint64_t nuppiotake (void) {
     return 0;
   }
 
-  int status = pump(UV_RUN_NOWAIT, 0);
+  int status = pump(UV_RUN_NOWAIT, 0, NULL);
 
   if (status) {
     return (uint64_t)(int64_t)status;
@@ -1110,7 +1303,7 @@ uint64_t nuppiosettle (uint64_t ticket) {
   }
 
   while (!job->done) {
-    int status = pump(UV_RUN_ONCE, UINT64_MAX);
+    int status = pump(UV_RUN_ONCE, UINT64_MAX, NULL);
 
     if (status) {
       return (uint64_t)(int64_t)status;
@@ -1162,7 +1355,7 @@ int64_t nupp_uv_shutdown (void) {
     return status;
   }
 
-  if (service->adapter_count) {
+  if (service->owner_step || service->adapter_count) {
     return -EBUSY;
   }
 
@@ -1186,7 +1379,7 @@ int64_t nupp_uv_shutdown (void) {
   }
 
   while (nupp_process_pending()) {
-    status = pump(UV_RUN_ONCE, UINT64_MAX);
+    status = pump(UV_RUN_ONCE, UINT64_MAX, NULL);
 
     if (status) {
       return status;
@@ -1225,7 +1418,7 @@ int64_t nupp_uv_shutdown (void) {
     uv_close(timer, NULL);
   }
 
-  status = pump(UV_RUN_NOWAIT, 0);
+  status = pump(UV_RUN_NOWAIT, 0, NULL);
 
   if (status) {
     return status;

@@ -38,11 +38,14 @@ const APPEND: uint64 = 16ULL
 const EXCLUSIVE: uint64 = 32ULL
 const PRIVATE: uint64 = 64ULL
 const DIRECTORY: uint64 = 128ULL
+-- Private opt-in for files.openRegularRead.
+const NONBLOCKING_READ: uint64 = 256ULL
 
 -- The C library's, on macOS.
 const O_RDONLY: int64 = 0
 const O_WRONLY: int64 = 1
 const O_RDWR: int64 = 2
+const O_NONBLOCK: int64 = 0x4
 const O_APPEND: int64 = 0x8
 const O_NOFOLLOW: int64 = 0x100
 const O_CREAT: int64 = 0x200
@@ -71,6 +74,12 @@ const WORD_BYTES: uint64 = 8ULL
 -- The C open flags for filecalls' `flags`, as Rust's OpenOptions makes
 -- them; -1 for a combination it refuses.
 local function openFlags(flags: uint64): int64
+    if (flags & NONBLOCKING_READ) ~= 0ULL then
+        if flags ~= (READ | NONBLOCKING_READ) then
+            return -1
+        end
+        return O_CLOEXEC | O_RDONLY | O_NONBLOCK
+    end
     local reading = (flags & READ) ~= 0ULL
     local appending = (flags & APPEND) ~= 0ULL
     local writing = (flags & WRITE) ~= 0ULL and not appending
@@ -129,7 +138,7 @@ local function permissionsOf(flags: uint64): int64
 end
 
 -- A pool open job's word for filecalls' `flags`
--- (native/core-bridge/io.c): the C open flags, the mode above MODE_SHIFT;
+-- (native/core-bridge/uv.c): the C open flags, the mode above MODE_SHIFT;
 -- -1 for flags open refuses.
 export function poolFlags(flags: uint64): int64
     local mode = openFlags(flags)

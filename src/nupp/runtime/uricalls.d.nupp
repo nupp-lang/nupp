@@ -1,0 +1,9 @@
+@!internal
+
+local record UriCalls
+    --- Canonical ASCII domain, or a negative status on failure.
+    asciiDomain: function(domain: string): string | integer
+end
+
+local calls: UriCalls
+return calls

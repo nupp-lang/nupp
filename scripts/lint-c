@@ -111,8 +111,17 @@ openssl() {
 }
 
 libcurl() {
-    unpack "curl-$LIBCURL_VERSION.tar.xz" "$LIBCURL_URL" "$LIBCURL_SHA256" \
-        "curl-$LIBCURL_VERSION"
+    curl_patch="$ROOT/scripts/c-libraries/libcurl-early-response.patch"
+    patch_id=$(hash < "$curl_patch")
+    tree=$(unpack "curl-$LIBCURL_VERSION.tar.xz" "$LIBCURL_URL" "$LIBCURL_SHA256" \
+        "curl-$LIBCURL_VERSION")
+    patched="$SOURCES/curl-$LIBCURL_VERSION-$patch_id"
+    if [ ! -f "$patched/.configured" ]; then
+        rm -rf "$patched"
+        cp -RP "$tree" "$patched"
+        configured "$patched" sh -c 'patch -f -F 0 -p1 < "$1"' sh "$curl_patch"
+    fi
+    printf '%s\n' "$patched"
 }
 
 libuv() {
@@ -159,6 +168,19 @@ flags() {
                 echo skip
             else
                 echo "-D_POSIX_C_SOURCE=200809L"
+            fi
+            ;;
+        native/core-bridge/main.c | native/core-bridge/guard.c | tests/core/bridgecontracts.c)
+            echo "-pthread -DNUPP_CORE_HTTP -isystem $(libcurl)/include"
+            ;;
+        native/http-curl/transport.c)
+            echo "-pthread -I$ROOT/native/core-bridge -isystem $(libcurl)/include -isystem $(libuv)/include"
+            ;;
+        native/http-curl/uri-idna.c)
+            if [ "$(uname -s)" = Darwin ]; then
+                echo ""
+            else
+                pkg-config --cflags icu-uc
             fi
             ;;
         native/core-bridge/uv.c | native/core-bridge/process.c | tests/core/uv-contracts.c)

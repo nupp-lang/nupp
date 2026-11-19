@@ -826,6 +826,41 @@ local grouprows: {Group} = {
         operations = {{name = "POLL_CLOSE", library = "pollcalls.close", operation = 51, arguments = 1}}
     },
     {
+        name = "REACTOR_OWNER",
+        call = "HOST_FILES",
+        modules = {"pollcalls"},
+        operations = {
+            {name = "POLL_WAIT_OWNER", library = "pollcalls.waitOwner", operation = 52, arguments = 2},
+            {name = "POLL_OWNER_ACTIVE", library = "pollcalls.ownerActive", operation = 53, arguments = 0}
+        }
+    },
+    {
+        name = "HTTP",
+        call = "HOST_FILES",
+        modules = {"httpcalls"},
+        operations = {
+            {name = "HTTP_OPEN", library = "httpcalls.open", operation = 54, arguments = 1},
+            {name = "HTTP_CLOSE", library = "httpcalls.close", operation = 55, arguments = 1},
+            {name = "HTTP_PENDING", library = "httpcalls.pending", operation = 56, arguments = 1},
+            {name = "HTTP_WATCH", library = "httpcalls.watch", operation = 57, arguments = 2},
+            {name = "HTTP_SEND", library = "httpcalls.send", operation = 58, arguments = 2},
+            {name = "HTTP_RELEASE", library = "httpcalls.release", operation = 59, arguments = 1},
+            {name = "HTTP_CANCEL", library = "httpcalls.cancel", operation = 60, arguments = 1},
+            {name = "HTTP_READY", library = "httpcalls.ready", operation = 61, arguments = 1},
+            {name = "HTTP_OFFER", library = "httpcalls.offer", operation = 62, arguments = 3},
+            {name = "HTTP_ARM", library = "httpcalls.arm", operation = 63, arguments = 1},
+            {name = "HTTP_HEAD", library = "httpcalls.head", operation = 64, arguments = 1},
+            {name = "HTTP_READ", library = "httpcalls.read", operation = 65, arguments = 2},
+            {name = "HTTP_FAILURE", library = "httpcalls.failure", operation = 66, arguments = 1}
+        }
+    },
+    {
+        name = "URI",
+        call = "HOST_FILES",
+        modules = {"uricalls"},
+        operations = {{name = "URI_ASCII_DOMAIN", library = "uricalls.asciiDomain", operation = 67, arguments = 1}}
+    },
+    {
         -- The scheduler's primitives (nupp.runtime.taskcalls), which the
         -- TASKS call takes: a task of a function and the pack of its
         -- arguments; running one until it returns, fails, parks or yields,

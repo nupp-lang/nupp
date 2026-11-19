@@ -28,6 +28,10 @@ local record pollcalls
     --- A pipe whose ends are nonblocking and close on exec: the read end's
     --- descriptor plus the write end's times 2^32.
     pipe: function(): integer
+
+    -- Bounded native owner turn and a read-only native activity query.
+    waitOwner: function(poller: integer, nanos: integer): integer
+    ownerActive: function(): boolean
 end
 
 local calls: pollcalls

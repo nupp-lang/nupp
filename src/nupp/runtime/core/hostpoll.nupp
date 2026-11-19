@@ -26,6 +26,12 @@ export function wait(h: heap.Heap*, poller: uint64, nanos: uint64): int64
     return uv.wait(poller, nanos)
 end
 
+export function waitOwner(h: heap.Heap*, poller: uint64, nanos: uint64): int64
+    local _ = h
+
+    return uv.waitOwner(poller, nanos)
+end
+
 export function pipeWith(h: heap.Heap*, reader: boolean, writer: boolean): int64
     local _ = h
 

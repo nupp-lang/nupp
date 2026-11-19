@@ -13,6 +13,9 @@ const arguments = require("nupp.runtime.core.hostarguments")
 const poll = require("nupp.runtime.core.hostpoll")
 const uv = require("nupp.runtime.core.hostuv")
 
+cdef function nupp_http_scope_attach(scope: voidptr): int32
+cdef function nupp_http_scope_detach(scope: voidptr): int32
+
 const RESOURCE_REFUSAL: int64 = 24
 const INVALID: int64 = 22
 
@@ -27,6 +30,15 @@ export struct ServiceScope
     retainBacking: uint64
     resources: uint64
     resourcephase: uint64
+end
+
+-- C retains the entry's mapped scope as reactor context until detach.
+export function attachHttp(scope: voidptr): int64
+    if native.load64(scope, native.fieldOffset<ServiceScope>("resourcephase")) == journal.CLOSED then
+        return 0 - INVALID
+    end
+
+    return @unsafe nupp_http_scope_attach(scope)
 end
 
 -- All spans are borrowed mapped capabilities from the retained entry. This
@@ -372,7 +384,10 @@ export function close(scope: voidptr): uint64
     if native.load64(scope, native.fieldOffset<ServiceScope>("retainBacking")) ~= 0ULL then
         return 0ULL
     end
-    if not drain(scope) then
+    -- Detach clears the native context before draining the ledger. Failure
+    -- keeps the backing alive for the bridge's final shutdown.
+    local detached = @unsafe nupp_http_scope_detach(scope)
+    if detached ~= 0 or not drain(scope) then
         native.store64(scope, native.fieldOffset<ServiceScope>("retainBacking"), 1ULL)
         return 0ULL
     end

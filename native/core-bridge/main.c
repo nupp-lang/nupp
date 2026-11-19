@@ -14,6 +14,7 @@
 
 #include "reactor.h"
 #include "transport.h"
+#include "../http-curl/uri-idna.h"
 
 #include <dlfcn.h>
 #include <errno.h>
@@ -25,6 +26,11 @@
 #include <sys/mman.h>
 #include <sys/stat.h>
 #include <unistd.h>
+
+#ifdef NUPP_CORE_HTTP
+#include "../http-curl/transport.h"
+#include <curl/curl.h>
+#endif
 
 #ifdef __APPLE__
 #include <libkern/OSCacheControl.h>
@@ -95,7 +101,7 @@ enum packetfield {
 enum { PACKET_FORMAT = 1 };
 
 /* The packet's import table: the addresses of the C the Nupp code calls. The
- * I/O pool's six (transport.h) come first, then the OS loader, then the
+ * I/O pool's six (reactor.h) come first, then the OS loader, then the
  * symbol table guestforeign.nupp fills as it resolves foreign symbols. */
 enum import {
   IMPORT_IO_START,
@@ -122,6 +128,83 @@ static uint64_t symboltable[SYMBOL_TABLE_WORDS];
 /* The directory the bundle was loaded from. The Nupp loader finds it by name
  * with dlsym and resolves artifact-relative library paths against it. */
 const char *nupp_core_artifact_directory;
+
+#ifdef NUPP_CORE_HTTP
+static _Thread_local void *http_scope;
+static int curl_initialized;
+
+_Static_assert((int)NUPP_UV_OWNER_ACTIVE == (int)NUPP_HTTP_ACTIVE &&
+                   (int)NUPP_UV_OWNER_NATIVE_READY ==
+                       (int)NUPP_HTTP_NATIVE_READY &&
+                   (int)NUPP_UV_OWNER_MANAGED_READY ==
+                       (int)NUPP_HTTP_MANAGED_READY,
+               "HTTP owner flags must match the reactor");
+
+int nupp_http_scope_attach (void *scope) {
+  if (!scope) {
+    return -EINVAL;
+  }
+
+  if (http_scope) {
+    return http_scope == scope ? 0 : -EBUSY;
+  }
+
+  if (!curl_initialized) {
+    if (curl_global_init(CURL_GLOBAL_DEFAULT) != CURLE_OK) {
+      return -EIO;
+    }
+
+    curl_initialized = 1;
+  }
+
+  int status = nupp_uv_set_owner_driver(nupp_http_owner_step,
+                                        nupp_http_owner_ready, scope);
+
+  if (!status) {
+    http_scope = scope;
+  }
+
+  return status;
+}
+
+int nupp_http_scope_detach (void *scope) {
+  if (!scope || scope != http_scope) {
+    return 0;
+  }
+
+  nupp_curl_close_scope((uintptr_t)scope);
+  int status = nupp_uv_set_owner_driver(NULL, NULL, NULL);
+
+  if (!status) {
+    http_scope = NULL;
+  }
+
+  return status;
+}
+#else
+int nupp_http_scope_attach (void *scope) {
+  (void)scope;
+
+  return -ENOSYS;
+}
+
+int nupp_http_scope_detach (void *scope) {
+  (void)scope;
+
+  return 0;
+}
+
+/* shortcut: refuse IDNA until the Linux bridge links a converter. */
+int32_t nupp_uri_idna_ascii (const char *domain, size_t count, char *out,
+                             size_t room) {
+  (void)domain;
+  (void)count;
+  (void)out;
+  (void)room;
+
+  return -2;
+}
+#endif
 
 typedef uint64_t (*Entry)(const uint64_t *packet, uint64_t *output);
 
@@ -557,11 +640,24 @@ static int execute (const char *path, const uint64_t *words, size_t count,
   result = 0;
 out:
 
-  /* Drain native callbacks before releasing the executing artifact. */
-  if (nupp_uv_shutdown()) {
+  /* Native callbacks must finish before the executing artifact is unmapped. */
+  if (nupp_uv_begin_shutdown()
+#ifdef NUPP_CORE_HTTP
+      || nupp_http_scope_detach(http_scope)
+#endif
+      || nupp_uv_shutdown()) {
     error("native completion drain failed");
-    _exit(1);
+    _exit(1); /* Retain the entry and callback backing until process exit. */
   }
+
+#ifdef NUPP_CORE_HTTP
+
+  if (curl_initialized) {
+    curl_global_cleanup();
+    curl_initialized = 0;
+  }
+
+#endif
 
   fclose(file);
 

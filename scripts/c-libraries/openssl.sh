@@ -10,6 +10,10 @@ assembly=''
 # MSVC builds deliberately need no unpinned external assembler.
 if [ "$SYSTEM" = windows ]; then assembly=no-asm; fi
 (cd "$source"
+ if [ "$SYSTEM" = darwin ]; then
+    SDKROOT=${SDKROOT:-$(xcrun --sdk macosx --show-sdk-path)}
+    export SDKROOT
+ fi
  CC="$CC" perl Configure "$configure" shared no-tests no-docs no-quic no-cms \
     $assembly --prefix="$install" --openssldir="$install/ssl" --libdir=lib >&2
  if [ "$SYSTEM" = windows ]; then

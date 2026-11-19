@@ -19,6 +19,8 @@ not wait, nor do the calls on names (`remove`, `rename`, `temporary` and
 module nupp.runtime.files
 
 const filecalls = require("nupp.runtime.filecalls")
+const filesystem = require("nupp.runtime.filesystem")
+const errors = require("nupp.runtime.filesystemerror")
 const reactor = require("nupp.runtime.reactor")
 
 --- The access an open asks for, added together.
@@ -28,6 +30,10 @@ export const WRITING = 2
 export const CREATING = 4
 export const TRUNCATING = 8
 export const APPENDING = 16
+
+-- Private hostfiles flag for an open that cannot wait for a FIFO peer.
+const NONBLOCKING_READ = 256
+const INVALID = -22
 
 --- Where a seek's offset counts from.
 export const FROMSTART = 0
@@ -120,6 +126,39 @@ end
 --- failed.
 export function close(descriptor: integer): reactor.Completion
     return submit(reactor.Operation(kind = reactor.CLOSE, descriptor = descriptor))
+end
+
+export type RegularReadFailure = {
+    kind: "open" | "inspect" | "not-regular",
+    reason: string?
+}
+
+-- Native core only. A successful call transfers the open descriptor and its
+-- size together. Check the descriptor itself in case the path was replaced.
+export function openRegularRead(path: string): (integer?, integer?, RegularReadFailure?)
+    if path:find("\0", 1, true) then
+        return nil, nil, {kind = "open", reason = errors.reason(INVALID)}
+    end
+    local opened = open(path, READING | NONBLOCKING_READ)
+    if opened.code ~= 0 then
+        return nil, nil, {kind = "open", reason = errors.reason(-opened.code)}
+    end
+    local fd = opened.value
+    local ok, info, why = pcall(filesystem.status, fd)
+    if not ok then
+        close(fd)
+        error(info, 0)
+    end
+    if info == nil or info.size < 0 then
+        close(fd)
+        return nil, nil, {kind = "inspect", reason = why}
+    end
+    if info.kind ~= "file" then
+        close(fd)
+        return nil, nil, {kind = "not-regular"}
+    end
+
+    return fd, info.size, nil
 end
 
 --- The system's text for error number `code`, as C's strerror gives it.

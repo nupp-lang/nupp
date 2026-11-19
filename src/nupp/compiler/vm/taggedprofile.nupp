@@ -811,6 +811,12 @@ export function forVersion(version: integer): any
             ctx.emit(node, "LibCall", {corelibrary.id("SETMETATABLE"), ctx.readHeld(held), class}, "tagged")
             record = ctx.readHeld(held)
             ctx.release(held)
+            -- Until the record is complete, a failure still unwinds its initializers.
+            for _, binding in ipairs(callsite.recordFields) do
+                if binding.takesInitializer then
+                    ctx.takeArgument(binding.node)
+                end
+            end
 
             return record as integer
         end

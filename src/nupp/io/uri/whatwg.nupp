@@ -395,7 +395,14 @@ local function forbiddenHost(byte: integer): boolean
         or byte == 124
 end
 
-local function parseHost(input: string, opaque: boolean, trustHosts: boolean): (string?, string?)
+export type DomainMapper = function(string): (string?, string?)
+
+local function parseHost(
+    input: string,
+    opaque: boolean,
+    trustHosts: boolean,
+    mapDomain: DomainMapper?
+): (string?, string?)
     if input:sub(1, 1) == "[" then
         if input:sub(-1) ~= "]" then
             return nil, "invalid IPv6 address"
@@ -417,10 +424,17 @@ local function parseHost(input: string, opaque: boolean, trustHosts: boolean): (
         international = ("." .. domain):find(".xn--", 1, true) ~= nil
     end
     if international then
-        if trustHosts then
+        if mapDomain ~= nil then
+            local mapped, reason = mapDomain(domain)
+            if mapped == nil then
+                return nil, reason
+            end
+            domain = mapped
+        elseif trustHosts then
             return input, nil
+        else
+            return nil, "internationalized host needs a host URL parser"
         end
-        return nil, "internationalized host needs a host URL parser"
     end
     if domain == "" then
         return nil, "empty host"
@@ -620,9 +634,15 @@ end
 --- @param base the URL a relative input is resolved against, when there is one
 --- @param trustHosts whether a host that needs IDNA is kept as written rather
 ---     than refused, for text a host URL parser reads afterwards
+--- @param mapDomain the host's canonical conversion of a percent-decoded domain
 --- @return the URL's components, or nil when the text is not a URL
 --- @return the reason, when it is not
-export function parse(text: string, base: contracts.UriParts?, trustHosts: boolean?): (contracts.UriParts?, string?)
+export function parse(
+    text: string,
+    base: contracts.UriParts?,
+    trustHosts: boolean?,
+    mapDomain: DomainMapper?
+): (contracts.UriParts?, string?)
     local refused = refusal(text)
     if refused ~= nil then
         return nil, refused
@@ -810,7 +830,7 @@ export function parse(text: string, base: contracts.UriParts?, trustHosts: boole
                 if collected == "" then
                     return nil, "empty host"
                 end
-                local host, reason = parseHost(collected, not special, trusted)
+                local host, reason = parseHost(collected, not special, trusted, mapDomain)
                 if host == nil then
                     return nil, reason
                 end
@@ -823,7 +843,7 @@ export function parse(text: string, base: contracts.UriParts?, trustHosts: boole
                 if special and collected == "" then
                     return nil, "empty host"
                 end
-                local host, reason = parseHost(collected, not special, trusted)
+                local host, reason = parseHost(collected, not special, trusted, mapDomain)
                 if host == nil then
                     return nil, reason
                 end
@@ -919,7 +939,7 @@ export function parse(text: string, base: contracts.UriParts?, trustHosts: boole
                     url.host = ""
                     state = PATH_START
                 else
-                    local host, reason = parseHost(collected, not special, trusted)
+                    local host, reason = parseHost(collected, not special, trusted, mapDomain)
                     if host == nil then
                         return nil, reason
                     elseif host == "localhost" then

@@ -1,0 +1,23 @@
+@!internal
+
+module nupp.io.http.internal.readiness
+
+-- The VM uses the wake generation shared by its native host providers.
+const host = require("nupp.vm.net")
+
+export const snapshot = host.snapshot
+export const sleep = host.sleep
+
+-- The VM's shared generation does not require per-client source tracking.
+export function watchClient(_client: integer, _watching: boolean): nil
+end
+
+export type UploadFile = {
+    size: integer,
+    read: function(integer): (string?, string?),
+    close: @nosuspend function(): nil
+}
+export type OpenUploadFile = function(string): (UploadFile?, string?)
+
+-- The frozen VM opens file bodies inside its native HTTP transport.
+export const openUploadFile: OpenUploadFile? = nil

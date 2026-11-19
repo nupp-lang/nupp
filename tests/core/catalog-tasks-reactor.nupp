@@ -7,6 +7,77 @@ module nupp.core.catalogtasksreactor
 -- score.
 const reactor = require("nupp.runtime.reactor")
 const files = require("nupp.runtime.files")
+const tasks = require("coroutine")
+const race: function(takes bodies: {function(): any}): (any, integer?) = tasks.race
+
+local record RaceCapture is own.Closeable
+    cleaned: {boolean}
+
+    function close(takes self): nil
+        self.cleaned[1] = true
+    end
+end
+
+local function checkRace(): nil
+    local unwound = false
+    local value, index = race({
+        function(): nil
+            local ok, problem = pcall(coroutine.sleep, 5000)
+            unwound = not ok and coroutine.iscancelled(problem)
+        end,
+        function(): nil
+            return nil
+        end
+    })
+    assert(value == nil and index == 2 and unwound)
+
+    local ok, problem = pcall(function(): nil
+        race({
+            function(): nil
+                error("first race failure", 0)
+            end,
+            function(): nil
+                error("the losing branch ran", 0)
+            end
+        })
+    end)
+    assert(not ok and problem == "first race failure")
+
+    local cleaned = {false}
+    local capture = RaceCapture(cleaned = cleaned)
+    local entered = false
+    local answer, winner = race({
+        function(): integer
+            return 1
+        end,
+        function(): integer takes (capture)
+            entered = true
+            return #capture.cleaned
+        end
+    })
+    assert(answer == 1 and winner == 1 and not entered and cleaned[1])
+
+    local cancelled, loserClosed = false, false
+    do
+        local scope = coroutine.scope()
+        scope:spawn(function(): nil
+            local completed, reason = pcall(function(): nil
+                race({
+                    function(): nil
+                        local slept = pcall(coroutine.sleep, 5000)
+                        loserClosed = not slept
+                    end
+                })
+            end)
+            cancelled = not completed and coroutine.iscancelled(reason) and loserClosed
+        end)
+        coroutine.sleep(0)
+        scope:cancel()
+    end
+    assert(cancelled)
+end
+
+checkRace()
 
 local score = 0
 local bit = 1

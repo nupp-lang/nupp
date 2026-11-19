@@ -1494,7 +1494,7 @@ export function install(c: state.Checker): Ops
             node.construction = true
             local affineValues = {}
             local deferredAffineRoots: {[string]: {
-                node: any,
+                binding: any,
                 type: Type
             }} = {}
             local tbl = nil
@@ -1663,10 +1663,12 @@ export function install(c: state.Checker): Ops
 
             local bindings, bound = {}, {}
 
-            -- The owner a field took stops being the enclosing region's to clean up
-            -- once the record holds it, so the construction carries the move for the
-            -- generator to clear, the way a call carries its `takes` arguments'.
-            local function recordConstructionMove(value: any): nil
+            local function moveConstructionField(binding: any, t: Type): nil
+                local value = binding.node
+                if c.moveExpression(value, t, "affine record construction", c.ownershipKind(t)) and isRecord then
+                    binding.takesInitializer = true
+                end
+                -- Migration equivalence reads the named owner's move descriptor.
                 while value and (value.kind == "paren" or value.kind == "castExpr" or value.kind == "orExitExpr") do
                     value = value.kind == "orExitExpr" and value.operand or value.expr
                 end
@@ -1735,7 +1737,8 @@ export function install(c: state.Checker): Ops
                 -- substitution below carries the construction's type arguments into it.
                 ft = specializeSelf(calleeT, ft, generics.ownInstance(calleeT))
                 bound[fname] = true
-                bindings[#bindings + 1] = {name = fname, node = value}
+                local binding = {name = fname, node = value}
+                bindings[#bindings + 1] = binding
                 -- A field is a destination the way an assigned one is: `r.f = make()`
                 -- resolves make's result binder from the field, so `R(f = make())`
                 -- does too. Only once the field's type is settled -- a binder of the
@@ -1809,10 +1812,9 @@ export function install(c: state.Checker): Ops
                 if storesCapability and (c.ownershipKind(vt) == "affine" or c.ownershipKind(vt) == "pinned") then
                     affineValues[fname] = vt
                     if borrowedRoot then
-                        deferredAffineRoots[fname] = {node = value, type = vt}
+                        deferredAffineRoots[fname] = {binding = binding, type = vt}
                     else
-                        c.moveExpression(value, vt, "affine record construction", c.ownershipKind(vt))
-                        recordConstructionMove(value)
+                        moveConstructionField(binding, vt)
                     end
                 end
                 if genericMap then
@@ -2043,8 +2045,7 @@ export function install(c: state.Checker): Ops
             -- record. Validate their provenance first, then consume the root once; the
             -- resulting aggregate owns the root and needs no external borrow edge.
             for _, root in pairs(deferredAffineRoots) do
-                c.moveExpression(root.node, root.type, "affine record construction", c.ownershipKind(root.type))
-                recordConstructionMove(root.node)
+                moveConstructionField(root.binding, root.type)
             end
             if calleeT.inherentCleanup then
                 return finished(T.affine(calleeT, {calleeT.inherentCleanup}))

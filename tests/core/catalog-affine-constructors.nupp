@@ -142,4 +142,39 @@ do
     check(none == nil and why == "negative" and closed == 5)
 end
 
+local record Envelope is own.Closeable
+    handle: Handle
+    stamp: integer
+
+    function close(takes self): nil
+        self.handle:close()
+    end
+end
+
+do
+    local envelope = Envelope(handle = open(8), stamp = 1)
+    check(closed == 5 and envelope.handle:id() == 8)
+end
+check(closed == 6)
+
+do
+    local handle = open(9)
+    local envelope = Envelope(handle = handle, stamp = 2)
+    check(closed == 6 and envelope.stamp == 2)
+end
+check(closed == 7)
+
+local function failInitializer(): integer
+    error("later initializer", 0)
+end
+
+local function failConstruction(): integer
+    local envelope = Envelope(handle = open(10), stamp = failInitializer())
+
+    return envelope.stamp
+end
+
+local ok, why = pcall(failConstruction)
+check(not ok and why == "later initializer" and closed == 8)
+
 export const result = score

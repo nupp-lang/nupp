@@ -703,6 +703,53 @@ export function pending(): integer
     return count
 end
 
+-- Cancelled jobs can still owe a pool result after their waiter disappears.
+export function owesPoolWork(): boolean
+    return owed > 0
+end
+
+local function deliverEarly(): nil
+    local found = early
+    early = {}
+    for _, waiter in ipairs(found) do
+        local done = waiter.result as Completion
+        collected[done.value] = nil
+        deliver(waiter, done)
+    end
+end
+
+local function waitNanos(deadline: number?): integer
+    if deadline == nil then
+        return FOREVER
+    end
+    local left = deadline - os.monotonic()
+    if left > 0 then
+        -- A deadline past what nanoseconds count is none.
+        return math.tointeger(math.ceil(left * NANOS)) or FOREVER
+    end
+
+    return 0
+end
+
+export type OwnerWait = function(integer, integer): integer
+
+-- The scheduler gets one owner turn, including when no legacy event is ready.
+-- It drains its suspension sources after returning from the host call.
+export function waitOwner(poll: OwnerWait, deadline: number?): nil
+    local descriptor = openpoller()
+    local nanos = waitNanos(deadline)
+    if #early > 0 then
+        deliverEarly()
+        nanos = 0
+    end
+    local event = poll(descriptor, nanos)
+    if event < 0 then
+        error("reactor: the poller failed: " .. filecalls.reason(-event), 0)
+    elseif event > 0 then
+        dispatch(event)
+    end
+end
+
 --- Waits until an operation completes or `deadline` passes, a time on
 --- `os.monotonic`'s clock in milliseconds; without a deadline, until an
 --- operation completes, or not at all when none is pending. Completions are
@@ -712,27 +759,14 @@ export function wait(deadline: number?): integer
     local before = delivered
     local descriptor = openpoller()
     if #early > 0 then
-        local found = early
-        early = {}
-        for _, waiter in ipairs(found) do
-            local done = waiter.result as Completion
-            collected[done.value] = nil
-            deliver(waiter, done)
-        end
+        deliverEarly()
         return delivered - before
     end
     while true do
-        local nanos: integer = FOREVER
-        if deadline ~= nil then
-            local left = deadline - os.monotonic()
-            nanos = 0
-            if left > 0 then
-                -- A deadline past what nanoseconds count is none.
-                nanos = math.tointeger(math.ceil(left * NANOS)) or FOREVER
-            end
-        elseif count == 0 then
+        if deadline == nil and count == 0 then
             return 0
         end
+        local nanos = waitNanos(deadline)
         local event = pollcalls.wait(descriptor, nanos)
         if event < 0 then
             error("reactor: the poller failed: " .. filecalls.reason(-event), 0)
@@ -808,9 +842,21 @@ end
 --- cancels the operation and raises what its park raised.
 export function await(operation: Operation): Completion
     return suspend(function(resume: Waker): function(): nil
-        local id = submit(operation, resume)
+        local opened: integer = -1
+        local done = resume
+        if operation.kind == OPEN then
+            done = function(completion: Completion): nil
+                opened = completion.value
+                resume(completion)
+            end
+        end
+        local id = submit(operation, done)
+
         return function(): nil
-            cancel(id)
+            -- Delivery can win the race while the task is still queued to resume.
+            if not cancel(id) and opened >= 0 then
+                filecalls.close(opened)
+            end
         end
     end)
 end

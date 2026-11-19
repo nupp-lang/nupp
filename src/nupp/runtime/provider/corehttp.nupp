@@ -1,0 +1,259 @@
+@!internal
+
+module nupp.runtime.provider.corehttp
+
+-- The core's implementation of the checked HTTP transport's private host.
+-- These tables route readiness. The native service scope owns the handles.
+const calls = require("nupp.runtime.httpcalls")
+const pollcalls = require("nupp.runtime.pollcalls")
+const filecalls = require("nupp.runtime.filecalls")
+const files = require("nupp.runtime.files")
+local {type UploadFile} = require("nupp.io.http.internal.readiness")
+local {type Completion} = require("nupp.runtime.reactor")
+-- Regular upload descriptors are never watched. CLOSE preserves pending
+-- file work and closes synchronously, without entering the wait path.
+const closeFile = files.close as @nosuspend function(integer): Completion
+const NANOS_PER_MS = 1000000
+const MAX_WAIT_MS = 2147483647
+local clients: {[integer]: {[integer]: boolean}} = {}
+local owners: {[integer]: integer} = {}
+-- Like the core reactor's own poller, this lives in the service journal.
+local waitToken: integer? = nil
+
+export function openUploadFile(path: string): (UploadFile?, string?)
+    local fd, size, failure = files.openRegularRead(path)
+    if fd == nil or size == nil then
+        local detail = failure and failure.reason or "unknown file error"
+        if failure ~= nil and failure.kind == "not-regular" then
+            return nil, ("request body %s is not a regular file"):format(path)
+        elseif failure ~= nil and failure.kind == "inspect" then
+            return nil, ("cannot inspect request body %s: %s"):format(path, detail)
+        end
+
+        return nil, ("cannot open request body %s: %s"):format(path, detail)
+    end
+    local descriptor = fd as integer
+    local close: @nosuspend function(): nil = function(): nil
+        closeFile(descriptor)
+    end
+
+    return {
+        size = size,
+        read = function(count: integer): (string?, string?)
+            local result = files.read(descriptor, count)
+            if result.code ~= 0 then
+                return nil, ("cannot read request body %s: %s"):format(path, files.reason(result.code))
+            end
+
+            return result.text, nil
+        end,
+        close = close,
+    }, nil
+end
+
+export function clientCreate(
+    connectTimeoutMs: integer,
+    _maxRedirects: integer,
+    maxPendingRequests: integer,
+    maxConnections: integer,
+    maxConnectionsPerHost: integer,
+    compressed: boolean,
+    _hasInsecureHosts: boolean,
+    proxyMode: integer,
+    proxy: string,
+    noProxySet: boolean,
+    noProxy: string,
+    proxyCredentials: string
+): (integer?, string?)
+    local result = calls.open({
+        connectTimeoutMs,
+        maxPendingRequests,
+        maxConnections,
+        maxConnectionsPerHost,
+        compressed,
+        proxyMode,
+        proxy,
+        noProxySet and noProxy or nil,
+        proxyCredentials,
+    })
+    if type(result) == "string" then
+        return nil, result as string
+    end
+    local client = result as integer
+    clients[client] = {}
+
+    return client, nil
+end
+
+export function clientSend(
+    client: integer,
+    url: string,
+    method: string,
+    headers: {{string}},
+    body: string?,
+    bodyKind: integer,
+    bodyLength: integer?,
+    timeoutMs: integer,
+    stallTimeoutMs: integer,
+    maxBytes: integer,
+    insecure: boolean
+): (integer?, string?, boolean?)
+    local live = clients[client]
+    if live == nil then
+        return nil, "the HTTP client is closed", nil
+    end
+    local result = calls.send(client, {
+        url,
+        method,
+        headers,
+        body or "",
+        bodyKind,
+        bodyLength or -1,
+        timeoutMs,
+        stallTimeoutMs,
+        maxBytes,
+        insecure,
+    })
+    if type(result) == "string" then
+        return nil, result as string, nil
+    end
+    local request = result as integer
+    if request == 0 then
+        return nil, nil, true
+    elseif request < 0 then
+        return nil, "the HTTP client is closed", nil
+    end
+    owners[request] = client
+    live[request] = true
+
+    return request, nil, nil
+end
+
+export function clientRelease(client: integer): nil
+    local requests = clients[client]
+    if requests == nil then
+        return
+    end
+    clients[client] = nil
+    for request in pairs(requests) do
+        owners[request] = nil
+    end
+    calls.close(client)
+end
+
+-- The core lowers these declaration-only host operations at direct calls.
+export function clientPending(client: integer): integer
+    return calls.pending(client)
+end
+
+export function watchClient(client: integer, watching: boolean): nil
+    calls.watch(client, watching)
+end
+
+export function clientPoll(client: integer, into: {integer}): (integer?, string?)
+    local requests = clients[client]
+    if requests == nil then
+        return 0, nil
+    end
+    local count: integer = 0
+    for request in pairs(requests) do
+        local flags = calls.ready(request)
+        if flags ~= 0 then
+            into[2 * count + 1] = request
+            into[2 * count + 2] = flags
+            count = count + 1
+        end
+    end
+
+    return count, nil
+end
+
+export function transferCancel(request: integer): nil
+    calls.cancel(request)
+end
+
+export function transferRelease(request: integer): boolean
+    local client = owners[request]
+    if client == nil then
+        return false
+    end
+    owners[request] = nil
+    local requests = clients[client]
+    if requests ~= nil then
+        requests[request] = nil
+    end
+    calls.release(request)
+
+    return true
+end
+
+export function transferOffer(request: integer, bytes: string?, count: integer, finished: boolean): integer
+    return calls.offer(request, bytes or "", finished and 0 or count)
+end
+
+export function transferHead(request: integer): (string, integer?, integer?, string?, string?, string?)
+    local result = calls.head(request)
+    if result == nil then
+        return "pending", nil, nil, nil, nil, nil
+    elseif type(result) == "number" then
+        return "failed", nil, nil, nil, nil, calls.failure(request) or "the HTTP transfer is closed"
+    end
+    local bytes = result as string
+    local lo = bytes:byte(1) as integer
+    local hi = bytes:byte(2) as integer
+    local version = bytes:byte(3) as integer
+
+    return "ready", lo + 256 * hi, version, nil, bytes:sub(4), nil
+end
+
+export function transferTakeBody(request: integer): (integer?, string?)
+    return request, nil
+end
+
+export function bodyArm(request: integer): boolean
+    calls.arm(request)
+
+    return true
+end
+
+export function bodyRead(request: integer, count: integer): (string, string?, string?)
+    local value = calls.read(request, count)
+    if type(value) == "string" then
+        local bytes = value as string
+        if #bytes == 0 then
+            return "eof", nil, nil
+        end
+
+        return "data", bytes, nil
+    elseif value == -1 then
+        return "pending", nil, nil
+    end
+
+    return "failed", nil, calls.failure(request) or "the HTTP transfer is closed"
+end
+
+-- Nothing can signal between the readiness poll and the wait on this thread.
+export function snapshot(): nil
+end
+
+export function sleep(milliseconds: integer): nil
+    if next(clients) == nil then
+        return
+    end
+    local token = waitToken
+    if token == nil then
+        local opened = pollcalls.open()
+        if opened < 0 then
+            error("HTTP reactor: " .. filecalls.reason(-opened), 0)
+        end
+        waitToken = opened
+        token = opened
+    end
+    -- Root blocking suspension and explicit Client.pump use this poller.
+    -- Managed tasks use the scheduler's owner wait before collecting events.
+    local capped = milliseconds > MAX_WAIT_MS and MAX_WAIT_MS or milliseconds
+    local code = pollcalls.wait(token, capped * NANOS_PER_MS)
+    if code < 0 then
+        error("HTTP reactor: " .. filecalls.reason(-code), 0)
+    end
+end

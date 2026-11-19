@@ -16,6 +16,12 @@ export const cansuspend = suspension.canSuspend
 export const newcancellation = cancellation.create
 export const iscancellation = cancellation.is
 
+export function race(takes bodies: {function(): any}): (any, integer?)
+    local scheduler = require("nupp.runtime.scheduler")
+
+    return scheduler.race(bodies)
+end
+
 export const functions: {[string]: any} = {["coroutine.create"] = create, ["coroutine.wrap"] = wrap,}
 
 export const value: table = do
@@ -29,5 +35,6 @@ export const value: table = do
     original.cansuspend = cansuspend
     original.newcancellation = newcancellation
     original.iscancellation = iscancellation
+    original.race = race
     yield original
 end

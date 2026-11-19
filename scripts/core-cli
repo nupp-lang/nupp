@@ -38,8 +38,11 @@ FORMAT=nupp-core-cli-1
 LOCK="$CLI/build.lock"
 # What a core compiler is built from, beside the compiler that builds it.
 SOURCES='src templates native/core-bridge nupp.lua scripts/core-self-build scripts/core-bridge
-scripts/native-libraries scripts/c-libraries/libuv.sh scripts/toolchain.pins
-host/notices/libuv-LICENSE.txt host/notices/libuv-LICENSE-extra.txt'
+scripts/core-http-linux-sdk.sh scripts/native-libraries native/http-curl
+scripts/c-libraries/libuv.sh scripts/c-libraries/libcurl.sh scripts/c-libraries/openssl.sh
+scripts/c-libraries/libcurl-early-response.patch scripts/c-libraries/zlib.sh scripts/toolchain.pins host/notices/libuv-LICENSE.txt
+host/notices/libuv-LICENSE-extra.txt host/notices/libcurl-LICENSE.txt
+host/notices/OpenSSL-LICENSE.txt host/notices/zlib-LICENSE.txt'
 # The shared store: beside the repository's other machine caches, or where
 # NUPP_CORE_CLI_STORE names. `GENERATION/` is a generation as a checkout keeps
 # it, and `sources/DIGEST` names the one built from the sources DIGEST names.
@@ -113,8 +116,11 @@ install_pair() {
                 [ -f "$library" ] && digest_stdin < "$library"
             done
         fi
-        for file in "$runtime_dir"/lib/libuv.* "$runtime_dir"/notices/libuv-*.txt; do
-            [ ! -f "$file" ] || digest_stdin < "$file"
+        for file in "$runtime_dir"/lib/*.dylib "$runtime_dir"/lib/*.so "$runtime_dir"/lib/*.so.* "$runtime_dir"/notices/*.txt; do
+            if [ -f "$file" ]; then
+                printf 'sidecar %s\n' "${file#"$runtime_dir"/}"
+                digest_stdin < "$file"
+            fi
         done
         printf 'source %s\nbuilder %s\n' "$source" "$builder"
     } | digest_stdin)
@@ -127,13 +133,11 @@ install_pair() {
         chmod 755 "$staged/runtime"
         cp "$compiler" "$staged/compiler.bundle"
         [ ! -d "$libraries" ] || cp -RP "$libraries" "$staged/lib"
-        for sidecars in lib/libuv. notices/libuv-; do
-            for file in "$runtime_dir"/"$sidecars"*; do
-                [ -f "$file" ] || continue
-                relative=${file#"$runtime_dir"/}
-                mkdir -p "$staged/${relative%/*}"
-                cp -P "$file" "$staged/$relative"
-            done
+        for file in "$runtime_dir"/lib/*.dylib "$runtime_dir"/lib/*.so "$runtime_dir"/lib/*.so.* "$runtime_dir"/notices/*.txt; do
+            [ -f "$file" ] || continue
+            relative=${file#"$runtime_dir"/}
+            mkdir -p "$staged/${relative%/*}"
+            cp -P "$file" "$staged/$relative"
         done
         "$staged/runtime" 2>&1 | grep -q '^nupp-core: usage: nupp-core BUNDLE INPUT OUTPUT' \
             || die "$runtime could not load from its installed location"

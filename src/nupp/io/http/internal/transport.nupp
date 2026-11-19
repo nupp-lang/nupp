@@ -3,10 +3,8 @@
 module nupp.io.http.internal.transport
 
 --[[
-The VM's native HTTP transport: the same clients and transfers as the LuaJIT
-module of this name, written over the VM's `nupp.vm.http` primitives rather than
-the native library's C ABI, with the readiness pump `nupp.vm.net` shares among
-every native family.
+The checked native HTTP transport. Its host owns transfers and reports the
+readiness that wakes header, body, upload, and admission waiters.
 ]]
 
 export interface NativeTransfer
@@ -26,6 +24,7 @@ end
 
 export interface NativeClient
     poll: function(self: NativeClient): integer
+    watch: function(self: NativeClient, watching: boolean): nil
     onAdmission: function(self: NativeClient, wake: function()): function()
     now: function(self: NativeClient): number
     send: function(self: NativeClient, descriptor: any): (NativeTransfer?, string?, boolean?)
@@ -34,7 +33,9 @@ export interface NativeClient
 end
 
 const host = require("nupp.vm.http")
-const readiness = require("nupp.vm.net")
+const readiness = require("nupp.io.http.internal.readiness")
+export type UploadFile = readiness.UploadFile
+export const openUploadFile = readiness.openUploadFile
 
 -- Which of a transfer's waiters a readiness event should wake. A bit set, because one
 -- event commonly moves more than one of them.
@@ -182,19 +183,19 @@ local record Transfer is NativeTransfer
         local problem: any
         -- A failure is reported as the headers arriving, because that is where the
         -- caller is waiting and the head call is what will report it.
-        if bit.band(tokens, TOKEN_HEADERS + TOKEN_FAILED) ~= 0 then
+        if (tokens & (TOKEN_HEADERS + TOKEN_FAILED)) ~= 0 then
             count, problem = dispatch(self, "_headWaiters")
             moved = moved + count
             failure = problem
         end
-        if bit.band(tokens, TOKEN_BODY) ~= 0 then
+        if (tokens & TOKEN_BODY) ~= 0 then
             count, problem = dispatch(self, "_bodyWaiters")
             moved = moved + count
             if problem ~= nil and failure == nil then
                 failure = problem
             end
         end
-        if bit.band(tokens, TOKEN_UPLOAD) ~= 0 then
+        if (tokens & TOKEN_UPLOAD) ~= 0 then
             count, problem = dispatch(self, "_uploadWaiters")
             moved = moved + count
             if problem ~= nil and failure == nil then
@@ -317,7 +318,9 @@ local record Transfer is NativeTransfer
         if body ~= nil then
             self._body = nil
             self._client._byHandle[body] = nil
-            host.transferRelease(body)
+            if body ~= handle then
+                host.transferRelease(body)
+            end
         end
         self._handle = nil
         if handle ~= nil then
@@ -423,6 +426,12 @@ local record Client is NativeClient
         end
 
         return host.clientPending(self._handle)
+    end
+
+    function watch(self: Client, watching: boolean): nil
+        if not self._closed then
+            readiness.watchClient(self._handle, watching)
+        end
     end
 
     -- A request deadline is comparable with a process deadline and with a task

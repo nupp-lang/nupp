@@ -1,0 +1,43 @@
+module nupp.runtime.core.guesturi
+
+const native = require("nupp.runtime.vm.intrinsics")
+const values = require("nupp.runtime.vm.values")
+const strings = require("nupp.runtime.core.corestrings")
+const ints = require("nupp.runtime.core.coreintegers")
+const guest = require("nupp.runtime.core.guestvalues")
+
+cdef function nupp_uri_idna_ascii(borrows input: voidptr, count: uint64, exclusive output: voidptr, room: uint64): int32
+
+export function asciiDomain(ctx: voidptr, input: uint64): uint64
+    local state = strings.Builder(0ULL, 0ULL)
+    local domain = strings.header(input)
+    if domain == 0ULL then
+        error("URI host calls: expected a string")
+    end
+    local h = guest.guestheap(ctx)
+    @unsafe do
+        local count = strings.length(domain)
+        local size: int64 = nupp_uri_idna_ascii(
+            native.pointer(strings.bytes(domain)),
+            count,
+            native.pointer(0ULL),
+            0ULL
+        )
+        if size < 0 then
+            return ints.make(h, native.word(size))
+        end
+        local output = strings.open(h, state as strings.Builder*)
+        local room = native.word(size) + 1ULL
+        if strings.reserve(h, output, room) ~= 0ULL then
+            error("not enough memory")
+        end
+        local start = native.pointer(strings.descriptor(output).base)
+        local copied: int64 = nupp_uri_idna_ascii(native.pointer(strings.bytes(domain)), count, start, room)
+        if copied < 0 then
+            return ints.make(h, native.word(copied))
+        elseif copied ~= size or strings.commit(output, native.word(copied)) ~= 0ULL then
+            return ints.make(h, native.word(-2))
+        end
+        return values.TAG_OBJ | strings.finish(h, output)
+    end
+end

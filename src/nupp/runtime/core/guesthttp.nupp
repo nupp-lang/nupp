@@ -1,0 +1,427 @@
+module nupp.runtime.core.guesthttp
+
+-- Marshals the core HTTP calls into the native adapter on the owner's loop.
+-- Every pointer is borrowed for one synchronous call. Only tokens cross
+-- back to the guest. Open clients belong to the service scope.
+const native = require("nupp.runtime.vm.intrinsics")
+const heap = require("nupp.runtime.vm.heap")
+const values = require("nupp.runtime.vm.values")
+const context = require("nupp.runtime.core.context")
+const strings = require("nupp.runtime.core.corestrings")
+const ints = require("nupp.runtime.core.coreintegers")
+const c = require("nupp.runtime.core.hostc")
+const guest = require("nupp.runtime.core.guestvalues")
+const tables = require("nupp.runtime.core.coretables")
+
+-- These layouts mirror transport.h on ARM64. Pointer slots use 64-bit words
+-- so native lowering can align and zero the local. C borrows its address.
+local struct Slot
+    value: uint64
+end
+
+local struct Options
+    connect: uint64
+    pending: uint32
+    connections: uint32
+    perHost: uint32
+    compressed: int32
+    proxyMode: int32
+    proxy: uint64
+    noProxy: uint64
+    credentials: uint64
+end
+
+cdef struct Header
+    name: voidptr
+    value: voidptr
+    nameLength: uint64
+    valueLength: uint64
+end
+
+local struct Request
+    url: uint64
+    method: uint64
+    headers: uint64
+    headerCount: uint64
+    bytes: uint64
+    length: int64
+    timeout: uint64
+    stall: uint64
+    maximum: uint64
+    body: int32
+    insecure: int32
+end
+
+local struct Head
+    bytes: uint64
+    length: uint64
+    status: int32
+    version: int32
+    failure: uint64
+end
+
+cdef function strlen(borrows text: voidptr): uint64
+cdef function nupp_uv_loop(): voidptr
+cdef function nupp_curl_open(
+    loop: voidptr,
+    scope: uint64,
+    borrows options: voidptr,
+    exclusive failure: voidptr
+): voidptr
+cdef function nupp_curl_close(exclusive slot: voidptr)
+cdef function nupp_curl_pending(client: voidptr): uint64
+cdef function nupp_curl_watch_client(exclusive client: voidptr, watching: int32)
+cdef function nupp_curl_client_token(client: voidptr): uint64
+cdef function nupp_curl_find_client(scope: uint64, token: uint64): voidptr
+cdef function nupp_curl_send(client: voidptr, borrows request: voidptr, exclusive failure: voidptr): voidptr
+cdef function nupp_curl_request_token(request: voidptr): uint64
+cdef function nupp_curl_find_request(scope: uint64, token: uint64): voidptr
+cdef function nupp_curl_ready(exclusive request: voidptr): uint32
+cdef function nupp_curl_head(request: voidptr, exclusive head: voidptr): int32
+cdef function nupp_curl_error(borrows request: voidptr): voidptr
+cdef function nupp_curl_offer(request: voidptr, bytes: voidptr, count: uint64): int32
+cdef function nupp_curl_arm(exclusive request: voidptr)
+cdef function nupp_curl_read(request: voidptr, bytes: voidptr, room: uint64, exclusive failure: voidptr): int64
+cdef function nupp_curl_cancel(exclusive request: voidptr)
+cdef function nupp_curl_release(takes request: voidptr)
+
+const UINT32_MAX: uint64 = 0xffffffffULL
+const MAX_HEADERS: uint64 = 131072ULL
+const READ_PAGE: uint64 = 65536ULL
+
+local function integerOf(value: uint64): uint64
+    if not ints.isInteger(value) then
+        error("HTTP host calls: expected an integer")
+    end
+    return ints.bitsOf(value)
+end
+
+local function natural(value: uint64, limit: uint64): uint64
+    local number = integerOf(value)
+    if number > limit then
+        error("HTTP host calls: integer outside its bound")
+    end
+
+    return number
+end
+
+local function booleanOf(value: uint64): int64
+    if value == values.TRUE then
+        return 1
+    elseif value == values.FALSE then
+        return 0
+    end
+    error("HTTP host calls: expected a boolean")
+
+    return 0
+end
+
+local function textOf(value: uint64): uint64
+    local text = strings.header(value)
+    if text == 0ULL then
+        error("HTTP host calls: expected a string")
+    end
+
+    return text
+end
+
+local function cstringOf(value: uint64): uint64
+    local text = textOf(value)
+    if c.holdsNul(text) then
+        error("HTTP host calls: string contains NUL")
+    end
+
+    return text
+end
+
+local function scopeOf(ctx: voidptr): uint64
+    @unsafe do
+        return native.address(native.loadPointer(ctx, context.SERVICE_SCOPE))
+    end
+end
+
+local function word(h: heap.Heap*, value: int64): uint64
+    return ints.make(h, native.word(value))
+end
+
+local function errorText(h: heap.Heap*, text: voidptr): uint64
+    @unsafe do
+        if native.address(text) == 0ULL then
+            return values.NIL
+        end
+        return values.TAG_OBJ | strings.make(h, native.address(text), strlen(text))
+    end
+end
+
+export function open(ctx: voidptr, input: uint64): uint64
+    local optionStorage = Options()
+    local failureStorage = Slot()
+    local state = strings.Builder(0ULL, 0ULL)
+    local spec = guest.tablearg(ctx, input, 1ULL)
+    local h = guest.guestheap(ctx)
+    local proxy = cstringOf(guest.loadat(spec, 7))
+    local noProxy = guest.loadat(spec, 8)
+    local hasNoProxy = noProxy ~= values.NIL
+    local credentials = cstringOf(guest.loadat(spec, 9))
+    @unsafe do
+        local storage = strings.open(h, state as strings.Builder*)
+        local proxyOffset = c.append(h, storage, proxy)
+        local noProxyOffset: uint64 = 0ULL
+        if hasNoProxy then
+            noProxyOffset = c.append(h, storage, cstringOf(noProxy))
+        end
+        local credentialsOffset = c.append(h, storage, credentials)
+        local options = optionStorage as Options*
+        options.connect = natural(guest.loadat(spec, 1), 0x7fffffffffffffffULL)
+        native.store32(
+            options,
+            native.fieldOffset<Options>("pending"),
+            native.index(natural(guest.loadat(spec, 2), UINT32_MAX))
+        )
+        native.store32(
+            options,
+            native.fieldOffset<Options>("connections"),
+            native.index(natural(guest.loadat(spec, 3), UINT32_MAX))
+        )
+        native.store32(
+            options,
+            native.fieldOffset<Options>("perHost"),
+            native.index(natural(guest.loadat(spec, 4), UINT32_MAX))
+        )
+        native.store32(options, native.fieldOffset<Options>("compressed"), booleanOf(guest.loadat(spec, 5)))
+        native.store32(
+            options,
+            native.fieldOffset<Options>("proxyMode"),
+            native.index(natural(guest.loadat(spec, 6), 2ULL))
+        )
+        options.proxy = native.address(c.at(storage, proxyOffset))
+        if hasNoProxy then
+            options.noProxy = native.address(c.at(storage, noProxyOffset))
+        end
+        options.credentials = native.address(c.at(storage, credentialsOffset))
+        local failure = failureStorage as Slot*
+        local client = nupp_curl_open(nupp_uv_loop(), scopeOf(ctx), options, failure)
+        if native.address(client) == 0ULL then
+            return errorText(h, native.pointer(failure.value))
+        end
+        return ints.make(h, nupp_curl_client_token(client))
+    end
+end
+
+export function close(ctx: voidptr, token: uint64): uint64
+    @unsafe do
+        local storage = Slot()
+        local slot = storage as Slot*
+        slot.value = native.address(nupp_curl_find_client(scopeOf(ctx), integerOf(token)))
+        nupp_curl_close(slot)
+    end
+
+    return values.NIL
+end
+
+export function pending(ctx: voidptr, token: uint64): uint64
+    @unsafe do
+        local client = nupp_curl_find_client(scopeOf(ctx), integerOf(token))
+        local count: uint64 = 0ULL
+        if native.address(client) ~= 0ULL then
+            count = nupp_curl_pending(client)
+        end
+        return ints.make(guest.guestheap(ctx), count)
+    end
+end
+
+export function watch(ctx: voidptr, token: uint64, watching: uint64): uint64
+    local client = nupp_curl_find_client(scopeOf(ctx), integerOf(token))
+    if native.address(client) ~= 0ULL then
+        if booleanOf(watching) ~= 0 then
+            nupp_curl_watch_client(client, 1)
+        else
+            nupp_curl_watch_client(client, 0)
+        end
+    end
+
+    return values.NIL
+end
+
+export function send(ctx: voidptr, token: uint64, input: uint64): uint64
+    local requestStorage = Request()
+    local failureStorage = Slot()
+    local state = strings.Builder(0ULL, 0ULL)
+    local spec = guest.tablearg(ctx, input, 2ULL)
+    local headers = guest.tablearg(ctx, guest.loadat(spec, 3), 2ULL)
+    local count = tables.length(headers)
+    if count > MAX_HEADERS then
+        error("HTTP host calls: too many request headers")
+    end
+    local h = guest.guestheap(ctx)
+    @unsafe do
+        local client = nupp_curl_find_client(scopeOf(ctx), integerOf(token))
+        if native.address(client) == 0ULL then
+            return word(h, -1)
+        end
+        local storage = strings.open(h, state as strings.Builder*)
+        local url = c.append(h, storage, cstringOf(guest.loadat(spec, 1)))
+        local method = c.append(h, storage, cstringOf(guest.loadat(spec, 2)))
+        -- The header array follows the C strings at a suitably aligned offset.
+        local offset = (strings.descriptor(storage).len + 7ULL) & ~7ULL
+        local stride = native.sizeOf<Header>()
+        local room = offset - strings.descriptor(storage).len + count * stride
+        if strings.reserve(h, storage, room) ~= 0ULL then
+            error("not enough memory")
+        end
+        local array = c.at(storage, offset)
+        local index: uint64 = 0ULL
+        while index < count do
+            local pair = guest.tablearg(ctx, guest.loadat(headers, native.index(index + 1ULL)), 2ULL)
+            local name = textOf(guest.loadat(pair, 1))
+            local value = textOf(guest.loadat(pair, 2))
+            local header = native.offset(array, native.index(index * stride)) as Header*
+            header.name = native.pointer(strings.bytes(name))
+            header.value = native.pointer(strings.bytes(value))
+            header.nameLength = strings.length(name)
+            header.valueLength = strings.length(value)
+            index = index + 1ULL
+        end
+        local body = textOf(guest.loadat(spec, 4))
+        local request = requestStorage as Request*
+        request.url = native.address(c.at(storage, url))
+        request.method = native.address(c.at(storage, method))
+        request.headers = native.address(array)
+        request.headerCount = count
+        request.bytes = strings.bytes(body)
+        local bodyKind = natural(guest.loadat(spec, 5), 3ULL)
+        native.store32(request, native.fieldOffset<Request>("body"), native.index(bodyKind))
+        request.length = native.index(integerOf(guest.loadat(spec, 6)))
+        if bodyKind == 1ULL and native.word(request.length) ~= strings.length(body) then
+            error("HTTP host calls: inline body must match its byte count")
+        end
+        request.timeout = natural(guest.loadat(spec, 7), 0x7fffffffffffffffULL)
+        request.stall = natural(guest.loadat(spec, 8), 0x7fffffffffffffffULL)
+        request.maximum = natural(guest.loadat(spec, 9), 0x7fffffffffffffffULL)
+        native.store32(request, native.fieldOffset<Request>("insecure"), booleanOf(guest.loadat(spec, 10)))
+        local failure = failureStorage as Slot*
+        local transfer = nupp_curl_send(client, request, failure)
+        if native.address(transfer) ~= 0ULL then
+            return ints.make(h, nupp_curl_request_token(transfer))
+        elseif failure.value ~= 0ULL then
+            return errorText(h, native.pointer(failure.value))
+        end
+        return ints.make(h, 0ULL)
+    end
+end
+
+export function release(ctx: voidptr, token: uint64): uint64
+    local request = nupp_curl_find_request(scopeOf(ctx), integerOf(token))
+    if native.address(request) ~= 0ULL then
+        nupp_curl_release(request)
+    end
+
+    return values.NIL
+end
+
+export function cancel(ctx: voidptr, token: uint64): uint64
+    local request = nupp_curl_find_request(scopeOf(ctx), integerOf(token))
+    if native.address(request) ~= 0ULL then
+        nupp_curl_cancel(request)
+    end
+
+    return values.NIL
+end
+
+export function arm(ctx: voidptr, token: uint64): uint64
+    local request = nupp_curl_find_request(scopeOf(ctx), integerOf(token))
+    if native.address(request) ~= 0ULL then
+        nupp_curl_arm(request)
+    end
+
+    return values.NIL
+end
+
+export function ready(ctx: voidptr, token: uint64): uint64
+    local request = nupp_curl_find_request(scopeOf(ctx), integerOf(token))
+    local result: uint64 = 0ULL
+    if native.address(request) ~= 0ULL then
+        result = nupp_curl_ready(request) as uint64
+    end
+
+    return ints.make(guest.guestheap(ctx), result)
+end
+
+export function errorOf(ctx: voidptr, token: uint64): uint64
+    local request = nupp_curl_find_request(scopeOf(ctx), integerOf(token))
+    if native.address(request) == 0ULL then
+        return values.NIL
+    end
+
+    return errorText(guest.guestheap(ctx), nupp_curl_error(request))
+end
+
+export function offer(ctx: voidptr, token: uint64, input: uint64, length: uint64): uint64
+    local text = textOf(input)
+    local count = natural(length, strings.length(text))
+    local request = nupp_curl_find_request(scopeOf(ctx), integerOf(token))
+    local result: int64 = -1
+    @unsafe do
+        if native.address(request) ~= 0ULL then
+            result = nupp_curl_offer(request, native.pointer(strings.bytes(text)), count)
+        end
+        return word(guest.guestheap(ctx), result)
+    end
+end
+
+export function head(ctx: voidptr, token: uint64): uint64
+    local resultStorage = Head()
+    local state = strings.Builder(0ULL, 0ULL)
+    local request = nupp_curl_find_request(scopeOf(ctx), integerOf(token))
+    local h = guest.guestheap(ctx)
+    if native.address(request) == 0ULL then
+        return word(h, -1)
+    end
+    @unsafe do
+        local result = resultStorage as Head*
+        local status = nupp_curl_head(request, result)
+        if status == 0 then
+            return values.NIL
+        elseif status < 0 then
+            return word(h, -1)
+        end
+        local storage = strings.open(h, state as strings.Builder*)
+        local prefix = native.word(result.status as int64) | native.word(result.version as int64) << 16ULL
+        if strings.appendWord(h, storage, prefix, 3ULL) ~= 0ULL
+            or strings.append(h, storage, result.bytes, result.length) ~= 0ULL
+        then
+            error("not enough memory")
+        end
+        return values.TAG_OBJ | strings.finish(h, storage)
+    end
+end
+
+export function read(ctx: voidptr, token: uint64, length: uint64): uint64
+    local failureStorage = Slot()
+    local state = strings.Builder(0ULL, 0ULL)
+    local request = nupp_curl_find_request(scopeOf(ctx), integerOf(token))
+    local h = guest.guestheap(ctx)
+    if native.address(request) == 0ULL then
+        return word(h, -2)
+    end
+    local room = natural(length, 0x7fffffffffffffffULL)
+    if room == 0ULL then
+        error("HTTP host calls: a body read needs room")
+    end
+    room = c.fitted(room, READ_PAGE)
+    @unsafe do
+        local storage = strings.open(h, state as strings.Builder*)
+        if strings.reserve(h, storage, room) ~= 0ULL then
+            error("not enough memory")
+        end
+        local failure = failureStorage as Slot*
+        local count = nupp_curl_read(request, c.at(storage, 0ULL), room, failure)
+        if count < 0 then
+            return word(h, count)
+        end
+        if strings.commit(storage, native.word(count)) ~= 0ULL then
+            error("not enough memory")
+        end
+        return values.TAG_OBJ | strings.finish(h, storage)
+    end
+end

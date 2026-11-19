@@ -1,7 +1,10 @@
 // Loopback HTTP/1.1 server used by the native HTTP provider tests.
 
-import { writeFileSync } from "node:fs";
-import { createServer } from "node:http";
+import { readFileSync, writeFileSync } from "node:fs";
+import { createServer as createHttp } from "node:http";
+import { createServer as createHttps } from "node:https";
+import { createServer as createTcp } from "node:net";
+import { gzipSync } from "node:zlib";
 
 const portFile = process.argv[2];
 if (!portFile) {
@@ -11,6 +14,9 @@ if (!portFile) {
 
 const largeBody = Buffer.from("0123456789abcdef".repeat(4 * 1024 * 1024 / 16));
 let loopHits = 0;
+let wireCase = 0;
+const wireResults = new Map();
+const firstFrame = "2000\r\n" + "x".repeat(8192) + "\r\n";
 
 function send(res, status, body = Buffer.alloc(0), headers = {}) {
   res.writeHead(status, {
@@ -20,8 +26,74 @@ function send(res, status, body = Buffer.alloc(0), headers = {}) {
   res.end(body);
 }
 
-const server = createServer((req, res) => {
+function startWireUpload(res) {
+  const id = String(++wireCase);
+  const listener = createTcp((socket) => {
+    listener.close();
+    let wire = "";
+    let bodyStart = -1;
+    let answered = false;
+    socket.on("error", () => {});
+    socket.on("data", (chunk) => {
+      wire += chunk.toString("latin1");
+      if (wire.length > 32768) {
+        socket.destroy();
+        return;
+      }
+      if (bodyStart < 0) {
+        const end = wire.indexOf("\r\n\r\n");
+        if (end < 0) return;
+        bodyStart = end + 4;
+      }
+      // Only a complete first payload can trigger the early response.
+      if (!answered && wire.startsWith(firstFrame, bodyStart)) {
+        answered = true;
+        socket.write("HTTP/1.1 200 OK\r\nContent-Length: 2\r\n\r\nok");
+      }
+    });
+    wireResults.set(id, new Promise((resolve) => {
+      socket.on("close", () => {
+        const head = wire.slice(0, bodyStart);
+        const body = wire.slice(bodyStart);
+        if (!answered || !head.startsWith("POST /upload HTTP/1.1\r\n") ||
+            !/\r\ntransfer-encoding: chunked\r\n/i.test(head) || /\r\ncontent-length:/i.test(head)) {
+          resolve("expected unknown-length chunked payload and early response");
+        } else if (body === firstFrame) {
+          resolve("open");
+        } else if (body.endsWith("0\r\n\r\n")) {
+          resolve("final zero chunk");
+        } else {
+          resolve("unexpected upload bytes: " + (body.length - firstFrame.length));
+        }
+      });
+    }));
+  });
+  listener.listen(0, "127.0.0.1", () => {
+    send(res, 200, Buffer.from(listener.address().port + "/" + id));
+  });
+}
+
+function respond(req, res) {
   if (req.method === "GET") {
+    if (req.url === "/early-wire") {
+      startWireUpload(res);
+      return;
+    }
+    if (req.url.startsWith("/early-wire-result/")) {
+      const id = req.url.slice("/early-wire-result/".length);
+      const result = wireResults.get(id);
+      if (result === undefined) {
+        send(res, 404);
+      } else {
+        wireResults.delete(id);
+        void result.then((body) => send(res, 200, Buffer.from(body)));
+      }
+      return;
+    }
+    if (req.url === "http://origin.invalid/proxy") {
+      send(res, 200, Buffer.from(req.headers["proxy-authorization"] ?? "none"));
+      return;
+    }
     if (req.url === "/redirect") {
       const { port } = server.address();
       send(res, 302, undefined, {
@@ -85,6 +157,13 @@ const server = createServer((req, res) => {
       return;
     }
 
+    if (req.url === "/gzip") {
+      send(res, 200, gzipSync(Buffer.from("gzip\0response\n")), {
+        "Content-Encoding": "gzip",
+      });
+      return;
+    }
+
     let body;
     if (req.url === "/authorization") {
       body = Buffer.from(req.headers.authorization ?? "none", "ascii");
@@ -98,6 +177,9 @@ const server = createServer((req, res) => {
     send(res, 200, body, {
       "Content-Type": "application/octet-stream",
       "X-Repeated": ["one", "two"],
+      ...(req.url === "/large" && typeof req.headers["x-asked"] === "string"
+        ? { "X-Asked-Seen": req.headers["x-asked"] }
+        : {}),
     });
     return;
   }
@@ -127,6 +209,12 @@ const server = createServer((req, res) => {
     return;
   }
 
+  if (req.method === "POST" && req.url === "/redirect-upload") {
+    req.on("end", () => send(res, 307, undefined, { Location: "/echo" }));
+    req.resume();
+    return;
+  }
+
   if (req.method === "POST") {
     const chunks = [];
     req.on("data", (chunk) => chunks.push(chunk));
@@ -135,7 +223,14 @@ const server = createServer((req, res) => {
   }
 
   send(res, 405);
-});
+}
+
+const server = process.argv[3]
+  ? createHttps({
+      cert: readFileSync(process.argv[3]),
+      key: readFileSync(process.argv[4]),
+    }, respond)
+  : createHttp(respond);
 
 server.on("clientError", (_error, socket) => socket.destroy());
 server.listen(0, "127.0.0.1", () => {

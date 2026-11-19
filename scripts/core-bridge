@@ -1,81 +1,134 @@
 #!/bin/sh
 # Build the opaque C startup transport and its independent ABI/scratch guard.
-#
-#   scripts/core-bridge [--sanitize] [--test]
-#
-# --test also builds and runs the bridge contracts. --sanitize, or
-# NUPP_CORE_BRIDGE_SANITIZE=1 in the environment, builds all three with
-# AddressSanitizer and UndefinedBehaviorSanitizer into a directory of their
-# own, so a harness that builds the bridge itself (tests/core/guests/run.lua)
-# runs its cases sanitized when the variable is set.
-#
-# The sanitizers see the bridge's own C and the C library calls it and the
-# guest make. They do not see inside the guest: its code is generated ARM64,
-# uninstrumented, working in regions the bridge maps itself, so a guest's
-# stray store into its own scratch, or into another mapping, goes unreported.
 set -eu
 ROOT=$(CDPATH= cd -- "$(dirname "$0")/.." && pwd)
-CC=${NUPP_CC:-cc}
 sanitize=${NUPP_CORE_BRIDGE_SANITIZE:-0}
 test=0
 for argument in "$@"; do
     case "$argument" in
         --sanitize) sanitize=1 ;;
         --test) test=1 ;;
-        *)
-            printf 'usage: scripts/core-bridge [--sanitize] [--test]\n' >&2
-            exit 2
-            ;;
+        *) printf 'usage: scripts/core-bridge [--sanitize] [--test]\n' >&2; exit 2 ;;
     esac
 done
+defaults=
 flags="-std=c11 -O2 -g -Wall -Wextra -Werror -pthread"
-common="$ROOT/native/core-bridge"
-defaults=""
 if [ "$sanitize" = 1 ]; then
     OUT=${NUPP_CORE_BRIDGE_DIR:-"$ROOT/build/c-core-bridge-sanitize"}
-    flags="$flags -fsanitize=address,undefined -fno-sanitize-recover=all"
-    flags="$flags -fno-omit-frame-pointer"
-    # The runtimes' options, as sanitize.c explains.
-    defaults="$common/sanitize.c"
+    defaults="$ROOT/native/core-bridge/sanitize.c"
+    flags="$flags -fsanitize=address,undefined -fno-sanitize-recover=all -fno-omit-frame-pointer"
 else
     OUT=${NUPP_CORE_BRIDGE_DIR:-"$ROOT/build/c-core-bridge"}
 fi
-mkdir -p "$OUT"
-case "$(uname -s):$(uname -m)" in
-    Darwin:arm64) export_flag=-Wl,-export_dynamic; libs=''; suffix=dylib; uv_rpath='@loader_path/lib' ;;
-    Linux:aarch64) export_flag=-rdynamic; libs=-ldl; suffix=so; uv_rpath='$ORIGIN/lib' ;;
-    *) printf 'core-bridge: ARM64 macOS or Linux is required\n' >&2; exit 1 ;;
+die() { printf 'core-bridge: %s\n' "$*" >&2; exit 1; }
+platform="$(uname -s):$(uname -m)"
+case "$platform" in
+    Darwin:arm64)
+        SDKROOT=${SDKROOT:-$(xcrun --sdk macosx --show-sdk-path)}
+        case "$SDKROOT" in /*) ;; *) die 'SDKROOT must be an absolute macOS SDK path' ;; esac
+        CC=${NUPP_CC:-$(xcrun --sdk macosx --find clang)}
+        NUPP_CC=$CC
+        MACOSX_DEPLOYMENT_TARGET=11.0
+        export SDKROOT NUPP_CC MACOSX_DEPLOYMENT_TARGET
+        icu="$SDKROOT/usr/lib/libicucore.tbd"
+        [ -r "$SDKROOT/usr/include/unicode/uidna.h" ] && [ -r "$icu" ] ||
+            die 'selected SDK lacks the ICU header or link stub'
+        curl=$(sh "$ROOT/scripts/native-libraries" libcurl)
+        uv_name=libuv.dylib
+        shared_suffix=dylib
+        rpath='@loader_path/lib'
+        export_flag=-Wl,-export_dynamic
+        ;;
+    Linux:aarch64|Linux:arm64)
+        CC=${NUPP_CC:-cc}
+        . "$ROOT/scripts/core-http-linux-sdk.sh"
+        uv_name=libuv.so
+        shared_suffix=so
+        rpath='$ORIGIN/lib'
+        export_flag=-rdynamic
+        ;;
+    *) die 'ARM64 macOS or Linux is required' ;;
 esac
-# Harness processes build here at once: each links under a name of its own
-# and renames it into place, so none moves another's half-written binary.
+
+# The deployment floor and SDK above select normal pinned cache entries.
 uv=$(sh "$ROOT/scripts/native-libraries" libuv)
+common="$ROOT/native/core-bridge"
+http="$ROOT/native/http-curl"
+mkdir -p "$OUT"
+stage=$(mktemp -d "$OUT/.sidecars.XXXXXX")
 pending=".$$.pending"
-trap 'rm -rf "$OUT"/*"$pending" "$OUT"/*"$pending".dSYM "$OUT"/lib/*"$pending" "$OUT"/notices/*"$pending"' EXIT
+trap 'rm -rf "$stage" "$OUT"/*"$pending" "$OUT"/*"$pending".dSYM "$OUT"/lib/*"$pending" "$OUT"/notices/*"$pending"' EXIT
+mkdir "$stage/lib" "$stage/notices"
+for package in "$uv" "$curl"; do
+    cp -RP "$package/lib/." "$stage/lib/"
+    cp -RP "$package/notices/." "$stage/notices/"
+done
+
+# Refuse higher-minimum or non-ARM64 products before publishing this bundle.
+check_floor() {
+    [ "$platform" = Darwin:arm64 ] || return 0
+    xcrun otool -arch arm64 -l "$1" | awk '
+        $1 == "cmd" { cmd = $2 }
+        (cmd == "LC_BUILD_VERSION" && $1 == "minos") ||
+        (cmd == "LC_VERSION_MIN_MACOSX" && $1 == "version") {
+            split($2, v, ".")
+            if (v[1] + 0 > 11 || v[1] + 0 == 11 && (v[2] + 0 || v[3] + 0)) bad = 1
+            seen = 1
+        }
+        END { exit (!seen || bad) }
+    ' || die "missing ARM64 deployment metadata or minimum exceeds 11.0: $1"
+}
+[ -f "$stage/lib/$uv_name" ] || die "missing staged $uv_name"
+for library in libcurl libssl libcrypto libz; do
+    [ -f "$stage/lib/$library.$shared_suffix" ] || die "missing staged $library.$shared_suffix"
+done
+if [ "$platform" = Darwin:arm64 ]; then
+    for library in "$stage"/lib/*.dylib; do check_floor "$library"; done
+fi
+
+compile() {
+    if [ "$platform" = Darwin:arm64 ]; then
+        set -- -target arm64-apple-macos11.0 -isysroot "$SDKROOT" "$@"
+    fi
+    "$CC" \
+        $flags \
+        -DNUPP_CORE_HTTP -I"$common" -I"$uv/include" -I"$curl/include" "$@"
+}
+link_bridge() {
+    if [ "$platform" != Darwin:arm64 ]; then
+        # The bridge's ELF RPATH also covers dependencies of its sidecars.
+        set -- "$@" -Wl,--disable-new-dtags -Wl,-rpath-link,"$stage/lib" -ldl
+    fi
+    compile "$export_flag" -Wl,-rpath,"$rpath" "$@" "$common/process.c" \
+        ${defaults:+"$defaults"} \
+        "$http/transport.c" "$stage/uri-idna.o" "$stage/lib/libcurl.$shared_suffix" \
+        "$icu" "$stage/lib/$uv_name"
+}
+if [ "$platform" = Darwin:arm64 ]; then
+    compile -c "$http/uri-idna.c" -o "$stage/uri-idna.o"
+else
+    compile -I"$icu_include" -c "$http/uri-idna.c" -o "$stage/uri-idna.o"
+fi
+link_bridge "$common/main.c" "$common/uv.c" -o "$OUT/nupp-core$pending"
+link_bridge "$common/guard.c" "$common/uv.c" "$ROOT/tests/core/bridgeabi.S" \
+    -o "$OUT/nupp-core-guard$pending"
+check_floor "$OUT/nupp-core$pending"
+check_floor "$OUT/nupp-core-guard$pending"
 mkdir -p "$OUT/lib" "$OUT/notices"
-# The pinned SDK supplies the runtime aliases and upstream notices.
-for file in "$uv"/lib/*.dylib "$uv"/lib/*.so "$uv"/lib/*.so.* "$uv"/notices/*.txt; do
+for file in "$stage"/lib/*.dylib "$stage"/lib/*.so "$stage"/lib/*.so.* "$stage"/notices/*.txt; do
     [ -f "$file" ] || continue
-    relative=${file#"$uv"/}
+    relative=${file#"$stage"/}
     cp -P "$file" "$OUT/$relative$pending"
     mv -f "$OUT/$relative$pending" "$OUT/$relative"
 done
-# shellcheck disable=SC2086 # the flags are words
-"$CC" $flags "$export_flag" -I"$common" -I"$uv/include" -Wl,-rpath,"$uv_rpath" \
-    "$common/main.c" "$common/uv.c" "$common/process.c" ${defaults:+"$defaults"} \
-    "$uv/lib/libuv.$suffix" $libs -o "$OUT/nupp-core$pending"
-# shellcheck disable=SC2086
-"$CC" $flags "$export_flag" -I"$common" -I"$uv/include" -Wl,-rpath,"$uv_rpath" \
-    "$common/guard.c" "$common/uv.c" "$common/process.c" ${defaults:+"$defaults"} \
-    "$ROOT/tests/core/bridgeabi.S" "$uv/lib/libuv.$suffix" $libs -o "$OUT/nupp-core-guard$pending"
 mv "$OUT/nupp-core$pending" "$OUT/nupp-core"
 mv "$OUT/nupp-core-guard$pending" "$OUT/nupp-core-guard"
 if [ "$test" = 1 ]; then
-    # shellcheck disable=SC2086
-    "$CC" $flags "$export_flag" -I"$common" -I"$uv/include" -Wl,-rpath,"$uv_rpath" \
+    link_bridge \
         "$ROOT/tests/core/bridgecontracts.c" "$ROOT/tests/core/uv-contracts.c" \
-        "$ROOT/tests/core/process-contracts.c" "$common/process.c" \
-        ${defaults:+"$defaults"} "$ROOT/tests/core/bridgeabi.S" \
-        "$uv/lib/libuv.$suffix" $libs -o "$OUT/nupp-core-contracts$pending"
+        "$ROOT/tests/core/process-contracts.c" \
+        "$ROOT/tests/core/bridgeabi.S" -o "$OUT/nupp-core-contracts$pending"
+    check_floor "$OUT/nupp-core-contracts$pending"
     mv "$OUT/nupp-core-contracts$pending" "$OUT/nupp-core-contracts"
     "$OUT/nupp-core-contracts" >&2
 fi

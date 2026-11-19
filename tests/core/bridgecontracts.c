@@ -136,6 +136,32 @@ int main (void) {
   codereadonly();
   nupp_test_uv();
   nupp_process_contracts();
+#if defined(NUPP_CORE_HTTP) || defined(__linux__)
+  assert(dlsym(RTLD_DEFAULT, "nupp_uri_idna_ascii"));
+
+  const char unicode_domain[] = "caf\xc3\xa9.example";
+  const char ace_domain[] = "xn--caf-dma.example";
+#ifdef NUPP_CORE_HTTP
+  const int32_t length = sizeof(ace_domain) - 1;
+  char mapped[sizeof(ace_domain)];
+
+  assert(nupp_uri_idna_ascii(unicode_domain, sizeof(unicode_domain) - 1, NULL,
+                             0) == length);
+  assert(nupp_uri_idna_ascii(unicode_domain, sizeof(unicode_domain) - 1, mapped,
+                             sizeof(mapped)) == length);
+  assert(memcmp(mapped, ace_domain, (size_t)length) == 0);
+  assert(nupp_uri_idna_ascii(ace_domain, sizeof(ace_domain) - 1, mapped,
+                             sizeof(mapped)) == length);
+  assert(memcmp(mapped, ace_domain, (size_t)length) == 0);
+#else
+
+  assert(nupp_uri_idna_ascii(unicode_domain, sizeof(unicode_domain) - 1, NULL,
+                             0) == -2);
+  assert(nupp_uri_idna_ascii(ace_domain, sizeof(ace_domain) - 1, NULL, 0) ==
+         -2);
+#endif
+#endif
+
   puts("native transport contracts passed");
 
   return 0;

@@ -12,11 +12,13 @@ const filecalls = require("nupp.runtime.filecalls")
 const filesystemcalls = require("nupp.runtime.filesystemcalls")
 const gccalls = require("nupp.runtime.gccalls")
 const hashcalls = require("nupp.runtime.hashcalls")
+const httpcalls = require("nupp.runtime.httpcalls")
 const pollcalls = require("nupp.runtime.pollcalls")
 const poolcalls = require("nupp.runtime.poolcalls")
 const processcalls = require("nupp.runtime.processcalls")
 const taskcalls = require("nupp.runtime.taskcalls")
 const timecalls = require("nupp.runtime.timecalls")
+const uricalls = require("nupp.runtime.uricalls")
 
 export const modules: {[string]: {[string]: any}} = {
     ["nupp.runtime.clockcalls"] = {
@@ -145,6 +147,47 @@ export const modules: {[string]: {[string]: any}} = {
             return hashcalls.sha256(a1)
         end
     },
+    ["nupp.runtime.httpcalls"] = {
+        open = function(a1: any): any
+            return httpcalls.open(a1)
+        end,
+        close = function(a1: any): any
+            return httpcalls.close(a1)
+        end,
+        pending = function(a1: any): any
+            return httpcalls.pending(a1)
+        end,
+        watch = function(a1: any, a2: any): any
+            return httpcalls.watch(a1, a2)
+        end,
+        send = function(a1: any, a2: any): any
+            return httpcalls.send(a1, a2)
+        end,
+        release = function(a1: any): any
+            return httpcalls.release(a1)
+        end,
+        cancel = function(a1: any): any
+            return httpcalls.cancel(a1)
+        end,
+        ready = function(a1: any): any
+            return httpcalls.ready(a1)
+        end,
+        offer = function(a1: any, a2: any, a3: any): any
+            return httpcalls.offer(a1, a2, a3)
+        end,
+        arm = function(a1: any): any
+            return httpcalls.arm(a1)
+        end,
+        head = function(a1: any): any
+            return httpcalls.head(a1)
+        end,
+        read = function(a1: any, a2: any): any
+            return httpcalls.read(a1, a2)
+        end,
+        failure = function(a1: any): any
+            return httpcalls.failure(a1)
+        end
+    },
     ["nupp.runtime.pollcalls"] = {
         open = function(): any
             return pollcalls.open()
@@ -160,6 +203,12 @@ export const modules: {[string]: {[string]: any}} = {
         end,
         close = function(a1: any): any
             return pollcalls.close(a1)
+        end,
+        waitOwner = function(a1: any, a2: any): any
+            return pollcalls.waitOwner(a1, a2)
+        end,
+        ownerActive = function(): any
+            return pollcalls.ownerActive()
         end
     },
     ["nupp.runtime.poolcalls"] = {
@@ -258,6 +307,11 @@ export const modules: {[string]: {[string]: any}} = {
         end,
         format = function(a1: any, a2: any, a3: any): any
             return timecalls.format(a1, a2, a3)
+        end
+    },
+    ["nupp.runtime.uricalls"] = {
+        asciiDomain = function(a1: any): any
+            return uricalls.asciiDomain(a1)
         end
     }
 }

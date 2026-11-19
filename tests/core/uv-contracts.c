@@ -49,7 +49,7 @@ static void readiness (void) {
 }
 
 static void files (void) {
-  assert((int64_t)nuppiosubmit(NUPP_IO_OPEN, 0, 0, 1) == -EFAULT);
+  assert((int64_t)nuppiosubmit(1, 0, 0, 1) == -EFAULT);
   int wake = (int)nuppiostart(1);
   assert(wake >= 0);
   assert(nuppiostart(8) == (uint64_t)wake);
@@ -59,16 +59,15 @@ static void files (void) {
   int fd = mkstemp(path);
   assert(fd >= 0);
   char data[] = "owned";
-  uint64_t ticket =
-      nuppiosubmit(NUPP_IO_WRITE, (uint64_t)fd, (uintptr_t)data, 5);
+  uint64_t ticket = nuppiosubmit(3, (uint64_t)fd, (uintptr_t)data, 5);
   assert((int64_t)ticket > 0);
   memset(data, '?', 5);
   assert(nuppiosettle(ticket) == 5);
   assert(lseek(fd, 0, SEEK_SET) == 0);
-  ticket = nuppiosubmit(NUPP_IO_READ, (uint64_t)fd, 0, 8);
+  ticket = nuppiosubmit(2, (uint64_t)fd, 0, 8);
 
   for (unsigned i = 0; !service->finished && i < 10000; ++i) {
-    assert(!pump(UV_RUN_ONCE, 100000000));
+    assert(!pump(UV_RUN_ONCE, 100000000, NULL));
   }
 
   assert(service->finished);
@@ -77,15 +76,13 @@ static void files (void) {
   assert(nuppiofinish(ticket, (uintptr_t)out, sizeof(out)) == 5);
   assert(!memcmp(out, "owned", 5));
   assert((int64_t)nuppiofinish(ticket, 0, 0) == -EINVAL);
-  uint64_t first =
-      nuppiosubmit(NUPP_IO_OPEN, O_RDONLY, (uintptr_t)path, strlen(path));
-  uint64_t second =
-      nuppiosubmit(NUPP_IO_OPEN, O_RDONLY, (uintptr_t)path, strlen(path));
+  uint64_t first = nuppiosubmit(1, O_RDONLY, (uintptr_t)path, strlen(path));
+  uint64_t second = nuppiosubmit(1, O_RDONLY, (uintptr_t)path, strlen(path));
   int64_t first_fd = (int64_t)nuppiosettle(first);
   assert(first_fd >= 0);
 
   for (unsigned attempt = 0; !service->finished && attempt < 100; ++attempt) {
-    assert(!pump(UV_RUN_ONCE, 100000000));
+    assert(!pump(UV_RUN_ONCE, 100000000, NULL));
   }
 
   assert(nuppiotake() == second);
@@ -94,16 +91,16 @@ static void files (void) {
   close((int)first_fd);
   close((int)second_fd);
 
-  ticket = nuppiosubmit(NUPP_IO_READ, (uint64_t)fd, 0, 1);
+  ticket = nuppiosubmit(2, (uint64_t)fd, 0, 1);
   assert(nuppiosettle(ticket) == 0); /* EOF */
-  assert((int64_t)nuppiosubmit(NUPP_IO_READ, UINT64_MAX, 0, 1) == -EBADF);
+  assert((int64_t)nuppiosubmit(2, UINT64_MAX, 0, 1) == -EBADF);
   int invalid = dup(fd);
   assert(invalid >= 0);
   close(invalid);
-  ticket = nuppiosubmit(NUPP_IO_READ, (uint64_t)invalid, 0, 1);
+  ticket = nuppiosubmit(2, (uint64_t)invalid, 0, 1);
   assert((int64_t)nuppiosettle(ticket) == -EBADF);
   assert(lseek(fd, 0, SEEK_SET) == 0);
-  ticket = nuppiosubmit(NUPP_IO_READ, (uint64_t)fd, 0, 8);
+  ticket = nuppiosubmit(2, (uint64_t)fd, 0, 8);
   nupp_uv_preserve_file((uint64_t)fd);
   assert(!close(fd));
   int replacement = open("/dev/null", O_RDONLY);
@@ -117,12 +114,12 @@ static void files (void) {
   assert(nuppiosettle(ticket) == 5);
   close(fd);
 
-  ticket = nuppiosubmit(NUPP_IO_OPEN, O_RDONLY, (uintptr_t)path, strlen(path));
+  ticket = nuppiosubmit(1, O_RDONLY, (uintptr_t)path, strlen(path));
   assert(nuppiocancel(ticket) == 1);
   assert(nuppiocancel(ticket) == 0);
   assert((int64_t)nuppiosettle(ticket) == -EINVAL);
-  ticket = nuppiosubmit(NUPP_IO_OPEN, O_RDONLY, (uintptr_t)path, strlen(path));
-  assert(!pump(UV_RUN_NOWAIT, 0));
+  ticket = nuppiosubmit(1, O_RDONLY, (uintptr_t)path, strlen(path));
+  assert(!pump(UV_RUN_NOWAIT, 0, NULL));
   assert(!nuppiocancel(ticket)); /* A native request still owes its callback. */
   int64_t result = (int64_t)nuppiosettle(ticket);
   assert(result == UV_ECANCELED || result >= 0);
@@ -137,19 +134,18 @@ static void files (void) {
   uint64_t tickets[MAX_JOBS];
 
   for (unsigned i = 0; i < MAX_JOBS; ++i) {
-    tickets[i] =
-        nuppiosubmit(NUPP_IO_OPEN, O_RDONLY, (uintptr_t)path, strlen(path));
+    tickets[i] = nuppiosubmit(1, O_RDONLY, (uintptr_t)path, strlen(path));
     assert((int64_t)tickets[i] > 0);
   }
 
-  assert((int64_t)nuppiosubmit(NUPP_IO_OPEN, O_RDONLY, (uintptr_t)path,
-                               strlen(path)) == -EAGAIN);
+  assert((int64_t)nuppiosubmit(1, O_RDONLY, (uintptr_t)path, strlen(path)) ==
+         -EAGAIN);
 
   for (unsigned i = 0; i < MAX_JOBS; ++i) {
     assert(nuppiocancel(tickets[i]) == 1);
   }
 
-  assert((int64_t)nuppiosubmit(NUPP_IO_READ, 0, 0, MAX_BYTES + 1) == -EAGAIN);
+  assert((int64_t)nuppiosubmit(2, 0, 0, MAX_BYTES + 1) == -EAGAIN);
   assert(!service->jobs_count && !service->bytes);
   unlink(path);
 }
@@ -161,17 +157,16 @@ static void teardown (void) {
   assert(token > 0);
   assert(!nupp_uv_arm((uint64_t)token, descriptors[0], 1));
   const char path[] = "/dev/null";
-  uint64_t ticket =
-      nuppiosubmit(NUPP_IO_OPEN, O_RDONLY, (uintptr_t)path, strlen(path));
+  uint64_t ticket = nuppiosubmit(1, O_RDONLY, (uintptr_t)path, strlen(path));
   assert((int64_t)ticket > 0);
-  assert(!pump(UV_RUN_NOWAIT, 0));
+  assert(!pump(UV_RUN_NOWAIT, 0, NULL));
   char withdrawn[] = "/tmp/nupp-uv-shutdown-XXXXXX";
   int temporary = mkstemp(withdrawn);
   assert(temporary >= 0);
   close(temporary);
   assert(!unlink(withdrawn));
   uint64_t pending =
-      nuppiosubmit(NUPP_IO_OPEN, O_CREAT | O_WRONLY | (UINT64_C(0600) << 32),
+      nuppiosubmit(1, O_CREAT | O_WRONLY | (UINT64_C(0600) << 32),
                    (uintptr_t)withdrawn, strlen(withdrawn));
   assert((int64_t)pending > 0);
   assert(!nupp_uv_shutdown());
@@ -242,8 +237,7 @@ static void *thread_loop (void *argument) {
   assert(!nupp_uv_valid_poller(parent->token));
   assert((int64_t)nuppiostart(1) >= 0);
   const char path[] = "/dev/null";
-  uint64_t ticket =
-      nuppiosubmit(NUPP_IO_OPEN, O_RDONLY, (uintptr_t)path, strlen(path));
+  uint64_t ticket = nuppiosubmit(1, O_RDONLY, (uintptr_t)path, strlen(path));
   int64_t descriptor = (int64_t)nuppiosettle(ticket);
   assert(descriptor >= 0);
   close((int)descriptor);

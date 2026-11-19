@@ -522,17 +522,28 @@ export function coreSeed(
             end
         end
     end
-    -- The bridge resolves its linked libuv beside the executable. Store the
-    -- loader's filename as a regular file to keep the seed archive link-free.
-    local uv = host:match("%-apple%-darwin$") and "lib/libuv.1.0.0.dylib" or "lib/libuv.so.1"
     local transport = fs.dirname(runtime)
-    if fs.exists(fs.join(transport, uv)) then
-        copies[uv] = fs.join(transport, uv)
-        fs.mkdir(fs.join(staging, "lib"))
+    local runtimeLibraries = fs.join(transport, "lib")
+    local runtimeNotices = fs.join(transport, "notices")
+    local macos = host:match("%-apple%-darwin$") ~= nil
+    if fs.exists(runtimeLibraries) then
+        if not fs.exists(fs.join(staging, "lib")) then
+            fs.mkdir(fs.join(staging, "lib"))
+        end
+        for name, kind in fs.children(runtimeLibraries) do
+            -- dylib IDs name the actual file. ELF SONAMEs may be symlinks,
+            -- which the seed records as ordinary files under the SONAME.
+            if (macos and kind == "file" and name:match("%.dylib$")) or (not macos and name:match("%.so%.%d+$")) then
+                copies["lib/" .. name] = fs.join(runtimeLibraries, name)
+            end
+        end
+    end
+    if fs.exists(runtimeNotices) then
         fs.mkdir(fs.join(staging, "notices"))
-        for _, notice in ipairs({"LICENSE", "LICENSE-extra", "inet-LICENSE", "tree-LICENSE"}) do
-            local name = "notices/libuv-" .. notice .. ".txt"
-            copies[name] = fs.join(transport, name)
+        for name, kind in fs.children(runtimeNotices) do
+            if kind == "file" and name:match("%.txt$") then
+                copies["notices/" .. name] = fs.join(runtimeNotices, name)
+            end
         end
     end
     local files: {[string]: string} = {}

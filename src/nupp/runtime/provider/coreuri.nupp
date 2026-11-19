@@ -1,0 +1,25 @@
+@!internal
+
+module nupp.runtime.provider.coreuri
+
+const contracts = require("io.internal.contracts")
+const host = require("nupp.runtime.uricalls")
+const whatwg = require("nupp.io.uri.whatwg")
+
+local function asciiDomain(domain: string): (string?, string?)
+    local result = host.asciiDomain(domain)
+    if type(result) == "string" then
+        return result as string, nil
+    elseif result == -1 then
+        return nil, "invalid international domain name"
+    end
+
+    return nil, "international domain conversion failed"
+end
+
+local function parse(text: string): (contracts.UriParts?, string?)
+    return whatwg.parse(text, nil, false, asciiDomain)
+end
+
+local checked: contracts.UriProvider = {parse = parse}
+export = checked
