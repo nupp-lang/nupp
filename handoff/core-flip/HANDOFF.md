@@ -45,7 +45,9 @@ branch avoozl-plans). Follow AGENTS.md in each repo.
   unchanged bundle with 20/20 pieces reused. The opt-in launcher now
   keeps its builder across edits (`783846a0d`) and notices removed
   compiler sources (`0ce6dcbf4`). Catalog records are isolated by checkout
-  after `f94e82c94`.
+  after `f94e82c94`. In an isolated macOS ARM64 checkout, a full
+  cold build took 65m24s. A compiler comment edit through `bin/nupp`
+  kept the same builder, reused 570 of 571 pieces, and took 21m24s.
 - The W1 retirement landed at `f09743b9f` after the VM fixpoint and a
   four-row guest replay. Its six-case run and its base each recorded the
   same 28 failed checks. The audit import and synthetic-root fixes landed
@@ -211,7 +213,8 @@ files beside it, and follow AGENTS.md.
    [issue #136](https://github.com/nupp-lang/nupp/issues/136). Enable
    `aarch64-apple-darwin` in `STAGE0_CORE_HOSTS` once every validation lane
    is usable on the core.
-2. Measure a full compiler source edit through opt-in `bin/nupp`.
+2. Use the full launcher rebuild times in incremental-emit.md as a local
+   comparison point for later body and interface edits.
 3. Check the six remaining W1 interop and derive failures. Read the
    macOS core-guest legs of
    [run 44567504364](https://github.com/nupp-lang/nupp/actions/runs/44567504364)

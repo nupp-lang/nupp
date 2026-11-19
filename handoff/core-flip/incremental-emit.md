@@ -38,6 +38,15 @@ drops below the 4-15 GB a self-emit takes now.
   resolves an unused library. Used libraries and artifact bytes still
   participate in validation. Both the VM regression and the native
   completed binary reuse passed.
+- A full macOS ARM64 rebuild on source base `b58fe831d` used the native
+  fixpoint compiler from `fcb7a5c31` as its stable builder. Host selection
+  was enabled only in the test worktree. The cold build took 3924 s
+  and reused 0 of 571 pieces. An ordinary `bin/nupp --version` after a
+  compiler comment edit kept the same builder, selected a new generation,
+  and reused 570 of 571 pieces in 1284 s. Checking fell from 1562 s to
+  757 s. Piece work fell from 1461 s to 245 s. These are single wall-clock
+  observations. The four `incremental-launcher-*.log` receipts are in
+  `core-test-path-logs` on bigbertha.
 - The original `wip/core-incremental-emit` and validated
   `wip/core-incremental-validation` branches are preserved. Their worktree
   and test logs are under `/Volumes/bigbertha/workspaces/core-incremental-emit`.
