@@ -227,6 +227,15 @@ static void shell (uint64_t poller) {
   assert(count >= 0 && (size_t)count == strlen(expected));
   assert(memcmp(bytes, expected, (size_t)count) == 0);
   assert(_read(reader, bytes, 1) == 0 && _close(reader) == 0);
+
+  wchar_t original[32768];
+  DWORD length = GetEnvironmentVariableW(L"COMSPEC", original,
+                                         sizeof(original) / sizeof(*original));
+  assert(length < sizeof(original) / sizeof(*original));
+  assert(SetEnvironmentVariableW(L"COMSPEC", L"C:\\no-such-nupp-shell.exe"));
+  assert(nupp_process_spawn(args[0], args, NULL, NULL, -1, -1, -1,
+                            NUPP_PROCESS_WINDOWS_SHELL) == -ENOENT);
+  assert(SetEnvironmentVariableW(L"COMSPEC", length ? original : NULL));
 }
 
 static void environment (void) {

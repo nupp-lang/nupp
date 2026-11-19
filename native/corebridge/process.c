@@ -324,7 +324,7 @@ char **nupp_process_environ (void) {
     size += name + value + 2;
   }
 
-  char **vector = malloc(size);
+  char **vector = (char **)malloc(size);
 
   if (vector) {
     char *bytes = (char *)(vector + count + 1);
@@ -509,31 +509,67 @@ static int64_t spawn_path (uv_loop_t *loop, uv_process_options_t *options,
 #endif
 
 #ifdef _WIN32
-static int64_t start_shell (uv_loop_t *loop, uv_process_options_t *options) {
-  /* cmd parses the text after /C itself. The final scripted argument already
-   * carries the outer quotes /S strips, so CRT argument escaping would alter
-   * it. */
+static int system_shell (char *path, size_t room) {
   wchar_t directory[MAX_PATH];
   UINT length = GetSystemDirectoryW(directory, MAX_PATH);
 
   if (!length || length >= MAX_PATH) {
-    return -ENOENT;
+    return UV_ENOENT;
   }
 
-  char path[4 * MAX_PATH + sizeof("\\cmd.exe")];
   int count =
       WideCharToMultiByte(CP_UTF8, WC_ERR_INVALID_CHARS, directory, -1, path,
-                          sizeof(path) - sizeof("\\cmd.exe"), NULL, NULL);
+                          (int)(room - sizeof("\\cmd.exe")), NULL, NULL);
 
   if (!count) {
-    return -ENOENT;
+    return UV_ENOENT;
   }
 
   memcpy(path + count - 1, "\\cmd.exe", sizeof("\\cmd.exe"));
-  options->file = path;
-  options->flags |= UV_PROCESS_WINDOWS_VERBATIM_ARGUMENTS;
 
-  return start(loop, options);
+  return 0;
+}
+
+static int64_t start_shell (uv_loop_t *loop, uv_process_options_t *options) {
+  char local[4 * MAX_PATH + sizeof("\\cmd.exe")];
+  char *path = local;
+  size_t room = sizeof(local);
+  int status = uv_os_getenv("COMSPEC", local, &room);
+
+  if (status == UV_ENOBUFS) {
+    path = malloc(room);
+
+    if (!path) {
+      return -ENOMEM;
+    }
+
+    status = uv_os_getenv("COMSPEC", path, &room);
+  }
+  else if (status == UV_ENOENT) {
+    status = system_shell(local, sizeof(local));
+  }
+
+  int64_t result;
+
+  if (status < 0) {
+    result = winerror(status);
+  }
+  else if (!*path) {
+    result = -ENOENT;
+  }
+  else {
+    /* cmd parses the text after /C itself. The final argument already has
+     * the outer quotes /S strips. */
+    options->file = path;
+    options->flags |= UV_PROCESS_WINDOWS_VERBATIM_ARGUMENTS;
+    result = start(loop, options);
+  }
+
+  if (path != local) {
+    free(path);
+  }
+
+  return result;
 }
 #endif
 
