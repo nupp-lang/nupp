@@ -128,12 +128,14 @@ static void abiprobe (void) {
 }
 
 void nupp_test_uv (void);
+void nupp_process_contracts (void);
 
 int main (void) {
   abiprobe();
   malformed();
   codereadonly();
   nupp_test_uv();
+  nupp_process_contracts();
   puts("native transport contracts passed");
 
   return 0;

@@ -1,44 +1,29 @@
 module nupp.runtime.core.hostprocess
 
--- The process system calls under the program's process layer
--- (processcalls), made through the C library: posix_spawn from a spawn
--- spec, waitpid without waiting, kill, and exit. Each answers a value or
--- the negated error number. The constants are macOS's, the one host the
--- core's compiler targets (aarch64-apple-darwin).
+-- Nupp parses process options and borrows the resulting C strings only for
+-- spawn. The owned libuv loop collects the child's exit independently.
 const native = require("nupp.runtime.vm.intrinsics")
 const heap = require("nupp.runtime.vm.heap")
 const strings = require("nupp.runtime.core.corestrings")
 const c = require("nupp.runtime.core.hostc")
 
-cdef function posix_spawn(
-    borrows pid: voidptr,
+cdef function nupp_process_spawn(
     borrows path: voidptr,
-    borrows actions: voidptr,
-    borrows attributes: voidptr,
     borrows argv: voidptr,
-    borrows envp: voidptr
-): int32
-cdef function posix_spawnp(
-    borrows pid: voidptr,
-    borrows file: voidptr,
-    borrows actions: voidptr,
-    borrows attributes: voidptr,
-    borrows argv: voidptr,
-    borrows envp: voidptr
-): int32
-cdef function posix_spawn_file_actions_init(borrows actions: voidptr): int32
-cdef function posix_spawn_file_actions_destroy(borrows actions: voidptr): int32
-cdef function posix_spawn_file_actions_adddup2(borrows actions: voidptr, fd: int64, target: int64): int32
-cdef function posix_spawn_file_actions_addchdir_np(borrows actions: voidptr, borrows path: voidptr): int32
-cdef function posix_spawnattr_init(borrows attributes: voidptr): int32
-cdef function posix_spawnattr_destroy(borrows attributes: voidptr): int32
-cdef function posix_spawnattr_setflags(borrows attributes: voidptr, flags: int64): int32
-cdef function posix_spawnattr_setpgroup(borrows attributes: voidptr, group: int64): int32
-cdef function posix_spawnattr_setsigdefault(borrows attributes: voidptr, borrows signals: voidptr): int32
-cdef function posix_spawnattr_setsigmask(borrows attributes: voidptr, borrows signals: voidptr): int32
-cdef function sigemptyset(borrows signals: voidptr): int32
-cdef function sigaddset(borrows signals: voidptr, signal: int64): int32
-cdef function waitpid(pid: int64, borrows status: voidptr, options: int64): int32
+    borrows envp: voidptr,
+    borrows cwd: voidptr,
+    input: int64,
+    output: int64,
+    errors: int64,
+    search: uint64
+): int64
+cdef function nupp_process_pipe(readNonblock: uint64, writeNonblock: uint64): int64
+cdef function nupp_process_watch(poller: uint64, child: uint64): int64
+cdef function nupp_process_unwatch(poller: uint64, child: uint64): int64
+cdef function nupp_process_reap(child: uint64): int64
+cdef function nupp_process_kill(child: uint64, signal: uint64): int64
+cdef function nupp_uv_nowait(): int64
+cdef function nupp_uv_shutdown(): int64
 cdef function kill(pid: int64, signal: int64): int32
 cdef function exit(code: int64)
 cdef function _NSGetEnviron(): voidptr
@@ -71,34 +56,8 @@ const SEARCH: uint64 = 1ULL
 const ENVIRONMENT_GIVEN: uint64 = 2ULL
 const ENVIRONMENT_OVERLAY: uint64 = 4ULL
 
--- processcalls.reap's answer: running, or the reason above REASON_BITS.
-const RUNNING: int64 = 0
-const REASON_EXIT: uint64 = 1ULL
-const REASON_SIGNAL: uint64 = 2ULL
-const REASON_BITS: uint64 = 8ULL
-const SIGNAL_MASK: uint64 = 0x7fULL
-const STOPPED: uint64 = 0x7fULL
-const CODE_MASK: uint64 = 0xffULL
-const CODE_SHIFT: uint64 = 8ULL
 const INT_LIMIT: uint64 = 0x7fffffffULL
-
--- The C library's, on macOS.
-const POSIX_SPAWN_SETPGROUP: int64 = 0x2
-const POSIX_SPAWN_SETSIGDEF: int64 = 0x4
-const POSIX_SPAWN_SETSIGMASK: int64 = 0x8
-const SIGPIPE: int64 = 13
-const WNOHANG: int64 = 1
-
--- Where each opaque spawn object goes, with room as generous as the
--- bridge's was, then the pid and the pointer arrays.
-const ACTIONS: uint64 = 0ULL
-const ATTRIBUTES: uint64 = 512ULL
-const DEFAULTS: uint64 = 1024ULL
-const MASK: uint64 = 1536ULL
-const PID: uint64 = 2048ULL
-const POINTERS: uint64 = 2056ULL
 const WORD: uint64 = 8ULL
-const STATUS_BYTES: uint64 = 8ULL
 
 -- The decimal descriptor in the `length` bytes at `text` of `base`, -1 when
 -- they are not one.
@@ -110,7 +69,10 @@ local function descriptor(base: voidptr, text: uint64, length: uint64): int64
     local index: uint64 = 0ULL
     while index < length do
         local digit = native.load8(base, native.index(text + index))
-        if digit < DIGIT_ZERO or digit > DIGIT_NINE or value > native.index(INT_LIMIT) // DECIMAL then
+        if digit < DIGIT_ZERO
+            or digit > DIGIT_NINE
+            or value > (native.index(INT_LIMIT) - (digit - DIGIT_ZERO)) // DECIMAL
+        then
             return -1
         end
         value = value * DECIMAL + (digit - DIGIT_ZERO)
@@ -166,7 +128,7 @@ local function overridden(entry: voidptr, given: voidptr, count: uint64): boolea
 end
 
 -- Starts the process the spawn spec `spec` describes, as processcalls.spawn
--- says: its process id. The child leads a new process group and starts with
+-- says: its identity and pid. The child leads a new process group and starts with
 -- SIGPIPE at its default and no signal blocked.
 export function spawn(h: heap.Heap*, spec: uint64, flags: uint64): int64
     local state = strings.Builder(0ULL, 0ULL)
@@ -223,15 +185,14 @@ export function spawn(h: heap.Heap*, spec: uint64, flags: uint64): int64
         while native.address(native.loadPointer(inherited, native.index(inheritedCount * WORD))) ~= 0ULL do
             inheritedCount = inheritedCount + 1ULL
         end
-        local argvAt = POINTERS
-        local givenAt = argvAt + (arguments + 1ULL) * WORD
+        local givenAt = (arguments + 1ULL) * WORD
         local mergedAt = givenAt + (environment + 1ULL) * WORD
         local lifetime = strings.open(h, state as strings.Builder*)
         if strings.reserve(h, lifetime, mergedAt + (inheritedCount + environment + 1ULL) * WORD) ~= 0ULL then
             error("not enough memory")
         end
         local space = native.pointer(strings.descriptor(lifetime).base)
-        local argv = native.offset(space, native.index(argvAt))
+        local argv = space
         local given = native.offset(space, native.index(givenAt))
         local merged = native.offset(space, native.index(mergedAt))
         local argument: uint64 = 0ULL
@@ -277,107 +238,54 @@ export function spawn(h: heap.Heap*, spec: uint64, flags: uint64): int64
         elseif (flags & ENVIRONMENT_GIVEN) ~= 0ULL then
             environ = native.address(given)
         end
-        local envp = native.pointer(environ)
-        local actions = native.offset(space, native.index(ACTIONS))
-        local attributes = native.offset(space, native.index(ATTRIBUTES))
-        local defaults = native.offset(space, native.index(DEFAULTS))
-        local mask = native.offset(space, native.index(MASK))
-        local pid = native.offset(space, native.index(PID))
-        local _: int64 = posix_spawn_file_actions_init(actions)
-        local _: int64 = posix_spawnattr_init(attributes)
-        local _: int64 = sigemptyset(defaults)
-        local _: int64 = sigaddset(defaults, SIGPIPE)
-        local _: int64 = sigemptyset(mask)
-        local status: int64 = posix_spawnattr_setflags(
-            attributes,
-            POSIX_SPAWN_SETPGROUP | POSIX_SPAWN_SETSIGDEF | POSIX_SPAWN_SETSIGMASK
+        local cwd = native.pointer(0ULL)
+        if directory >= 0 then
+            cwd = native.offset(base, directory)
+        end
+
+        local child = nupp_process_spawn(
+            native.offset(base, program),
+            argv,
+            native.pointer(environ),
+            cwd,
+            input,
+            output,
+            errors,
+            flags & SEARCH
         )
-        if status == 0 then
-            status = c.widened(posix_spawnattr_setpgroup(attributes, 0))
-        end
-        if status == 0 then
-            status = c.widened(posix_spawnattr_setsigdefault(attributes, defaults))
-        end
-        if status == 0 then
-            status = c.widened(posix_spawnattr_setsigmask(attributes, mask))
-        end
-        if status == 0 and input >= 0 then
-            status = c.widened(posix_spawn_file_actions_adddup2(actions, input, 0))
-        end
-        if status == 0 and output >= 0 then
-            status = c.widened(posix_spawn_file_actions_adddup2(actions, output, 1))
-        end
-        if status == 0 and errors >= 0 then
-            status = c.widened(posix_spawn_file_actions_adddup2(actions, errors, 2))
-        end
-        if status == 0 and directory >= 0 then
-            status = c.widened(posix_spawn_file_actions_addchdir_np(actions, native.offset(base, directory)))
-        end
-        local path = native.offset(base, program)
-        if status == 0 then
-            if (flags & SEARCH) ~= 0ULL then
-                status = c.widened(posix_spawnp(pid, path, actions, attributes, argv, envp))
-            else
-                status = c.widened(posix_spawn(pid, path, actions, attributes, argv, envp))
-            end
-        end
-        local _: int64 = posix_spawn_file_actions_destroy(actions)
-        local _: int64 = posix_spawnattr_destroy(attributes)
-        if status ~= 0 then
-            return 0 - status
+        if child < 0 then
+            -- A failed uv_spawn still owns a native close callback. Repeated
+            -- failures may otherwise make no loop turn between attempts.
+            local _ = nupp_uv_nowait()
         end
 
-        return native.load32(pid, 0)
+        return child
     end
 end
 
--- Child `pid`'s exit without waiting for it: RUNNING while it runs, else
--- REASON_EXIT with its code or REASON_SIGNAL with its signal above
--- REASON_BITS.
-export function reap(h: heap.Heap*, pid: uint64): int64
-    local state = strings.Builder(0ULL, 0ULL)
-    local status: uint64 = 0ULL
-    @unsafe do
-        local lifetime = strings.open(h, state as strings.Builder*)
-        if strings.reserve(h, lifetime, STATUS_BYTES) ~= 0ULL then
-            error("not enough memory")
-        end
-        local word = native.pointer(strings.descriptor(lifetime).base)
-        while true do
-            local got: int64 = waitpid(native.index(pid), word, WNOHANG)
-            if got > 0 then
-                break
-            end
-            if got == 0 then
-                return RUNNING
-            end
-            if not c.interrupted() then
-                return c.failure()
-            end
-        end
-        status = native.word(native.load32(word, 0))
-    end
-    local signal = status & SIGNAL_MASK
-    if signal == 0ULL then
-        return native.index(REASON_EXIT << REASON_BITS | ((status >> CODE_SHIFT) & CODE_MASK))
-    elseif signal ~= STOPPED then
-        return native.index(REASON_SIGNAL << REASON_BITS | signal)
-    end
-
-    return RUNNING
+export function pipeWith(reader: boolean, writer: boolean): int64
+    return nupp_process_pipe(reader and 1ULL or 0ULL, writer and 1ULL or 0ULL)
 end
 
--- Sends `signal` to child `pid`'s process group, which it leads: 0.
-export function killGroup(pid: uint64, signal: uint64): int64
-    if pid == 0ULL or pid > INT_LIMIT then
-        return 0 - c.EINVAL
-    end
-    local status: int64 = kill(0 - native.index(pid), native.index(signal))
-    if status ~= 0 then
-        return c.failure()
+export function watch(poller: uint64, child: uint64): int64
+    return nupp_process_watch(poller, child)
+end
+
+export function unwatch(poller: uint64, child: uint64): int64
+    return nupp_process_unwatch(poller, child)
+end
+
+export function reap(child: uint64): int64
+    local status = nupp_uv_nowait()
+    if status < 0 then
+        return status
     end
 
-    return 0
+    return nupp_process_reap(child)
+end
+
+export function killGroup(child: uint64, signal: uint64): int64
+    return nupp_process_kill(child, signal)
 end
 
 -- Sends `signal` to process `pid` alone: 0.
@@ -395,7 +303,8 @@ end
 
 -- Ends the process with exit code `code`.
 export function finish(code: uint64): int64
-    exit(native.index(code))
+    local status = nupp_uv_shutdown()
+    exit(status < 0 and code == 0ULL and 1 or native.index(code))
 
     return 0
 end

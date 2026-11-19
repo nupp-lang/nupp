@@ -4,7 +4,7 @@
 The native core's process layer (Decision 8): every child process starts
 here, under Lua's `os.execute` and `io.popen`.
 
-- A child starts through posix_spawn with the arguments, environment,
+- A child starts through libuv with the arguments, environment,
   directory and standard streams it is given, in a process group of its own
   that it leads, so a kill reaches every process it started. Its signal
   mask is empty and SIGPIPE is back at its default.
@@ -12,9 +12,8 @@ here, under Lua's `os.execute` and `io.popen`.
   their standard streams, and whose end here is nonblocking and a readiness
   source of the reactor: a read or write on it parks the calling task, or
   drives the loop, like any other pipe's.
-- Its exit is a reactor operation, completed when the poller reports it
-  (kqueue's process filter, a pidfd under epoll): "exit" and the exit
-  status, or "signal" and the signal's number, never 128 plus a signal
+- Its exit is a reactor operation, completed when the loop reports it:
+  "exit" and the exit status, or "signal" and the signal's number, never 128 plus a signal
   folded into one integer. A wait parks the calling task; a task cancelled
   while it waits cancels the wait, and the child goes on.
 ]]
@@ -113,11 +112,12 @@ export type Exit = {
     code: integer
 }
 
---- A started child: its process id, which is also its process group's;
+--- A started child: its reactor identity, its OS pid and group number,
 --- this program's ends of its piped streams, -1 for one not piped or closed
 --- since; and how it ended, once a wait has seen it.
 export type Process = {
     id: integer,
+    pid: integer,
     stdin: integer,
     stdout: integer,
     stderr: integer,
@@ -222,7 +222,13 @@ export function spawn(options: Options): (Process?, integer)
         end
     end
 
-    local process: Process = {id = id, stdin = kept[STDIN], stdout = kept[STDOUT], stderr = kept[STDERR]}
+    local process: Process = {
+        id = id >> ENDBITS,
+        pid = id & READEND,
+        stdin = kept[STDIN],
+        stdout = kept[STDOUT],
+        stderr = kept[STDERR]
+    }
 
     return process, 0
 end
@@ -241,7 +247,7 @@ local function settle(process: Process, done: reactor.Completion): Exit
         return process.exit as Exit
     end
     if done.value < 0 then
-        error("processes: cannot wait for process " .. tostring(process.id) .. ": " .. files.reason(done.code), 3)
+        error("processes: cannot wait for process " .. tostring(process.pid) .. ": " .. files.reason(done.code), 3)
     end
     local exit: Exit = {reason = done.reason, code = done.code}
     process.exit = exit
@@ -289,7 +295,7 @@ export function running(process: Process): boolean
 end
 
 --- Sends `signal` (SIGTERM by default) to `process` and every process in
---- its group: 0, or the system's error number (ESRCH once all are gone).
+--- its group while the child is running: 0, or the system's error number.
 export function kill(process: Process, signal: integer?): integer
     local status = processcalls.kill(process.id, signal or SIGTERM)
     if status < 0 then

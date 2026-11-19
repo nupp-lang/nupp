@@ -422,7 +422,7 @@ export function popen(command: any, options: any): (any, string?, integer?)
         stream = streams.state(primary).stream,
         writer = streamof(stdin),
         child = started,
-        pid = started.id,
+        pid = started.pid,
         stdin = stdin,
         stdout = stdout,
         stderr = stderr,

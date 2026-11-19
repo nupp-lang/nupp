@@ -7,7 +7,8 @@ module nupp.core.catalogprocesslines
 -- once; and a task cancelled while its iteration waits leaves the handle to
 -- kill and close, many times in turn under a small descriptor limit, as
 -- does a scope deadline reaching a waiting iteration. Each check is a bit
--- of the score.
+-- of the score. The same descriptor-limited run checks that closing a pipe
+-- leaves no readiness behind when a file takes its descriptor.
 local score = 0
 local bit = 1
 
@@ -159,6 +160,64 @@ do
     local elapsed = os.monotonic() - began
     check(not timedok and coroutine.iscancelled(timedproblem) and elapsed < 500)
     check(reap(child))
+end
+
+local PATH = "/etc/passwd"
+
+local function contents(): string?
+    local file = io.open(PATH, "rb")
+    if file == nil then
+        return nil
+    end
+    local text = file:read("a")
+    file:close()
+
+    return text
+end
+
+local text = contents() or ""
+check(#text > 0)
+
+-- An unread pipe's descriptor is reused by the next file.
+do
+    local child = assert(popen("printf 'unread\\n'"))
+    child:close()
+    local first = assert(io.open(PATH, "rb"))
+    local second = assert(io.open(PATH, "rb"))
+    check(second:read("a") == text)
+    check(first:read("a") == text)
+    first:close()
+    second:close()
+end
+
+-- The read, close and reuse sequence also runs repeatedly under the fd cap.
+do
+    local same = true
+    for _ = 1, 20 do
+        local child = assert(popen("printf 'turn\\n'"))
+        local line = child:read("a")
+        local closed = child:close()
+        local reused = contents()
+        same = same and line == "turn\n" and closed == true and reused == text
+    end
+    check(same)
+end
+
+-- Under the scheduler the file read goes to the pool.
+do
+    local seen: {any} = {}
+    do
+        local scope = coroutine.scope()
+        scope:spawn(function(): nil
+            local child = assert(popen("printf 'scheduled\\n'"))
+            seen[1] = child:read("a")
+            seen[2] = child:close()
+            seen[3] = contents()
+        end)
+    end
+    check(seen[1] == "scheduled\n")
+    check(seen[2] == true)
+    check(seen[3] == text)
 end
 
 export const result = score

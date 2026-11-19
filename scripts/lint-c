@@ -161,9 +161,10 @@ flags() {
                 echo "-D_POSIX_C_SOURCE=200809L"
             fi
             ;;
-        native/core-bridge/uv.c | tests/core/uv-contracts.c)
+        native/core-bridge/uv.c | native/core-bridge/process.c | tests/core/uv-contracts.c)
             echo "-pthread -isystem $(libuv)/include"
             ;;
+        tests/core/process-contracts.c) echo "-pthread -I$ROOT/native/core-bridge" ;;
         native/core-bridge/* | tests/core/*) echo "-pthread" ;;
         native/crc/crc.c)
             if [ "$arm" = 1 ]; then

@@ -288,9 +288,7 @@ local CASES = {
     -- Library calls given every result of a call last, or spreading `...`,
     -- through the library function's value.
     {"libraryresults", 0x7FFF0000007FFFFF},
-    {"processlines", 0x7FFF000000000FFF},
-    -- Files read after a popen child closes, its pipe's descriptor reused.
-    {"processreuse", 0x7FFF0000000003FF},
+    {"processlines", 0x7FFF00000007FFFF},
     -- The compiler's content digest and SHA-256, which the core computes.
     {"hashdigests", 0x7FFF0000000003FF},
     {"pipereadmemory", 0x7FFF000000000590},
@@ -584,7 +582,6 @@ local STRESS = {
     runnerresiduals = true,
     libraryresults = true,
     processlines = true,
-    processreuse = true,
     hashdigests = true,
     pipereadmemory = true,
     processlayer = true,
@@ -621,7 +618,6 @@ local SETUP = {
     reactorfiles = "ulimit -n 64; ",
     processpopen = "ulimit -n 64; ",
     processlines = "ulimit -n 64; ",
-    processreuse = "ulimit -n 64; ",
     processlayer = "ulimit -n 64; ",
     benchworkloads = "export BENCH_SCALE=-9; ",
     -- The C library catalog-ffi-aggregates calls, built where each run finds it.
@@ -1643,11 +1639,17 @@ local function main()
             end
         end
     end
+    local selectedProcessLines = false
     for _, name in ipairs(arg) do
+        local caseName = name == "processreuse" and "processlines" or name
         local matched = false
         for _, case in ipairs(CASES) do
-            if case[1] == name then
-                selectedCases[#selectedCases + 1] = case
+            if case[1] == caseName then
+                -- The old selector runs the combined fixture once.
+                if caseName ~= "processlines" or not selectedProcessLines then
+                    selectedCases[#selectedCases + 1] = case
+                    selectedProcessLines = selectedProcessLines or caseName == "processlines"
+                end
                 matched = true
             end
         end

@@ -60,19 +60,20 @@ for file in "$uv"/lib/*.dylib "$uv"/lib/*.so "$uv"/lib/*.so.* "$uv"/notices/*.tx
     mv -f "$OUT/$relative$pending" "$OUT/$relative"
 done
 # shellcheck disable=SC2086 # the flags are words
-"$CC" $flags "$export_flag" -I"$uv/include" -Wl,-rpath,"$uv_rpath" \
-    "$common/main.c" "$common/uv.c" ${defaults:+"$defaults"} \
+"$CC" $flags "$export_flag" -I"$common" -I"$uv/include" -Wl,-rpath,"$uv_rpath" \
+    "$common/main.c" "$common/uv.c" "$common/process.c" ${defaults:+"$defaults"} \
     "$uv/lib/libuv.$suffix" $libs -o "$OUT/nupp-core$pending"
 # shellcheck disable=SC2086
-"$CC" $flags "$export_flag" -I"$uv/include" -Wl,-rpath,"$uv_rpath" \
-    "$common/guard.c" "$common/uv.c" ${defaults:+"$defaults"} \
+"$CC" $flags "$export_flag" -I"$common" -I"$uv/include" -Wl,-rpath,"$uv_rpath" \
+    "$common/guard.c" "$common/uv.c" "$common/process.c" ${defaults:+"$defaults"} \
     "$ROOT/tests/core/bridgeabi.S" "$uv/lib/libuv.$suffix" $libs -o "$OUT/nupp-core-guard$pending"
 mv "$OUT/nupp-core$pending" "$OUT/nupp-core"
 mv "$OUT/nupp-core-guard$pending" "$OUT/nupp-core-guard"
 if [ "$test" = 1 ]; then
     # shellcheck disable=SC2086
-    "$CC" $flags "$export_flag" -I"$uv/include" -Wl,-rpath,"$uv_rpath" \
+    "$CC" $flags "$export_flag" -I"$common" -I"$uv/include" -Wl,-rpath,"$uv_rpath" \
         "$ROOT/tests/core/bridgecontracts.c" "$ROOT/tests/core/uv-contracts.c" \
+        "$ROOT/tests/core/process-contracts.c" "$common/process.c" \
         ${defaults:+"$defaults"} "$ROOT/tests/core/bridgeabi.S" \
         "$uv/lib/libuv.$suffix" $libs -o "$OUT/nupp-core-contracts$pending"
     mv "$OUT/nupp-core-contracts$pending" "$OUT/nupp-core-contracts"

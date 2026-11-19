@@ -5,6 +5,7 @@
 #define _POSIX_C_SOURCE 200809L
 #include "transport.h"
 #include "reactor.h"
+#include "process.h"
 #include <uv.h>
 #include <errno.h>
 #include <fcntl.h>
@@ -823,6 +824,12 @@ int nupp_uv_nowait (void) {
 }
 
 static int64_t event (Poller *p) {
+  int64_t child = nupp_process_event(p->token);
+
+  if (child) {
+    return child;
+  }
+
   for (Subscription *s = p->subscriptions; s; s = s->next) {
     if (!s->ready) {
       continue;
@@ -899,6 +906,7 @@ int64_t nupp_uv_close (uint64_t token) {
     }
   }
 
+  nupp_process_forget_poller(token);
   *at = p->next;
   free(p);
 
@@ -1169,6 +1177,20 @@ int64_t nupp_uv_shutdown (void) {
     }
 
     queued = next;
+  }
+
+  status = nupp_process_shutdown();
+
+  if (status) {
+    return status;
+  }
+
+  while (nupp_process_pending()) {
+    status = pump(UV_RUN_ONCE, UINT64_MAX);
+
+    if (status) {
+      return status;
+    }
   }
 
   while (service->pollers) {

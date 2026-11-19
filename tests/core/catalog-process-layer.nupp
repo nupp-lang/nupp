@@ -10,6 +10,8 @@ module nupp.core.catalogprocesslayer
 const processes = require("nupp.runtime.processes")
 const reactor = require("nupp.runtime.reactor")
 const files = require("nupp.runtime.files")
+const pollcalls = require("nupp.runtime.pollcalls")
+const processcalls = require("nupp.runtime.processcalls")
 const driver = require("nupp.core.catalogreactordriver")
 
 local score = 0
@@ -184,6 +186,28 @@ do
     processes.close(child)
     local sleeper = shell("sleep 30")
     check(processes.kill(sleeper, nil) == 0 and processes.wait(sleeper).code == 15)
+end
+
+-- A poll can collect an immediate exit before a waiter registers. The stored
+-- result is repeatable and a write after the child closed stdin safely fails.
+do
+    local child = run({
+        arguments = {"sh", "-c", "test \"$PATH\" = /no-such-path && exit 7"},
+        environment = {"PATH=/no-such-path"},
+        stdin = processes.PIPE
+    })
+    local retired = pollcalls.open()
+    assert(retired > 0 and pollcalls.close(retired) == 0)
+    assert(processcalls.watch(retired, child.id) == -9)
+    assert(processcalls.unwatch(retired, child.id) == -9)
+    local deadline = os.monotonic() + 10000
+    while processes.running(child) do
+        assert(os.monotonic() < deadline, "process status stopped making progress")
+    end
+    assert(processes.wait(child).code == 7 and processes.wait(child).code == 7)
+    assert(files.write(child.stdin, "closed", 1).code == 32)
+    processes.close(child)
+    processes.close(child)
 end
 
 export const result = score

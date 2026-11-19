@@ -1,8 +1,7 @@
 @!internal
 
 --- The system calls under the native core's process layer, as its host
---- answers them: posix_spawn, a child's exit through the reactor's poller
---- (kqueue's process filter on macOS, a pidfd on Linux), waitpid, and a
+--- answers them: libuv spawn, pipes and exit on the owned reactor loop, and a
 --- signal to a child's process group. A call of one is the core's own library
 --- call, and requiring this module loads nothing: it exists only on the core,
 --- for `nupp.runtime.reactor` and `nupp.runtime.processes`. Each answers what
@@ -15,7 +14,8 @@ local record processcalls
     pipe: function(keep: integer): integer
 
     --- Starts the child `spec` describes, in a process group of its own that
-    --- it leads: its process id. `spec` is entries of a tag and text, each
+    --- it leads. The result has the OS pid in the low 32 bits and the
+    --- runtime's child identity above. `spec` is entries of a tag and text, each
     --- ended by a NUL: "x" the program, "a" each argument (the first is the
     --- program's name), "e" each environment entry, "d" the directory, and
     --- "0", "1" or "2" the decimal descriptor the child's standard input,

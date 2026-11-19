@@ -66,7 +66,7 @@ export function spawn(options: any): (any?, any?, any?, any?, integer, string?, 
         return nil, nil, nil, nil, 0, files.reason(code), code
     end
 
-    return child, stream(child.stdin), stream(child.stdout), stream(child.stderr), child.id, nil, nil
+    return child, stream(child.stdin), stream(child.stdout), stream(child.stderr), child.pid, nil, nil
 end
 
 export function poll(child: any): (integer?, boolean, integer?)
