@@ -506,6 +506,25 @@ function M.cdefBooleanBitfieldsHoldOneBit()
     )
 end
 
+function M.cdefBitfieldsKeepAdjacentBitsWhenWritten()
+    testAssert.eq(
+        run(
+            [[
+cdef struct SignedBits
+    low: uint32 : 5
+    signed: int32 : 5
+    high: uint32 : 6
+end
+local bits = SignedBits()
+bits.low, bits.signed, bits.high = 19, 3, 41
+bits.signed = -7
+return bits.low == 19 and bits.signed == -7 and bits.high == 41
+]]
+        ),
+        true
+    )
+end
+
 function M.ownIsStaticAndDropIsExplicit()
     testAssert.eq(
         run(
