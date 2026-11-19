@@ -129,8 +129,8 @@ jobs:
 
           "$package/$executable" check src/nupp/init.nupp
 
-          cp host/NOTICE.md "$package/NOTICE.md"
-          cp host/notices/* "$package/notices/"
+          cp NOTICE.md "$package/NOTICE.md"
+          cp notices/* "$package/notices/"
           (cd "$package" && { shasum -a 256 "$executable" 2>/dev/null || sha256sum "$executable"; } > SHA256SUMS)
           case "$RUNNER_OS" in
             macOS)

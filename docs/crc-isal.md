@@ -22,7 +22,7 @@ The static archive contains the upstream implementations and adapter; the VM
 links it for persistence. Checksums load the shared library, and a packaged
 program carries it as a sidecar beside its other bound libraries. The C
 bundle can be consumed with just a C compiler; it contains no Rust. Release
-archives already copy `host/notices`, including the ISA-L license.
+archives already copy `notices`, including the ISA-L license.
 
 ## State contract
 

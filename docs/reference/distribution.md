@@ -199,8 +199,8 @@ An offline Rust build without `NUPP_RUST_VENDOR_DIR` fails before Cargo runs.
 
 A stamped binary is a distribution of what its runtime links, so the notices
 ship in
-[`host/NOTICE.md`](https://github.com/nupp-lang/nupp/blob/main/host/NOTICE.md)
-and `host/notices/`. The generated Rust notice covers every third-party package
+[`NOTICE.md`](https://github.com/nupp-lang/nupp/blob/main/NOTICE.md)
+and `notices/`. The generated Rust notice covers every third-party package
 in `Cargo.lock`, so one committed notice set is valid for every facility and
 target. Hand the directory over with the binary the way a release archive
 carries a README.

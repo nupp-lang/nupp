@@ -7,7 +7,7 @@
 # generated dependency in the tree is one to keep current by hand.
 #
 # Bumping a pin means bumping its digest and, where the component ships a
-# licence Nupp redistributes, refreshing host/notices beside it. `scripts/toolchain`
+# licence Nupp redistributes, refreshing notices beside it. `scripts/toolchain`
 # refuses to build a source whose notice has drifted.
 
 # LuaJIT v2.1, at 2.1.1785763465: the interpreter LuaRocks runs on, and the

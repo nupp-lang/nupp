@@ -143,7 +143,7 @@ def provision(target, cache, source, offline):
         if tag != pins["version"]:
             raise ValueError(f"wgpu-native archive identifies {tag}, expected {pins['version']}")
         for name, expected in pins["notices"].items():
-            notice = ROOT / "host/notices" / name
+            notice = ROOT / "notices" / name
             if digest(notice) != expected:
                 raise ValueError(f"wgpu-native notice drift: {name}")
             output = staging / "notices" / name

@@ -6,7 +6,7 @@ set -eu
 ROOT=$(CDPATH= cd -- "$(dirname "$0")/.." && pwd)
 CARGO_ABOUT=${CARGO_ABOUT:-cargo-about}
 CARGO=${CARGO:-cargo}
-OUTPUT=$ROOT/host/notices/Rust-dependencies.html
+OUTPUT=$ROOT/notices/Rust-dependencies.html
 EXPECTED_CARGO_ABOUT='cargo-about 0.9.2'
 
 case "${1:-}" in
@@ -84,6 +84,6 @@ if [ "$mode" = write ]; then
     cp "$generated" "$OUTPUT"
 elif ! cmp -s "$generated" "$OUTPUT"; then
     printf '%s\n' \
-        'host/notices/Rust-dependencies.html is stale; run scripts/rust-dependency-notices --write' >&2
+        'notices/Rust-dependencies.html is stale; run scripts/rust-dependency-notices --write' >&2
     exit 1
 fi

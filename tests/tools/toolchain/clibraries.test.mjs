@@ -30,7 +30,7 @@ function fixture(t) {
     write(name, fs.readFileSync(path.join(root, name)));
   }
   write('scripts/c-libraries/libcurl.sh', '# unrelated recipe\n');
-  write('host/notices/zlib-LICENSE.txt', 'test notice\n');
+  write('notices/zlib-LICENSE.txt', 'test notice\n');
   write('source/zlib-1.4/LICENSE', 'test notice\n');
   fs.mkdirSync(path.join(directory, 'archives'));
   // Relative archive names avoid GNU tar interpreting a Windows drive as a
@@ -105,14 +105,14 @@ test('Markdown extension and notice bytes participate in the shared artifact key
 cmake --build "$staged/build"
 license="$source/COPYING"
 `);
-  f.write('host/notices/cmark-gfm-LICENSE.txt', 'test notice\n');
+  f.write('notices/cmark-gfm-LICENSE.txt', 'test notice\n');
   f.write('native/markdown/definitionlist.c', 'synthetic extension version 1\n');
   f.args[1] = 'cmark';
   const prefix = f.success(f.run());
   assert.equal(f.success(f.run()), prefix);
   f.write('native/markdown/definitionlist.c', 'synthetic extension version 2\n');
   assert.notEqual(f.success(f.run()), prefix);
-  f.write('host/notices/cmark-gfm-LICENSE.txt', 'wrong notice\n');
+  f.write('notices/cmark-gfm-LICENSE.txt', 'wrong notice\n');
   const refused = f.run();
   assert.notEqual(refused.status, 0);
   assert.match(refused.stderr, /notice differs/);

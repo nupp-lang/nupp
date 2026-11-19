@@ -18,8 +18,8 @@ import urllib.request
 
 ROOT = Path(__file__).resolve().parent.parent
 FORMAT = "nupp-bootstrap-seed-1"
-NOTICES = {"NOTICE.md": "host/NOTICE.md", **{
-    "notices/" + name: "host/notices/" + name for name in (
+NOTICES = {"NOTICE.md": "NOTICE.md", **{
+    "notices/" + name: "notices/" + name for name in (
         "Rust-dependencies.html", "libffi-LICENSE.txt", "lunajson-LICENSE.txt", "LuaJIT-COPYRIGHT.txt")}}
 FILES = {"runtime", "compiler.image", "manifest.json", *NOTICES}
 

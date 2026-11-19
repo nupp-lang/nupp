@@ -125,8 +125,8 @@ fn isal_crc() {
         "scripts/native-libraries",
         "scripts/c-libraries/isal.sh",
         "native/crc",
-        "host/notices/ISA-L-LICENSE.txt",
-        "host/notices/ISA-L-CRC-LICENSE.txt",
+        "notices/ISA-L-LICENSE.txt",
+        "notices/ISA-L-CRC-LICENSE.txt",
     ] {
         println!("cargo:rerun-if-changed={}", root.join(path).display());
     }

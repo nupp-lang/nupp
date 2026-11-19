@@ -23,7 +23,7 @@ function listed(repo, paths = []) {
     .split('\0').filter(Boolean))].sort(order);
 }
 function relevant(name) {
-  if (/^(src\/|native\/|runtime\/|host\/|scripts\/|templates\/|tests\/|bench\/|evals\/)/.test(name)) return true;
+  if (/^(src\/|native\/|runtime\/|notices\/|scripts\/|templates\/|tests\/|bench\/|evals\/)/.test(name)) return true;
   if (name.startsWith('editors/')) return false;
   if (/^(docs\/|\.agents\/|\.claude\/|\.codex\/)/.test(name) || name.endsWith('.md')) return false;
   return true;

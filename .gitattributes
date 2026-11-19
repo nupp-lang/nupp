@@ -1,4 +1,4 @@
-host/notices/** text eol=lf
+notices/** text eol=lf
 tests/fixtures/compression-codec/*.bin -text
 tests/fixtures/markdown/** text eol=lf
 # The upstream example includes two spaces to test a Markdown hard break.

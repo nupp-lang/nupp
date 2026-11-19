@@ -468,7 +468,7 @@ end
 --- archive: `nupp-core-seed-HOST-REVISION.tar.gz` in `directory`, with the
 --- archive's digest beside it in `.sha256`. Nothing is published or pinned.
 ---
---- @param root the checkout, whose host/NOTICE.md travels with the pair
+--- @param root the checkout, whose NOTICE.md travels with the pair
 --- @param runtime the core runtime, which must be the C bridge
 --- @param compiler the core compiler bundle
 --- @param revision the source revision the pair was built from
@@ -511,7 +511,7 @@ export function coreSeed(
 
     local copies: {
         [string]: string
-    } = {runtime = runtime, ["compiler.bundle"] = compiler, ["NOTICE.md"] = fs.join(root, "host/NOTICE.md")}
+    } = {runtime = runtime, ["compiler.bundle"] = compiler, ["NOTICE.md"] = fs.join(root, "NOTICE.md")}
     -- The libraries the compiler loads relative to itself travel beside it.
     local libraries = fs.join(fs.dirname(compiler), CORE_SEED_LIBRARIES)
     if fs.exists(libraries) then

@@ -96,5 +96,5 @@ browser parity.
 
 The 30 definition examples and frozen focused outputs retain their source
 license in `tests/fixtures/markdown/LICENSE-pulldown.txt`. The redistributed
-upstream notice is `host/notices/cmark-gfm-LICENSE.txt`. Owned extension and
+upstream notice is `notices/cmark-gfm-LICENSE.txt`. Owned extension and
 allocation/byte compatibility glue are counted as native C, not upstream code.

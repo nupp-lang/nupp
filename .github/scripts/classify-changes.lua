@@ -168,7 +168,8 @@ local rules = {
     {"^native/", {"native"}, except = {"^native/proofs/"}},
     {"^runtime/wasm/", {"browser"}},
     {"^runtime/", {"native"}},
-    {"^host/", {"native"}},
+    {"^NOTICE%.md$", {"native"}},
+    {"^notices/", {"native"}},
 
     {"^templates/", {"packaging"}},
     {"^editors/", {"editors"}},

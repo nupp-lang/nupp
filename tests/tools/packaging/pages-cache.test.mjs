@@ -47,7 +47,7 @@ test('Pages keys retain prose reuse and invalidate native, seed, recipe, and new
   const f = fixture(t), before = inputKey('compiler', f.repo);
   for (const name of ['docs/guide.md', 'docs/public/nupp.css', 'README.md']) f.write(name, 'prose');
   assert.equal(inputKey('compiler', f.repo), before);
-  for (const name of ['new-build-input', 'native/new.rs', 'tests/cache.lua', 'host/notices/LICENSE.md']) {
+  for (const name of ['new-build-input', 'native/new.rs', 'tests/cache.lua', 'notices/LICENSE.txt']) {
     f.write(name, 'new input');
     assert.notEqual(inputKey('compiler', f.repo), before, name);
     rmSync(path.join(f.repo, name));

@@ -23,7 +23,7 @@ for metadata in "$install"/lib/pkgconfig/libuv*.pc; do
     mv "$metadata.relocated" "$metadata"
 done
 license="$source/LICENSE"
-cmp "$source/LICENSE-extra" "$ROOT/host/notices/libuv-LICENSE-extra.txt" || die 'libuv extra notice differs from verified source'
+cmp "$source/LICENSE-extra" "$ROOT/notices/libuv-LICENSE-extra.txt" || die 'libuv extra notice differs from verified source'
 cp "$source/LICENSE-extra" "$install/notices/libuv-LICENSE-extra.txt"
 # LICENSE-extra names these external parts; keep their full source notices too.
 sed -n '1,/ \*\//p' "$source/include/uv/tree.h" > "$install/notices/libuv-tree-LICENSE.txt"

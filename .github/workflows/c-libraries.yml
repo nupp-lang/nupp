@@ -19,7 +19,7 @@ on:
       - 'tests/fixtures/c-libraries/**'
       - 'tests/fixtures/libuv/**'
       - 'tests/tools/toolchain/clibraries.test.mjs'
-      - 'host/notices/*LICENSE*'
+      - 'notices/*LICENSE*'
   pull_request:
     paths: *inputs
 permissions:
@@ -82,7 +82,7 @@ jobs:
       - uses: actions/cache@v4
         with:
           path: .nupp-c-library-cache
-          key: c-libraries-${{ matrix.target }}-${{ hashFiles('scripts/toolchain.pins', 'scripts/native-libraries', 'scripts/c-libraries/**', 'native/markdown/**', 'host/notices/cmark-gfm-LICENSE.txt') }}
+          key: c-libraries-${{ matrix.target }}-${{ hashFiles('scripts/toolchain.pins', 'scripts/native-libraries', 'scripts/c-libraries/**', 'native/markdown/**', 'notices/cmark-gfm-LICENSE.txt') }}
       - name: Build and verify upstream C artifacts without Rust
         shell: bash
         env:

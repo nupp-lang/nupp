@@ -215,7 +215,7 @@ rust_sources_digest() {
             scripts/toolchain scripts/patches/luajit.patch \
             scripts/native-libraries scripts/c-libraries/isal.sh \
             native/crc/CMakeLists.txt \
-            host/notices/ISA-L-LICENSE.txt host/notices/ISA-L-CRC-LICENSE.txt; do
+            notices/ISA-L-LICENSE.txt notices/ISA-L-CRC-LICENSE.txt; do
             [ -f "$ROOT/$file" ] && printf '%s\n' "$file"
         done
         (cd "$ROOT" && find native/crates native/crc -type f \
@@ -591,17 +591,17 @@ core_seed() {
 
 # Each of these is MIT, and MIT asks that its notice travel with the copies. The
 # sources are fetched rather than committed, so the only copy this repository
-# ships is the one in `host/notices` -- and a copy that has drifted from the
+# ships is the one in `notices` -- and a copy that has drifted from the
 # source it claims to reproduce is a false statement about what was distributed.
 # Bumping a pin fails here until the notice beside it is updated too.
 verify_notice() {
     noticeSource=$1 notice=$2
-    committed="$ROOT/host/notices/$notice"
+    committed="$ROOT/notices/$notice"
     [ -f "$noticeSource" ] \
         || die "the pinned source has no $noticeSource to check $notice against"
-    [ -f "$committed" ] || die "host/notices/$notice is missing"
+    [ -f "$committed" ] || die "notices/$notice is missing"
     if ! cmp -s "$noticeSource" "$committed"; then
-        die "host/notices/$notice is not what $noticeSource says any more. Copy it across: the pinned source is what is distributed, and the notice beside it is what says so."
+        die "notices/$notice is not what $noticeSource says any more. Copy it across: the pinned source is what is distributed, and the notice beside it is what says so."
     fi
 }
 

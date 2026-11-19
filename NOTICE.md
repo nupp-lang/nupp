@@ -2,7 +2,8 @@
 
 The compiler and the runtime it is stamped onto carry third-party code, so a
 binary built from them is a distribution of those copies. Their licenses ask
-that the notices travel with the copies, which is what this directory provides.
+that the notices travel with the copies, which is what this file and the
+`notices/` directory beside it provide.
 
 Ship `NOTICE.md` and `notices/` beside a binary the way a release archive ships
 a README.
@@ -46,7 +47,7 @@ libcurl, OpenSSL, zlib, ISA-L and cmark-gfm -- with matched headers, and copies
 each notice into the artifact's own `notices/`. Curl is built against those
 exact OpenSSL and zlib artifacts. The libuv artifact also carries the BSD and
 ISC notices of individual upstream sources; ship that artifact's `notices/`
-alongside this directory.
+alongside this one.
 
 `scripts/wgpu-native` fetches an upstream prebuilt library and its matched
 headers. Its independently pinned notice files travel with each cached copy.
