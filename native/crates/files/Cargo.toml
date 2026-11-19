@@ -9,12 +9,11 @@ publish.workspace = true
 path = "src/lib.rs"
 
 [features]
-lane = ["dep:nupp-native-runtime", "dep:tokio"]
+lane = ["dep:nupp-native-runtime"]
 
 [dependencies]
 getrandom = "0.4"
 nupp-native-runtime = { path = "../runtime", features = ["async"], optional = true }
-tokio = { version = "1", features = ["rt", "sync"], optional = true }
 
 [target.'cfg(unix)'.dependencies]
 libc = "0.2"

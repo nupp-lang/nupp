@@ -948,7 +948,6 @@ dependencies = [
  "getrandom 0.4.3",
  "libc",
  "nupp-native-runtime",
- "tokio",
  "windows-sys 0.61.2",
 ]
 
