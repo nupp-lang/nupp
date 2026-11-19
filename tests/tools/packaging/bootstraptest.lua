@@ -435,7 +435,12 @@ function M.aFlippedHostsStageZeroIsNeverTheVmSeed()
     local dir, plant, env = stageZeroTree()
     local host = capture(("sh '%s/scripts/stage0-runtime' --host"):format(dir)):match("^(%S+)")
     local pins = assert(readFile(dir .. "/scripts/toolchain.pins"))
-    plant("scripts/toolchain.pins", (pins:gsub("\nSTAGE0_CORE_HOSTS=[^\n]*", "\nSTAGE0_CORE_HOSTS=" .. host)))
+    -- With its core seed unpinned, a flipped host must fail rather than fall
+    -- back to the VM seed.
+    pins = pins:gsub("\nSTAGE0_CORE_HOSTS=[^\n]*", "\nSTAGE0_CORE_HOSTS=" .. host)
+    pins = pins:gsub("\n(STAGE0_CORE_URL_[%w_]+)=[^\n]*", "\n%1=")
+    pins = pins:gsub("\n(STAGE0_CORE_SHA256_[%w_]+)=[^\n]*", "\n%1=")
+    plant("scripts/toolchain.pins", pins)
     plant("scripts/bootstrap-seed", "open('" .. dir .. "/vm-seed-fetched', 'w').close()\n")
     local out, ok = capture(("%s '%s/scripts/toolchain' stage0-seed 2>&1"):format(env, dir))
     assert(not ok, "a flipped host with no core seed pinned found a stage zero: " .. out)
