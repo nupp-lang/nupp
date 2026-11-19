@@ -194,7 +194,10 @@ flags() {
         native/corebridge/uv.c | native/corebridge/process.c | tests/core/uvcontracts.c)
             echo "-pthread -DNUPP_CORE_NET -isystem $(libuv)/include"
             ;;
-        native/corebridge/tcp.* | native/corebridge/udp.* | native/corebridge/streamio.* | native/corebridge/netbridge.* | tests/core/tcpcontracts.c | tests/core/tcplifecycleproof.c | tests/core/netbridgecontracts.c)
+        native/corebridge/netbridge.*)
+            echo "-pthread -D_GNU_SOURCE=1 -DNUPP_CORE_TLS -I$ROOT/native/corebridge -isystem $(libuv)/include"
+            ;;
+        native/corebridge/tcp.* | native/corebridge/udp.* | native/corebridge/streamio.* | tests/core/tcpcontracts.c | tests/core/tcplifecycleproof.c | tests/core/netbridgecontracts.c)
             echo "-pthread -D_GNU_SOURCE=1 -I$ROOT/native/corebridge -isystem $(libuv)/include"
             ;;
         native/corebridge/tlsbio.* | tests/core/tlsbiocontracts.c)

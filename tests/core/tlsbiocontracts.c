@@ -4,6 +4,7 @@
  */
 
 #include "tlsbio.h"
+#include <openssl/pem.h>
 #include <assert.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -21,6 +22,32 @@ static NuppTlsBytes read_fixture (const char *path) {
   assert(!fclose(file));
 
   return (NuppTlsBytes){bytes, (size_t)length};
+}
+
+static NuppTlsBytes expired_certificate (NuppTlsBytes cert, NuppTlsBytes key) {
+  BIO *cert_input = BIO_new_mem_buf(cert.data, (int)cert.size);
+  BIO *key_input = BIO_new_mem_buf(key.data, (int)key.size);
+  X509 *certificate = PEM_read_bio_X509(cert_input, NULL, NULL, NULL);
+  EVP_PKEY *private_key = PEM_read_bio_PrivateKey(key_input, NULL, NULL, NULL);
+  assert(certificate && private_key);
+  assert(X509_gmtime_adj(X509_getm_notBefore(certificate), -172800));
+  assert(X509_gmtime_adj(X509_getm_notAfter(certificate), -86400));
+  assert(X509_sign(certificate, private_key, EVP_sha256()) > 0);
+  BIO *output = BIO_new(BIO_s_mem());
+  assert(output && PEM_write_bio_X509(output, certificate));
+  char *borrowed;
+  long count = BIO_get_mem_data(output, &borrowed);
+  assert(count > 0);
+  char *copy = malloc((size_t)count);
+  assert(copy);
+  memcpy(copy, borrowed, (size_t)count);
+  BIO_free(output);
+  BIO_free(cert_input);
+  BIO_free(key_input);
+  X509_free(certificate);
+  EVP_PKEY_free(private_key);
+
+  return (NuppTlsBytes){copy, (size_t)count};
 }
 
 static void transfer (NuppTls *source, NuppTls *target) {
@@ -205,6 +232,18 @@ int main (int argc, char **argv) {
   nupptlsfree(server);
 
   clientopts.hostname = "localhost";
+  NuppTlsBytes expired = expired_certificate(cert, key);
+  serveropts.certificate = expired;
+  clientopts.authority = expired;
+  server = nupptlsopen(&serveropts, error, sizeof(error));
+  client = nupptlsopen(&clientopts, error, sizeof(error));
+  assert(server && client && !handshake(client, server));
+  assert(!nupptlsverified(client) && *nupptlswhy(client));
+  nupptlsfree(client);
+  nupptlsfree(server);
+  free((void *)expired.data);
+
+  serveropts.certificate = cert;
   clientopts.authority = (NuppTlsBytes){"", 0};
   assert(!nupptlsopen(&clientopts, error, sizeof(error)) && *error);
   clientopts.authority = (NuppTlsBytes){NULL, 0};

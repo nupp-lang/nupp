@@ -41,7 +41,7 @@ struct NuppTls {
   unsigned char *protocols;
   unsigned int protocol_size;
   size_t writing;
-  int verify, failed, input_closed;
+  int verify, failed, input_closed, alert_queued;
   char plaintext[NUPP_TLS_WINDOW];
   char failure[ERROR_ROOM];
 };
@@ -741,13 +741,15 @@ int nupptlsclose (NuppTls *tls) {
     return status;
   }
 
-  if (!(SSL_get_shutdown(tls->ssl) & SSL_SENT_SHUTDOWN)) {
+  if (!tls->alert_queued) {
     ERR_clear_error();
     int result = SSL_shutdown(tls->ssl);
 
     if (result < 0) {
       return stepstatus(tls, result, "could not queue TLS close_notify");
     }
+
+    tls->alert_queued = 1;
   }
 
   return nupptlsflushed(tls);
@@ -768,7 +770,7 @@ int nupptlsfeed (NuppTls *tls, const void *bytes, size_t size) {
 }
 
 void nupptlseof (NuppTls *tls) {
-  BIO_shutdown_wr(tls->network);
+  (void)BIO_shutdown_wr(tls->network);
   tls->input_closed = 1;
 }
 
