@@ -27,10 +27,13 @@ set_target_properties(
   PROPERTIES OUTPUT_NAME nupp_markdown_static
 )
 
+# Warnings fail the adapter's own C, as they fail the bridge's. Upstream's
+# headers are system headers here, so its code keeps its own flags.
 foreach(target nupp_markdown nupp_markdown_static)
   target_compile_definitions(${target} PRIVATE CMARK_NO_SHORT_NAMES)
   target_include_directories(
     ${target}
+    SYSTEM
     PRIVATE
       "${CMARK_SOURCE}/src"
       "${CMARK_SOURCE}/extensions"
@@ -44,6 +47,10 @@ foreach(target nupp_markdown nupp_markdown_static)
 
   if(NOT WIN32)
     target_link_libraries(${target} PRIVATE Threads::Threads)
+  endif()
+
+  if(NOT MSVC)
+    target_compile_options(${target} PRIVATE -Wall -Wextra -Werror)
   endif()
 endforeach()
 

@@ -1500,6 +1500,7 @@ for _, unit in ipairs(UNITS) do
         )
         local _, platform = shell("uname -s")
         local flags = platform:find("Darwin", 1, true) and "-dynamiclib" or "-shared -fPIC"
+        flags = "-std=c11 -Wall -Wextra -Werror " .. flags
         status, built = shell(
             (
                 "%s %s -o %s %s"

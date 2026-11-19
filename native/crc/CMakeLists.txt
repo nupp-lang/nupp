@@ -39,6 +39,15 @@ list(TRANSFORM CRC_SOURCES PREPEND "${ISAL_SOURCE}/")
 
 # One set of objects, linked into both libraries.
 add_library(crc_objects OBJECT ${CRC_SOURCES} crc.c)
+
+# Warnings fail the adapter's own C, as they fail the bridge's; ISA-L's
+# sources keep upstream's flags.
+if(NOT MSVC)
+  set_source_files_properties(
+    crc.c
+    PROPERTIES COMPILE_OPTIONS "-Wall;-Wextra;-Werror"
+  )
+endif()
 target_include_directories(
   crc_objects
   PRIVATE "${ISAL_SOURCE}/include" "${ISAL_SOURCE}" "${ISAL_SOURCE}/crc"

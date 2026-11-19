@@ -35,6 +35,8 @@ local ROOT = require("nupp.core.compilerroot").resolve(arg[0], arg)
 local shardplan = dofile(ROOT .. "/tests/core/guests/shardplan.lua")
 local OUT = ROOT .. "/build/core-guests"
 local TESTS = ROOT .. "/tests/core"
+-- The C fixtures build with the warnings the bridge builds with.
+local FIXTURE_CFLAGS = "-std=c11 -Wall -Wextra -Werror"
 -- The guest runtime is built through the service catalog and the unit code
 -- cache; NUPP_GUEST_BUILD=frozen selects the frozen final-frame build instead.
 local UNITS = os.getenv("NUPP_GUEST_BUILD") ~= "frozen"
@@ -667,13 +669,13 @@ local SETUP = {
     ):format(ROOT, ROOT, ROOT),
     -- The getentropy that fails the entropy failure guard's request.
     entropyfailure = (
-        "d=$(mktemp -d '%s/entropy.XXXXXX') && cc -dynamiclib -o \"$d/libnuppentropyfailure.dylib\" '%s' "
+        "d=$(mktemp -d '%s/entropy.XXXXXX') && cc %s -dynamiclib -o \"$d/libnuppentropyfailure.dylib\" '%s' "
         .. "&& export DYLD_INSERT_LIBRARIES=\"$d/libnuppentropyfailure.dylib\"; "
-    ):format(OUT, TESTS .. "/entropyfailure.c"),
+    ):format(OUT, FIXTURE_CFLAGS, TESTS .. "/entropyfailure.c"),
     ffiaggregates = (
-        "d=$(mktemp -d '%s/ffi.XXXXXX') && cc -dynamiclib -o \"$d/libnuppffiaggregates.dylib\" '%s' "
+        "d=$(mktemp -d '%s/ffi.XXXXXX') && cc %s -dynamiclib -o \"$d/libnuppffiaggregates.dylib\" '%s' "
         .. "&& export DYLD_LIBRARY_PATH=\"$d\"; "
-    ):format(OUT, TESTS .. "/ffiaggregates.c"),
+    ):format(OUT, FIXTURE_CFLAGS, TESTS .. "/ffiaggregates.c"),
     compressioncodec = ("export NUPP_CODEC_FIXTURES='%s/tests/fixtures/compression-codec'; "):format(ROOT),
     -- The runner-chunks case's chunk is kept by its path under the
     -- checkout, as the runner's are.
@@ -1227,7 +1229,7 @@ local function tools(selectedCases)
             local status, output = shell(
                 "mkdir -p " .. quote(
                     OUT .. "/lib"
-                ) .. " && cc -dynamiclib -o " .. quote(
+                ) .. " && cc " .. FIXTURE_CFLAGS .. " -dynamiclib -o " .. quote(
                     library .. ".pending"
                 ) .. " " .. quote(
                     TESTS .. "/bridgeffi.c"

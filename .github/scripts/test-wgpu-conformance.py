@@ -48,7 +48,8 @@ def main():
     if not compiler:
         raise ValueError("a C compiler is required for the test-only header ABI probe")
     start = time.perf_counter()
-    subprocess.run([compiler, "-std=c11", "-I", str(library.parents[1] / "include/webgpu"),
+    subprocess.run([compiler, "-std=c11", "-Wall", "-Wextra", "-Werror",
+                    "-I", str(library.parents[1] / "include/webgpu"),
                     str(ROOT / "tests/fixtures/wgpu/abi.c"), "-o", str(probe)], cwd=ROOT, check=True)
     abi = output / "abi.json"
     with abi.open("w") as stream:
