@@ -339,15 +339,19 @@ function M.coreCompilerGenerationsAreSharedBySources()
         end
     end
 
-    local selfBuild = table.concat({
-        "#!/bin/sh",
-        "set -eu",
-        'out=$4; mkdir -p "$out"',
-        ("count=$(cat '%s/builds' 2>/dev/null || echo 0); echo $((count + 1)) > '%s/builds'"):format(dir, dir),
-        'printf "NUPPCORE%s" "$(cat "$(dirname "$0")/../src/a.nupp")" > "$out/compiler.bundle"',
-        ("cp '%s/runtime' \"$out/runtime\""):format(dir),
-        "",
-    }, "\n")
+    local selfBuild = table.concat(
+        {
+            "#!/bin/sh",
+            "set -eu",
+            'out=$4; mkdir -p "$out"',
+            ("count=$(cat '%s/builds' 2>/dev/null || echo 0); echo $((count + 1)) > '%s/builds'"):format(dir, dir),
+            ('printf "%%s\\n" "$3" >> %q'):format(dir .. "/builders"),
+            'printf "NUPPCORE%s" "$(cat "$(dirname "$0")/../src/a.nupp")" > "$out/compiler.bundle"',
+            ("cp '%s/runtime' \"$out/runtime\""):format(dir),
+            "",
+        },
+        "\n"
+    )
     plant("runtime", CORE_RUNTIME, "755")
     plant("seed.bundle", "NUPPCORE seed")
     for _, checkout in ipairs({"a", "b"}) do
@@ -355,6 +359,12 @@ function M.coreCompilerGenerationsAreSharedBySources()
         plant(checkout .. "/scripts/lock-owner", assert(readFile(ROOT .. "/scripts/lock-owner")), "755")
         -- A host the pins flip, so the compiler it has rebuilds it.
         plant(checkout .. "/scripts/stage0-runtime", "#!/bin/sh\necho core\n", "755")
+        plant(checkout .. "/scripts/toolchain.pins", "STAGE0_CORE_SHA256_CORE=first\n")
+        plant(
+            checkout .. "/scripts/toolchain",
+            ("#!/bin/sh\n[ \"$1\" = stage0-seed ] && echo %q\n"):format(dir .. "/seed"),
+            "755"
+        )
         plant(checkout .. "/scripts/core-self-build", selfBuild, "755")
         plant(checkout .. "/src/a.nupp", "one\n")
         -- Its sources are what git would track.
@@ -376,7 +386,10 @@ function M.coreCompilerGenerationsAreSharedBySources()
         cli("a", "build")
         assert(builds() == 1, "checkout a built once")
         local built = readFile(dir .. "/a/.nupp/core-cli/current")
-        assert(readFile(dir .. "/store/" .. built:gsub("%s+$", "") .. "/format"), "the generation is in the shared store")
+        assert(
+            readFile(dir .. "/store/" .. built:gsub("%s+$", "") .. "/format"),
+            "the generation is in the shared store"
+        )
         cli("b", "select")
         assert(readFile(dir .. "/b/.nupp/core-cli/current") == built, "checkout b selects a's generation")
         assert(builds() == 1, "with no build")
@@ -391,6 +404,31 @@ function M.coreCompilerGenerationsAreSharedBySources()
         cli("b", "run version")
         assert(builds() == 2, "sources a generation was built from build nothing again")
         assert(readFile(dir .. "/b/.nupp/core-cli/current") == readFile(dir .. "/a/.nupp/core-cli/current"))
+        for _, source in ipairs({"three\n", "four\n"}) do
+            os.execute("sleep 1")
+            plant("b/src/a.nupp", source)
+            cli("b", "run version")
+        end
+        assert(builds() == 4, "each new source builds once")
+        local builders = {}
+        for builder in assert(readFile(dir .. "/builders")):gmatch("[^\n]+") do
+            builders[#builders + 1] = builder
+        end
+        assert(#builders == 4 and builders[2] == builders[3] and builders[3] == builders[4], "edits share one builder")
+        assert(readFile(builders[4]) == "NUPPCOREone", "the builder remains available after pruning")
+        plant("seed/runtime", CORE_RUNTIME, "755")
+        plant("seed/compiler.bundle", "NUPPCORE second seed")
+        os.execute("sleep 1")
+        plant("b/scripts/toolchain.pins", "STAGE0_CORE_SHA256_CORE=second\n")
+        cli("b", "run version")
+        assert(builds() == 5, "a new pin bootstraps one generation")
+        assert(assert(readFile(dir .. "/builders")):match("([^\n]+)\n$") == dir .. "/seed/compiler.bundle")
+        os.execute("sleep 1")
+        plant("b/src/a.nupp", "five\n")
+        cli("b", "run version")
+        assert(builds() == 6, "an edit uses the new generation")
+        local afterPin = assert(readFile(dir .. "/builders")):match("([^\n]+)\n$")
+        assert(readFile(afterPin) == "NUPPCOREfour", "edits keep the generation bootstrapped by the new pin")
     end)
     os.execute("rm -rf '" .. dir .. "'")
     assert(ok, problem)
