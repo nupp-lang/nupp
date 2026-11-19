@@ -32,6 +32,7 @@ local nativeTimers = require("nupp.runtime.provider.nativetime")
 local suspension = require("nupp.suspension")
 local taskCancellation = require("nupp.suspension.cancellation")
 local coroutines = require("nupp.suspension.internal.coroutines")
+local readiness = require("nupp.suspension.internal.provider")
 local suspensionHost = require("nupp.suspension.host")
 local taskownership = require("nupp.runtime.taskownership")
 
@@ -186,8 +187,9 @@ local function fire(entry: any): nil
     end
 end
 
--- How many tasks are parked on a nupp.suspension wait.
-local suspended: integer = 0
+-- Tasks parked on a nupp.suspension wait, and the next one to give a source turn.
+local suspended: {any} = {}
+local suspendCursor: integer = 0
 
 local ownerWait: reactor.OwnerWait? = nil
 local ownerActive: (function(): boolean)? = nil
@@ -198,9 +200,28 @@ export function installOwnerWait(poll: reactor.OwnerWait?, active: (function(): 
     ownerActive = poll ~= nil and active or nil
 end
 
-local function ownerWork(): boolean
+local function nativeOwnerWork(): boolean
     local active = ownerActive
-    return suspended > 0 or reactor.owesPoolWork() or (active ~= nil and active())
+    return reactor.owesPoolWork() or (active ~= nil and active())
+end
+
+local function ownerWork(): boolean
+    return #suspended > 0 or nativeOwnerWork()
+end
+
+local function waitSource(): boolean
+    for _ = 1, #suspended do
+        local count = #suspended
+        if count == 0 then
+            break
+        end
+        suspendCursor = suspendCursor % count + 1
+        if readiness.waitOnce(suspended[suspendCursor].waiting) then
+            return true
+        end
+    end
+
+    return false
 end
 
 local function ownerTurn(poll: reactor.OwnerWait, deadline: number): nil
@@ -213,7 +234,9 @@ end
 -- pending; with none, the bridge's sleep. Both clocks are the monotonic one
 -- in milliseconds.
 local function wait(milliseconds: number, poll: reactor.OwnerWait?): nil
-    if poll ~= nil then
+    if milliseconds >= 1 and reactor.pending() == 0 and not nativeOwnerWork() and waitSource() then
+        suspension.poll()
+    elseif poll ~= nil then
         ownerTurn(poll, (calls.now() as number) + milliseconds)
     elseif reactor.pending() > 0 then
         reactor.wait((calls.now() as number) + milliseconds)
@@ -242,7 +265,7 @@ local function step(): nil
         return
     end
     -- A source wakes its task through `wake`, whatever count it answers.
-    local polling = suspended > 0 or nativeTimers.hasPending()
+    local polling = #suspended > 0 or nativeTimers.hasPending()
     if polling then
         suspension.poll()
         if head <= tail then
@@ -433,14 +456,20 @@ local WOKEN = reactor.Completion(value = 0)
 local function suspendpark(_: suspensionHost.Handler, waiting: suspensionHost.Waiting, cancel: function(): nil): nil
     while not waiting:ready() do
         reactor.suspend(function(resume: reactor.Waker): function(): nil
-            suspended = suspended + 1
-            local counted = true
+            local entry = {waiting = waiting, index = #suspended + 1}
+            suspended[entry.index] = entry
 
             local function settle(): nil
-                if counted then
-                    counted = false
-                    suspended = suspended - 1
+                local index = entry.index
+                if index == 0 then
+                    return
                 end
+                local last = #suspended
+                local moved = suspended[last]
+                suspended[index] = moved
+                moved.index = index
+                suspended[last] = nil
+                entry.index = 0
             end
 
             waiting:onresume(function(): nil

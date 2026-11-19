@@ -302,6 +302,26 @@ local function waitCandidates(waiting: any): {any}
     return fallback
 end
 
+-- Gives an eligible source one bounded blocking turn for this wait.
+export function waitOnce(waiting: any): boolean
+    if waiting:ready() then
+        return false
+    end
+    local candidates = waitCandidates(waiting)
+    if #candidates == 0 then
+        return false
+    end
+    local cursor = waiting.waitCursor or 1
+    if cursor > #candidates then
+        cursor = 1
+    end
+    local wait = candidates[cursor]
+    waiting.waitCursor = cursor % #candidates + 1
+    wait(BLOCKING_WAIT_SLICE_MS)
+
+    return true
+end
+
 local function blockingPark(waiting: any): nil
     while not waiting:ready() do
         local active = false
@@ -317,23 +337,11 @@ local function blockingPark(waiting: any): nil
         if not active then
             error(("nupp: %s cannot complete: no readiness source is registered"):format(waiting.operation), 0)
         end
-        if poll() == 0 and not waiting:ready() then
-            local candidates = waitCandidates(waiting)
-            if #candidates > 0 then
-                local cursor = waiting.waitCursor or 1
-                if cursor > #candidates then
-                    cursor = 1
-                end
-                local wait = candidates[cursor]
-                waiting.waitCursor = cursor % #candidates + 1
-                wait(BLOCKING_WAIT_SLICE_MS)
-                -- A wait is only a sleep primitive. Polling every source afterwards is
-                -- what observes readiness, including an unrelated source that became
-                -- ready during the bounded slice.
-                if not waiting:ready() then
-                    poll()
-                end
-            end
+        if poll() == 0 and waitOnce(waiting) and not waiting:ready() then
+            -- A wait is only a sleep primitive. Polling every source afterwards is
+            -- what observes readiness, including an unrelated source that became
+            -- ready during the bounded slice.
+            poll()
         end
     end
 end
