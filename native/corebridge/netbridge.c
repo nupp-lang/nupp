@@ -690,6 +690,47 @@ static const char *counted_field (const char *at, const char *end,
   return at + 1 + size;
 }
 
+/** The host sends NUL-terminated names; OpenSSL wants a length before each. */
+static int encode_protocols (NuppTlsBytes *protocols, char **owned) {
+  size_t size = protocols->size;
+  *owned = NULL;
+
+  if (!size) {
+    return 0;
+  }
+
+  if (size > UINT16_MAX) {
+    return UV_EINVAL;
+  }
+
+  char *encoded = malloc(size);
+
+  if (!encoded) {
+    return UV_ENOMEM;
+  }
+
+  for (size_t at = 0; at < size;) {
+    const char *name = protocols->data + at;
+    const char *end = memchr(name, 0, size - at);
+
+    if (!end || end == name || end - name > UINT8_MAX) {
+      free(encoded);
+
+      return UV_EINVAL;
+    }
+
+    size_t length = (size_t)(end - name);
+    encoded[at] = (char)length;
+    memcpy(encoded + at + 1, name, length);
+    at += length + 1;
+  }
+
+  protocols->data = encoded;
+  *owned = encoded;
+
+  return 0;
+}
+
 static int64_t wrap (Endpoint *endpoint, const char *bytes, uint64_t size) {
   if (endpoint->kind != STREAM) {
     return UV_EINVAL;
@@ -738,8 +779,18 @@ static int64_t wrap (Endpoint *endpoint, const char *bytes, uint64_t size) {
     }
   }
 
+  char *protocols;
+  int status = encode_protocols(&options.protocols, &protocols);
+
+  if (status < 0) {
+    retire(endpoint);
+
+    return status;
+  }
+
   char error[HOST_ROOM];
   endpoint->tls = nupptlsopen(&options, error, sizeof(error));
+  free(protocols);
 
   if (!endpoint->tls) {
     retire(endpoint);

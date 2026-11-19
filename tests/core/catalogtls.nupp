@@ -35,7 +35,7 @@ local function roundTrip(cert: string, key: string): integer
     const serverSocket = assert(server)
     net.closeListener(listener)
     net.closeConnect(request)
-    const protocols = "\2h2"
+    const protocols = "h2\0http/1.1\0"
     const initiator = assert(net.tlsWrap(clientSocket, false, "localhost", "", "", cert, protocols, true))
     const other = assert(net.tlsWrap(serverSocket, true, "", cert, key, nil, protocols, false))
     assert(initiator ~= clientSocket and other ~= serverSocket)
