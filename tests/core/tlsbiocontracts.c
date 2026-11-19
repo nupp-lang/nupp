@@ -16,7 +16,7 @@ static NuppTlsBytes read_fixture (const char *path) {
   assert(fseek(file, 0, SEEK_END) == 0);
   long length = ftell(file);
   assert(length > 0);
-  rewind(file);
+  assert(fseek(file, 0, SEEK_SET) == 0);
   char *bytes = malloc((size_t)length);
   assert(bytes && fread(bytes, 1, (size_t)length, file) == (size_t)length);
   assert(!fclose(file));

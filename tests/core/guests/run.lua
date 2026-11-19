@@ -964,6 +964,8 @@ local function quote(value)
     return "'" .. tostring(value):gsub("'", "'\\''") .. "'"
 end
 
+SETUP.catalogtls = "cd " .. quote(ROOT) .. " && "
+
 -- Wall seconds by phase and by case, for the summary the run ends with.
 local timing = {phase = "setup", case = "setup", phases = {}, cases = {}}
 

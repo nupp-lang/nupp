@@ -706,8 +706,8 @@ static int64_t wrap (Endpoint *endpoint, const char *bytes, uint64_t size) {
   char hostname[HOST_ROOM];
   const char *at = field(bytes, end, hostname, sizeof(hostname));
   NuppTlsOptions options = {.hostname = hostname,
-                            .server = flags & TLS_SERVER,
-                            .verify = flags & TLS_VERIFY};
+                            .server = (flags & TLS_SERVER) != 0,
+                            .verify = (flags & TLS_VERIFY) != 0};
   at = counted_field(at, end, &options.certificate);
   at = counted_field(at, end, &options.private_key);
   at = counted_field(at, end, &options.authority);
