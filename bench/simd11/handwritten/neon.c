@@ -1,10 +1,15 @@
-/* Hand-written NEON versions of the explicit kernels in ../kernels.nupp,
+/**
+ * @file
+ * @brief Hand-written NEON controls for the explicit SIMD harness.
+ *
+ * Hand-written NEON versions of the explicit kernels in ../kernels.nupp,
  * linked into compare.c, which times them beside the generated kernels.
  *
  * They are the bar the generated explicit SIMD is held to: what a C
  * programmer writes with intrinsics for the same algorithm, lane width and
  * numerical contract. Build with the harness's flags (-O3 -ffp-contract=off
- * -fno-fast-math), so neither side gets a contraction the other does not. */
+ * -fno-fast-math), so neither side gets a contraction the other does not.
+ */
 
 #include <arm_neon.h>
 #include <stddef.h>

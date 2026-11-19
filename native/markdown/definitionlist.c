@@ -1,4 +1,8 @@
-/* A cmark-gfm block extension for definition lists, in the colon syntax of
+/**
+ * @file
+ * @brief Parses colon definition lists as a cmark-gfm block extension.
+ *
+ * A cmark-gfm block extension for definition lists, in the colon syntax of
  * commonmark-hs's definition_lists extension (and Pandoc's). A term is a
  * paragraph line of its own; each of its definitions starts with `:` and
  * the definition's content:
@@ -30,7 +34,8 @@
  *
  * Only the block structure is decided here: the terms' inlines and the
  * definitions' blocks are parsed by upstream cmark as usual. The cases it is
- * held to are tests/fixtures/markdown/definition-lists.txt. */
+ * held to are tests/fixtures/markdown/definition-lists.txt.
+ */
 
 #include "definitionlist.h"
 
@@ -71,7 +76,7 @@ static void freestate (cmark_mem *mem, void *value) {
   mem->free(value);
 }
 
-/* Claims node for the extension in the given role, with fresh state that the
+/** Claims node for the extension in the given role, with fresh state that the
  * node frees with itself. */
 static void mark (cmark_syntax_extension *ext, cmark_node *node,
                   enum role role) {
@@ -142,7 +147,7 @@ static int hasterm (cmark_syntax_extension *ext, cmark_node *term) {
   return found;
 }
 
-/* cmark's question for each open block on each new line: does the line
+/** cmark's question for each open block on each new line: does the line
  * continue it? A list always does, leaving the answer to its children, and a
  * term, one line long, never does. A definition takes blank lines, unless it is
  * still empty and opened with nothing after its marker, and lines indented to
@@ -216,7 +221,7 @@ static void begincontent (cmark_parser *parser, cmark_node *definition,
   cmark_parser_advance_offset(parser, (const char *)input, after, COLUMNS);
 }
 
-/* cmark's question for a line no open block took: does it open one here? A
+/** cmark's question for a line no open block took: does it open one here? A
  * line whose first non-space is `:` opens a definition when it follows a
  * term's paragraph or another definition of the same list. */
 static cmark_node *openblock (cmark_syntax_extension *ext, int indented,
@@ -412,7 +417,7 @@ static void splitlist (cmark_syntax_extension *ext, cmark_node *node) {
   renderlist(ext, node);
 }
 
-/* Runs once the document is parsed: splits and renders every list, each
+/** Runs once the document is parsed: splits and renders every list, each
  * after its contents, so a list nested in a definition is done first. */
 static cmark_node *postprocess (cmark_syntax_extension *ext,
                                 cmark_parser *parser, cmark_node *root) {

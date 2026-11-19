@@ -1,4 +1,7 @@
-/* Standalone calibration for the Win64 bridge ABI guard. */
+/**
+ * @file
+ * @brief Calibrates the Win64 bridge ABI guard.
+ */
 #include <assert.h>
 #include <stdint.h>
 

@@ -1,11 +1,16 @@
-/* The entropy failure guard (catalog-entropy-failure). The guest runner
+/**
+ * @file
+ * @brief Injects an entropy-source failure for the core guest test.
+ *
+ * The entropy failure guard (catalog-entropy-failure). The guest runner
  * builds this file with cc and inserts it with DYLD_INSERT_LIBRARIES, so the
  * getentropy the guest finds by name is this one. It fails the guard's one
  * request of a known size, after writing part of it, with EACCES; every
  * other request is the C library's.
  *
  * The partial write is the point: a caller that trusted the bytes of a
- * failed request would hand them out, and the guard can see them. */
+ * failed request would hand them out, and the guard can see them.
+ */
 
 #include <dlfcn.h>
 #include <errno.h>

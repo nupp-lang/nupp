@@ -1,3 +1,8 @@
+/**
+ * @file
+ * @brief Win64 path, memory, and loader adapters for the core bridge.
+ */
+
 #ifndef NUPP_CORE_HOST_WIN64_H
 #define NUPP_CORE_HOST_WIN64_H
 
@@ -7,7 +12,7 @@
 #include <process.h>
 #include <wchar.h>
 
-/* The packet still carries UTF-8 paths, even when the CRT needs UTF-16. */
+/** The packet still carries UTF-8 paths, even when the CRT needs UTF-16. */
 static wchar_t *wide_path (const char *utf8) {
   int length =
       MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS, utf8, -1, NULL, 0);
@@ -38,7 +43,7 @@ static char *utf8_path (const wchar_t *wide) {
   return utf8;
 }
 
-/* Resolve the bundle itself, including reparse points, before publishing its
+/** Resolve the bundle itself, including reparse points, before publishing its
  * directory to the guest. Do not change process working directory. */
 static char *canonical_path (const char *path) {
   wchar_t *wide = wide_path(path);
@@ -97,11 +102,12 @@ static uint64_t win64_release_pages (void *base) {
   return VirtualFree(base, 0, MEM_RELEASE) ? 0 : GetLastError();
 }
 
-/* A broker subscription with no process wait descriptor. */
+/** A broker subscription with no process wait descriptor. */
 static int64_t win64_open_poller (void) {
   return nupp_uv_open(-1);
 }
 
+/** Reads a CRT file descriptor, or returns zero for the completion key. */
 static int64_t win64_file_read (int64_t descriptor, void *bytes,
                                 uint64_t count) {
   /* Completions are taken directly from the queue on Windows. The guest's
@@ -119,6 +125,7 @@ static int64_t win64_file_read (int64_t descriptor, void *bytes,
   return _read((int)descriptor, bytes, (unsigned)count);
 }
 
+/** Closes a live CRT file descriptor, or reports EBADF for an invalid one. */
 static int win64_file_close (int64_t descriptor) {
   if (!nupp_uv_valid_file(descriptor)) {
     errno = EBADF;
@@ -129,10 +136,10 @@ static int win64_file_close (int64_t descriptor) {
   return _close((int)descriptor);
 }
 
-/* dlerror reports the last unread loader failure on this thread. The guest
- * finds this function through the existing symbol slot and process handle. */
+/** The last unread loader failure on this thread. */
 static _Thread_local const char *loader_error;
 
+/** Takes the thread's loader error through the guest's dlerror symbol. */
 static const char *take_loader_error (void) {
   const char *message = loader_error;
   loader_error = NULL;
@@ -140,7 +147,7 @@ static const char *take_loader_error (void) {
   return message;
 }
 
-/* Match the three loader packet signatures, including a borrowed self handle.
+/** Match the three loader packet signatures, including a borrowed self handle.
  * Resolve transitive DLL imports beside an absolute library or in the default
  * safe search directories. */
 static void *open_library (const char *path, int mode) {

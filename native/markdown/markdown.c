@@ -1,4 +1,8 @@
-/* The Markdown renderer behind markdown.h: the pinned upstream cmark-gfm, with
+/**
+ * @file
+ * @brief Renders Markdown through cmark-gfm with bounded resource use.
+ *
+ * The Markdown renderer behind markdown.h: the pinned upstream cmark-gfm, with
  * its tables and the colon definition lists of definitionlist.c, made to
  * write the HTML bytes of the renderer it replaced, whose frozen outputs are
  * in tests/fixtures/markdown. The core's Markdown provider and the checkout's
@@ -15,7 +19,8 @@
  * - Compatibility rendering, which writes tables, links, images, code, text,
  *   block quotes and raw HTML the way the old renderer did.
  * - A byte transport for NUL and an initial BOM, which cmark consumes before
- *   any extension hook could see them (see transport). */
+ *   any extension hook could see them (see transport).
+ */
 
 #include "markdown.h"
 #include "definitionlist.h"

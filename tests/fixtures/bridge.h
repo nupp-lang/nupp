@@ -1,8 +1,13 @@
-/* Test fixture for nupp import-c's bridges: the two kinds of header function
+/**
+ * @file
+ * @brief Exercises importing inline functions and macros through a C bridge.
+ *
+ * Test fixture for nupp import-c's bridges: the two kinds of header function
  * a foreign call cannot reach directly, beside one it can. A static inline has
  * no symbol in any library, and a function-like macro is not a function at
  * all, so import-c skips both unless it is asked for a bridge, a small C
- * file that wraps each in an exported function (importctest). */
+ * file that wraps each in an exported function (importctest).
+ */
 
 #ifndef NUPP_BRIDGE_H
 #define NUPP_BRIDGE_H

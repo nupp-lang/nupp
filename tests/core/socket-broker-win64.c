@@ -1,5 +1,10 @@
-/* A sentinel SOCKET and two distinct high-bit values exercise the broker
- * without requiring Winsock to allocate a high handle. */
+/**
+ * @file
+ * @brief Checks that the Win64 socket broker preserves full-width handles.
+ *
+ * A sentinel SOCKET and two distinct high-bit values exercise the broker
+ * without requiring Winsock to allocate a high handle.
+ */
 #include <uv.h>
 #include <assert.h>
 #include <stdint.h>

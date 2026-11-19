@@ -1,4 +1,8 @@
-/* Times the fused JSON decoder's structural scan, as `jsonscan.nupp` lifts
+/**
+ * @file
+ * @brief Checks and times generated and NEON fused JSON scanning.
+ *
+ * Times the fused JSON decoder's structural scan, as `jsonscan.nupp` lifts
  * it out of the decoder, against the same scan written with NEON
  * intrinsics. Both classify sixteen bytes at a time, validate a block with a
  * non-ASCII byte by the lookup4 tables against the bytes before it, drain
@@ -12,6 +16,7 @@
  * The generated side came from the CPU AOT backend, which left the tree in
  * 68f4d7f08, so build it in a checkout of that commit's parent:
  *
+ * @code{.sh}
  *   ./bin/nupp aot --emit c --features neon \
  *       bench/simd11/handwritten/jsonscan.nupp > /tmp/scan.c
  *   clang -std=c11 -O3 -ffp-contract=off -fno-fast-math -fPIC -dynamiclib \
@@ -19,9 +24,11 @@
  *   clang -std=c11 -O3 -D_POSIX_C_SOURCE=200809L \
  *       bench/simd11/handwritten/jsonscan.c -o /tmp/jsonscan
  *   /tmp/jsonscan /tmp/scan.dylib
+ * @endcode
  *
  * Each figure is the fastest of SAMPLES interleaved samples of about a
- * millisecond. */
+ * millisecond.
+ */
 
 #include <arm_neon.h>
 #include <dlfcn.h>

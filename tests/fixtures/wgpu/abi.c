@@ -1,4 +1,8 @@
-/* The wgpu header layout probe: a test-only program that prints, as JSON,
+/**
+ * @file
+ * @brief Prints the C layouts that the wgpu bindings depend on.
+ *
+ * The wgpu header layout probe: a test-only program that prints, as JSON,
  * the size, alignment and field offsets of every wgpu-native structure the
  * runtime lays out for itself (nupp.runtime.provider.wgpumemory).
  * .github/scripts/test-wgpu-conformance.py compiles it against the exact
@@ -12,7 +16,8 @@
  *   }
  *
  * A layout lists the fields the runtime declares, which need not be all of
- * the C structure's. */
+ * the C structure's.
+ */
 
 #include "wgpu.h"
 

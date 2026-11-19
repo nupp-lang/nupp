@@ -1,4 +1,9 @@
-/* Win64 loader contract. Build with the same reactor inputs as the bridge. */
+/**
+ * @file
+ * @brief Exercises the core bridge loader on Win64.
+ *
+ * Build this probe with the same reactor inputs as the bridge.
+ */
 #define wmain bootstrap_wmain
 #include "../../native/core-bridge/main.c" /* NOLINT(bugprone-suspicious-include) */
 #undef wmain

@@ -1,3 +1,8 @@
+/**
+ * @file
+ * @brief Exercises child process completion and watch lifetime.
+ */
+
 #define _POSIX_C_SOURCE 200809L
 #include "process.h"
 #include "reactor.h"

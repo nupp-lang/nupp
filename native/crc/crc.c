@@ -1,7 +1,12 @@
-/* The adapter between Nupp's resumable CRC state and ISA-L, which crccodec.nupp
+/**
+ * @file
+ * @brief Converts Nupp CRC state to and from the ISA-L representation.
+ *
+ * The adapter between Nupp's resumable CRC state and ISA-L, which crccodec.nupp
  * calls through nuppcrc.h. It converts state only: all CRC arithmetic and CPU
  * dispatch belong to ISA-L. ISA-L takes and answers finalized checksums, while
- * Nupp keeps the raw register so a stream can be resumed. */
+ * Nupp keeps the raw register so a stream can be resumed.
+ */
 
 #include "nuppcrc.h"
 

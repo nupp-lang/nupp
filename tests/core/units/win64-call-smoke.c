@@ -1,4 +1,7 @@
-/* Cross-linked test of the emitted entry through the Win64 ABI guard. */
+/**
+ * @file
+ * @brief Calls an emitted entry through the Win64 ABI guard.
+ */
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h>
 #include <assert.h>

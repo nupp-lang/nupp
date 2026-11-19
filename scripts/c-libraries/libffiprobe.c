@@ -1,4 +1,8 @@
-/* The libffi layout probe. scripts/c-libraries/libffi.sh builds it against
+/**
+ * @file
+ * @brief Checks libffi layouts against the headers used to build the sidecar.
+ *
+ * The libffi layout probe. scripts/c-libraries/libffi.sh builds it against
  * the exact headers and library it has just built for the core's sidecar,
  * and scripts/test-libffi runs it again in CI; both read the one line of
  * JSON it prints.
@@ -8,7 +12,8 @@
  * foreignabi.nupp declares, so this file states that contract once more in
  * C and fails to compile when the library drifts from it. The calls in main
  * show the library works; a passing probe is not evidence that Nupp's core
- * executes calls correctly. */
+ * executes calls correctly.
+ */
 
 #include <ffi.h>
 

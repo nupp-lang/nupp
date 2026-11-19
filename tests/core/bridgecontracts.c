@@ -1,9 +1,14 @@
-/* Native contract tests for the startup transport, built and run by
+/**
+ * @file
+ * @brief Exercises the core bundle loader and its startup contracts.
+ *
+ * Native contract tests for the startup transport, built and run by
  * `scripts/core-bridge --test`. They check what a Nupp guest cannot easily
  * reach: that malformed bundles are refused, that loaded code is not
  * writable, that the ABI probe the guard relies on detects clobbering, and
  * the I/O pool's cancellation, settling and completion order. They
- * complement, rather than replace, running actual Nupp guests. */
+ * complement, rather than replace, running actual Nupp guests.
+ */
 
 /* The transport itself, with its main renamed so this file can have one.
  * It is included rather than linked so the contracts reach its static

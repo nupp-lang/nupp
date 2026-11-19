@@ -1,4 +1,6 @@
-/* Deterministic native lifecycle checks; managed park/root tests run as guests.
+/**
+ * @file
+ * @brief Checks native reactor operations and lifecycle contracts.
  */
 #include "../../native/core-bridge/uv.c" /* NOLINT(bugprone-suspicious-include) */
 #include <assert.h>

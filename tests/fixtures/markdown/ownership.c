@@ -1,9 +1,14 @@
-/* The Markdown renderer's ownership and resource checks, only in tests.
+/**
+ * @file
+ * @brief Checks renderer ownership, errors, and resource limits.
+ *
+ * The Markdown renderer's ownership and resource checks, only in tests.
  * .github/scripts/test-markdown.sh runs it against the relocated library:
  * the revision, a budget failure at every size releasing what it held, a
  * document refusing a second render, NUL surviving in the HTML and its
  * suffixes, the size limit, a NULL input, and two threads rendering at once
- * under the library's lock. */
+ * under the library's lock.
+ */
 
 #include <assert.h>
 #include <stdio.h>

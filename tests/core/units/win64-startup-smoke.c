@@ -1,4 +1,7 @@
-/* Link the checked startup entry against the existing transport and guard. */
+/**
+ * @file
+ * @brief Links the Win64 startup entry against the transport and guard.
+ */
 #define NUPP_CORE_GUARD 1
 #define wmain bootstrap_wmain
 #include "../../../native/core-bridge/main.c"

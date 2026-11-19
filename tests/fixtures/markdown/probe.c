@@ -1,7 +1,12 @@
-/* The Markdown renderer's probe, only in tests. It renders standard input
+/**
+ * @file
+ * @brief Renders standard input with the installed Markdown library.
+ *
+ * The Markdown renderer's probe, only in tests. It renders standard input
  * with the installed library and writes the HTML, byte for byte, to standard
  * output. .github/scripts/test-markdown.sh builds it against the relocated
- * library, and check.mjs runs it on every fixture in this directory. */
+ * library, and check.mjs runs it on every fixture in this directory.
+ */
 
 #include <stdio.h>
 #include <stdlib.h>

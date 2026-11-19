@@ -1,9 +1,14 @@
-/* The CRC adapter's probe, only in tests. .github/scripts/test-crc-isal.sh
+/**
+ * @file
+ * @brief Checks the installed CRC adapter against reference checksums.
+ *
+ * The CRC adapter's probe, only in tests. .github/scripts/test-crc-isal.sh
  * builds it against the installed static library and runs it: it checks the
  * dispatching adapter, the adapter forced onto ISA-L's portable entries and
  * onto a tiny chunk limit, and, when this CPU has them, its SIMD entries
  * (force.c), all against an independent bit-at-a-time model. Then it prints
- * throughput for the dispatching and portable builds. */
+ * throughput for the dispatching and portable builds.
+ */
 
 #include "nuppcrc.h"
 

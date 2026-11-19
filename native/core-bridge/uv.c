@@ -1,7 +1,12 @@
-/* libuv callbacks cannot enter managed Nupp. This transport holds only copied
+/**
+ * @file
+ * @brief libuv transport for native work and readiness notifications.
+ *
+ * libuv callbacks cannot enter managed Nupp. This transport holds only copied
  * bytes, native requests and opaque subscriptions; Nupp owns all task policy.
  * All calls and callbacks run on the loop's owning thread. libuv alone runs
- * filesystem work on its pool; no worker sees a Nupp value or heap pointer. */
+ * filesystem work on its pool; no worker sees a Nupp value or heap pointer.
+ */
 #ifndef _WIN32
 #define _POSIX_C_SOURCE 200809L
 #endif

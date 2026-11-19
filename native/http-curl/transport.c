@@ -1,3 +1,8 @@
+/**
+ * @file
+ * @brief Drives libcurl HTTP transfers from the core reactor owner thread.
+ */
+
 #define _POSIX_C_SOURCE 200809L
 #include "transport.h"
 #include "reactor.h"

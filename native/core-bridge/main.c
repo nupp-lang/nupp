@@ -1,4 +1,8 @@
-/* The native core's startup transport. It reads a core bundle, maps the
+/**
+ * @file
+ * @brief Loads a native core bundle and invokes its generated entry.
+ *
+ * The native core's startup transport. It reads a core bundle, maps the
  * bundle's code, data and scratch regions, and enters the Nupp code the
  * bundle carries. That code is Nupp; this file knows no value, frame, task,
  * collector, instruction or optimizer layout.
@@ -6,7 +10,8 @@
  * scripts/core-bridge builds it as nupp-core. guard.c and
  * tests/core/bridgecontracts.c include it whole, with main renamed, so they
  * can reach its static functions; guard.c also defines NUPP_CORE_GUARD, which
- * fences scratch and checks that the entry preserves the C ABI. */
+ * fences scratch and checks that the entry preserves the C ABI.
+ */
 
 #ifndef _WIN32
 /* MAP_ANONYMOUS, realpath and the rest of POSIX the bridge uses. */
@@ -321,7 +326,7 @@ static int64_t file_size (FILE *file) {
 #endif
 }
 
-/* Reads a file of whole words into a new array, which the caller frees. */
+/** Reads a file of whole words into a new array, which the caller frees. */
 static int readwords (const char *path, uint64_t **words, size_t *count) {
   FILE *file = open_path(path, "rb");
 
@@ -368,7 +373,7 @@ static int readwords (const char *path, uint64_t **words, size_t *count) {
   return 0;
 }
 
-/* Reads and checks the header of an open bundle filebytes long, leaving the
+/** Reads and checks the header of an open bundle filebytes long, leaving the
  * file at the code region. */
 static int readheader (FILE *file, int64_t filebytes, struct bundle *bundle) {
   unsigned char header[HEADER_BYTES];
@@ -437,7 +442,7 @@ static int pagesize (size_t *page) {
   return 0;
 }
 
-/* Makes loaded code executable, and so no longer writable. */
+/** Makes loaded code executable, and so no longer writable. */
 static int sealcode (unsigned char *code, size_t bytes) {
 #ifdef _WIN32
   DWORD prior;
@@ -620,7 +625,7 @@ static int callentry (Entry entry, const uint64_t *packet, uint64_t *output,
 
 #endif
 
-/* Reads the code and data regions, which must end the file. */
+/** Reads the code and data regions, which must end the file. */
 static int readregions (FILE *file, const struct bundle *bundle,
                         const struct regions *regions) {
   size_t codebytes = (size_t)bundle->codebytes;
@@ -635,7 +640,7 @@ static int readregions (FILE *file, const struct bundle *bundle,
   return 0;
 }
 
-/* Builds the packet for a loaded bundle and calls its entry. */
+/** Builds the packet for a loaded bundle and calls its entry. */
 static int enter (const struct bundle *bundle, const struct regions *regions,
                   const uint64_t *words, size_t count, uint64_t *output,
                   uint64_t *status) {
@@ -676,7 +681,7 @@ static int enter (const struct bundle *bundle, const struct regions *regions,
   return callentry(entry, packet, output, status);
 }
 
-/* Loads the bundle at path, enters it with the input words, and answers the
+/** Loads the bundle at path, enters it with the input words, and answers the
  * entry's status and output words, which the caller frees. */
 static int execute (const char *path, const uint64_t *words, size_t count,
                     uint64_t **answer, size_t *length, uint64_t *status) {

@@ -1,5 +1,11 @@
-/* Process completions on the reactor's owner thread. No callback holds guest
- * state. The child record survives both result collection and uv_close. */
+/**
+ * @file
+ * @brief Tracks child processes and completes watches on the reactor owner
+ * thread.
+ *
+ * Process completions on the reactor's owner thread. No callback holds guest
+ * state. The child record survives both result collection and uv_close.
+ */
 #if defined(__APPLE__)
 #define _DARWIN_C_SOURCE
 #else

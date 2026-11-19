@@ -1,9 +1,14 @@
-/* The C side of cdeftest's countedBy cases: functions whose pointer
+/**
+ * @file
+ * @brief Records whether checked interop calls reach the C callee.
+ *
+ * The C side of cdeftest's countedBy cases: functions whose pointer
  * parameters are bounded by count parameters, as a cdef's
  * `countedBy(count)` declares them. The test builds this file into a shared
  * library and checks two things through it: that a call passes the length
  * of the span it borrows, and, through the call counter, that a call it
- * should refuse never reaches C at all. */
+ * should refuse never reaches C at all.
+ */
 
 #include <stddef.h>
 #include <stdint.h>

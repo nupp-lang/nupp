@@ -1,8 +1,13 @@
-/* A consumer of the relocated shared CRC library, only in tests.
+/**
+ * @file
+ * @brief Exercises loading the relocated shared CRC adapter.
+ *
+ * A consumer of the relocated shared CRC library, only in tests.
  * .github/scripts/test-crc-isal.sh moves the installed bundle after linking
  * and runs this against it, so it passes only when the library loads from
  * its new place. It checks each algorithm's check value, split across a
- * resumed stream with an empty update between. */
+ * resumed stream with an empty update between.
+ */
 
 #include "nuppcrc.h"
 

@@ -1,6 +1,11 @@
-/* Test fixture for nupp import-c: a small self-contained C header, the one
+/**
+ * @file
+ * @brief Exercises importing macros, typedefs, records, and C functions.
+ *
+ * Test fixture for nupp import-c: a small self-contained C header, the one
  * importctest, buildtest and the import-c documentation use for the ordinary
- * cases: macro constants, structs, a union, bitfields and functions. */
+ * cases: macro constants, structs, a union, bitfields and functions.
+ */
 
 /* Three macros that evaluate to constants, and one, MINI_SKIP, that names
  * code and must be skipped rather than imported. */

@@ -1,10 +1,15 @@
-/* The exact CRC adapter, native/crc/crc.c, compiled against chosen ISA-L
+/**
+ * @file
+ * @brief Substitutes scalar ISA-L entries for CRC adapter tests.
+ *
+ * The exact CRC adapter, native/crc/crc.c, compiled against chosen ISA-L
  * entries rather than its CPU dispatch, only in tests. CMakeLists.txt builds
  * it once per choice, renaming nuppCrcUpdate for each, and probe.c checks
  * every build against the same vectors. NUPP_FORCE_BASE picks the portable C
  * entries, NUPP_FORCE_X86 or NUPP_FORCE_ARM the SIMD ones, and
  * NUPP_FORCE_SMALL_CHUNKS shrinks the adapter's chunk limit. The test checks
- * CPU features before calling any forced SIMD entry. */
+ * CPU features before calling any forced SIMD entry.
+ */
 
 #include "crc.h"
 #include "crc64.h"

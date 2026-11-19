@@ -1,4 +1,8 @@
-/* Times the generated explicit kernels in the harness library against their
+/**
+ * @file
+ * @brief Checks and times generated, scalar, and NEON kernels.
+ *
+ * Times the generated explicit kernels in the harness library against their
  * hand-written NEON versions in neon.c and the scalar-source C, over the
  * harness's inputs and sizes, for the tables in bench/simd11/README.md.
  * Every implementation must agree bit for bit with the scalar entry before
@@ -12,7 +16,8 @@
  * LIBRARY is bench/simd11/build/native.dylib, which `measure.py --prepare`
  * builds, and UTF8-LIBRARY bench/simd11/build/utf8/native.dylib. Both come
  * from the CPU AOT backend, which left the tree in 68f4d7f08, so build them
- * in a checkout of that commit's parent. */
+ * in a checkout of that commit's parent.
+ */
 
 #include <dlfcn.h>
 #include <stdint.h>

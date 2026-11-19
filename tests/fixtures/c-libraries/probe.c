@@ -1,4 +1,8 @@
-/* The C-library probe: a test-only program that checks the pinned zlib,
+/**
+ * @file
+ * @brief Checks that pinned C-library headers match their built libraries.
+ *
+ * The C-library probe: a test-only program that checks the pinned zlib,
  * OpenSSL and curl the C-library lane builds. Each header must match the
  * library it is linked against and the version scripts/toolchain.pins names,
  * curl must carry exactly the features the runtime relies on, and each
@@ -9,7 +13,8 @@
  * it and reads the one line of JSON it prints: the versions found, and the
  * layouts of z_stream and OSSL_PARAM, which the runtime's bindings declare
  * for themselves and must agree with. Every check is an assert, so the
- * build keeps assertions on in release builds too. */
+ * build keeps assertions on in release builds too.
+ */
 
 #include <curl/curl.h>
 #include <openssl/crypto.h>

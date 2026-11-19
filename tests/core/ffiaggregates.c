@@ -1,11 +1,16 @@
-/* The C side of catalog-ffi-aggregates: functions taking and answering
+/**
+ * @file
+ * @brief Exercises the AAPCS64 and Apple aggregate calling conventions.
+ *
+ * The C side of catalog-ffi-aggregates: functions taking and answering
  * structs by value in each of the ways AAPCS64 and Apple pass them. The
  * guest runner builds it with cc into a directory DYLD_LIBRARY_PATH names.
  *
  * The spill functions fill the argument registers before the struct, so
  * the struct goes where the ABI puts what no longer fits. Each part of the
  * answer is weighted by its own power of ten, so a sum read back shows which
- * argument went missing or arrived in another's place. */
+ * argument went missing or arrived in another's place.
+ */
 
 #include <pthread.h>
 #include <stdint.h>

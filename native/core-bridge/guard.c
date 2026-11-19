@@ -1,4 +1,8 @@
-/* The ABI and scratch guard: a test-only build of the startup transport that
+/**
+ * @file
+ * @brief Test transport for checking the guest ABI and scratch bounds.
+ *
+ * The ABI and scratch guard: a test-only build of the startup transport that
  * checks a generated entry rather than only running it. It replaced a Rust
  * test, and the core guest and unit runners still run it the way they ran
  * that test,
@@ -9,7 +13,8 @@
  * names the rest: CORE_TEST_BUNDLE and CORE_TEST_INPUT always,
  * CORE_TEST_EXPECTED or CORE_TEST_STATUS for what the entry must answer,
  * CORE_TEST_ARGUMENTS for the guest's command-line arguments, and
- * CORE_TEST_HIGH_WATER for its scratch canary (main.c). */
+ * CORE_TEST_HIGH_WATER for its scratch canary (main.c).
+ */
 
 /* The transport itself, with its main renamed so this file can have one.
  * It is included rather than linked so the guard reaches its static

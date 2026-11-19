@@ -1,4 +1,8 @@
-/* The sanitizers' defaults for the bridge, the guard and the contracts,
+/**
+ * @file
+ * @brief Sanitizer defaults for core bridge and native contract tests.
+ *
+ * The sanitizers' defaults for the bridge, the guard and the contracts,
  * which scripts/core-bridge links in only when it builds them sanitized.
  * Compiled into the program, they hold for every harness that runs it,
  * whatever its environment says; ASAN_OPTIONS and UBSAN_OPTIONS still add
@@ -8,7 +12,8 @@
  * signal: the contracts and the guard provoke them on purpose and check how
  * the process died, and the sanitizer's handler would abort instead. Leak
  * detection is off: the bridge hands the guest memory that lives until
- * exit. Undefined behavior stops the process at once, with its stack. */
+ * exit. Undefined behavior stops the process at once, with its stack.
+ */
 
 /* The names are the sanitizer runtimes' own, which they look up when they
  * start. NOLINTBEGIN(bugprone-reserved-identifier,cert-dcl37-c) */
