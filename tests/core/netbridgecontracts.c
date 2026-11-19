@@ -67,6 +67,60 @@ static void datagrams (void *scope, uint64_t poller, uint64_t deadline) {
   }
 }
 
+#ifdef __APPLE__
+static void zoneddatagrams (void *scope, uint64_t poller, uint64_t deadline) {
+  char host[] = "fe80::1%lo0";
+  int64_t from =
+      nuppnetcall(scope, NUPP_NET_BIND_DATAGRAM, 0, host, sizeof(host) - 1, 0);
+
+  if (from == UV_EADDRNOTAVAIL) {
+    puts("link-local IPv6 loopback address unavailable");
+
+    return;
+  }
+
+  assert(from > 0);
+  int64_t to = nuppnetcall(scope, NUPP_NET_BIND_DATAGRAM, 0, "::", 2, 0);
+  assert(to > 0);
+  char address[64], packet[64], out[64];
+  assert(nuppnetcall(scope, NUPP_NET_ADDRESS, (uint64_t)to, address,
+                     sizeof(address), 0) > 0);
+  unsigned long port = strtoul(address, NULL, 10);
+  int head = snprintf(packet, sizeof(packet), "%lu\n%s\nx", port, host);
+
+  for (int turn = 0; turn < 2; turn++) {
+    assert(head > 0 && head < (int)sizeof(packet));
+    assert(nuppnetcall(scope, NUPP_NET_SEND_DATAGRAM, (uint64_t)from, packet,
+                       (uint64_t)head, 0) == 1);
+    int64_t size;
+
+    do {
+      assert(uv_hrtime() < deadline);
+      assert(nupp_uv_wait(poller, 1000000) == 0);
+      size = nuppnetcall(scope, NUPP_NET_RECEIVE_DATAGRAM, (uint64_t)to, out,
+                         sizeof(out) - 1, 1);
+      assert(size >= 0 || size == NUPP_NET_AGAIN);
+    } while (size == NUPP_NET_AGAIN);
+
+    out[size] = '\0';
+    port = strtoul(out, NULL, 10);
+    char *peer = strstr(out, "\n0\n");
+    assert(peer);
+    peer += 3;
+    char *body = strchr(peer, '\n');
+    assert(body && strcmp(body, "\nx") == 0);
+    *body = '\0';
+    assert(strncmp(peer, "fe80::1%", 8) == 0 && strtoul(peer + 8, NULL, 10));
+    head = snprintf(packet, sizeof(packet), "%lu\n%s\nx", port, peer);
+    int64_t sent = from;
+    from = to;
+    to = sent;
+  }
+
+  puts("link-local IPv6 datagram reply preserved its interface");
+}
+#endif
+
 #ifndef _WIN32
 static void localsockets (void *scope, uint64_t poller, uint64_t deadline) {
   char directory[] = "/tmp/nupp-local-socket.XXXXXX";
@@ -176,6 +230,12 @@ int main (void) {
   assert(copied == 3 && memcmp(got, "net", 3) == 0);
   assert(call(&server, NUPP_NET_ENDED, to, 0) == 1);
   datagrams(&client, (uint64_t)poller, deadline);
+#ifdef __APPLE__
+  zoneddatagrams(&client, (uint64_t)poller, deadline);
+#endif
+  char badzone[] = "::1%4294967296";
+  assert(nuppnetcall(&client, NUPP_NET_BIND_DATAGRAM, 0, badzone,
+                     sizeof(badzone) - 1, 0) == UV_EINVAL);
 #ifndef _WIN32
   localsockets(&client, (uint64_t)poller, deadline);
 #endif

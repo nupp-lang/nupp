@@ -11,7 +11,11 @@
 #include "reactor.h"
 #include "tcp.h"
 #include "udp.h"
+#include <inttypes.h>
 #include <limits.h>
+#ifndef _WIN32
+#include <net/if.h>
+#endif
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -182,7 +186,61 @@ static int resolve (Endpoint *endpoint, const char *host, unsigned port) {
   return status;
 }
 
+static int scopeid (const char *zone, uint32_t *index) {
+  const char *digits = zone + (zone[0] == '+');
+  size_t length = strspn(digits, "0123456789");
+
+  if (length && !digits[length]) {
+    uint64_t number = strtoull(digits, NULL, 10);
+
+    if (number > UINT32_MAX) {
+      return UV_EINVAL;
+    }
+
+    *index = (uint32_t)number;
+
+    return 0;
+  }
+
+#ifndef _WIN32
+  *index = if_nametoindex(zone);
+
+  if (*index) {
+    return 0;
+  }
+
+#endif
+
+  return UV_EINVAL;
+}
+
 static int numerichost (InternetAddress *address, const char *host, int port) {
+  const char *zone = strchr(host, '%');
+
+  if (zone) {
+    char literal[INET6_ADDRSTRLEN];
+    size_t size = (size_t)(zone - host);
+
+    if (size >= sizeof(literal)) {
+      return UV_EINVAL;
+    }
+
+    memcpy(literal, host, size);
+    literal[size] = '\0';
+    uint32_t index;
+    int status = uv_ip6_addr(literal, port, &address->v6);
+
+    if (status == 0) {
+      status = scopeid(zone + 1, &index);
+
+      if (status == 0) {
+        address->v6.sin6_scope_id = index;
+      }
+    }
+
+    return status;
+  }
+
   if (uv_ip4_addr(host, port, &address->v4) == 0) {
     return 0;
   }
@@ -211,7 +269,7 @@ static int64_t openendpoint (void *scope, int kind, const char *bytes,
   const struct sockaddr *address =
       numerichost(&number, host, (int)port) < 0 ? NULL : &number.base;
 
-  if (kind != CONNECT && !address) {
+  if (!address && (kind != CONNECT || strchr(host, '%'))) {
     return UV_EINVAL;
   }
 
@@ -405,8 +463,17 @@ static int formataddress (const struct sockaddr *value, char *host,
   if (value->sa_family == AF_INET6) {
     const struct sockaddr_in6 *v6 = (const struct sockaddr_in6 *)value;
     *port = ntohs(v6->sin6_port);
+    int status = uv_ip6_name(v6, host, HOST_ROOM);
 
-    return uv_ip6_name(v6, host, HOST_ROOM);
+    if (status < 0 || !v6->sin6_scope_id) {
+      return status;
+    }
+
+    size_t size = strlen(host), room = HOST_ROOM - size;
+    int written =
+        snprintf(host + size, room, "%%%" PRIu32, (uint32_t)v6->sin6_scope_id);
+
+    return written < 0 || (size_t)written >= room ? UV_ENOBUFS : 0;
   }
 
   return UV_EAFNOSUPPORT;
