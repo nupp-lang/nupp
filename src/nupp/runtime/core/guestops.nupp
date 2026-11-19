@@ -15,6 +15,8 @@ const guestmeta = require("nupp.runtime.core.guestmeta")
 const texts = require("nupp.runtime.core.guesttexts")
 const librarytexts = require("nupp.runtime.core.librarytexts")
 const report = require("nupp.runtime.core.guestreport")
+const tables = require("nupp.runtime.core.coretables")
+const guestvalues = require("nupp.runtime.core.guestvalues")
 
 export const INVALID: uint64 = 4ULL
 export const RESOURCE: uint64 = 5ULL
@@ -469,6 +471,77 @@ export function packVarargs(ctx: voidptr, frame: voidptr, child: voidptr, base: 
         guestmeta.tableSet(ctx, pack, values.TAG_INTEGER | (k + 1ULL), value)
         k = k + 1ULL
     end
+
+    return 1ULL
+end
+
+-- A call spreading more values than it stages (CallV) stages this many in
+-- all, CALL_ARGUMENTS less a __call chain's receivers (CALL_CHAIN) and the
+-- slot the pack the rest come from is kept in (SPREAD_ROOT), and its
+-- callee's `...` takes the rest from the pack (appendSpread).
+export const SPREAD_STAGED: uint64 = 47ULL
+-- Where past a call's base the pack of a spread it did not stage is kept,
+-- the last of its CALL_ARGUMENTS, rooted by the calling frame until the
+-- callee's `...` has its values.
+export const SPREAD_ROOT: uint64 = 63ULL
+
+-- The values of a spread past what its call staged: `count` of them, from
+-- position `from + 1` of `source`, appended to the `...` of the callee, the
+-- frame now active above `frame`; `given` arguments were staged. A callee
+-- that takes no `...` drops them, as Lua drops arguments past a function's
+-- parameters. Answers 1, or 0 when the callee is not a frame this call
+-- published or has parameters the staged arguments do not reach.
+export function appendSpread(
+    ctx: voidptr,
+    frame: voidptr,
+    source: uint64,
+    from: uint64,
+    count: uint64,
+    given: uint64
+): uint64
+    local s = native.loadPointer(ctx, context.STATE)
+    local child = native.loadPointer(s, native.fieldOffset<frames.State>("active"))
+    if native.load64(child, native.fieldOffset<frames.Frame>("previous")) ~= native.address(frame) then
+        return 0ULL
+    end
+    local c = native.loadPointer(ctx, context.CATALOG)
+    local id = native.load64(child, native.fieldOffset<frames.Frame>("functionId"))
+    if id >= native.load64(c, native.fieldOffset<catalog.Catalog>("count")) then
+        return 0ULL
+    end
+    local record = native.offset(
+        native.loadPointer(c, native.fieldOffset<catalog.Catalog>("records")),
+        native.index(id * native.sizeOf<catalog.Function>())
+    )
+    local signature = native.offset(
+        native.loadPointer(c, native.fieldOffset<catalog.Catalog>("signatures")),
+        native.index(
+            native.load64(
+                record,
+                native.fieldOffset<catalog.Function>("signature")
+            ) * native.sizeOf<catalog.Signature>()
+        )
+    )
+    local declared = native.load64(signature, native.fieldOffset<catalog.Signature>("parameterCount"))
+    if native.load64(signature, native.fieldOffset<catalog.Signature>("variadic")) ~= 1ULL then
+        if declared > given then
+            return 0ULL
+        end
+        return 1ULL
+    end
+    if declared - 1ULL > given then
+        return 0ULL
+    end
+    local slots = native.loadPointer(child, native.fieldOffset<frames.Frame>("values"))
+    local pack = native.load64(slots, native.index(declared * 8ULL)) & values.PAYLOAD
+    local n = native.word(guestvalues.intvalue(tables.get(pack, values.TAG_INTEGER)))
+    local k: uint64 = 0ULL
+    while k < count do
+        local value = tables.get(source, values.TAG_INTEGER | (from + k + 1ULL))
+        guestmeta.tableSet(ctx, pack, values.TAG_INTEGER | (n + k + 1ULL), value)
+        k = k + 1ULL
+    end
+    guestmeta.tableSet(ctx, pack, values.TAG_INTEGER, values.TAG_INTEGER | (n + count))
 
     return 1ULL
 end

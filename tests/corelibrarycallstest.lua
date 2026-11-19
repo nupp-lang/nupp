@@ -304,4 +304,40 @@ function M.missingRequiredArgumentsRaiseAsLuaDoes()
     test.eq(getmetatable(setmetatable({}, nil)), nil)
 end
 
+-- table.unpack spreads past the arguments a call stages itself: the callee
+-- still has every value, through its `...`, a fixed parameter, or a table's
+-- __call.
+function M.aSpreadPastTheStagedArgumentsReachesTheCallee()
+    local test = require("assert")
+    local values = {}
+    for index = 1, 128 do
+        values[index] = index
+    end
+
+    local function counted(...)
+        return select("#", ...), select(128, ...)
+    end
+
+    local count, last = counted(table.unpack(values))
+    test.eq(count, 128)
+    test.eq(last, 128)
+
+    local function fixed(first, second, ...)
+        return first, second, select("#", ...)
+    end
+
+    local first, second, rest = fixed(table.unpack(values))
+    test.eq(first, 1)
+    test.eq(second, 2)
+    test.eq(rest, 126)
+    local callable = setmetatable({}, {
+        __call = function(self, ...)
+            return select("#", ...), (select(100, ...))
+        end
+    })
+    local through, hundredth = callable(table.unpack(values))
+    test.eq(through, 128)
+    test.eq(hundredth, 100)
+end
+
 return M
