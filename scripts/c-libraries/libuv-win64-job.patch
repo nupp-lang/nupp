@@ -1,0 +1,86 @@
+--- a/include/uv.h
++++ b/include/uv.h
+@@ -1192,6 +1192,14 @@
+ UV_EXTERN int uv_spawn(uv_loop_t* loop,
+                        uv_process_t* handle,
+                        const uv_process_options_t* options);
++
++#ifdef _WIN32
++/* Spawn with a caller-owned, non-inheritable job before any guest code runs. */
++UV_EXTERN int uv_spawn_with_job(uv_loop_t* loop,
++                                uv_process_t* handle,
++                                const uv_process_options_t* options,
++                                HANDLE job);
++#endif
+ UV_EXTERN int uv_process_kill(uv_process_t*, int signum);
+ UV_EXTERN int uv_kill(int pid, int signum);
+ UV_EXTERN uv_pid_t uv_process_get_pid(const uv_process_t*);
+--- a/src/win/process.c
++++ b/src/win/process.c
+@@ -899,6 +899,14 @@
+ int uv_spawn(uv_loop_t* loop,
+              uv_process_t* process,
+              const uv_process_options_t* options) {
++  return uv_spawn_with_job(loop, process, options, NULL);
++}
++
++
++int uv_spawn_with_job(uv_loop_t* loop,
++                      uv_process_t* process,
++                      const uv_process_options_t* options,
++                      HANDLE job) {
+   int i;
+   int err = 0;
+   WCHAR* path = NULL, *alloc_path = NULL;
+@@ -1056,6 +1064,7 @@
+ #undef CHILD_STDIO_COUNT
+     int n = 0;
+     SIZE_T attr_size = 0;
++    DWORD attr_count = job == NULL ? 1 : 2;
+ 
+     handle_list = (HANDLE*) uv__malloc(count * sizeof(HANDLE));
+     if (handle_list == NULL) {
+@@ -1069,13 +1078,13 @@
+         handle_list[n++] = h;
+     }
+ 
+-    InitializeProcThreadAttributeList(NULL, 1, 0, &attr_size);
++    InitializeProcThreadAttributeList(NULL, attr_count, 0, &attr_size);
+     attr_list = (LPPROC_THREAD_ATTRIBUTE_LIST) uv__malloc(attr_size);
+     if (attr_list == NULL) {
+       err = ERROR_OUTOFMEMORY;
+       goto done;
+     }
+-    if (!InitializeProcThreadAttributeList(attr_list, 1, 0, &attr_size)) {
++    if (!InitializeProcThreadAttributeList(attr_list, attr_count, 0, &attr_size)) {
+       err = GetLastError();
+       goto done;
+     }
+@@ -1090,6 +1099,18 @@
+       err = GetLastError();
+       goto done;
+     }
++  }
++
++  if (job != NULL &&
++      !UpdateProcThreadAttribute(attr_list,
++                                 0,
++                                 PROC_THREAD_ATTRIBUTE_JOB_LIST,
++                                 &job,
++                                 sizeof(job),
++                                 NULL,
++                                 NULL)) {
++    err = GetLastError();
++    goto done;
+   }
+ 
+   startup.lpAttributeList = attr_list;
+@@ -1146,7 +1167,7 @@
+ 
+   /* If the process isn't spawned as detached, assign to the global job object
+    * so windows will kill it when the parent process dies. */
+-  if (!(options->flags & UV_PROCESS_DETACHED)) {
++  if (job == NULL && !(options->flags & UV_PROCESS_DETACHED)) {
+     uv_once(&uv_global_job_handle_init_guard_, uv__init_global_job_handle);
+ 
+     if (!AssignProcessToJobObject(uv_global_job_handle_, info.hProcess)) {

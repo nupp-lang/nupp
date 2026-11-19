@@ -6,7 +6,9 @@
  * Process completions on the reactor's owner thread. No callback holds guest
  * state. The child record survives both result collection and uv_close.
  */
-#if defined(__APPLE__)
+#if defined(_WIN32)
+#define WIN32_LEAN_AND_MEAN
+#elif defined(__APPLE__)
 #define _DARWIN_C_SOURCE
 #else
 #define _POSIX_C_SOURCE 200809L
@@ -21,7 +23,9 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#ifndef _WIN32
 #include <unistd.h>
+#endif
 
 typedef struct Wait {
   struct Wait *next;
@@ -35,6 +39,11 @@ typedef struct Child {
   uint64_t id;
   int64_t result;
   int closed, consumed;
+#ifdef _WIN32
+  HANDLE job;
+  uv_timer_t jobtimer;
+  int jobclosed, killsignal;
+#endif
 } Child;
 
 static _Thread_local Child *children;
@@ -44,7 +53,14 @@ static _Thread_local size_t child_count, wait_count;
 /* shortcut: bounded native child and watch records; revisit when the runtime
  * has a larger process admission budget. Closing records count until drained.
  */
-enum { MAX_CHILDREN = 4096, MAX_WAITS = 8192, EXITED = 16, EVENT_BITS = 5 };
+enum {
+  MAX_CHILDREN = 4096,
+  MAX_WAITS = 8192,
+  EXITED = 16,
+  EVENT_BITS = 5,
+  KILL_SIGNAL = 9,
+  TERM_SIGNAL = 15
+};
 
 static Child *child_at (uint64_t id) {
   if (!id) {
@@ -64,6 +80,17 @@ static void dispose (Child *child) {
   if (!child->closed || !child->consumed || child->waits) {
     return;
   }
+
+#ifdef _WIN32
+
+#define JOB_EXIT_BASE UINT32_C(0xe0000000)
+#define JOB_CHECK_MILLIS 50
+
+  if (!child->jobclosed) {
+    return;
+  }
+
+#endif
 
   Child **at = &children;
 
@@ -86,8 +113,113 @@ static void closed (uv_handle_t *handle) {
   dispose(child);
 }
 
+#ifdef _WIN32
+
+/** The Job Object owns descendants that outlive the root. Its completion
+ * notifications can be lost, so release only after querying the kernel. */
+static void jobclosed (uv_handle_t *handle) {
+  Child *child = handle->data;
+  child->jobclosed = 1;
+  dispose(child);
+}
+
+static void closejob (Child *child) {
+  CloseHandle(child->job);
+  child->job = NULL;
+  uv_close((uv_handle_t *)&child->jobtimer, jobclosed);
+}
+
+static int activejob (Child *child) {
+  JOBOBJECT_BASIC_ACCOUNTING_INFORMATION counts;
+
+  return QueryInformationJobObject(child->job,
+                                   JobObjectBasicAccountingInformation, &counts,
+                                   sizeof(counts), NULL) &&
+         counts.ActiveProcesses != 0;
+}
+
+static void checkjob (uv_timer_t *timer) {
+  Child *child = timer->data;
+
+  if (!activejob(child)) {
+    closejob(child);
+  }
+}
+
+static int winerror (int status) {
+  switch (status) {
+    case UV_EACCES:
+      return -EACCES;
+    case UV_EBADF:
+      return -EBADF;
+    case UV_EINVAL:
+      return -EINVAL;
+    case UV_ENAMETOOLONG:
+      return -ENAMETOOLONG;
+    case UV_ENOENT:
+      return -ENOENT;
+    case UV_ENOMEM:
+      return -ENOMEM;
+    case UV_ENOTDIR:
+      return -ENOTDIR;
+    case UV_EPERM:
+      return -EPERM;
+    case UV_ESRCH:
+      return -ESRCH;
+    default:
+      return -EIO;
+  }
+}
+
+static int openjob (uv_loop_t *loop, Child *child) {
+  HANDLE job = CreateJobObjectW(NULL, NULL);
+
+  if (!job) {
+    return winerror(uv_translate_sys_error((int)GetLastError()));
+  }
+
+  JOBOBJECT_EXTENDED_LIMIT_INFORMATION limits = {0};
+  limits.BasicLimitInformation.LimitFlags = JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE;
+
+  if (!SetInformationJobObject(job, JobObjectExtendedLimitInformation, &limits,
+                               sizeof(limits))) {
+    int status = winerror(uv_translate_sys_error((int)GetLastError()));
+    CloseHandle(job);
+
+    return status;
+  }
+
+  int status = uv_timer_init(loop, &child->jobtimer);
+
+  if (status < 0) {
+    CloseHandle(job);
+
+    return winerror(status);
+  }
+
+  child->job = job;
+  child->jobtimer.data = child;
+
+  return 0;
+}
+
+#endif
+
 static void exited (uv_process_t *handle, int64_t code, int signal) {
   Child *child = handle->data;
+#ifdef _WIN32
+  /* A process can exit on its own between a kill and the IOCP callback. */
+  signal = (uint32_t)code == JOB_EXIT_BASE + (unsigned)child->killsignal
+               ? child->killsignal
+               : 0;
+
+  if (!activejob(child) ||
+      uv_timer_start(&child->jobtimer, checkjob, JOB_CHECK_MILLIS,
+                     JOB_CHECK_MILLIS) < 0) {
+    closejob(child);
+  }
+
+#endif
   child->result = signal ? 512 + signal : 256 + (code & 255);
   uv_close((uv_handle_t *)handle, closed);
 }
@@ -103,6 +235,17 @@ static int64_t start (uv_loop_t *loop, uv_process_options_t *options) {
     return -ENOMEM;
   }
 
+#ifdef _WIN32
+  int status = openjob(loop, child);
+
+  if (status < 0) {
+    free(child);
+
+    return status;
+  }
+
+  status = uv_spawn_with_job(loop, &child->handle, options, child->job);
+#else
   int flags[3];
 
   for (int i = 0; i < 3; i++) {
@@ -128,6 +271,8 @@ static int64_t start (uv_loop_t *loop, uv_process_options_t *options) {
     }
   }
 
+#endif
+
   child->handle.data = child;
   child->next = children;
   children = child;
@@ -135,8 +280,12 @@ static int64_t start (uv_loop_t *loop, uv_process_options_t *options) {
 
   if (status < 0) {
     /* With three inherited descriptors libuv has no stream to open after
-     * spawn. On Unix the failed spawn still initializes the process handle. */
+     * spawn. A failed spawn still initializes the process handle. */
     child->consumed = 1;
+#ifdef _WIN32
+    closejob(child);
+    status = winerror(status);
+#endif
     uv_close((uv_handle_t *)&child->handle, closed);
 
     return status;
@@ -147,6 +296,7 @@ static int64_t start (uv_loop_t *loop, uv_process_options_t *options) {
   return (int64_t)((child->id << 32) | (uint32_t)child->handle.pid);
 }
 
+#ifndef _WIN32
 static const char *path_of (char **env) {
   for (; env && *env; ++env) {
     if (strncmp(*env, "PATH=", 5) == 0) {
@@ -222,6 +372,7 @@ static int64_t spawn_path (uv_loop_t *loop, uv_process_options_t *options,
 
   return status;
 }
+#endif
 
 int64_t nupp_process_spawn (const char *file, char **args, char **env,
                             const char *cwd, int64_t input, int64_t output,
@@ -253,16 +404,41 @@ int64_t nupp_process_spawn (const char *file, char **args, char **env,
     stdio[i].data.fd = fds[i] < 0 ? i : (int)fds[i];
   }
 
-  uv_process_options_t options = {
-      .exit_cb = exited,
-      .file = file,
-      .args = args,
-      .env = env,
-      .cwd = cwd,
-      /* libuv creates a session/group before the child can execute. */
-      .flags = UV_PROCESS_DETACHED,
-      .stdio_count = 3,
-      .stdio = stdio};
+  uv_process_options_t options = {.exit_cb = exited,
+                                  .file = file,
+                                  .args = args,
+                                  .env = env,
+                                  .cwd = cwd,
+  /* libuv creates a session/group before the child can execute. */
+#ifdef _WIN32
+                                  .flags = UV_PROCESS_WINDOWS_HIDE,
+#else
+                                  .flags = UV_PROCESS_DETACHED,
+#endif
+                                  .stdio_count = 3,
+                                  .stdio = stdio};
+
+#ifdef _WIN32
+
+  if (search || strchr(file, '/') || strchr(file, '\\') ||
+      (file[0] && file[1] == ':')) {
+    return start(loop, &options);
+  }
+
+  size_t size = strlen(file) + sizeof(".\\");
+  char *local = malloc(size);
+
+  if (!local) {
+    return -ENOMEM;
+  }
+
+  snprintf(local, size, ".\\%s", file);
+  options.file = local;
+  int64_t result = start(loop, &options);
+  free(local);
+
+  return result;
+#else
 
   if (strchr(file, '/')) {
     return start(loop, &options);
@@ -282,15 +458,31 @@ int64_t nupp_process_spawn (const char *file, char **args, char **env,
   }
 
   return spawn_path(loop, &options, parent ? parent : "/usr/bin:/bin");
+#endif
 }
 
 int64_t nupp_process_pipe (uint64_t read_nonblock, uint64_t write_nonblock) {
+#ifdef _WIN32
+
+  /* Guest pipe readiness needs an overlapped adapter before it can use the
+   * Windows reactor. Returning a CRT fd here would silently block the owner. */
+  if (read_nonblock || write_nonblock) {
+    return -ENOSYS;
+  }
+
+#endif
   int fds[2];
   int status = uv_pipe(fds, read_nonblock ? UV_NONBLOCK_PIPE : 0,
                        write_nonblock ? UV_NONBLOCK_PIPE : 0);
 
   if (status < 0) {
+#ifdef _WIN32
+
+    return winerror(status);
+#else
+
     return status;
+#endif
   }
 
 #ifdef F_SETNOSIGPIPE
@@ -432,7 +624,31 @@ int64_t nupp_process_kill (uint64_t id, uint64_t signal) {
     return -EINVAL;
   }
 
+#ifdef _WIN32
+
+  if (signal == 0) {
+    return 0;
+  }
+
+  if (signal != KILL_SIGNAL && signal != TERM_SIGNAL) {
+    return -EINVAL;
+  }
+
+  if (child->killsignal) {
+    return 0;
+  }
+
+  if (!TerminateJobObject(child->job, JOB_EXIT_BASE + (unsigned)signal)) {
+    return winerror(uv_translate_sys_error((int)GetLastError()));
+  }
+
+  child->killsignal = (int)signal;
+
+  return 0;
+#else
+
   return kill(-child->handle.pid, (int)signal) ? -errno : 0;
+#endif
 }
 
 int nupp_process_shutdown (void) {
@@ -440,12 +656,19 @@ int nupp_process_shutdown (void) {
     next = child->next;
 
     if (child->id && !child->result) {
-      int64_t status = nupp_process_kill(child->id, SIGKILL);
+      int64_t status = nupp_process_kill(child->id, KILL_SIGNAL);
 
       if (status < 0 && status != -ESRCH) {
         return (int)status;
       }
     }
+
+#ifdef _WIN32
+    else if (child->job &&
+             !TerminateJobObject(child->job, JOB_EXIT_BASE + KILL_SIGNAL)) {
+      return winerror(uv_translate_sys_error((int)GetLastError()));
+    }
+#endif
 
     while (child->waits) {
       Wait *wait = child->waits;

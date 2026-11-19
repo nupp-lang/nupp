@@ -3,6 +3,9 @@ architecture=''
 case "$TARGET" in aarch64-apple-darwin) architecture=arm64 ;; x86_64-apple-darwin) architecture=x86_64 ;; esac
 set --
 if [ "$TARGET" = x86_64-pc-windows-msvc ]; then
+    # Attach Nupp's owned Job Object at child creation. Assigning it after
+    # uv_spawn returns would allow the child to start a detached descendant.
+    patch -d "$source" -p1 < "$ROOT/scripts/c-libraries/libuv-win64-job.patch" >&2
     # The generator defaults to the OS architecture, even under vcvars64.
     set -- -G "Visual Studio 17 2022" -A x64
 fi

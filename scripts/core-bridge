@@ -89,7 +89,10 @@ if [ "$win64_mode" = --win64-contracts ] || [ "$win64_mode" = --win64-http-link 
     compile_win64 "$tests/socket-broker-win64.c" -o "$stage_native/socket-broker.exe"
     compile_win64 "$tests/bridge-loader-win64-contract.c" "$common/uv.c" -o "$stage_native/bridge-loader.exe"
     compile_win64 "$tests/bridge-abi-win64-contract.c" "$tests/bridge-abi-win64.S" -o "$stage_native/bridge-abi.exe"
-    for probe in socket-broker bridge-loader bridge-abi; do
+    compile_win64 -DNUPP_WIN64_PROCESS -iquote "$common" \
+        "$tests/processwin64contract.c" "$common/process.c" "$common/uv.c" \
+        -o "$stage_native/process.exe"
+    for probe in socket-broker bridge-loader bridge-abi process; do
         "$stage/$probe.exe" >&2
     done
     printf '%s\n' "$stage"

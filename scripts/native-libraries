@@ -121,6 +121,9 @@ build() (
         libuv)
             version=$LIBUV_VERSION; sourceHash=$LIBUV_SHA256; url=$LIBUV_URL; asset="libuv-v$version.tar.gz"; sourceName="libuv-v$version"; notice=libuv-LICENSE.txt
             dependencies="$(filehash "$ROOT/host/notices/libuv-LICENSE.txt") $(filehash "$ROOT/host/notices/libuv-LICENSE-extra.txt")"
+            if [ "$TARGET" = x86_64-pc-windows-msvc ]; then
+                dependencies="$dependencies $(filehash "$ROOT/scripts/c-libraries/libuv-win64-job.patch")"
+            fi
             ;;
         isal) version=$ISAL_VERSION; sourceHash=$ISAL_SHA256; url=$ISAL_URL; asset="isa-l-$version.tar.gz"; sourceName="isa-l-$version"; notice=ISA-L-LICENSE.txt
             dependencies=$({ find "$ROOT/native/crc" -type f | LC_ALL=C sort | while IFS= read -r file; do filehash "$file"; done; filehash "$ROOT/host/notices/ISA-L-CRC-LICENSE.txt"; } | hash)

@@ -14,7 +14,7 @@
 #include "transport.h"
 #include "reactor.h"
 #include "transport.h"
-#ifndef _WIN32
+#if !defined(_WIN32) || defined(NUPP_WIN64_PROCESS)
 #include "process.h"
 #endif
 #include <uv.h>
@@ -1333,8 +1333,9 @@ static int64_t event (Poller *p) {
     return (NUPP_UV_FILE_COMPLETION << 5) | 1;
   }
 
-#else
+#endif
 
+#if !defined(_WIN32) || defined(NUPP_WIN64_PROCESS)
   int64_t child = nupp_process_event(p->token);
 
   if (child) {
@@ -1431,7 +1432,7 @@ int64_t nupp_uv_close (uint64_t token) {
     }
   }
 
-#ifndef _WIN32
+#if !defined(_WIN32) || defined(NUPP_WIN64_PROCESS)
   nupp_process_forget_poller(token);
 #endif
   *at = p->next;
@@ -1750,7 +1751,7 @@ int64_t nupp_uv_shutdown (void) {
     queued = next;
   }
 
-#ifndef _WIN32
+#if !defined(_WIN32) || defined(NUPP_WIN64_PROCESS)
   status = nupp_process_shutdown();
 
   if (status) {
