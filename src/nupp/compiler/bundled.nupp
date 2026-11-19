@@ -100,9 +100,10 @@ end
 
 --- Where a carried file was copied from. The build writes the declarations under
 --- `src/nupp/compiler/decls` beside the compiled modules as `/decls`, the VM's
---- own under `native/crates/vm/decls` as `/vmdecls`, and the test runner comes
---- from `tests/run.lua`. Everything else it carries keeps the path it has under
---- `src`.
+--- own under `native/crates/vm/decls` as `/vmdecls`, the project templates from
+--- the checkout's `templates` as `/templates`, the documentation theme as
+--- `/doc/theme.css`, and the test runner and its cache come from `tests`.
+--- Everything else it carries keeps the path it has under `src`.
 ---
 --- A guess, in the sense that the manifest owns the real mapping and this does not
 --- read it. It is a safe one: a path this gets wrong names a file that is not
@@ -110,12 +111,19 @@ end
 local function sourcePath(root: string, relative: string): string
     if relative == "/nupp/test/runner.lua" then
         return root .. "/tests/run.lua"
+    elseif relative == "/nupp/test/cache.lua" then
+        return root .. "/tests/cache.lua"
+    elseif relative == "/doc/theme.css" then
+        return root .. "/src/nupp/tools/doc/theme.css"
     end
     if relative:sub(1, 7) == "/decls/" then
         return root .. "/src/nupp/compiler" .. relative
     end
     if relative:sub(1, 9) == "/vmdecls/" then
         return root .. "/native/crates/vm/decls" .. relative:sub(9)
+    end
+    if relative:sub(1, 11) == "/templates/" then
+        return root .. relative
     end
 
     return root .. "/src" .. relative
