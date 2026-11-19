@@ -175,9 +175,11 @@ flags() {
             echo skip
             ;;
         native/core-bridge/main.c | native/core-bridge/guard.c | tests/core/bridgecontracts.c)
-            # A contract test includes main.c. Select its feature mode before
-            # any system header is read so realpath is always declared.
-            echo "-pthread -D_GNU_SOURCE=1 -DNUPP_CORE_HTTP -isystem $(libcurl)/include"
+            echo "-pthread -DNUPP_CORE_HTTP -isystem $(libcurl)/include"
+            ;;
+        tests/core/bundleheaderproof.c)
+            # The proof includes main.c after its own system headers.
+            echo "-pthread -D_GNU_SOURCE=1"
             ;;
         native/http-curl/transport.c)
             echo "-pthread -I$ROOT/native/core-bridge -isystem $(libcurl)/include -isystem $(libuv)/include"
@@ -193,7 +195,7 @@ flags() {
             echo "-pthread -isystem $(libuv)/include"
             ;;
         native/core-bridge/tcp.* | tests/core/tcpcontracts.c)
-            echo "-pthread -I$ROOT/native/core-bridge -isystem $(libuv)/include"
+            echo "-pthread -D_GNU_SOURCE=1 -I$ROOT/native/core-bridge -isystem $(libuv)/include"
             ;;
         tests/core/process-contracts.c) echo "-pthread -I$ROOT/native/core-bridge" ;;
         native/core-bridge/* | tests/core/*) echo "-pthread" ;;
