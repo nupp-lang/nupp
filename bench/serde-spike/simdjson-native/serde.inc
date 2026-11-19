@@ -866,6 +866,7 @@ int decodeSerdeBuffer(lua_State *state) {
     if (!hasRegisteredMetatable(state, 2, &BUFFER_METATABLE_KEY)) {
         return luaL_argerror(state, 2, "bytes.Buffer expected");
     }
+
     // Keep the append lease and both views rooted until parsing finishes.
     lua_getfield(state, 2, "reserve");
     lua_pushvalue(state, 2);
