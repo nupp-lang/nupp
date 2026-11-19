@@ -16,7 +16,12 @@ apple_sectrust=
 if [ "$SYSTEM" = darwin ]; then
     apple_sectrust=-DUSE_APPLE_SECTRUST=ON
 fi
-cmake -S "$source" -B "$staged/build" -DCMAKE_BUILD_TYPE=Release -DCMAKE_C_COMPILER="$CC" \
+set --
+if [ "$TARGET" = x86_64-pc-windows-msvc ]; then
+    # The generator defaults to the OS architecture, even under vcvars64.
+    set -- -G "Visual Studio 17 2022" -A x64
+fi
+cmake "$@" -S "$source" -B "$staged/build" -DCMAKE_BUILD_TYPE=Release -DCMAKE_C_COMPILER="$CC" \
     -DCMAKE_OSX_ARCHITECTURES="$architecture" \
     -DCMAKE_INSTALL_PREFIX="$install" -DCMAKE_INSTALL_LIBDIR=lib -DCMAKE_INSTALL_NAME_DIR=@rpath \
     -DCMAKE_INSTALL_RPATH='@loader_path;$ORIGIN' -DBUILD_SHARED_LIBS=ON -DBUILD_STATIC_LIBS=OFF \
