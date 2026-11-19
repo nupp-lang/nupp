@@ -16,8 +16,11 @@ same bytes.
 
 With ENTRY, a source under the checkout without its `.nupp`, it emits that
 program instead, as OUTPUT/NAME.bundle after the entry's file name. Either
-way OUTPUT/lib/libnuppffi is staged beside it, the libffi a bundle loads
-relative to itself. Nothing is kept between builds: what it emits follows from
+way the libraries it loads relative to itself are staged under OUTPUT/lib:
+libffi, and the native libraries it binds (zlib, the ISA-L CRC, Markdown),
+which it names as `@lib/FILE` rather than by a path of the building machine.
+libclang is not among them: the C declaration service opens it as it runs,
+from NUPP_LIBCLANG or the system's toolchain (`nupp.compiler.corecdecl`). Nothing is kept between builds: what it emits follows from
 the sources alone.
 ]]
 const fs = require("nupp.compiler.fs")
@@ -60,18 +63,23 @@ end
 -- relative to the bundle (`nupp.runtime.core.foreignabi`): libffi's core C API.
 const FFI_LIBRARY = "lib/libnuppffi"
 
+-- Copies `source` to `relative` under `output`, through a staging name.
+local function stage(output: string, relative: string, source: string): nil
+    local directory = fs.dirname(fs.join(output, relative))
+    assert(fs.exists(directory) or fs.mkdir(directory), "cannot create " .. directory)
+    local destination = fs.join(output, relative)
+    local pending = destination .. "." .. fs.stagingSuffix()
+    assert(fs.copyFile(source, pending), "cannot stage " .. relative)
+    assert(os.rename(pending, destination), "cannot stage " .. destination)
+end
+
 -- Stages the pinned libffi beside the bundles in `output`, where they load it
 -- from (`scripts/native-libraries libffi`).
 local function stageFfi(root: string, output: string): nil
     local status, built = process.capture({"sh", fs.join(root, "scripts/native-libraries"), "libffi"}, {cwd = root})
     assert(status == 0, "libffi did not build: " .. built)
     local prefix = assert(built:match("([^\r\n]+)\r?\n?$"), "scripts/native-libraries libffi named no library")
-    local directory = fs.join(output, "lib")
-    assert(fs.exists(directory) or fs.mkdir(directory), "cannot create " .. directory)
-    local destination = fs.join(output, FFI_LIBRARY)
-    local pending = destination .. "." .. fs.stagingSuffix()
-    assert(fs.copyFile(fs.join(prefix, FFI_LIBRARY), pending), "cannot stage " .. FFI_LIBRARY)
-    assert(os.rename(pending, destination), "cannot stage " .. destination)
+    stage(output, FFI_LIBRARY, fs.join(prefix, FFI_LIBRARY))
 end
 
 local function fail(message: string, status: integer): integer
@@ -97,6 +105,9 @@ export function main(argv: {string}): integer
         local producer = require("nupp.core.guestprogramproducer")
         local caseName, name = COMPILER_CASE, COMPILER_BUNDLE
         stageMarkdown(root as string)
+        -- What the bundle binds, it loads from beside itself: no path of
+        -- this machine is part of it.
+        guestbuild.packageLibraries()
         if entry ~= nil then
             local fixture = (entry as string):gsub("%.nupp$", "")
             local base = fs.basename(fixture)
@@ -108,6 +119,9 @@ export function main(argv: {string}): integer
         local written, why = fs.writeFile(path, bytes)
         assert(written, "cannot write " .. path .. ": " .. tostring(why))
         stageFfi(root as string, output as string)
+        for relative, source in pairs(guestbuild.packagedLibraryFiles(bytes)) do
+            stage(output as string, relative, source)
+        end
     end)
     if not ok then
         return fail("the core bundle did not build: " .. tostring(problem), FAILURE_STATUS)

@@ -1023,42 +1023,93 @@ end
 -- they carry are checked once, not once per case. Its staged fixtures are
 -- written before the first case and not changed after.
 local sharedProject: any = nil
+-- Whether the project binds its native libraries beside the bundle, as
+-- `@lib/FILE` (`packageLibraries`), rather than where this machine keeps them.
+local packagedLibraries = false
+-- The project's native library bindings, when they are packaged.
+local packagedBindings: any = nil
 
 local function checkedProject(root: string): any
     if sharedProject == nil then
         local incremental: any = require("nupp.compiler.project.incremental")
         require("nupp.compiler.project.projectconfig")
         require("nupp.compiler.hash")
+        -- Its output is not the build directory the staged sources sit in,
+        -- which the project index would leave out, and a qualified path
+        -- resolves only modules the index declares. The test runner's root is
+        -- the repository's, so the runner checks as `main` there.
+        local config: any = {
+            include = {"src", "build/core-guest-programs/source", "tests/tools/test/runner"},
+            build = {outDir = "build/core-guest-programs/out"},
+            libraries = {
+                nuppmarkdown = {
+                    name = "nupp_markdown",
+                    env = "NUPP_MARKDOWN_LIBRARY",
+                    search = {"build/core-guests/lib"}
+                },
+                -- zlib is the standard binding, named by NUPP_ZLIB_LIBRARY or
+                -- provisioned on first use (nupp.compiler.project.libraries).
+                nuppcrypto = {name = "crypto", env = "NUPP_CRYPTO_LIBRARY"},
+                nuppssl = {name = "ssl", env = "NUPP_SSL_LIBRARY", dependencies = {"nuppcrypto"}},
+                nuppcurl = {name = "curl", env = "NUPP_CURL_LIBRARY", dependencies = {"nuppssl", "nuppcrypto"}},
+            },
+        }
+        if packagedLibraries then
+            local libraries: any = require("nupp.compiler.project.libraries")
+            packagedBindings = libraries.resolve(root, config, {packaged = true}).bindings
+            config._nativeLibraryBindings = packagedBindings
+        end
         sharedProject = incremental.new(root, {
             -- The project index is built from the headers the shared store
             -- keeps by content: reading them back is what keeps an unchanged
             -- project from being parsed again by every build.
             cache = true,
             nativeCompilerServices = false,
-            -- Its output is not the build directory the staged sources sit
-            -- in, which the project index would leave out, and a qualified
-            -- path resolves only modules the index declares. The test runner's
-            -- root is the repository's, so the runner checks as `main` there.
-            config = {
-                include = {"src", "build/core-guest-programs/source", "tests/tools/test/runner"},
-                build = {outDir = "build/core-guest-programs/out"},
-                libraries = {
-                    nuppmarkdown = {
-                        name = "nupp_markdown",
-                        env = "NUPP_MARKDOWN_LIBRARY",
-                        search = {"build/core-guests/lib"}
-                    },
-                    -- zlib is the standard binding, named by NUPP_ZLIB_LIBRARY or
-                    -- provisioned on first use (nupp.compiler.project.libraries).
-                    nuppcrypto = {name = "crypto", env = "NUPP_CRYPTO_LIBRARY"},
-                    nuppssl = {name = "ssl", env = "NUPP_SSL_LIBRARY", dependencies = {"nuppcrypto"}},
-                    nuppcurl = {name = "curl", env = "NUPP_CURL_LIBRARY", dependencies = {"nuppssl", "nuppcrypto"}},
-                },
-            }
+            config = config
         })
     end
 
     return sharedProject
+end
+
+--- Binds the native libraries of every program this process builds beside
+--- its bundle, as `@lib/FILE`, where the core loads them relative to the
+--- bundle, so the bundle names no path of the machine that built it. Chosen
+--- before the first build; `packagedLibraries` names the files to stage.
+export function packageLibraries(): nil
+    assert(sharedProject == nil, "native libraries are packaged before the first guest build")
+    packagedLibraries = true
+end
+
+--- The native libraries `bundle` loads relative to itself, by the path under
+--- its directory each is staged at, with the file it is copied from: those
+--- the packaged bindings resolved and the bundle names.
+export function packagedLibraryFiles(bundle: string): {[string]: string}
+    local files: {[string]: string} = {}
+    if packagedBindings == nil then
+        return files
+    end
+    local bindings: any = packagedBindings
+
+    local function take(binding: any): nil
+        if binding == nil or type(binding.reference) ~= "string" or binding.path == nil then
+            return
+        end
+        local relative = (binding.reference as string):match("^@(lib/.+)$")
+        if relative ~= nil and bundle:find("@" .. relative .. "\0", 1, true) ~= nil then
+            files[relative] = binding.path as string
+        end
+    end
+
+    for _, binding in pairs(bindings as {[string]: any}) do
+        take(binding)
+    end
+    -- The standard bindings resolve on first use, so each is asked by name.
+    for _, name in ipairs({"nuppzlib", "nuppcrc"}) do
+        take(bindings[name])
+    end
+
+    return files
 end
 
 -- The checked program catalog for a case: its entry after every module it carries.
