@@ -1,0 +1,901 @@
+/* libuv callbacks cannot enter managed Nupp. This transport holds only copied
+ * bytes, native requests and opaque subscriptions; Nupp owns all task policy.
+ * All calls and callbacks run on the loop's owning thread. libuv alone runs
+ * filesystem work on its pool; no worker sees a Nupp value or heap pointer. */
+#define _POSIX_C_SOURCE 200809L
+#include "transport.h"
+#include "reactor.h"
+#include <uv.h>
+#include <errno.h>
+#include <fcntl.h>
+#include <limits.h>
+#include <stdatomic.h>
+#include <stdlib.h>
+#include <string.h>
+#include <unistd.h>
+
+typedef struct Poller Poller;
+typedef struct Watch Watch;
+typedef struct Subscription Subscription;
+typedef struct Job Job;
+
+struct Watch {
+  uv_poll_t handle;
+  Watch *next;
+  int fd, close_fd;
+};
+
+struct Subscription {
+  Watch *watch;
+  Subscription *next;
+  int interest, ready;
+};
+
+struct Poller {
+  uint64_t token;
+  int process_fd;
+  Subscription *subscriptions;
+  Poller *next;
+};
+
+struct Job {
+  uv_fs_t request;
+  uv_buf_t buffer;
+  uint64_t ticket, kind, word;
+  int64_t result;
+  size_t count;
+  unsigned char *bytes;
+  int descriptor, descriptor_error;
+  int submitted, done, taken;
+  Job *next, *finished;
+};
+
+typedef struct Service {
+  uv_loop_t loop;
+  uv_timer_t timer;
+  Poller *pollers;
+  Watch *watches;
+  Job *jobs, *finished, **finished_tail;
+  size_t jobs_count, active_jobs, active_limit, bytes, watches_count,
+      subscriptions_count;
+  int wake[2], running;
+} Service;
+
+static _Thread_local Service *service;
+/* Identities never alias across owner threads or loop lifetimes. */
+static _Atomic uint64_t issued;
+
+static uint64_t issue (void) {
+  uint64_t current = atomic_load_explicit(&issued, memory_order_relaxed);
+
+  while (current < INT64_MAX) {
+    if (atomic_compare_exchange_weak_explicit(&issued, &current, current + 1,
+                                              memory_order_relaxed,
+                                              memory_order_relaxed)) {
+      return current + 1;
+    }
+  }
+
+  return 0;
+}
+
+/* shortcut: 256 requests, 128 MiB copied bytes, 4096 watches/8192
+ * subscriptions; expand the Nupp admission budget before supporting workloads
+ * above these caps. */
+enum {
+  MAX_JOBS = 256,
+  MAX_BYTES = 128 * 1024 * 1024,
+  MAX_WATCHES = 4096,
+  MAX_SUBSCRIPTIONS = 8192
+};
+
+static uint64_t failed (int error) {
+  return (uint64_t)-(int64_t)error;
+}
+
+static void timeout (uv_timer_t *timer) {
+  (void)timer;
+}
+
+static int ensure (void) {
+  if (service) {
+    return 0;
+  }
+
+  Service *s = calloc(1, sizeof(*s));
+
+  if (!s) {
+    return -ENOMEM;
+  }
+
+  s->wake[0] = s->wake[1] = -1;
+  int status = uv_loop_init(&s->loop);
+
+  if (status) {
+    free(s);
+
+    return status;
+  }
+
+  status = uv_timer_init(&s->loop, &s->timer);
+
+  if (status) {
+    uv_loop_close(&s->loop);
+    free(s);
+
+    return status;
+  }
+
+  s->finished_tail = &s->finished;
+  service = s;
+
+  return 0;
+}
+
+/* Native process/socket adapters borrow this loop on its owner thread. They
+ * must retire their requests/handles before the runtime's final shutdown. */
+struct uv_loop_s *nupp_uv_loop (void) {
+  return ensure() ? NULL : &service->loop;
+}
+
+static Poller *poller (uint64_t token) {
+  for (Poller *p = service ? service->pollers : NULL; p; p = p->next) {
+    if (p->token == token) {
+      return p;
+    }
+  }
+
+  return NULL;
+}
+
+int nupp_uv_valid_poller (uint64_t token) {
+  return poller(token) != NULL;
+}
+
+static void closed (uv_handle_t *handle) {
+  Watch *w = handle->data;
+
+  if (w->close_fd >= 0) {
+    close(w->close_fd);
+  }
+
+  service->watches_count--;
+  free(w);
+}
+
+static int refresh (Watch *w);
+
+static void ready (uv_poll_t *handle, int status, int events) {
+  Watch *w = handle->data;
+  int bits = status < 0 ? 8
+                        : ((events & UV_READABLE) ? 1 : 0) |
+                              ((events & UV_WRITABLE) ? 2 : 0) |
+                              ((events & UV_DISCONNECT) ? 4 : 0);
+
+  for (Poller *p = service->pollers; p; p = p->next) {
+    for (Subscription *s = p->subscriptions; s; s = s->next) {
+      if (s->watch != w || !s->interest) {
+        continue;
+      }
+
+      int got = bits & (s->interest | 4 | 8);
+
+      if (got) {
+        s->ready |= got;
+        s->interest = 0;
+      }
+    }
+  }
+
+  if (refresh(w) < 0) {
+    for (Poller *p = service->pollers; p; p = p->next) {
+      for (Subscription *s = p->subscriptions; s; s = s->next) {
+        if (s->watch == w && s->interest) {
+          s->ready |= 8;
+          s->interest = 0;
+        }
+      }
+    }
+
+    uv_poll_stop(handle);
+  }
+}
+
+static int refresh (Watch *w) {
+  int interest = 0;
+
+  for (Poller *p = service->pollers; p; p = p->next) {
+    for (Subscription *s = p->subscriptions; s; s = s->next) {
+      if (s->watch == w) {
+        interest |= s->interest;
+      }
+    }
+  }
+
+  int events =
+      ((interest & 1) ? UV_READABLE : 0) | ((interest & 2) ? UV_WRITABLE : 0);
+
+  return events ? uv_poll_start(&w->handle, events, ready)
+                : uv_poll_stop(&w->handle);
+}
+
+int64_t nupp_uv_open (int64_t process_fd) {
+  if (process_fd < -1 || process_fd > INT_MAX) {
+    return -EINVAL;
+  }
+
+  int status = ensure();
+
+  if (status) {
+    return status;
+  }
+
+  uint64_t token = issue();
+
+  if (!token) {
+    return -EOVERFLOW;
+  }
+
+  Poller *p = calloc(1, sizeof(*p));
+
+  if (!p) {
+    return -ENOMEM;
+  }
+
+  p->token = token;
+  p->process_fd = (int)process_fd;
+  p->next = service->pollers;
+  service->pollers = p;
+
+  return (int64_t)p->token;
+}
+
+int64_t nupp_uv_processfd (uint64_t token) {
+  Poller *p = poller(token);
+
+  return p ? p->process_fd : -EBADF;
+}
+
+static int disarm (Subscription **at) {
+  Subscription *s = *at;
+
+  if (!s) {
+    return 0;
+  }
+
+  Watch *w = s->watch;
+  *at = s->next;
+  free(s);
+  service->subscriptions_count--;
+  int used = 0;
+
+  for (Poller *other = service->pollers; other; other = other->next) {
+    for (Subscription *sub = other->subscriptions; sub; sub = sub->next) {
+      if (sub->watch == w) {
+        used = 1;
+      }
+    }
+  }
+
+  if (used) {
+    return refresh(w);
+  }
+
+  Watch **wat = &service->watches;
+
+  while (*wat && *wat != w) {
+    wat = &(*wat)->next;
+  }
+
+  if (!*wat) {
+    return -EIO;
+  }
+
+  *wat = w->next;
+  uv_poll_stop(&w->handle);
+  uv_close((uv_handle_t *)&w->handle, closed);
+
+  return 0;
+}
+
+int64_t nupp_uv_arm (uint64_t token, int64_t fd, uint64_t interest) {
+  Poller *p = poller(token);
+
+  if (!p) {
+    return -EBADF;
+  }
+
+  if (fd < 0 || fd > INT_MAX || interest > 3) {
+    return -EINVAL;
+  }
+
+  Subscription **at = &p->subscriptions;
+
+  while (*at && (*at)->watch->fd != fd) {
+    at = &(*at)->next;
+  }
+
+  Subscription *s = *at;
+
+  if (!interest) {
+    return disarm(at);
+  }
+
+  if (!s) {
+    if (service->subscriptions_count == MAX_SUBSCRIPTIONS) {
+      return -EAGAIN;
+    }
+
+    s = calloc(1, sizeof(*s));
+
+    if (!s) {
+      return -ENOMEM;
+    }
+
+    Watch *w = service->watches;
+
+    while (w && w->fd != fd) {
+      w = w->next;
+    }
+
+    if (!w) {
+      if (service->watches_count == MAX_WATCHES) {
+        free(s);
+
+        return -EAGAIN;
+      }
+
+      w = calloc(1, sizeof(*w));
+
+      if (!w) {
+        free(s);
+
+        return -ENOMEM;
+      }
+
+      int status = uv_poll_init(&service->loop, &w->handle, (int)fd);
+
+      if (status) {
+        free(w);
+        free(s);
+
+        return status;
+      }
+
+      w->handle.data = w;
+      w->fd = (int)fd;
+      w->close_fd = -1;
+      w->next = service->watches;
+      service->watches = w;
+      service->watches_count++;
+    }
+
+    s->watch = w;
+    s->next = p->subscriptions;
+    p->subscriptions = s;
+    at = &p->subscriptions;
+    service->subscriptions_count++;
+  }
+
+  s->ready = 0;
+  s->interest = (int)interest;
+  int status = refresh(s->watch);
+
+  if (status) {
+    disarm(at);
+  }
+
+  return status;
+}
+
+static Job **find (uint64_t ticket) {
+  Job **at = &service->jobs;
+
+  while (*at && (*at)->ticket != ticket) {
+    at = &(*at)->next;
+  }
+
+  return at;
+}
+
+static void dispose (Job **at) {
+  Job *job = *at;
+  *at = job->next;
+  service->jobs_count--;
+  service->bytes -= job->count;
+
+  if (job->descriptor >= 0) {
+    close(job->descriptor);
+  }
+
+  free(job->bytes);
+  free(job);
+}
+
+static void completed (uv_fs_t *request) {
+  Job *job = request->data;
+  job->result = request->result;
+  uv_fs_req_cleanup(request);
+
+  if (job->descriptor >= 0) {
+    close(job->descriptor);
+    job->descriptor = -1;
+  }
+
+  service->active_jobs--;
+  job->done = 1;
+  *service->finished_tail = job;
+  service->finished_tail = &job->finished;
+  const unsigned char byte = 1;
+
+  /* A full pipe already announces queued results; notifications coalesce. */
+  while (write(service->wake[1], &byte, 1) < 0 && errno == EINTR) {
+  }
+}
+
+static void hold_descriptor (Job *job) {
+  if (job->kind == NUPP_IO_OPEN || job->descriptor >= 0 ||
+      job->descriptor_error) {
+    return;
+  }
+
+  do {
+    job->descriptor = fcntl((int)job->word, F_DUPFD_CLOEXEC, 0);
+  } while (job->descriptor < 0 && errno == EINTR);
+
+  if (job->descriptor < 0) {
+    job->descriptor_error = errno;
+  }
+}
+
+void nupp_uv_preserve_file (uint64_t descriptor) {
+  /* Usually capture at dispatch. Closing early must capture before the
+   * descriptor can be recycled, even if the job hasn't reached libuv. */
+  for (Job *job = service ? service->jobs : NULL; job; job = job->next) {
+    if (!job->submitted && job->word == descriptor) {
+      hold_descriptor(job);
+    }
+  }
+}
+
+static void submit_jobs (void) {
+  for (Job *job = service->jobs; job; job = job->next) {
+    if (service->active_jobs == service->active_limit) {
+      break;
+    }
+
+    if (job->submitted) {
+      continue;
+    }
+
+    hold_descriptor(job);
+    job->submitted = 1;
+    service->active_jobs++;
+    job->request.data = job;
+    int status;
+
+    if (job->descriptor_error) {
+      status = -job->descriptor_error;
+    }
+    else if (job->kind == NUPP_IO_OPEN) {
+      status = uv_fs_open(&service->loop, &job->request, (char *)job->bytes,
+                          (int)(uint32_t)job->word, (int)(job->word >> 32),
+                          completed);
+    }
+    else if (job->kind == NUPP_IO_READ) {
+      status = uv_fs_read(&service->loop, &job->request, job->descriptor,
+                          &job->buffer, 1, -1, completed);
+    }
+    else {
+      status = uv_fs_write(&service->loop, &job->request, job->descriptor,
+                           &job->buffer, 1, -1, completed);
+    }
+
+    if (status < 0) {
+      job->request.result = status;
+      completed(&job->request);
+    }
+  }
+}
+
+static int pump (uv_run_mode mode, uint64_t nanos) {
+  if (service->running) {
+    return -EBUSY;
+  }
+
+  service->running = 1;
+  submit_jobs();
+
+  if (mode == UV_RUN_ONCE && nanos != UINT64_MAX) {
+    uint64_t millis = nanos / 1000000 + (nanos % 1000000 != 0);
+    uv_timer_start(&service->timer, timeout, millis, 0);
+  }
+
+  uv_run(&service->loop, mode);
+  uv_timer_stop(&service->timer);
+  service->running = 0;
+
+  return 0;
+}
+
+int nupp_uv_nowait (void) {
+  return service ? pump(UV_RUN_NOWAIT, 0) : 0;
+}
+
+static int64_t event (Poller *p) {
+  for (Subscription *s = p->subscriptions; s; s = s->next) {
+    if (!s->ready) {
+      continue;
+    }
+
+    int bits = s->ready;
+    s->ready = 0;
+
+    return ((int64_t)s->watch->fd << 5) | bits;
+  }
+
+  return 0;
+}
+
+int64_t nupp_uv_wait (uint64_t token, uint64_t nanos) {
+  Poller *p = poller(token);
+
+  if (!p) {
+    return -EBADF;
+  }
+
+  int64_t found = event(p);
+
+  if (found) {
+    return found;
+  }
+
+  int status = pump(nanos ? UV_RUN_ONCE : UV_RUN_NOWAIT, nanos);
+
+  return status ? status : event(p);
+}
+
+int64_t nupp_uv_close (uint64_t token) {
+  if (!service) {
+    return -EBADF;
+  }
+
+  if (service->running) {
+    return -EBUSY;
+  }
+
+  Poller **at = &service->pollers;
+
+  while (*at && (*at)->token != token) {
+    at = &(*at)->next;
+  }
+
+  Poller *p = *at;
+
+  if (!p) {
+    return -EBADF;
+  }
+
+  Watch *owned = service->watches;
+
+  while (owned && owned->fd != p->process_fd) {
+    owned = owned->next;
+  }
+
+  if (owned) {
+    owned->close_fd = p->process_fd;
+  }
+  else if (p->process_fd >= 0) {
+    close(p->process_fd);
+  }
+
+  p->process_fd = -1;
+
+  while (p->subscriptions) {
+    int status = disarm(&p->subscriptions);
+
+    if (status) {
+      return status;
+    }
+  }
+
+  *at = p->next;
+  free(p);
+
+  /* Close callbacks retain native storage through a normal loop turn. */
+  return pump(UV_RUN_NOWAIT, 0);
+}
+
+uint64_t nuppiostart (uint64_t threads) {
+  if (!threads || threads > 64) {
+    return failed(EINVAL);
+  }
+
+  int status = ensure();
+
+  if (status) {
+    return (uint64_t)(int64_t)status;
+  }
+
+  if (service->wake[0] >= 0) {
+    return (uint64_t)service->wake[0];
+  }
+
+  if (pipe(service->wake) < 0) {
+    return failed(errno);
+  }
+
+  for (int i = 0; i < 2; ++i) {
+    int flags = fcntl(service->wake[i], F_GETFL);
+
+    if (flags < 0 || fcntl(service->wake[i], F_SETFL, flags | O_NONBLOCK) < 0 ||
+        fcntl(service->wake[i], F_SETFD, FD_CLOEXEC) < 0) {
+      int error = errno;
+      close(service->wake[0]);
+      close(service->wake[1]);
+      service->wake[0] = service->wake[1] = -1;
+
+      return failed(error);
+    }
+  }
+
+  service->active_limit = (size_t)threads;
+
+  return (uint64_t)service->wake[0];
+}
+
+uint64_t nuppiosubmit (uint64_t kind, uint64_t word, uint64_t base,
+                       uint64_t bytes) {
+  if (kind < NUPP_IO_OPEN || kind > NUPP_IO_WRITE || bytes > UINT_MAX ||
+      bytes == SIZE_MAX) {
+    return failed(EINVAL);
+  }
+
+  if (kind != NUPP_IO_OPEN && word > INT_MAX) {
+    return failed(EBADF);
+  }
+
+  if (!base && bytes && kind != NUPP_IO_READ) {
+    return failed(EFAULT);
+  }
+
+  if (!service || service->wake[0] < 0) {
+    return failed(EINVAL);
+  }
+
+  if (service->jobs_count >= MAX_JOBS || bytes > MAX_BYTES - service->bytes) {
+    return failed(EAGAIN);
+  }
+
+  uint64_t ticket = issue();
+
+  if (!ticket) {
+    return failed(EOVERFLOW);
+  }
+
+  Job *job = calloc(1, sizeof(*job));
+
+  if (!job) {
+    return failed(ENOMEM);
+  }
+
+  size_t capacity = (size_t)bytes + (kind == NUPP_IO_OPEN);
+  job->bytes = capacity ? malloc(capacity) : NULL;
+
+  if (capacity && !job->bytes) {
+    free(job);
+
+    return failed(ENOMEM);
+  }
+
+  if (kind != NUPP_IO_READ && bytes) {
+    memcpy(job->bytes, (void *)(uintptr_t)base, (size_t)bytes);
+  }
+
+  if (kind == NUPP_IO_OPEN) {
+    job->bytes[bytes] = 0;
+  }
+
+  job->kind = kind;
+  job->word = word;
+  job->count = (size_t)bytes;
+  job->descriptor = -1;
+  job->buffer = uv_buf_init((char *)job->bytes, (unsigned)bytes);
+  job->ticket = ticket;
+  *find(0) = job; /* Ticket zero finds the FIFO append position. */
+  service->jobs_count++;
+  service->bytes += bytes;
+
+  return job->ticket;
+}
+
+uint64_t nuppiotake (void) {
+  if (!service) {
+    return 0;
+  }
+
+  int status = pump(UV_RUN_NOWAIT, 0);
+
+  if (status) {
+    return (uint64_t)(int64_t)status;
+  }
+
+  Job *job = service->finished;
+
+  if (!job) {
+    return 0;
+  }
+
+  service->finished = job->finished;
+  job->finished = NULL;
+
+  if (!service->finished) {
+    service->finished_tail = &service->finished;
+  }
+
+  job->taken = 1;
+
+  return job->ticket;
+}
+
+uint64_t nuppiofinish (uint64_t ticket, uint64_t out, uint64_t room) {
+  if (!service) {
+    return failed(EINVAL);
+  }
+
+  Job **at = find(ticket), *job = *at;
+
+  if (!job || !job->done || !job->taken) {
+    return failed(EINVAL);
+  }
+
+  uint64_t result = (uint64_t)job->result;
+
+  if (out && job->kind == NUPP_IO_READ && job->result > 0) {
+    memcpy((void *)(uintptr_t)out, job->bytes,
+           result < room ? (size_t)result : (size_t)room);
+  }
+
+  dispose(at);
+
+  return result;
+}
+
+uint64_t nuppiocancel (uint64_t ticket) {
+  if (!service) {
+    return 0;
+  }
+
+  Job **at = find(ticket), *job = *at;
+
+  if (!job) {
+    return 0;
+  }
+
+  if (!job->submitted) {
+    dispose(at);
+
+    return 1;
+  }
+
+  /* Successful uv_cancel still owes a callback: take/finish must drain it. */
+  if (!job->done) {
+    (void)uv_cancel((uv_req_t *)&job->request);
+  }
+
+  return 0;
+}
+
+uint64_t nuppiosettle (uint64_t ticket) {
+  if (!service) {
+    return failed(EINVAL);
+  }
+
+  Job **at = find(ticket), *job = *at;
+
+  if (!job) {
+    return failed(EINVAL);
+  }
+
+  while (!job->done) {
+    int status = pump(UV_RUN_ONCE, UINT64_MAX);
+
+    if (status) {
+      return (uint64_t)(int64_t)status;
+    }
+  }
+
+  if (!job->taken) {
+    Job **queued = &service->finished;
+
+    while (*queued != job) {
+      queued = &(*queued)->finished;
+    }
+
+    *queued = job->finished;
+
+    if (!*queued) {
+      service->finished_tail = queued;
+    }
+  }
+
+  uint64_t result = (uint64_t)job->result;
+  dispose(at);
+
+  return result;
+}
+
+int64_t nupp_uv_shutdown (void) {
+  if (!service) {
+    return 0;
+  }
+
+  if (service->running) {
+    return -EBUSY;
+  }
+
+  /* Retire queued work before closing watchers drives another loop turn. */
+  Job *queued = service->jobs;
+
+  while (queued) {
+    Job *next = queued->next;
+
+    if (!queued->submitted) {
+      nuppiocancel(queued->ticket);
+    }
+
+    queued = next;
+  }
+
+  while (service->pollers) {
+    int64_t status = nupp_uv_close(service->pollers->token);
+
+    if (status) {
+      return status;
+    }
+  }
+
+  while (service->jobs) {
+    uint64_t ticket = service->jobs->ticket, kind = service->jobs->kind;
+
+    if (nuppiocancel(ticket)) {
+      continue;
+    }
+
+    int64_t result = (int64_t)nuppiosettle(ticket);
+
+    if (service->jobs && service->jobs->ticket == ticket) {
+      return result;
+    }
+
+    if (kind == NUPP_IO_OPEN && result >= 0) {
+      close((int)result);
+    }
+  }
+
+  uv_handle_t *timer = (uv_handle_t *)&service->timer;
+
+  if (!uv_is_closing(timer)) {
+    uv_close(timer, NULL);
+  }
+
+  service->running = 1;
+  uv_run(&service->loop, UV_RUN_NOWAIT);
+  service->running = 0;
+  /* An attached adapter still owns any remaining handle or request. */
+  int status = uv_loop_close(&service->loop);
+
+  if (status) {
+    return status;
+  }
+
+  if (service->wake[0] >= 0) {
+    close(service->wake[0]);
+    close(service->wake[1]);
+  }
+
+  free(service);
+  service = NULL;
+
+  return 0;
+}

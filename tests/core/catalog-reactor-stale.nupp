@@ -1,0 +1,149 @@
+module nupp.core.catalogreactorstale
+
+-- Opaque poller ownership, readiness retirement and completion-before-park.
+const poll = require("nupp.runtime.pollcalls")
+const rawfiles = require("nupp.runtime.filecalls")
+const reactor = require("nupp.runtime.reactor")
+const files = require("nupp.runtime.files")
+
+local score = 0
+local bit = 1
+
+local function check(ok: boolean): nil
+    if ok then
+        score = score | bit
+    end
+    bit = bit << 1
+end
+
+do
+    local ends = poll.pipe()
+    local reader, writer = ends & 0xffffffff, ends >> 32
+    local token = poll.open()
+    check(token > 0 and ends >= 0)
+    check(poll.arm(token, reader, 1) == 0 and rawfiles.write(writer, "x", 1) == 1)
+    check(poll.wait(token, 1000000000) >> 5 == reader)
+    check(poll.close(token) == 0 and rawfiles.read(reader, 1) == "x")
+    check(poll.close(token) < 0 and poll.arm(token, reader, 1) < 0)
+    local next = poll.open()
+    check(next > token and poll.wait(next, 0) == 0)
+    poll.close(next)
+    rawfiles.close(reader)
+    rawfiles.close(writer)
+end
+
+-- The callback fires twice before park; only the first wakes the task.
+do
+    local value = 0
+    local resumed = 0
+    do
+        local scope = coroutine.scope()
+        scope:spawn(function(): nil
+            local got = reactor.suspend(function(done: reactor.Waker): function(): nil
+                done(reactor.Completion(value = 17))
+                done(reactor.Completion(value = 99))
+                return function(): nil
+                end
+            end)
+            value = got.value
+            resumed = resumed + 1
+        end)
+    end
+    check(value == 17 and resumed == 1 and reactor.pending() == 0)
+end
+
+-- A retired operation cannot consume the next operation's wake or bytes.
+do
+    local reader, writer = reactor.pipe()
+    local heard = 0
+    local text = ""
+    local retired = reactor.submit(
+        reactor.Operation(
+            kind = reactor.READ,
+            descriptor = reader,
+            count = 1
+        ),
+        function(_: reactor.Completion): nil
+            heard = heard + 100
+        end
+    )
+    check(reactor.cancel(retired) and not reactor.cancel(retired))
+    reactor.submit(
+        reactor.Operation(
+            kind = reactor.READ,
+            descriptor = reader,
+            count = 1
+        ),
+        function(got: reactor.Completion): nil
+            heard = heard + 1
+            text = got.text
+        end
+    )
+    files.write(writer, "y", 1)
+    collectgarbage()
+    reactor.wait(os.monotonic() + 1000)
+    check(heard == 1 and text == "y" and reactor.pending() == 0)
+    reactor.wait(os.monotonic())
+    check(heard == 1 and not reactor.cancel(retired))
+    files.close(reader)
+    files.close(writer)
+end
+
+-- Closing a completed open must free its journal slot, not exhaust the scope.
+do
+    local closed = 0
+    do
+        local scope = coroutine.scope()
+        scope:spawn(function(): nil
+            for _ = 1, 300 do
+                local opened = files.open("/dev/null", files.READING)
+                if opened.value >= 0 and files.close(opened.value).value == 0 then
+                    closed = closed + 1
+                end
+            end
+        end)
+    end
+    check(closed == 300 and reactor.pending() == 0)
+end
+
+do
+    local input = assert(io.open("/dev/null", "r"))
+    check(input:read("l") == nil and input:read("a") == "")
+    input:close()
+end
+
+-- A queued read keeps its file until completion, even when close comes next.
+do
+    local first, second = os.tmpname(), os.tmpname()
+    do
+        local out = assert(io.open(first, "w"))
+        out:write("a")
+        out:close()
+    end
+    do
+        local out = assert(io.open(second, "w"))
+        out:write("b")
+        out:close()
+    end
+    local opened = files.open(first, files.READING)
+    local text = ""
+    reactor.submit(
+        reactor.Operation(
+            kind = reactor.READ,
+            descriptor = opened.value,
+            count = 1
+        ),
+        function(got: reactor.Completion): nil
+            text = got.text
+        end
+    )
+    local closed = files.close(opened.value)
+    local replacement = files.open(second, files.READING)
+    reactor.wait(os.monotonic() + 1000)
+    check(closed.value == 0 and text == "a" and reactor.pending() == 0)
+    files.close(replacement.value)
+    os.remove(first)
+    os.remove(second)
+end
+
+export const result = score

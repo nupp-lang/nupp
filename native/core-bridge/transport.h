@@ -1,6 +1,5 @@
-/* The I/O pool io.c runs for the Nupp code main.c enters. main.c passes these
- * six functions' addresses in the packet's import table, and the Nupp reactor
- * calls them; nothing in C calls them but tests/core/bridgecontracts.c.
+/* The libuv file queue runs for the Nupp entry. main.c passes these six
+ * functions' addresses in the packet's import table for Nupp's reactor.
  *
  * A job copies its bytes in on submission and out on finishing, so a worker
  * thread never touches Nupp memory. Every function answers a negative errno,
@@ -18,8 +17,8 @@ enum nuppiokind {
   NUPP_IO_WRITE = 3, /* word: the descriptor; bytes: what to write */
 };
 
-/* Starts the workers once and answers the read end of the pipe that becomes
- * readable when a job finishes. Later calls answer the same descriptor. */
+/* Sets the active job limit once and returns the read end of the completion
+ * pipe. Later calls return the same descriptor. */
 uint64_t nuppiostart (uint64_t threads);
 
 /* Queues a job and answers its ticket. */
@@ -33,7 +32,8 @@ uint64_t nuppiotake (void);
  * to out, and forgets the ticket. */
 uint64_t nuppiofinish (uint64_t ticket, uint64_t out, uint64_t room);
 
-/* Withdraws a job no worker has started, answering 1, or answers 0. */
+/* Withdraws a job before native submission and returns 1. Otherwise returns
+ * 0 and retains the job until its callback and collection. */
 uint64_t nuppiocancel (uint64_t ticket);
 
 /* Waits for a job to finish, answers its result, and forgets the ticket. */

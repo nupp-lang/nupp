@@ -522,6 +522,19 @@ export function coreSeed(
             end
         end
     end
+    -- The bridge resolves its linked libuv beside the executable. Store the
+    -- loader's filename as a regular file to keep the seed archive link-free.
+    local uv = host:match("%-apple%-darwin$") and "lib/libuv.1.0.0.dylib" or "lib/libuv.so.1"
+    local transport = fs.dirname(runtime)
+    if fs.exists(fs.join(transport, uv)) then
+        copies[uv] = fs.join(transport, uv)
+        fs.mkdir(fs.join(staging, "lib"))
+        fs.mkdir(fs.join(staging, "notices"))
+        for _, notice in ipairs({"LICENSE", "LICENSE-extra", "inet-LICENSE", "tree-LICENSE"}) do
+            local name = "notices/libuv-" .. notice .. ".txt"
+            copies[name] = fs.join(transport, name)
+        end
+    end
     local files: {[string]: string} = {}
     for name, source in pairs(copies) do
         local bytes = fs.readFile(source)

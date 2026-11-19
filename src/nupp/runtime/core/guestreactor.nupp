@@ -16,6 +16,7 @@ const guestscope = require("nupp.runtime.core.guestscope")
 const librarylayouts = require("nupp.runtime.core.librarylayouts")
 const hostpoll = require("nupp.runtime.core.hostpoll")
 const hostfiles = require("nupp.runtime.core.hostfiles")
+const servicescope = require("nupp.runtime.core.servicescope")
 
 -- What a pool job is, as the bridge numbers them.
 const JOB_OPEN: uint64 = 1ULL
@@ -83,7 +84,12 @@ export function call(ctx: voidptr, operation: uint64, a: uint64, b: uint64, c: u
     @unsafe do
         local h = heapOf(ctx)
         if operation == librarylayouts.POLL_OPEN then
-            return ints.make(h, native.word(hostpoll.open()))
+            return ints.make(h, native.word(servicescope.pollOpen(native.loadPointer(ctx, context.SERVICE_SCOPE))))
+        elseif operation == librarylayouts.POLL_CLOSE then
+            return ints.make(
+                h,
+                native.word(servicescope.pollClose(native.loadPointer(ctx, context.SERVICE_SCOPE), integerOf(a)))
+            )
         elseif operation == librarylayouts.POLL_ARM then
             return ints.make(h, native.word(hostpoll.arm(h, integerOf(a), integerOf(b), integerOf(c))))
         elseif operation == librarylayouts.POLL_WAIT then

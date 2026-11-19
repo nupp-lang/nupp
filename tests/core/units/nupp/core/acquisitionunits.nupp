@@ -7,7 +7,6 @@ const context = require("nupp.runtime.core.context")
 const frames = require("nupp.runtime.core.frames")
 const ops = require("nupp.runtime.core.guestops")
 
-const POOL: uint64 = 3ULL
 const READ: uint64 = 1ULL
 const FD_LIMIT: uint64 = 4096ULL
 const F_GETFD: int64 = 1
@@ -34,9 +33,8 @@ export function descriptors(): uint64
 end
 
 -- The observer owns this disjoint scratch until the entry closes. A pool job
--- is the one resource the service scope still journals: files, pipes and
--- children are the host modules' C calls, outside it.
-export function acquire(address: uint64, mode: uint64, cancel: uint64): uint64
+-- and an opaque poller each have a journaled Nupp owner.
+export function acquire(address: uint64, cancel: uint64): uint64
     local scope = native.pointer(address)
     local extra = native.offset(scope, native.index(native.sizeOf<service.ServiceScope>()))
     local path = native.offset(extra, 64)
@@ -44,15 +42,10 @@ export function acquire(address: uint64, mode: uint64, cancel: uint64): uint64
     native.store64(path, 8, TAIL)
     local _ = os.poolStart(1ULL)
     native.store64(extra, 32, descriptors())
-    local result: int64 = -1
-    local other: uint64 = 0ULL
-    if mode == POOL then
-        local _ = os.poolStart(1ULL)
-        result = os.poolSubmit(READ, READ, path, PATH_BYTES)
-    end
-    native.store64(extra, 0, mode)
-    native.store64(extra, 8, native.word(result))
-    native.store64(extra, 16, other)
+    local ticket = os.poolSubmit(READ, READ, path, PATH_BYTES)
+    local poller = service.pollOpen(scope)
+    native.store64(extra, 8, native.word(ticket))
+    native.store64(extra, 16, native.word(poller))
     native.store64(extra, 24, cancel)
     -- The next actual instruction charge refuses before guest publication.
     -- Its owner and PC remain unchanged through the raw fallback drain.

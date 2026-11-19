@@ -136,12 +136,12 @@ local UNITS = {
         modules = {"acquisitionunits", "acquisitionentry", "unitentry"},
         observeLanding = true,
         observerEntry = "nupp.core.acquisitionentry",
-        entries = {{"acquisitionunits", "acquire", 3}},
+        entries = {{"acquisitionunits", "acquire", 2}},
         cases = function()
             local cases = {}
-            -- The pool mode (3): the one resource the service scope journals.
+            -- Each forced refusal tests both pool tickets and opaque pollers.
             for cancel = 0, 1 do
-                cases[#cases + 1] = {"acquire", {0, 3, cancel}, 1}
+                cases[#cases + 1] = {"acquire", {0, cancel}, 1}
             end
 
             return cases

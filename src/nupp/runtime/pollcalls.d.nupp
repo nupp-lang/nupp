@@ -1,13 +1,16 @@
 @!internal
 
---- The readiness system calls under the native core's reactor, as its host
---- answers them: kqueue on macOS and epoll on Linux, behind one shape. A call
+--- The shared libuv readiness service under the native core's reactor. A call
 --- of one is the core's own library call, and requiring this module loads
 --- nothing: it exists only on the core, for `nupp.runtime.reactor`. Each
 --- answers what the system call did, or the negated error number.
 local record pollcalls
-    --- A new poller's descriptor.
+    --- A new owned poller token, never an operating-system descriptor.
     open: function(): integer
+
+    --- Closes the poller and drains its native close callbacks. Watched
+    --- descriptors remain owned by their file/process resources.
+    close: function(poller: integer): integer
 
     --- Sets the readiness `poller` waits for on `descriptor` to `interest`:
     --- 1 readable and 2 writable, added together, or 0 for none. Interest

@@ -37,7 +37,9 @@ CLI="$ROOT/.nupp/core-cli"
 FORMAT=nupp-core-cli-1
 LOCK="$CLI/build.lock"
 # What a core compiler is built from, beside the compiler that builds it.
-SOURCES='src templates native/core-bridge nupp.lua scripts/core-self-build'
+SOURCES='src templates native/core-bridge nupp.lua scripts/core-self-build scripts/core-bridge
+scripts/native-libraries scripts/c-libraries/libuv.sh scripts/toolchain.pins
+host/notices/libuv-LICENSE.txt host/notices/libuv-LICENSE-extra.txt'
 # The shared store: beside the repository's other machine caches, or where
 # NUPP_CORE_CLI_STORE names. `GENERATION/` is a generation as a checkout keeps
 # it, and `sources/DIGEST` names the one built from the sources DIGEST names.
@@ -98,6 +100,7 @@ selected() {
 install_pair() {
     runtime=$1 compiler=$2 source=${3:-} builder=${4:-}
     libraries=$(dirname "$compiler")/lib
+    runtime_dir=$(dirname "$runtime")
     "$runtime" 2>&1 | grep -q '^nupp-core: usage: nupp-core BUNDLE INPUT OUTPUT' \
         || die "$runtime is not the core's C bridge"
     [ "$(head -c 8 "$compiler")" = NUPPCORE ] || die "$compiler is not a core compiler"
@@ -110,6 +113,9 @@ install_pair() {
                 [ -f "$library" ] && digest_stdin < "$library"
             done
         fi
+        for file in "$runtime_dir"/lib/libuv.* "$runtime_dir"/notices/libuv-*.txt; do
+            [ ! -f "$file" ] || digest_stdin < "$file"
+        done
         printf 'source %s\nbuilder %s\n' "$source" "$builder"
     } | digest_stdin)
     destination="$CLI/$key"
@@ -121,6 +127,16 @@ install_pair() {
         chmod 755 "$staged/runtime"
         cp "$compiler" "$staged/compiler.bundle"
         [ ! -d "$libraries" ] || cp -RP "$libraries" "$staged/lib"
+        for sidecars in lib/libuv. notices/libuv-; do
+            for file in "$runtime_dir"/"$sidecars"*; do
+                [ -f "$file" ] || continue
+                relative=${file#"$runtime_dir"/}
+                mkdir -p "$staged/${relative%/*}"
+                cp -P "$file" "$staged/$relative"
+            done
+        done
+        "$staged/runtime" 2>&1 | grep -q '^nupp-core: usage: nupp-core BUNDLE INPUT OUTPUT' \
+            || die "$runtime could not load from its installed location"
         printf '%s\n' "$source" > "$staged/source"
         printf '%s\n' "$builder" > "$staged/builder"
         printf '%s\n' "$FORMAT" > "$staged/format"

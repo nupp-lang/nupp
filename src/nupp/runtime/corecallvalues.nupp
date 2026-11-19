@@ -157,6 +157,9 @@ export const modules: {[string]: {[string]: any}} = {
         end,
         pipe = function(): any
             return pollcalls.pipe()
+        end,
+        close = function(a1: any): any
+            return pollcalls.close(a1)
         end
     },
     ["nupp.runtime.poolcalls"] = {

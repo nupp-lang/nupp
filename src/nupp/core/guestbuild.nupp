@@ -338,7 +338,7 @@ local CASES: {[string]: {
     reactorpipes = {
         fixture = "catalog-reactor-pipes",
         version = 8,
-        modules = {"catalog-reactor-driver"},
+        modules = {"catalog-tasks-reactor", "catalog-reactor-stale", "catalog-reactor-driver"},
         follow = true
     },
     reactorfiles = {
@@ -347,8 +347,6 @@ local CASES: {[string]: {
         modules = {"catalog-reactor-driver"},
         follow = true
     },
-    -- Tasks reading pipes through the reactor the scheduler waits in.
-    tasksreactor = {fixture = "catalog-tasks-reactor", version = 8, follow = true},
     -- Processes: Lua's os.execute, io.popen and os.exit, io.popen's process
     -- handle, and the process layer under them, scheduled and not.
     processexecute = {fixture = "catalog-process-execute", version = 8},

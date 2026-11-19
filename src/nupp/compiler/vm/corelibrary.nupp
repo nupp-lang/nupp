@@ -819,6 +819,13 @@ local grouprows: {Group} = {
         }
     },
     {
+        -- Pollers are owned opaque libuv subscriptions, not file descriptors.
+        name = "REACTOR_LIFETIME",
+        call = "HOST_FILES",
+        modules = {"pollcalls"},
+        operations = {{name = "POLL_CLOSE", library = "pollcalls.close", operation = 51, arguments = 1}}
+    },
+    {
         -- The scheduler's primitives (nupp.runtime.taskcalls), which the
         -- TASKS call takes: a task of a function and the pack of its
         -- arguments; running one until it returns, fails, parks or yields,

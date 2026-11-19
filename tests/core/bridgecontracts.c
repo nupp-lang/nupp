@@ -13,10 +13,8 @@
 #undef main
 
 #include <assert.h>
-#include <fcntl.h>
 #include <signal.h>
 #include <sys/wait.h>
-#include <time.h>
 
 /* tests/core/bridgeabi.S. The probe calls an entry and reports its
  * status and a mask of the callee-saved registers it clobbered: x19 to x29
@@ -31,9 +29,6 @@ enum {
   CLOBBERED_X19 = 1 << 0,
   CLOBBERED_D8 = 1 << 11,
 };
-
-/* How often, and how long between, polls for the I/O pool's progress. */
-enum { POLL_ATTEMPTS = 10000, POLL_NANOSECONDS = 1000000 };
 
 /* A well-formed bundle of two instructions' code and nothing else. */
 enum { SAMPLE_CODE_BYTES = INSTRUCTION_BYTES * 2 };
@@ -104,91 +99,6 @@ static void malformed (void) {
   unlink(path);
 }
 
-static void pausebriefly (void) {
-  struct timespec pause = {0, POLL_NANOSECONDS};
-  nanosleep(&pause, NULL);
-}
-
-/* Waits for a job to finish and answers its ticket. */
-static uint64_t take (void) {
-  for (unsigned i = 0; i < POLL_ATTEMPTS; ++i) {
-    uint64_t ticket = nuppiotake();
-
-    if (ticket) {
-      return ticket;
-    }
-
-    pausebriefly();
-  }
-
-  assert(!"I/O completion timed out");
-
-  return 0;
-}
-
-static uint64_t submitopen (const char *path) {
-  return nuppiosubmit(NUPP_IO_OPEN, 0, (uintptr_t)path, strlen(path));
-}
-
-/* Submits a read of an empty pipe until a worker has started it, so it can
- * no longer be cancelled, and answers its ticket. */
-static uint64_t startblockedread (int descriptor) {
-  for (unsigned i = 0; i < POLL_ATTEMPTS; ++i) {
-    uint64_t ticket = nuppiosubmit(NUPP_IO_READ, (uint64_t)descriptor, 0, 1);
-    assert((int64_t)ticket > 0);
-    pausebriefly();
-
-    if (!nuppiocancel(ticket)) {
-      return ticket;
-    }
-  }
-
-  assert(!"no worker started the read");
-
-  return 0;
-}
-
-static void startsonce (void) {
-  assert((int64_t)nuppiosubmit(NUPP_IO_OPEN, 0, 0, 1) == -EFAULT);
-  int wake = (int)nuppiostart(1);
-  assert(wake >= 0);
-  assert(nuppiostart(8) == (uint64_t)wake);
-  assert(fcntl(wake, F_GETFL) & O_NONBLOCK);
-  assert(fcntl(wake, F_GETFD) & FD_CLOEXEC);
-}
-
-/* With the one worker blocked, a queued job can be cancelled and is then
- * forgotten; the blocked one settles once its read can complete. */
-static void cancelsqueued (void) {
-  int ends[2];
-  assert(!pipe(ends));
-  uint64_t blocked = startblockedread(ends[0]);
-  uint64_t queued = submitopen("/dev/null");
-  assert((int64_t)queued > 0 && nuppiocancel(queued) == 1);
-  assert((int64_t)nuppiosettle(queued) == -EINVAL);
-  assert(write(ends[1], "x", 1) == 1);
-  assert(nuppiosettle(blocked) == 1);
-  assert((int64_t)nuppiosettle(blocked) == -EINVAL);
-  assert(nuppiotake() == 0);
-  close(ends[0]);
-  close(ends[1]);
-}
-
-/* Settling one job leaves the other for take, and a finished ticket is
- * forgotten. */
-static void completesapart (void) {
-  uint64_t first = submitopen("/dev/null");
-  uint64_t second = submitopen("/dev/null");
-  int firstfd = (int)nuppiosettle(first);
-  assert(firstfd >= 0);
-  assert(take() == second);
-  int secondfd = (int)nuppiofinish(second, 0, 0);
-  assert(secondfd >= 0);
-  assert((int64_t)nuppiofinish(second, 0, 0) == -EINVAL);
-  close(firstfd);
-  close(secondfd);
-}
-
 /* Sealed code faults when written. */
 static void codereadonly (void) {
   size_t page = (size_t)sysconf(_SC_PAGESIZE);
@@ -217,13 +127,13 @@ static void abiprobe (void) {
          report[1] == (CLOBBERED_X19 | CLOBBERED_D8));
 }
 
+void nupp_test_uv (void);
+
 int main (void) {
   abiprobe();
   malformed();
   codereadonly();
-  startsonce();
-  cancelsqueued();
-  completesapart();
+  nupp_test_uv();
   puts("native transport contracts passed");
 
   return 0;

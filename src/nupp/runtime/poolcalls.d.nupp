@@ -1,14 +1,15 @@
 @!internal
 
---- The blocking-work pool under the native core's reactor: the host's fixed
---- set of threads that make the file system calls readiness cannot wait for
---- (open, read and write on regular files), running no Nupp code. A call of
+--- The libuv file completion service under the native core's reactor: native
+--- threadpool work for open, read and write on regular files, running no
+--- Nupp code. A call of
 --- one is the core's own library call, and requiring this module loads
 --- nothing: it exists only on the core, for `nupp.runtime.reactor`. A job's
 --- bytes are copied in when it is submitted and out when it is collected.
 local record poolcalls
-    --- Starts `threads` workers, once: the wake descriptor, readable while
-    --- finished jobs wait to be taken. Later calls answer the same one.
+    --- Opens the service once: the wake descriptor, readable while finished
+    --- jobs wait to be taken. `threads` retains the caller's existing hint;
+    --- libuv owns its process-wide native threadpool. Later calls reuse it.
     start: function(threads: integer): integer
 
     --- Submits an open of the file at `path` with the access `flags` asks for,

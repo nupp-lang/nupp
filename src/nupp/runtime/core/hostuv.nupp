@@ -1,0 +1,36 @@
+module nupp.runtime.core.hostuv
+
+-- The owned native loop's raw callback transport. These callbacks only retain
+-- native requests, copied buffers and readiness; they cannot enter Nupp. The
+-- bootstrap links the pinned library and drains it before releasing an entry.
+-- A token is a subscription to the thread's one loop, never an OS descriptor.
+cdef function nupp_uv_open(processDescriptor: int64): int64
+cdef function nupp_uv_processfd(token: uint64): int64
+cdef function nupp_uv_arm(token: uint64, descriptor: int64, interest: uint64): int64
+cdef function nupp_uv_wait(token: uint64, nanos: uint64): int64
+cdef function nupp_uv_close(token: uint64): int64
+cdef function nupp_uv_preserve_file(descriptor: uint64)
+
+export function open(processDescriptor: int64): int64
+    return nupp_uv_open(processDescriptor)
+end
+
+export function processDescriptor(token: uint64): int64
+    return nupp_uv_processfd(token)
+end
+
+export function arm(token: uint64, descriptor: int64, interest: uint64): int64
+    return nupp_uv_arm(token, descriptor, interest)
+end
+
+export function wait(token: uint64, nanos: uint64): int64
+    return nupp_uv_wait(token, nanos)
+end
+
+export function close(token: uint64): int64
+    return nupp_uv_close(token)
+end
+
+export function preserveFile(descriptor: uint64): nil
+    nupp_uv_preserve_file(descriptor)
+end

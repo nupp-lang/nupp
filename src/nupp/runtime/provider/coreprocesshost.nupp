@@ -151,7 +151,7 @@ local record Readiness
             processcalls.unwatch(self.descriptor, self.child)
         end
         if self.descriptor >= 0 then
-            filecalls.close(self.descriptor)
+            pollcalls.close(self.descriptor)
         end
     end
 end

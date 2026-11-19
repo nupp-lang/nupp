@@ -10,6 +10,8 @@ const process = require("nupp.runtime.core.hostprocess")
 const hostpages = require("nupp.runtime.core.hostpages")
 const entropy = require("nupp.runtime.core.hostentropy")
 const arguments = require("nupp.runtime.core.hostarguments")
+const poll = require("nupp.runtime.core.hostpoll")
+const uv = require("nupp.runtime.core.hostuv")
 
 const RESOURCE_REFUSAL: int64 = 24
 const INVALID: int64 = 22
@@ -164,6 +166,17 @@ local function drain(scope: voidptr): boolean
     index = 0ULL
     while index < journal.CAPACITY do
         local record = journal.entry(native.pointer(base), index)
+        if journal.kind(record) == journal.POLLER then
+            if poll.closePoller(journal.value(record)) ~= 0 then
+                return false
+            end
+            journal.put(record, journal.EMPTY, 0ULL, 0ULL)
+        end
+        index = index + 1ULL
+    end
+    index = 0ULL
+    while index < journal.CAPACITY do
+        local record = journal.entry(native.pointer(base), index)
         if journal.kind(record) == journal.FILE then
             local fd = journal.value(record)
             journal.put(record, journal.EMPTY, 0ULL, 0ULL)
@@ -262,6 +275,41 @@ end
 export function poolStart(scope: voidptr, threads: uint64): int64
     local _ = scope
     return os.poolStart(threads)
+end
+
+-- Reserve the Nupp owner before acquiring an opaque native subscription.
+export function pollOpen(scope: voidptr): int64
+    local record = reserve(scope)
+    if record == 0ULL then
+        return 0 - RESOURCE_REFUSAL
+    end
+
+    return acquired(record, journal.POLLER, poll.open(), 0ULL)
+end
+
+export function ownsPoller(scope: voidptr, token: uint64): boolean
+    return find(scope, journal.POLLER, token) ~= 0ULL
+end
+
+export function pollClose(scope: voidptr, token: uint64): int64
+    if not ownsPoller(scope, token) then
+        return 0 - INVALID
+    end
+    local status = poll.closePoller(token)
+    if status == 0 then
+        consume(scope, journal.POLLER, token)
+    end
+
+    return status
+end
+
+-- close spends the descriptor even on failure; retire its journal owner too.
+export function fileClose(scope: voidptr, descriptor: uint64): int64
+    uv.preserveFile(descriptor)
+    local status = files.closeFile(descriptor)
+    consume(scope, journal.FILE, descriptor)
+
+    return status
 end
 
 export function poolSubmit(scope: voidptr, kind: uint64, word: uint64, base: voidptr, bytes: uint64): int64

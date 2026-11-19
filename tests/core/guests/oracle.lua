@@ -14,7 +14,7 @@ local ROOT = assert(os.getenv("NUPP_COMPILER_ROOT"), "set NUPP_COMPILER_ROOT to 
 local LUA = assert(os.getenv("NUPP_LUA_REFERENCE"), "set NUPP_LUA_REFERENCE to a Lua 5.5 interpreter")
 local OUT = ROOT .. "/build/core-guests/generated"
 local STAGED = ROOT .. "/build/core-guest-programs/source/nupp/core"
-local BRIDGE = ROOT .. "/build/c-core-bridge/nupp-core"
+local BRIDGE = os.getenv("NUPP_CORE_BRIDGE") or ROOT .. "/build/c-core-bridge/nupp-core"
 local SCRATCH = 1048576
 
 local function quote(value)

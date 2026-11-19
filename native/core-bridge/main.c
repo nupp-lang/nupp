@@ -12,6 +12,7 @@
 #define _DARWIN_C_SOURCE 1
 #define _GNU_SOURCE 1
 
+#include "reactor.h"
 #include "transport.h"
 
 #include <dlfcn.h>
@@ -555,6 +556,13 @@ static int execute (const char *path, const uint64_t *words, size_t count,
   output = NULL;
   result = 0;
 out:
+
+  /* Drain native callbacks before releasing the executing artifact. */
+  if (nupp_uv_shutdown()) {
+    error("native completion drain failed");
+    _exit(1);
+  }
+
   fclose(file);
 
   if (regions.code) {

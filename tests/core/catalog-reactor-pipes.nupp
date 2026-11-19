@@ -7,6 +7,10 @@ module nupp.core.catalogreactorpipes
 -- while they do. Each check is a bit of the score.
 const reactor = require("nupp.runtime.reactor")
 const files = require("nupp.runtime.files")
+-- Run the production scheduler checks before the test driver installs its
+-- own parker. All three sets still run in every bridge and GC mode.
+const tasks = require("nupp.core.catalogtasksreactor")
+const lifetime = require("nupp.core.catalogreactorstale")
 const driver = require("nupp.core.catalogreactordriver")
 
 local score = 0
@@ -209,4 +213,4 @@ do
     files.close(reader)
 end
 
-export const result = score
+export const result = score | (tasks.result << 19) | (lifetime.result << 24)

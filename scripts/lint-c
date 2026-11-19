@@ -115,6 +115,11 @@ libcurl() {
         "curl-$LIBCURL_VERSION"
 }
 
+libuv() {
+    unpack "libuv-v$LIBUV_VERSION.tar.gz" "$LIBUV_URL" "$LIBUV_SHA256" \
+        "libuv-v$LIBUV_VERSION"
+}
+
 # libffi's ffi.h and ffitarget.h are written by its configure script, under
 # a directory named for the host.
 libffi() {
@@ -155,6 +160,9 @@ flags() {
             else
                 echo "-D_POSIX_C_SOURCE=200809L"
             fi
+            ;;
+        native/core-bridge/uv.c | tests/core/uv-contracts.c)
+            echo "-pthread -isystem $(libuv)/include"
             ;;
         native/core-bridge/* | tests/core/*) echo "-pthread" ;;
         native/crc/crc.c)

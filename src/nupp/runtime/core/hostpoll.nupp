@@ -1,16 +1,14 @@
 module nupp.runtime.core.hostpoll
 
--- The readiness system calls under the program's reactor (pollcalls) and
--- the exit watches of its process layer (processcalls), made through the C
--- library: a kqueue, a filter per readiness and the process filter for a
--- child's exit, one event per wait, and nonblocking pipes. The queues, the
--- deadlines and the nonblocking calls made on readiness are the program's.
--- Each answers a value or the negated error number. macOS's kqueue is the
--- one backend: the core's compiler targets aarch64-apple-darwin alone.
+-- libuv drives readiness and file completions through the same owned loop.
+-- shortcut: current posix_spawn children retain macOS's exit filter until the
+-- dedicated uv_spawn migration; libuv watches that filter's descriptor too.
+-- Nupp still owns process groups, reaping, scheduling, deadlines and delivery.
 const native = require("nupp.runtime.vm.intrinsics")
 const heap = require("nupp.runtime.vm.heap")
 const strings = require("nupp.runtime.core.corestrings")
 const c = require("nupp.runtime.core.hostc")
+const uv = require("nupp.runtime.core.hostuv")
 
 -- One kernel event, as macOS's <sys/event.h> lays it out.
 cdef struct KernelEvent
@@ -44,26 +42,18 @@ cdef function waitid(kind: int64, id: int64, borrows info: voidptr, options: int
 -- Interest and readiness, as pollcalls encodes them. An exit's event carries
 -- a process id where the others carry a descriptor, above EVENT_BITS.
 const READABLE: uint64 = 1ULL
-const WRITABLE: uint64 = 2ULL
-const HANGUP: uint64 = 4ULL
-const FAILED: uint64 = 8ULL
 const EXITED: uint64 = 16ULL
 const EVENT_BITS: uint64 = 5ULL
-const FOREVER: uint64 = 0xffffffffffffffffULL
-const NANOS: uint64 = 1000000000ULL
 -- A pipe answers its read end in the low bits and its write end above.
 const WRITE_END: uint64 = 32ULL
 
 -- The C library's, on macOS.
-const EVFILT_READ: uint64 = 0xffffULL
-const EVFILT_WRITE: uint64 = 0xfffeULL
 const EVFILT_PROC: uint64 = 0xfffbULL
 const EV_ADD: uint64 = 0x1ULL
 const EV_DELETE: uint64 = 0x2ULL
 const EV_ONESHOT: uint64 = 0x10ULL
 const EV_RECEIPT: uint64 = 0x40ULL
 const EV_ERROR: uint64 = 0x4000ULL
-const EV_EOF: uint64 = 0x8000ULL
 const NOTE_EXIT: uint64 = 0x80000000ULL
 const ENOENT: int64 = 2
 const ESRCH: int64 = 3
@@ -140,29 +130,36 @@ local function apply(poller: uint64, base: voidptr, count: uint64, ignored: int6
     end
 end
 
--- A new poller's descriptor, not inherited across exec.
+-- A new opaque subscription. Its process filter descriptor belongs to it.
 export function open(): int64
     local kq: int64 = kqueue()
     if kq < 0 then
         return c.failure()
     end
-    local _: int64 = fcntl(kq, F_SETFD, FD_CLOEXEC)
+    local inherited: int64 = fcntl(kq, F_SETFD, FD_CLOEXEC)
+    if inherited ~= 0 then
+        local failed = c.failure()
+        local _: int64 = close(kq)
+        return failed
+    end
+    local token = uv.open(kq)
+    if token < 0 then
+        local _: int64 = close(kq)
+    end
 
-    return kq
+    return token
 end
 
 -- Sets the readiness `poller` waits for on `fd` to `interest`, for one
 -- event: 0. Removing interest the descriptor never had is not a failure.
 export function arm(h: heap.Heap*, poller: uint64, fd: uint64, interest: uint64): int64
-    local state = strings.Builder(0ULL, 0ULL)
-    @unsafe do
-        local lifetime = strings.open(h, state as strings.Builder*)
-        local base = native.pointer(room(h, lifetime, 4ULL * native.sizeOf<KernelEvent>()))
-        change(base, 0ULL, fd, EVFILT_READ, (interest & READABLE) ~= 0ULL)
-        change(base, 1ULL, fd, EVFILT_WRITE, (interest & WRITABLE) ~= 0ULL)
+    local _ = h
 
-        return apply(poller, base, 2ULL, ENOENT, ENOENT)
-    end
+    return uv.arm(poller, native.index(fd), interest)
+end
+
+export function closePoller(poller: uint64): int64
+    return uv.close(poller)
 end
 
 -- Waits, without reaping it, until child `pid` can be reaped. The filter
@@ -182,57 +179,57 @@ local function reapable(h: heap.Heap*, pid: uint64): nil
     end
 end
 
--- Has `poller` report child `pid`'s exit once, as an event: 0, or ESRCH
--- when it has already exited.
-export function watch(h: heap.Heap*, poller: uint64, pid: uint64): int64
+local function changeProcess(h: heap.Heap*, descriptor: int64, pid: uint64, wanted: boolean): int64
     local state = strings.Builder(0ULL, 0ULL)
     local status: int64 = 0
     @unsafe do
         local lifetime = strings.open(h, state as strings.Builder*)
         local base = native.pointer(room(h, lifetime, 2ULL * native.sizeOf<KernelEvent>()))
-        change(base, 0ULL, pid, EVFILT_PROC, true)
-        native.store32(base, native.fieldOffset<KernelEvent>("fflags"), native.index(NOTE_EXIT))
-        status = apply(poller, base, 1ULL, 0, 0)
+        change(base, 0ULL, pid, EVFILT_PROC, wanted)
+        if wanted then
+            native.store32(base, native.fieldOffset<KernelEvent>("fflags"), native.index(NOTE_EXIT))
+            status = apply(native.word(descriptor), base, 1ULL, 0, 0)
+        else
+            status = apply(native.word(descriptor), base, 1ULL, ENOENT, ESRCH)
+        end
     end
-    if status == 0 - ESRCH then
+    if wanted and status == 0 - ESRCH then
         reapable(h, pid)
     end
 
     return status
 end
 
--- Stops watching child `pid`'s exit, which may have been reported: 0.
-export function unwatch(h: heap.Heap*, poller: uint64, pid: uint64): int64
-    local state = strings.Builder(0ULL, 0ULL)
-    @unsafe do
-        local lifetime = strings.open(h, state as strings.Builder*)
-        local base = native.pointer(room(h, lifetime, 2ULL * native.sizeOf<KernelEvent>()))
-        change(base, 0ULL, pid, EVFILT_PROC, false)
-
-        return apply(poller, base, 1ULL, ENOENT, ESRCH)
+-- Has `poller` report child `pid`'s exit once, as an event.
+export function watch(h: heap.Heap*, poller: uint64, pid: uint64): int64
+    local descriptor = uv.processDescriptor(poller)
+    if descriptor < 0 then
+        return descriptor
     end
+
+    return changeProcess(h, descriptor, pid, true)
 end
 
--- Waits at most `nanos` nanoseconds, or without limit when it is all ones,
--- for one event: its descriptor above EVENT_BITS with its readiness, or a
--- child's process id with EXITED; 0 when the time passed first or a signal
--- interrupted the wait.
-export function wait(h: heap.Heap*, poller: uint64, nanos: uint64): int64
+-- Stops watching child `pid`'s exit, which may have been reported.
+export function unwatch(h: heap.Heap*, poller: uint64, pid: uint64): int64
+    local descriptor = uv.processDescriptor(poller)
+    if descriptor < 0 then
+        return descriptor
+    end
+
+    return changeProcess(h, descriptor, pid, false)
+end
+
+local function exitEvent(h: heap.Heap*, descriptor: int64): int64
     local state = strings.Builder(0ULL, 0ULL)
     local ident: uint64 = 0ULL
-    local filter: uint64 = 0ULL
-    local flags: uint64 = 0ULL
     @unsafe do
         local lifetime = strings.open(h, state as strings.Builder*)
         local base = native.pointer(room(h, lifetime, native.sizeOf<KernelEvent>() + native.sizeOf<TimeSpec>()))
         local limit = native.offset(base, native.index(native.sizeOf<KernelEvent>()))
-        native.store64(limit, native.fieldOffset<TimeSpec>("seconds"), nanos // NANOS)
-        native.store64(limit, native.fieldOffset<TimeSpec>("nanos"), nanos % NANOS)
-        local timeout = native.address(limit)
-        if nanos == FOREVER then
-            timeout = 0ULL
-        end
-        local count: int64 = kevent(native.index(poller), native.pointer(0ULL), 0, base, 1, native.pointer(timeout))
+        native.store64(limit, native.fieldOffset<TimeSpec>("seconds"), 0ULL)
+        native.store64(limit, native.fieldOffset<TimeSpec>("nanos"), 0ULL)
+        local count: int64 = kevent(descriptor, native.pointer(0ULL), 0, base, 1, limit)
         if count < 0 then
             if c.interrupted() then
                 return 0
@@ -243,27 +240,28 @@ export function wait(h: heap.Heap*, poller: uint64, nanos: uint64): int64
             return 0
         end
         ident = native.load64(base, native.fieldOffset<KernelEvent>("ident"))
-        filter = native.word(native.load16(base, native.fieldOffset<KernelEvent>("filter")))
-        flags = native.word(native.load16(base, native.fieldOffset<KernelEvent>("flags")))
     end
-    if filter == EVFILT_PROC then
-        reapable(h, ident)
-        return native.index(ident << EVENT_BITS | EXITED)
+    reapable(h, ident)
+
+    return native.index(ident << EVENT_BITS | EXITED)
+end
+
+-- One readiness event or process exit through the same libuv loop.
+export function wait(h: heap.Heap*, poller: uint64, nanos: uint64): int64
+    local descriptor = uv.processDescriptor(poller)
+    if descriptor < 0 then
+        return descriptor
     end
-    local bits: uint64 = 0ULL
-    if filter == EVFILT_READ then
-        bits = READABLE
-    elseif filter == EVFILT_WRITE then
-        bits = WRITABLE
+    local armed = uv.arm(poller, descriptor, READABLE)
+    if armed < 0 then
+        return armed
     end
-    if (flags & EV_EOF) ~= 0ULL then
-        bits = bits | HANGUP
-    end
-    if (flags & EV_ERROR) ~= 0ULL then
-        bits = bits | FAILED
+    local event = uv.wait(poller, nanos)
+    if event <= 0 or native.word(event) >> EVENT_BITS ~= native.word(descriptor) then
+        return event
     end
 
-    return native.index(ident << EVENT_BITS | bits)
+    return exitEvent(h, descriptor)
 end
 
 -- Makes `fd` close on exec, and nonblocking when `nonblocking`: 0.

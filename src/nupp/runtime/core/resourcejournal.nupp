@@ -15,6 +15,7 @@ end
 export const EMPTY: uint64 = 0ULL
 export const RESERVED: uint64 = 1ULL
 export const FILE: uint64 = 2ULL
+export const POLLER: uint64 = 3ULL
 export const JOB: uint64 = 4ULL
 export const TAKEN: uint64 = 5ULL
 export const CAPACITY: uint64 = 256ULL

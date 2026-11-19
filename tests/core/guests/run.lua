@@ -265,10 +265,8 @@ local CASES = {
     {"callarguments", 0x7FFF00001FFFFFFF},
     {"iofiles", 0x7FFF3FFFFFFFFFFF},
     {"iostandard", 0x7FFF00000000000F},
-    {"reactorpipes", 0x7FFF00000007FFFF},
+    {"reactorpipes", 0x7FFF001FFFFFFFFF},
     {"reactorfiles", 0x7FFF000000001FFF},
-    -- Parked I/O and timers in the scheduler's one loop.
-    {"tasksreactor", 0x7FFF00000000001F},
     {"processexecute", 0x7FFF000000001FFF},
     {"processpopen", 0x7FFF00003FFFFFFF},
     {"processhandle", 0x7FFF000001FFFFFF},
@@ -570,7 +568,6 @@ local STRESS = {
     iostandard = true,
     reactorpipes = true,
     reactorfiles = true,
-    tasksreactor = true,
     processexecute = true,
     processpopen = true,
     processhandle = true,
@@ -1235,6 +1232,12 @@ local function tools(selectedCases)
             ) .. " && mv " .. quote(destination .. ".pending") .. " " .. quote(destination)
         )
         assert(status == 0, "Markdown provider staging failed: " .. output)
+    end
+    -- Reuse the prebuilt tools already supported by child shards and units.
+    local bridge, guard = os.getenv("NUPP_GUEST_BRIDGE"), os.getenv("NUPP_GUEST_GUARD")
+    if bridge or guard then
+        assert(bridge and guard, "prebuilt guest bridge and guard must be supplied together")
+        return bridge, guard
     end
     local status, output = shell("sh " .. quote(ROOT .. "/scripts/core-bridge") .. " --test")
     assert(status == 0, "C bridge contract build failed: " .. output)

@@ -42,30 +42,39 @@ else
 fi
 mkdir -p "$OUT"
 case "$(uname -s):$(uname -m)" in
-    Darwin:arm64) export_flag=-Wl,-export_dynamic; libs='' ;;
-    Linux:aarch64) export_flag=-rdynamic; libs=-ldl ;;
+    Darwin:arm64) export_flag=-Wl,-export_dynamic; libs=''; suffix=dylib; uv_rpath='@loader_path/lib' ;;
+    Linux:aarch64) export_flag=-rdynamic; libs=-ldl; suffix=so; uv_rpath='$ORIGIN/lib' ;;
     *) printf 'core-bridge: ARM64 macOS or Linux is required\n' >&2; exit 1 ;;
 esac
 # Harness processes build here at once: each links under a name of its own
 # and renames it into place, so none moves another's half-written binary.
+uv=$(sh "$ROOT/scripts/native-libraries" libuv)
 pending=".$$.pending"
-trap 'rm -rf "$OUT"/*"$pending" "$OUT"/*"$pending".dSYM' EXIT
+trap 'rm -rf "$OUT"/*"$pending" "$OUT"/*"$pending".dSYM "$OUT"/lib/*"$pending" "$OUT"/notices/*"$pending"' EXIT
+mkdir -p "$OUT/lib" "$OUT/notices"
+# The pinned SDK supplies the runtime aliases and upstream notices.
+for file in "$uv"/lib/*.dylib "$uv"/lib/*.so "$uv"/lib/*.so.* "$uv"/notices/*.txt; do
+    [ -f "$file" ] || continue
+    relative=${file#"$uv"/}
+    cp -P "$file" "$OUT/$relative$pending"
+    mv -f "$OUT/$relative$pending" "$OUT/$relative"
+done
 # shellcheck disable=SC2086 # the flags are words
-"$CC" $flags "$export_flag" \
-    "$common/main.c" "$common/io.c" ${defaults:+"$defaults"} \
-    $libs -o "$OUT/nupp-core$pending"
+"$CC" $flags "$export_flag" -I"$uv/include" -Wl,-rpath,"$uv_rpath" \
+    "$common/main.c" "$common/uv.c" ${defaults:+"$defaults"} \
+    "$uv/lib/libuv.$suffix" $libs -o "$OUT/nupp-core$pending"
 # shellcheck disable=SC2086
-"$CC" $flags "$export_flag" \
-    "$common/guard.c" "$common/io.c" ${defaults:+"$defaults"} \
-    "$ROOT/tests/core/bridgeabi.S" $libs -o "$OUT/nupp-core-guard$pending"
+"$CC" $flags "$export_flag" -I"$uv/include" -Wl,-rpath,"$uv_rpath" \
+    "$common/guard.c" "$common/uv.c" ${defaults:+"$defaults"} \
+    "$ROOT/tests/core/bridgeabi.S" "$uv/lib/libuv.$suffix" $libs -o "$OUT/nupp-core-guard$pending"
 mv "$OUT/nupp-core$pending" "$OUT/nupp-core"
 mv "$OUT/nupp-core-guard$pending" "$OUT/nupp-core-guard"
 if [ "$test" = 1 ]; then
     # shellcheck disable=SC2086
-    "$CC" $flags "$export_flag" \
-        "$ROOT/tests/core/bridgecontracts.c" "$common/io.c" \
+    "$CC" $flags "$export_flag" -I"$uv/include" -Wl,-rpath,"$uv_rpath" \
+        "$ROOT/tests/core/bridgecontracts.c" "$ROOT/tests/core/uv-contracts.c" \
         ${defaults:+"$defaults"} "$ROOT/tests/core/bridgeabi.S" \
-        $libs -o "$OUT/nupp-core-contracts$pending"
+        "$uv/lib/libuv.$suffix" $libs -o "$OUT/nupp-core-contracts$pending"
     mv "$OUT/nupp-core-contracts$pending" "$OUT/nupp-core-contracts"
     "$OUT/nupp-core-contracts" >&2
 fi
