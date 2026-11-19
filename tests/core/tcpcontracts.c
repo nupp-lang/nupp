@@ -3,6 +3,10 @@
  * @brief Exercises bounded, owned TCP transfers over a real loopback peer.
  */
 
+#ifndef _WIN32
+#define _POSIX_C_SOURCE 200809L
+#endif
+
 #include "tcp.h"
 #include <assert.h>
 #include <stdio.h>
