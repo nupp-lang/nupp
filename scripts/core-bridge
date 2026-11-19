@@ -92,7 +92,9 @@ if [ "$win64_mode" = --win64-contracts ] || [ "$win64_mode" = --win64-http-link 
     compile_win64 -DNUPP_WIN64_PROCESS -iquote "$common" \
         "$tests/processwin64contract.c" "$common/process.c" "$common/uv.c" \
         -o "$stage_native/process.exe"
-    for probe in socket-broker bridge-loader bridge-abi process; do
+    compile_win64 -iquote "$common" "$tests/tcpcontracts.c" "$common/tcp.c" \
+        -o "$stage_native/tcp.exe"
+    for probe in socket-broker bridge-loader bridge-abi process tcp; do
         "$stage/$probe.exe" >&2
     done
     printf '%s\n' "$stage"
@@ -208,5 +210,10 @@ if [ "$test" = 1 ]; then
     check_floor "$OUT/nupp-core-contracts$pending"
     mv "$OUT/nupp-core-contracts$pending" "$OUT/nupp-core-contracts"
     "$OUT/nupp-core-contracts" >&2
+    compile -Wl,-rpath,"$rpath" "$ROOT/tests/core/tcpcontracts.c" "$common/tcp.c" \
+        ${defaults:+"$defaults"} "$stage/lib/$uv_name" -o "$OUT/nupp-tcp-contracts$pending"
+    check_floor "$OUT/nupp-tcp-contracts$pending"
+    mv "$OUT/nupp-tcp-contracts$pending" "$OUT/nupp-tcp-contracts"
+    "$OUT/nupp-tcp-contracts" >&2
 fi
 printf '%s\n' "$OUT"
