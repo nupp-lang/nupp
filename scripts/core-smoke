@@ -1,0 +1,111 @@
+#!/bin/sh
+# Runs each everyday command once on the native core through bin/nupp, in a
+# library and an application project made fresh for the purpose, and says how
+# long each took and whether it answered as it should.
+#
+#   scripts/core-smoke [--vm] [--fixpoint] [--keep]
+#
+# The core is the host's own runtime once the pins flip it, and NUPP_RUNTIME=core
+# before that. --vm runs the same commands on the VM instead, for comparison.
+# --fixpoint also runs `nupp fixpoint` on this checkout, which takes hours on
+# the core; without it the command runs once where it has nothing to verify.
+# --keep leaves the projects behind and names where. Exits 1 when any command
+# failed.
+set -u
+ROOT=$(CDPATH= cd -- "$(dirname "$0")/.." && pwd)
+NUPP="$ROOT/bin/nupp"
+runtime=core
+fixpoint=0
+keep=0
+for argument in "$@"; do
+    case "$argument" in
+        --vm) runtime=vm ;;
+        --fixpoint) fixpoint=1 ;;
+        --keep) keep=1 ;;
+        *)
+            echo "usage: scripts/core-smoke [--vm] [--fixpoint] [--keep]" >&2
+            exit 2
+            ;;
+    esac
+done
+if [ "$runtime" = core ] && [ "$(sh "$ROOT/scripts/stage0-runtime" --host)" = unsupported ]; then
+    echo "core-smoke: the native core does not run on this host" >&2
+    exit 1
+fi
+NUPP_RUNTIME=$runtime
+export NUPP_RUNTIME
+
+WORK=$(mktemp -d "${TMPDIR:-/tmp}/nupp-core-smoke.XXXXXX")
+LOG="$WORK/log"
+if [ "$keep" = 0 ]; then
+    trap 'rm -rf "$WORK"' EXIT
+fi
+failures=0
+
+now() { perl -MTime::HiRes=time -e 'printf "%.2f\n", time'; }
+
+# Runs NAME: the command after DIRECTORY, STATUS and PATTERN, in DIRECTORY,
+# and passes when it exits with STATUS and its output matches PATTERN (an
+# extended regular expression; empty matches anything).
+expect() {
+    name=$1 directory=$2 expected=$3 pattern=$4
+    shift 4
+    started=$(now)
+    (cd "$directory" && "$NUPP" "$@") > "$LOG" 2>&1
+    status=$?
+    seconds=$(printf '%s %s\n' "$(now)" "$started" | awk '{ printf "%.2f", $1 - $2 }')
+    if [ "$status" -eq "$expected" ] && { [ -z "$pattern" ] || grep -Eq "$pattern" "$LOG"; }; then
+        printf 'ok    %-10s %8ss  nupp %s\n' "$name" "$seconds" "$*"
+    else
+        failures=$((failures + 1))
+        printf 'FAIL  %-10s %8ss  nupp %s (status %s)\n' "$name" "$seconds" "$*" "$status"
+        tail -n 15 "$LOG" | sed 's/^/      /'
+    fi
+}
+
+# The same, for a command that should succeed.
+smoke() {
+    name=$1 directory=$2
+    shift 2
+    expect "$name" "$directory" 0 "$@"
+}
+
+# The first command builds the core compiler when the checkout has none, so
+# its time is not a command's.
+printf 'core-smoke: %s, in %s\n' "$runtime" "$WORK"
+(cd "$WORK" && "$NUPP" version) > "$LOG" 2>&1 || {
+    echo "core-smoke: no compiler runs on the $runtime:" >&2
+    tail -n 20 "$LOG" >&2
+    exit 1
+}
+
+smoke version "$WORK" '^nupp ' version
+smoke init "$WORK" '' init lib library
+smoke init "$WORK" '' init app application
+LIBRARY="$WORK/library" APPLICATION="$WORK/application"
+smoke explain "$WORK" 'NUPP2004' explain NUPP2004
+smoke reference "$WORK" 'Reports:' reference --section records
+smoke check "$LIBRARY" '' check
+smoke check "$APPLICATION" '"ok":true' check --json
+smoke fmt "$LIBRARY" '' fmt --check src/library.nupp
+smoke lsp "$LIBRARY" '"name":"greet"' lsp inspect --json src/library.nupp 3 17
+smoke lsp "$LIBRARY" '"line":3' lsp definition --json src/library.nupp 3 17
+smoke build "$LIBRARY" '' build
+smoke run "$APPLICATION" '^Hello, world!$' run src/main.nupp
+smoke test "$LIBRARY" '1 passed' test
+if [ "$fixpoint" = 1 ]; then
+    smoke fixpoint "$ROOT" 'fixpoint ok' fixpoint
+else
+    # A project that declares no compiler to verify is refused before any
+    # stage is built, so this runs the command without the hours a stage costs.
+    expect fixpoint "$LIBRARY" 1 'NUPP0003' fixpoint --json
+fi
+
+if [ "$keep" = 1 ]; then
+    printf 'core-smoke: kept %s\n' "$WORK"
+fi
+if [ "$failures" -gt 0 ]; then
+    printf 'core-smoke: %s command(s) failed on the %s\n' "$failures" "$runtime"
+    exit 1
+fi
+printf 'core-smoke: every command ran on the %s\n' "$runtime"
