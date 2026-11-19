@@ -1670,7 +1670,6 @@ export function sourceChunk(path: string, display: string?): (string?, string?)
     return bytes and chunkfiles.contents(text, bytes as string), problem
 end
 
-
 --- Declares a case for the program whose entry is the source at `fixture`, a
 --- path under the checkout without its `.nupp`, and returns the case's name. A
 --- program `nupp __core-compiler` is asked to emit is built as one. An entry
