@@ -366,6 +366,8 @@ local function compileOwner(fn: any, options: any, profile: any, site: any): any
             return invoke("construction", construction.of(node), expected)
         elseif node.kind == "castExpr" then
             return invoke("cast", node, expected)
+        elseif node.kind == "comptimeExpr" and profile.comptime then
+            return invoke("comptime", node, expected)
         elseif node.kind == "isExpr" and profile.typeTest then
             return invoke("typeTest", node, expected)
         elseif node.kind == "dotIndex" then

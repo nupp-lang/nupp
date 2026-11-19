@@ -157,6 +157,72 @@ export function valueLiteral(ctx: any, node: any, expected: string?): integer
     return literal(ctx, node, expected)
 end
 
+-- The order a comptime table's keys are built in: numbers, then strings,
+-- then booleans, each in its own order, so a value builds the same way twice.
+local function keyBefore(a: any, b: any): boolean
+    local ranks: {[string]: integer} = {number = 1, string = 2, boolean = 3}
+    local ra, rb = ranks[type(a)], ranks[type(b)]
+    if ra ~= rb then
+        return ra < rb
+    elseif type(a) == "boolean" then
+        return a == false and b == true
+    end
+
+    return a < b
+end
+
+-- Plain data a comptime block produced, built as the program runs: a scalar
+-- as its constant, a table as a fresh one holding its keys' values.
+local function comptimeData(ctx: any, node: any, value: any): integer
+    local kind = type(value)
+    if value == nil then
+        return ctx.emit(node, "Nil", {}, "tagged") as integer
+    elseif kind == "boolean" then
+        return ctx.emit(node, "K", {pool(ctx, value and "true" or "false", "")}, "tagged") as integer
+    elseif kind == "string" then
+        return ctx.emit(node, "K", {pool(ctx, "str", value)}, "tagged") as integer
+    elseif kind == "number" then
+        if math.type(value) == "integer" then
+            return ctx.emit(node, "K", {pool(ctx, "int64", tostring(value))}, "tagged") as integer
+        end
+        return ctx.emit(node, "K", {pool(ctx, "num", graphimage.floatBytes(value as number))}, "tagged") as integer
+    end
+    need(kind == "table", "a comptime value is plain data")
+    local keys = {}
+    for key in pairs(value) do
+        keys[#keys + 1] = key
+    end
+    table.sort(keys, keyBefore)
+    local held = ctx.hold(ctx.emit(node, "NewTable", {}, "tagged"))
+    for _, key in ipairs(keys) do
+        local heldKey = ctx.hold(comptimeData(ctx, node, key))
+        local entry = comptimeData(ctx, node, value[key])
+        if ctx.block == nil then
+            ctx.release(heldKey)
+            ctx.release(held)
+            return nil as any
+        end
+        ctx.emit(node, "SetIdx", {ctx.readHeld(held), ctx.readHeld(heldKey), entry}, nil)
+        ctx.release(heldKey)
+    end
+    local result = ctx.readHeld(held)
+    ctx.release(held)
+
+    return result as integer
+end
+
+-- A `comptime` block the checker ran stands for the value it produced,
+-- which the checker quoted as Lua source of plain data. A materialized value
+-- names code to run, which the core does not lower yet.
+export function comptime(ctx: any, node: any, expected: string?): integer
+    need(expected == nil or expected == "tagged", "comptime requires tagged destination")
+    need(node.materializedIR == nil, "a comptime materialization is not lowered on the core yet")
+    local text = need(node.comptimeValue, "a comptime block lacks its checked value")
+    local chunk = need(load("return " .. text, "=comptime", "t", {}), "a comptime value does not load")
+
+    return comptimeData(ctx, node, chunk())
+end
+
 export function constant(ctx: any, node: any, expected: string?): integer
     if node.captureValue then
         for _, item in ipairs(ctx.fn.captures) do
