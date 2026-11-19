@@ -475,28 +475,37 @@ stage0_image() {
 # by `nupp fixpoint --runtime core --package-seed`. It is cached by its archive's
 # digest, like the stage-zero image, and shared by every checkout that pins it.
 CORE_SEED_FILES='NOTICE.md compiler.bundle manifest.json runtime'
-# What a compiler that loads libffi relative to itself carries beside it
-# (`nupp.tools.vm.corecompiler`), which a seed packages when the pair has it.
-CORE_SEED_LIBRARIES='lib/libnuppffi'
+# Beside them, `lib/FILE`: the libraries the compiler loads relative to itself
+# (libffi, zlib, the ISA-L CRC, Markdown; `nupp.tools.vm.corecompiler`), each
+# named in the manifest with its digest. Only plain names directly under lib/.
+core_seed_library() {
+    case "$1" in
+        lib/*/* | lib/.* | lib/) return 1 ;;
+        lib/*) case "${1#lib/}" in *[!A-Za-z0-9._-]*) return 1 ;; esac ;;
+        *) return 1 ;;
+    esac
+}
 
-# Whether a core seed's files are the ones its manifest names, for this host.
+# Whether a core seed's files are the ones its manifest names, for this host:
+# every file and library it names is there with its digest, and nothing under
+# lib/ is there that it does not name.
 core_seed_verify() {
     seed_dir=$1
     seed_manifest="$seed_dir/manifest.json"
     [ -f "$seed_manifest" ] || return 1
     grep -q '^  "format": "nupp-core-seed-1",$' "$seed_manifest" || return 1
     grep -q "^  \"host\": \"$(sh "$ROOT/scripts/stage0-runtime" --host)\",\$" "$seed_manifest" || return 1
-    seed_names='NOTICE.md compiler.bundle runtime'
-    # A library is the manifest's to name: one it names must be there, and one
-    # it does not must not be.
-    for seed_file in $CORE_SEED_LIBRARIES; do
-        if grep -q "^    \"$seed_file\": " "$seed_manifest"; then
-            seed_names="$seed_names $seed_file"
-        elif [ -e "$seed_dir/$seed_file" ]; then
-            return 1
-        fi
+    seed_libraries=$(sed -n 's|^    "\(lib/[^"]*\)": .*$|\1|p' "$seed_manifest")
+    for seed_file in $seed_libraries; do
+        core_seed_library "$seed_file" || return 1
     done
-    for seed_file in $seed_names; do
+    if [ -d "$seed_dir/lib" ]; then
+        for seed_file in "$seed_dir"/lib/* "$seed_dir"/lib/.*; do
+            case "${seed_file##*/}" in . | .. | '*' | '.*') continue ;; esac
+            printf '%s\n' $seed_libraries | grep -qx "lib/${seed_file##*/}" || return 1
+        done
+    fi
+    for seed_file in NOTICE.md compiler.bundle runtime $seed_libraries; do
         seed_pattern=$(printf '%s' "$seed_file" | sed 's/\./\\./g')
         seed_expected=$(sed -n "s|^    \"$seed_pattern\": \"\([0-9a-f]*\)\",\{0,1\}\$|\1|p" "$seed_manifest")
         [ "${#seed_expected}" -eq 64 ] || return 1
@@ -534,9 +543,11 @@ core_seed_install() {
     [ "$seed_found" = "$seed_digest" ] \
         || die "the core seed archive has digest $seed_found, expected $seed_digest; refusing to unpack it"
     seed_entries=$(tar -tzf "$seed_archive" | LC_ALL=C sort | tr '\n' ' ')
-    seed_with_libraries=$(printf '%s\n' $CORE_SEED_FILES $CORE_SEED_LIBRARIES | LC_ALL=C sort | tr '\n' ' ')
-    [ "$seed_entries" = "$CORE_SEED_FILES " ] || [ "$seed_entries" = "$seed_with_libraries" ] \
-        || die "the core seed archive holds unexpected entries: $seed_entries"
+    seed_base=''
+    for seed_entry in $seed_entries; do
+        core_seed_library "$seed_entry" || seed_base="$seed_base$seed_entry "
+    done
+    [ "$seed_base" = "$CORE_SEED_FILES " ] || die "the core seed archive holds unexpected entries: $seed_entries"
     mkdir -p "$CACHE/core-seed"
     seed_staged="$seed_out.$$"
     rm -rf "$seed_staged"

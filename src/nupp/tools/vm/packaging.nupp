@@ -430,9 +430,9 @@ export type CoreSeed = {
 -- The manifest a core seed carries, one key to a line so scripts/toolchain
 -- reads it without a JSON parser (`core_seed_verify`).
 const CORE_SEED_FORMAT = "nupp-core-seed-1"
--- What a core compiler loads relative to itself, which its seed carries when
--- the compiler has it beside it (scripts/toolchain's CORE_SEED_LIBRARIES).
-const CORE_SEED_LIBRARIES: {string} = {"lib/libnuppffi"}
+-- Where a core compiler keeps what it loads relative to itself, which its
+-- seed carries beside it (scripts/toolchain's `core_seed_library`).
+const CORE_SEED_LIBRARIES = "lib"
 
 local function coreSeedManifest(host: string, revision: string, files: {[string]: string}): string
     local names: {string} = {}
@@ -513,11 +513,13 @@ export function coreSeed(
         [string]: string
     } = {runtime = runtime, ["compiler.bundle"] = compiler, ["NOTICE.md"] = fs.join(root, "host/NOTICE.md")}
     -- The libraries the compiler loads relative to itself travel beside it.
-    for _, name in ipairs(CORE_SEED_LIBRARIES) do
-        local library = fs.join(fs.dirname(compiler), name)
-        if fs.exists(library) then
-            copies[name] = library
-            fs.mkdir(fs.dirname(fs.join(staging, name)))
+    local libraries = fs.join(fs.dirname(compiler), CORE_SEED_LIBRARIES)
+    if fs.exists(libraries) then
+        fs.mkdir(fs.join(staging, CORE_SEED_LIBRARIES))
+        for name, kind in fs.children(libraries) do
+            if kind == "file" then
+                copies[CORE_SEED_LIBRARIES .. "/" .. name] = fs.join(libraries, name)
+            end
         end
     end
     local files: {[string]: string} = {}
