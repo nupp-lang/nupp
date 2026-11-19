@@ -137,7 +137,7 @@ jobs:
       - uses: actions/cache@v4
         with:
           path: .nupp-c-library-cache
-          key: libffi-${{ matrix.target }}-${{ hashFiles('scripts/toolchain.pins', 'scripts/native-libraries', 'scripts/c-libraries/libffi.sh', 'scripts/c-libraries/libffi-probe.c') }}
+          key: libffi-${{ matrix.target }}-${{ hashFiles('scripts/toolchain.pins', 'scripts/native-libraries', 'scripts/c-libraries/libffi.sh', 'scripts/c-libraries/libffiprobe.c') }}
       - name: Verify pinned libffi headers, calls and closures without Rust
         shell: bash
         env:

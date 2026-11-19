@@ -1,6 +1,6 @@
 //! The `nupp-vm` runner as a static archive for program binaries; see
 //! `Cargo.toml`. `src/main.c` is the executable's entry: it defines an empty
-//! `nupp_aot_table` that a program's object replaces.
+//! `nupp_aot_table_v1` table that a program's object replaces.
 
 #[allow(dead_code, unused_imports)]
 #[path = "../../vm/src/main.rs"]

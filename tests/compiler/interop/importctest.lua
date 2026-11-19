@@ -568,7 +568,7 @@ static inline int nupp_inline_identity(int value) { return value; }
 end
 
 function M.typedefsAreDeclaredInTheOrderCCanReadThem()
-    -- chain_base.h reaches chain_size_t through names that sort before the
+    -- chainbase.h reaches chain_size_t through names that sort before the
     -- ones they are built from, which is how Darwin spells its own.
     local text, warnings = importc.import(HERE .. "/fixtures/chain.h", {module = "chain"})
     assert(text, "chain import failed: " .. table.concat(warnings or {}, "; "))

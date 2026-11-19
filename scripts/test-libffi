@@ -7,7 +7,7 @@ mkdir -p "$OUT"
 prefix=$(sh "$ROOT/scripts/native-libraries" libffi)
 CC=${NUPP_CC:-cc}
 "$CC" -std=c11 -O2 -Wall -Wextra -Werror -I"$prefix/include" \
-    "$ROOT/scripts/c-libraries/libffi-probe.c" "$prefix/lib/libnuppffi" \
+    "$ROOT/scripts/c-libraries/libffiprobe.c" "$prefix/lib/libnuppffi" \
     -Wl,-rpath,"$prefix/lib" -o "$OUT/libffi-layout"
 "$OUT/libffi-layout" > "$OUT/abi.json"
 cp "$prefix/identity" "$OUT/libffi.identity"

@@ -130,7 +130,7 @@ static void cryptography (void) {
 
 /* The target this program was compiled for, in the spelling the build
  * passes as NUPP_EXPECT_TARGET. */
-static const char *compiled_target (void) {
+static const char *compiledtarget (void) {
 #if defined(__APPLE__) && defined(__aarch64__)
 
   return "aarch64-apple-darwin";
@@ -176,7 +176,7 @@ static void report (const char *target, const curl_version_info_data *version) {
  * work, and reports. The checks stay inline here because each is an assert
  * whose condition is the call itself. */
 int main (void) {
-  const char *target = compiled_target();
+  const char *target = compiledtarget();
   assert(!strcmp(target, NUPP_EXPECT_TARGET));
   assert(!strcmp(zlibVersion(), ZLIB_VERSION) &&
          !strcmp(ZLIB_VERSION, EXPECTED_ZLIB_VERSION));

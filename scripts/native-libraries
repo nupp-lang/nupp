@@ -102,7 +102,7 @@ build() (
         zlib) version=$ZLIB_VERSION; sourceHash=$ZLIB_SHA256; url=$ZLIB_URL; asset="zlib-$version.tar.gz"; sourceName="zlib-$version"; notice=zlib-LICENSE.txt ;;
         libffi)
             version=$LIBFFI_VERSION; sourceHash=$LIBFFI_SHA256; url=$LIBFFI_URL; asset="libffi-$version.tar.gz"; sourceName="libffi-$version"; notice=libffi-core-LICENSE.txt
-            dependencies="layout=$(filehash "$ROOT/scripts/c-libraries/libffi-probe.c")"
+            dependencies="layout=$(filehash "$ROOT/scripts/c-libraries/libffiprobe.c")"
             ;;
         openssl) version=$OPENSSL_VERSION; sourceHash=$OPENSSL_SHA256; url=$OPENSSL_URL; asset="openssl-$version.tar.gz"; sourceName="openssl-$version"; notice=OpenSSL-LICENSE.txt ;;
         libuv)

@@ -16,7 +16,7 @@ esac
 # Reject layout/configuration drift before publishing a consumable artifact.
 # Use the same compiler flags that configured the library and matching headers.
 "$CC" ${CPPFLAGS:-} ${CFLAGS:-} -UNDEBUG -std=c11 -I"$install/include" \
-    "$ROOT/scripts/c-libraries/libffi-probe.c" "$install/lib/libnuppffi" \
+    "$ROOT/scripts/c-libraries/libffiprobe.c" "$install/lib/libnuppffi" \
     -Wl,-rpath,"$install/lib" -o "$staged/libffi-layout" >&2
 "$staged/libffi-layout" >&2
 license="$source/LICENSE"
