@@ -494,7 +494,8 @@ UNITS[#UNITS + 1] = {
         {"longstringunits", "representation", 1},
         {"longstringunits", "sharing", 1},
         {"longstringunits", "lifetime", 1},
-        {"longstringunits", "keys", 2}
+        {"longstringunits", "keys", 2},
+        {"longstringunits", "minorkeys", 1}
     },
     cases = function()
         return {
@@ -512,7 +513,9 @@ UNITS[#UNITS + 1] = {
             {"keys", {0, 97}, 0},
             {"keys", {1, 97}, 0},
             {"keys", {0, 4153}, 0},
-            {"keys", {1, 4153}, 0}
+            {"keys", {1, 4153}, 0},
+            {"minorkeys", {97}, 0},
+            {"minorkeys", {4153}, 0}
         }
     end
 }

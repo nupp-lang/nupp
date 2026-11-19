@@ -254,11 +254,56 @@ export function keys(minor: uint64, count: uint64): uint64
             end
             tables.drain(h)
             wrong = wrong + miss(not heap.isLiveSlot(h, key) and heap.isLiveSlot(h, query))
-            wrong = wrong + miss(tables.get(table, equal) == values.NIL and tables.nextKey(table, equal) == values.TRUE)
+            wrong = wrong + miss(
+                tables.get(table, equal) == values.NIL and tables.nextKey(table, equal) == tables.ABSENT
+            )
             wrong = wrong + tables.set(h, table, equal, values.TRUE)
             wrong = wrong + miss(tables.get(table, equal) == values.TRUE and tables.nextKey(table, values.NIL) == equal)
             collector.handleRelease(h, rootTable)
             collector.handleRelease(h, rootQuery)
+            finish(h)
+        end
+    end
+
+    return wrong
+end
+
+-- An old table retains the resident's bytes, not the equal query used to
+-- replace its value. Two minor collections promote that resident; dropping
+-- the query then frees only its independent inline or shared backing.
+export function minorkeys(count: uint64): uint64
+    local wrong: uint64 = 0ULL
+    do
+        local a = arena.open(ARENA_BYTES)
+        @unsafe do
+            local h = heap.create(a)
+            h.generational = collector.GENERATIONAL
+            h.automatic = false
+            local table = tables.create(h)
+            local rootTable = collector.handleRegister(h, values.TAG_OBJ | table)
+            collector.minorcycle(h)
+            collector.minorcycle(h)
+            local input = data(a, count)
+            local key = strings.make(h, input, count)
+            local query = strings.make(h, input, count)
+            local rootQuery = collector.handleRegister(h, values.TAG_OBJ | query)
+            wrong = wrong + tables.set(h, table, values.TAG_OBJ | key, values.FALSE)
+            wrong = wrong + tables.set(h, table, values.TAG_OBJ | query, values.TRUE)
+            collector.minorcycle(h)
+            tables.drain(h)
+            wrong = wrong + miss(heap.isLiveSlot(h, key) and heap.isLiveSlot(h, query))
+            wrong = wrong + miss(tables.nextKey(table, values.NIL) == values.TAG_OBJ | key)
+            collector.handleRelease(h, rootQuery)
+            collector.minorcycle(h)
+            tables.drain(h)
+            wrong = wrong + miss(heap.isLiveSlot(h, key) and not heap.isLiveSlot(h, query))
+            local equal = values.TAG_OBJ | strings.make(h, input, count)
+            wrong = wrong + miss(tables.get(table, equal) == values.TRUE)
+            wrong = wrong + tables.set(h, table, equal, values.NIL)
+            collector.fullCycle(h)
+            tables.drain(h)
+            wrong = wrong + miss(not heap.isLiveSlot(h, key))
+            collector.handleRelease(h, rootTable)
             finish(h)
         end
     end

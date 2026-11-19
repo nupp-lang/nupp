@@ -312,7 +312,7 @@ export function scans(minor: uint64): uint64
                 resident(t, 0ULL) ~= key and resident(t, 0ULL) & values.PAYLOAD == key & values.PAYLOAD
             )
             wrong = wrong + miss(
-                tables.nextKey(table, key) == following and tables.nextKey(table, query) == values.TRUE
+                tables.nextKey(table, key) == following and tables.nextKey(table, query) == tables.ABSENT
             )
             wrong = wrong + miss(tables.nextKey(table, values.NIL) == following)
             local cursor = state as childwalk.Cursor*
