@@ -7335,7 +7335,7 @@ end
 -- versions a format another process reads, beside where it is declared. Each row is
 -- read back out of its declaration here, so bumping one without the other fails.
 local VERSION_SOURCES = {
-    ["Native provider ABI"] = {"native/include/nupp_native.h", "#define NUPP_NATIVE_ABI_VERSION (%d+)u"},
+    ["Native provider ABI"] = {"native/include/nuppnative.h", "#define NUPP_NATIVE_ABI_VERSION (%d+)u"},
     ["Native extension ABI"] = {"native/include/nupp_extension.h", "#define NUPP_EXTENSION_ABI_VERSION (%d+)u"},
     ["Payload trailer"] = {"native/crates/vm/src/payload.rs", "const FORMAT_VERSION: u32 = (%d+);"},
     ["Documentation model"] = {"src/nupp/tools/doc/init.nupp", "schemaVersion = (%d+), modules = model"},

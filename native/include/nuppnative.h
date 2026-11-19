@@ -136,8 +136,8 @@ NUPP_NATIVE_EXPORT int32_t nuppNativeXxh64Digest (const uint8_t *data,
  * family poll and wait calls marked superseded below predate this pair. */
 NUPP_NATIVE_EXPORT int32_t nuppNativePoll (uint64_t *generation);
 NUPP_NATIVE_EXPORT int32_t nuppNativeWait (uint64_t generation,
-                                           uint64_t timeout_ms,
-                                           uint64_t *output_generation);
+                                           uint64_t timeoutms,
+                                           uint64_t *outputgeneration);
 
 /* Present when NUPP_NATIVE_FEATURE_COMPRESSION is set. Input and output
  * ranges are borrowed only for one call. */
@@ -156,25 +156,23 @@ NUPP_NATIVE_EXPORT
 int32_t nuppNativeCompressionEncoderCreate (uint32_t format, uint32_t level,
                                             uint64_t *output);
 NUPP_NATIVE_EXPORT int32_t nuppNativeCompressionEncoderWrite (
-    uint64_t encoder, const uint8_t *input, size_t input_length,
-    uint8_t *output, size_t output_capacity, size_t *consumed, size_t *written,
-    uint32_t *state);
+    uint64_t encoder, const uint8_t *input, size_t inputlength, uint8_t *output,
+    size_t outputcapacity, size_t *consumed, size_t *written, uint32_t *state);
 NUPP_NATIVE_EXPORT int32_t nuppNativeCompressionEncoderFlush (
-    uint64_t encoder, uint8_t *output, size_t output_capacity, size_t *written,
+    uint64_t encoder, uint8_t *output, size_t outputcapacity, size_t *written,
     uint32_t *state);
 NUPP_NATIVE_EXPORT int32_t nuppNativeCompressionEncoderFinish (
-    uint64_t encoder, uint8_t *output, size_t output_capacity, size_t *written,
+    uint64_t encoder, uint8_t *output, size_t outputcapacity, size_t *written,
     uint32_t *state);
 NUPP_NATIVE_EXPORT int32_t
 nuppNativeCompressionEncoderRelease (uint64_t encoder);
 NUPP_NATIVE_EXPORT int32_t nuppNativeCompressionDecoderCreate (
-    uint32_t format, int32_t concatenated_members, uint64_t *output);
+    uint32_t format, int32_t concatenatedmembers, uint64_t *output);
 NUPP_NATIVE_EXPORT int32_t nuppNativeCompressionDecoderRead (
-    uint64_t decoder, const uint8_t *input, size_t input_length,
-    uint8_t *output, size_t output_capacity, size_t *consumed, size_t *written,
-    uint32_t *state);
+    uint64_t decoder, const uint8_t *input, size_t inputlength, uint8_t *output,
+    size_t outputcapacity, size_t *consumed, size_t *written, uint32_t *state);
 NUPP_NATIVE_EXPORT int32_t nuppNativeCompressionDecoderFinishInput (
-    uint64_t decoder, uint8_t *output, size_t output_capacity, size_t *written,
+    uint64_t decoder, uint8_t *output, size_t outputcapacity, size_t *written,
     uint32_t *state);
 NUPP_NATIVE_EXPORT int32_t
 nuppNativeCompressionDecoderRelease (uint64_t decoder);
@@ -187,7 +185,7 @@ typedef NuppNativeSlice NuppNativeFilesSlice;
 
 typedef struct {
   uint32_t kind;
-  int32_t read_only;
+  int32_t readonly;
   uint64_t size;
   double modified;
 } NuppNativeFilesInfo;
@@ -256,7 +254,7 @@ NUPP_NATIVE_EXPORT int32_t nuppNativeFilesGlob (NuppNativeFilesSlice pattern,
                                                 uint64_t *output);
 NUPP_NATIVE_EXPORT int32_t nuppNativeFilesCreateTemporary (
     NuppNativeFilesSlice directory, NuppNativeFilesSlice prefix,
-    NuppNativeFilesSlice suffix, int32_t as_directory, uint64_t *output);
+    NuppNativeFilesSlice suffix, int32_t asdirectory, uint64_t *output);
 NUPP_NATIVE_EXPORT int32_t nuppNativeFilesCurrentDirectory (uint64_t *output);
 NUPP_NATIVE_EXPORT int32_t nuppNativeFilesApplicationBase (uint32_t kind,
                                                            uint64_t *output);
@@ -268,7 +266,7 @@ NUPP_NATIVE_EXPORT int32_t nuppNativeFilesUserFolder (uint32_t kind,
 NUPP_NATIVE_EXPORT int32_t nuppNativeFilesCreateSymlink (
     NuppNativeFilesSlice target, NuppNativeFilesSlice link, int32_t directory);
 NUPP_NATIVE_EXPORT int32_t
-nuppNativeFilesSetReadOnly (NuppNativeFilesSlice path, int32_t read_only);
+nuppNativeFilesSetReadOnly (NuppNativeFilesSlice path, int32_t readonly);
 NUPP_NATIVE_EXPORT int32_t
 nuppNativeFilesCreateDirectory (NuppNativeFilesSlice path);
 NUPP_NATIVE_EXPORT int32_t nuppNativeFilesRemove (NuppNativeFilesSlice path,
@@ -307,7 +305,7 @@ NUPP_NATIVE_EXPORT int32_t nuppNativeFilesTransferRelease (uint64_t transfer);
  * nuppNativeFilesTransferStatus: a settled transfer advances the process
  * readiness generation. */
 NUPP_NATIVE_EXPORT int32_t nuppNativeFilesTransferPoll (size_t *ready);
-NUPP_NATIVE_EXPORT int32_t nuppNativeFilesTransferWait (uint64_t timeout_ms,
+NUPP_NATIVE_EXPORT int32_t nuppNativeFilesTransferWait (uint64_t timeoutms,
                                                         size_t *ready);
 NUPP_NATIVE_EXPORT int32_t nuppNativeFilesTransferPending (size_t *pending);
 
@@ -320,13 +318,13 @@ typedef struct {
   NuppNativeNetSlice host;
   uint16_t port;
   uint32_t backlog;
-  int32_t reuse_port;
+  int32_t reuseport;
 } NuppNativeNetListenOptions;
 
 typedef struct {
   NuppNativeNetSlice host;
   uint16_t port;
-  uint64_t timeout_ms;
+  uint64_t timeoutms;
 } NuppNativeNetConnectOptions;
 
 typedef struct {
@@ -336,13 +334,13 @@ typedef struct {
 
 typedef struct {
   NuppNativeNetSlice path;
-  uint64_t timeout_ms;
+  uint64_t timeoutms;
 } NuppNativeNetPathConnectOptions;
 
 typedef struct {
   NuppNativeNetSlice host;
   uint16_t port;
-  int32_t reuse_port;
+  int32_t reuseport;
 } NuppNativeNetDatagramOptions;
 
 /* An internet address and port for the datagram calls. A stream's addresses
@@ -363,7 +361,7 @@ typedef struct {
   uint32_t size;
   uint8_t family;
   uint16_t port;
-  uint32_t scope_id;
+  uint32_t scopeid;
   uint32_t flowinfo;
   uint8_t address[16];
 } NuppNativeNetEndpoint;
@@ -435,8 +433,9 @@ NUPP_NATIVE_EXPORT int32_t nuppNativeNetStreamSetNoDelay (uint64_t stream,
                                                           int32_t enabled);
 /* The platform may round the delay to its own granularity, which is whole
  * seconds on most. */
-NUPP_NATIVE_EXPORT int32_t nuppNativeNetStreamSetKeepAliveMs (
-    uint64_t stream, int32_t enabled, uint64_t delay_ms);
+NUPP_NATIVE_EXPORT int32_t nuppNativeNetStreamSetKeepAliveMs (uint64_t stream,
+                                                              int32_t enabled,
+                                                              uint64_t delayms);
 NUPP_NATIVE_EXPORT int32_t nuppNativeNetStreamRelease (uint64_t stream);
 NUPP_NATIVE_EXPORT int32_t nuppNativeNetAddressParse (
     NuppNativeNetSlice host, uint16_t port, NuppNativeNetAddress *output);
@@ -461,8 +460,8 @@ NUPP_NATIVE_EXPORT int32_t
 nuppNativeNetDatagramSetMulticastLoop (uint64_t datagram, int32_t enabled);
 NUPP_NATIVE_EXPORT int32_t nuppNativeNetDatagramMembership (
     uint64_t datagram, NuppNativeNetSlice group,
-    NuppNativeNetSlice interface_address, uint32_t interface_index,
-    uint8_t interface_kind, int32_t join);
+    NuppNativeNetSlice interfaceaddress, uint32_t interfaceindex,
+    uint8_t interfacekind, int32_t join);
 NUPP_NATIVE_EXPORT int32_t nuppNativeNetDatagramRelease (uint64_t datagram);
 /* The endpoint twins of the address calls above. Text is an IP literal, and an
  * IPv6 endpoint with a scope prints and parses it as `%scope`; parsing also
@@ -488,8 +487,8 @@ NUPP_NATIVE_EXPORT int32_t nuppNativeNetDatagramSendEndpoint (
  * generation. */
 NUPP_NATIVE_EXPORT int32_t nuppNativeNetPoll (uint64_t *generation);
 NUPP_NATIVE_EXPORT int32_t nuppNativeNetWait (uint64_t generation,
-                                              uint64_t timeout_ms,
-                                              uint64_t *output_generation);
+                                              uint64_t timeoutms,
+                                              uint64_t *outputgeneration);
 
 /* Present when NUPP_NATIVE_FEATURE_TLS is set. Creating a session consumes
  * its Rust network stream handle on both success and failure. Protocols are a
@@ -497,10 +496,10 @@ NUPP_NATIVE_EXPORT int32_t nuppNativeNetWait (uint64_t generation,
 typedef struct {
   NuppNativeNetSlice hostname;
   NuppNativeNetSlice certificate;
-  NuppNativeNetSlice private_key;
+  NuppNativeNetSlice privatekey;
   NuppNativeNetSlice authority;
   NuppNativeNetSlice protocols;
-  int32_t authority_present;
+  int32_t authoritypresent;
   int32_t server;
   int32_t verify;
 } NuppNativeTlsOptions;
@@ -582,33 +581,33 @@ typedef struct {
 
 /* The connect timeout and the three limits must be nonzero. The provider
  * never follows a redirect: a 3xx comes back as a response, and the caller
- * routes each hop and applies max_redirects itself. */
+ * routes each hop and applies maxredirects itself. */
 typedef struct {
-  uint64_t connect_timeout_ms;
-  uint32_t max_redirects;
-  uint32_t max_pending_requests;
-  uint32_t max_connections;
-  uint32_t max_connections_per_host;
+  uint64_t connecttimeoutms;
+  uint32_t maxredirects;
+  uint32_t maxpendingrequests;
+  uint32_t maxconnections;
+  uint32_t maxconnectionsperhost;
   int32_t compressed;
-  int32_t has_insecure_hosts;
-  int32_t proxy_mode;
+  int32_t hasinsecurehosts;
+  int32_t proxymode;
   NuppNativeHttpSlice proxy;
-  int32_t no_proxy_set;
-  NuppNativeHttpSlice no_proxy;
-  NuppNativeHttpSlice proxy_credentials;
+  int32_t noproxyset;
+  NuppNativeHttpSlice noproxy;
+  NuppNativeHttpSlice proxycredentials;
 } NuppNativeHttpClientOptions;
 
 typedef struct {
   NuppNativeHttpSlice url;
   NuppNativeHttpSlice method;
   const NuppNativeHttpHeader *headers;
-  size_t header_count;
+  size_t headercount;
   NuppNativeHttpSlice body;
-  uint32_t body_kind;
-  int64_t body_length;
-  uint64_t timeout_ms;
-  uint64_t stall_timeout_ms;
-  uint64_t max_bytes;
+  uint32_t bodykind;
+  int64_t bodylength;
+  uint64_t timeoutms;
+  uint64_t stalltimeoutms;
+  uint64_t maxbytes;
   int32_t insecure;
 } NuppNativeHttpRequest;
 
@@ -616,8 +615,8 @@ typedef struct {
   uint32_t state;
   uint16_t status;
   uint8_t version;
-  size_t url_length;
-  size_t headers_length;
+  size_t urllength;
+  size_t headerslength;
 } NuppNativeHttpHead;
 
 typedef struct {
@@ -625,13 +624,13 @@ typedef struct {
   uint32_t tokens;
 } NuppNativeHttpReady;
 
-/* NuppNativeHttpClientOptions.proxy_mode: the environment's proxies, none,
+/* NuppNativeHttpClientOptions.proxymode: the environment's proxies, none,
  * or the one in `proxy`. */
 #define NUPP_NATIVE_HTTP_PROXY_ENVIRONMENT 0
 #define NUPP_NATIVE_HTTP_PROXY_NONE 1
 #define NUPP_NATIVE_HTTP_PROXY_EXPLICIT 2
 
-/* NuppNativeHttpRequest.body_kind. */
+/* NuppNativeHttpRequest.bodykind. */
 #define NUPP_NATIVE_HTTP_BODY_NONE 0u
 #define NUPP_NATIVE_HTTP_BODY_INLINE 1u
 #define NUPP_NATIVE_HTTP_BODY_UPLOAD 2u
@@ -664,7 +663,7 @@ NUPP_NATIVE_EXPORT int32_t nuppNativeHttpTransferOffer (uint64_t transfer,
                                                         int32_t *output);
 NUPP_NATIVE_EXPORT int32_t nuppNativeHttpTransferPollHead (
     uint64_t transfer, NuppNativeHttpHead *output, uint8_t *url,
-    size_t url_capacity, uint8_t *headers, size_t headers_capacity);
+    size_t urlcapacity, uint8_t *headers, size_t headerscapacity);
 NUPP_NATIVE_EXPORT int32_t nuppNativeHttpTransferError (uint64_t transfer,
                                                         uint8_t *output,
                                                         size_t capacity,
@@ -688,7 +687,7 @@ NUPP_NATIVE_EXPORT int32_t
 nuppNativeHttpClientPoll (uint64_t client, NuppNativeHttpReady *output,
                           size_t capacity, size_t *count, int32_t *more);
 NUPP_NATIVE_EXPORT int32_t nuppNativeHttpClientWait (
-    uint64_t client, uint64_t timeout_ms, NuppNativeHttpReady *output,
+    uint64_t client, uint64_t timeoutms, NuppNativeHttpReady *output,
     size_t capacity, size_t *count, int32_t *more);
 
 /* Present when NUPP_NATIVE_FEATURE_PROCESS is set. The complete spawn
@@ -703,22 +702,22 @@ typedef struct {
 
 typedef struct {
   const NuppNativeProcessSlice *args;
-  size_t arg_count;
+  size_t argcount;
   const NuppNativeProcessEnv *env;
-  size_t env_count;
+  size_t envcount;
   NuppNativeProcessSlice cwd;
-  int32_t cwd_present;
-  int32_t clear_env;
-  uint8_t stdin_mode;
-  uint8_t stdout_mode;
-  uint8_t stderr_mode;
+  int32_t cwdpresent;
+  int32_t clearenv;
+  uint8_t stdinmode;
+  uint8_t stdoutmode;
+  uint8_t stderrmode;
 } NuppNativeProcessSpawn;
 
 typedef struct {
   uint64_t process;
-  uint64_t stdin_stream;
-  uint64_t stdout_stream;
-  uint64_t stderr_stream;
+  uint64_t stdinstream;
+  uint64_t stdoutstream;
+  uint64_t stderrstream;
   uint32_t pid;
 } NuppNativeProcessStarted;
 
@@ -740,7 +739,7 @@ int32_t nuppNativeProcessSpawn (const NuppNativeProcessSpawn *spawn,
 /* Additive status/error outputs; zero denotes an unavailable code or signal. */
 NUPP_NATIVE_EXPORT int32_t nuppNativeProcessSpawnWithError (
     const NuppNativeProcessSpawn *spawn, NuppNativeProcessStarted *output,
-    int32_t *os_error);
+    int32_t *oserror);
 NUPP_NATIVE_EXPORT int32_t nuppNativeProcessPollExitWithSignal (
     uint64_t process, NuppNativeProcessExit *output, int32_t *signal);
 NUPP_NATIVE_EXPORT int32_t
@@ -765,10 +764,10 @@ NUPP_NATIVE_EXPORT int32_t nuppNativeProcessStreamRelease (uint64_t stream);
  * timeout is the readiness probe; its sleeping form is superseded by
  * nuppNativeWait, since every child and stream change advances the process
  * readiness generation. */
-NUPP_NATIVE_EXPORT int32_t nuppNativeProcessWait (
-    uint64_t process, const uint64_t *readable, size_t readable_count,
-    const uint64_t *writable, size_t writable_count, uint64_t timeout_ms,
-    size_t *ready);
+NUPP_NATIVE_EXPORT int32_t
+nuppNativeProcessWait (uint64_t process, const uint64_t *readable,
+                       size_t readablecount, const uint64_t *writable,
+                       size_t writablecount, uint64_t timeoutms, size_t *ready);
 
 /* Present when NUPP_NATIVE_FEATURE_GPU is set. Every object is an opaque,
  * generational integer handle; no provider-owned pointer crosses the ABI.
@@ -824,11 +823,10 @@ NUPP_NATIVE_EXPORT int32_t nuppNativeGpuBufferUpload (uint64_t context,
                                                       const void *data,
                                                       size_t length);
 NUPP_NATIVE_EXPORT int32_t nuppNativeGpuKernelCreate (
-    uint64_t context, const uint8_t *spirv, size_t spirv_length,
-    const char *entrypoint, size_t entrypoint_length,
-    uint32_t readonly_bindings, uint32_t writable_bindings,
-    uint64_t uniform_size, uint32_t workgroup_x, uint32_t workgroup_y,
-    uint32_t workgroup_z, uint64_t *output);
+    uint64_t context, const uint8_t *spirv, size_t spirvlength,
+    const char *entrypoint, size_t entrypointlength, uint32_t readonlybindings,
+    uint32_t writablebindings, uint64_t uniformsize, uint32_t workgroupx,
+    uint32_t workgroupy, uint32_t workgroupz, uint64_t *output);
 NUPP_NATIVE_EXPORT int32_t nuppNativeGpuKernelRelease (uint64_t context,
                                                        uint64_t kernel);
 NUPP_NATIVE_EXPORT int32_t nuppNativeGpuBindingsCreate (uint64_t context,
@@ -839,10 +837,10 @@ NUPP_NATIVE_EXPORT int32_t nuppNativeGpuBindingsRelease (uint64_t context,
 NUPP_NATIVE_EXPORT int32_t nuppNativeGpuBindingsSetBuffer (
     uint64_t context, uint64_t bindings, int32_t writable, uint32_t slot,
     uint64_t buffer, uint64_t offset, uint64_t size);
-NUPP_NATIVE_EXPORT int32_t nuppNativeGpuDispatch (
-    uint64_t context, uint64_t bindings, uint32_t work_items_x,
-    uint32_t work_items_y, uint32_t work_items_z, const uint8_t *uniforms,
-    size_t uniform_length);
+NUPP_NATIVE_EXPORT int32_t
+nuppNativeGpuDispatch (uint64_t context, uint64_t bindings, uint32_t workitemsx,
+                       uint32_t workitemsy, uint32_t workitemsz,
+                       const uint8_t *uniforms, size_t uniformlength);
 NUPP_NATIVE_EXPORT int32_t nuppNativeGpuDownloadQueue (uint64_t context,
                                                        uint64_t buffer,
                                                        uint64_t offset,
