@@ -126,7 +126,10 @@ local function build(label, directory, env)
     local reused, count = output:match("guest pieces: [^\n]* reused (%d+) of (%d+)")
     say(("%s: reused %s of %s in %ds"):format(label, tostring(reused), tostring(count), os.time() - started))
 
-    return assert(fs.readFile(directory .. "/" .. BUNDLE), label .. " wrote no bundle"), tonumber(reused), tonumber(count)
+    return assert(
+        fs.readFile(directory .. "/" .. BUNDLE),
+        label .. " wrote no bundle"
+    ), tonumber(reused), tonumber(count)
 end
 
 -- What a build that reuses nothing emits from the sources as staged now.
