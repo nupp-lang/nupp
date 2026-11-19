@@ -321,7 +321,21 @@ local function compiled(text: string, chunkname: string, path: string?, module: 
         return compile.compileModule(text, chunkid(chunkname), chunkname)
     end
 
-    return compile.compile(path and chunkfiles.execLineSkipped(text) or text, chunkid(chunkname), chunkname)
+    local bytes, problem = compile.compile(
+        path and chunkfiles.execLineSkipped(text) or text,
+        chunkid(chunkname),
+        chunkname
+    )
+    -- A Lua chunk reads nothing but its text, so the next process may load
+    -- this one in its place (chunkfiles.CACHE_VARIABLE): a file's, or text
+    -- named as a file is ("@" and a name), as a program's carried Lua source
+    -- is. A module instance's check reads its imports too, and other text a
+    -- program made as it ran is seldom made again: both compile each time.
+    if bytes ~= nil and (key ~= nil or chunkname:sub(1, 1) == "@") then
+        chunkfiles.keep(key, text, bytes as string)
+    end
+
+    return bytes, problem
 end
 
 local function loaded(chunk: any, name: string?, mode: string?, env: table?, path: string?): (any, string?)

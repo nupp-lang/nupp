@@ -314,7 +314,13 @@ case "${1:-}" in
         NUPP_CORE_COMPILER="$package/compiler.bundle"
         # A child bin/nupp the compiler starts runs on the core too.
         NUPP_RUNTIME=core
-        export NUPP_COMPILER_ROOT NUPP_CORE_RUNTIME NUPP_CORE_COMPILER NUPP_RUNTIME
+        # The Lua files this compiler compiled on the core, kept for the next
+        # command it runs (`nupp.runtime.chunkfiles`): one directory per
+        # generation, since a chunk is the compiler's that compiled it, and
+        # so never one a parent command on another generation named.
+        NUPP_CORE_CHUNK_CACHE="$CLI/chunks/$(basename "$package")"
+        mkdir -p "$NUPP_CORE_CHUNK_CACHE" 2>/dev/null || NUPP_CORE_CHUNK_CACHE=
+        export NUPP_COMPILER_ROOT NUPP_CORE_RUNTIME NUPP_CORE_COMPILER NUPP_RUNTIME NUPP_CORE_CHUNK_CACHE
         exec "$NUPP_CORE_RUNTIME" "$NUPP_CORE_COMPILER" /dev/null /dev/null "$@"
         ;;
     build)

@@ -65,12 +65,26 @@ export function refusedcontents(text: string, reason: string): string
     return REFUSED .. " " .. digest(text) .. " " .. tostring(#text) .. "\n" .. reason
 end
 
--- What is kept under `magic` for source path `path` (or, when nil, for the
--- text itself) whose text is `text`, or nil when nothing is kept or what is
--- kept is of other text.
-local function kept(magic: string, path: string?, text: string): string?
-    local directory = os.getenv(VARIABLE)
+-- The directory the core keeps the chunks it compiled itself in, for the
+-- next process to load in place of compiling the same text again. Its chunks
+-- are one compiler's: scripts/core-cli names one per core compiler generation.
+export const CACHE_VARIABLE = "NUPP_CORE_CHUNK_CACHE"
+
+-- The directory variable `variable` names, or nil.
+local function directoryOf(variable: string): string?
+    local directory = os.getenv(variable)
     if directory == nil or directory == "" then
+        return nil
+    end
+
+    return directory
+end
+
+-- What is kept under `magic` for source path `path` (or, when nil, for the
+-- text itself) whose text is `text` in `directory`, or nil when nothing is
+-- kept or what is kept is of other text.
+local function keptIn(directory: string?, magic: string, path: string?, text: string): string?
+    if directory == nil then
         return nil
     end
     local file = io.open(directory .. "/" .. (path ~= nil and name(path) or textname(text)), "rb")
@@ -85,6 +99,34 @@ local function kept(magic: string, path: string?, text: string): string?
     end
 
     return held:sub(#header + 2)
+end
+
+-- What is kept under `magic` for `path` and `text`: compiled on the host
+-- ahead of time, else by an earlier process on this core compiler.
+local function kept(magic: string, path: string?, text: string): string?
+    return keptIn(directoryOf(VARIABLE), magic, path, text)
+        or (magic == MAGIC and keptIn(directoryOf(CACHE_VARIABLE), magic, path, text) or nil)
+end
+
+--- Keeps `chunk`, compiled on the core from source `text` at path `path`
+--- (or, when nil, from the text itself), where CACHE_VARIABLE names a
+--- directory. A chunk that cannot be kept is compiled again next time.
+export function keep(path: string?, text: string, chunk: string): nil
+    local directory = directoryOf(CACHE_VARIABLE)
+    if directory == nil then
+        return
+    end
+    local destination = directory .. "/" .. (path ~= nil and name(path) or textname(text))
+    local pending = destination .. "." .. digest(chunk) .. ".pending"
+    local file = io.open(pending, "wb")
+    if file == nil then
+        return
+    end
+    local written = file:write(contents(text, chunk))
+    file:close()
+    if written == nil or not os.rename(pending, destination) then
+        os.remove(pending)
+    end
 end
 
 --- The chunk kept for source path `path` (or, when nil, for the text
