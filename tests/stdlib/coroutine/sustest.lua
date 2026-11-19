@@ -8,16 +8,20 @@ local testAssert = require("assert")
 local suspension = require("nupp.runtime.standardcoroutine").value
 local suspensionHost = require("coroutine.host")
 
+local function pack(...)
+    return {count = select("#", ...), ...}
+end
+
 -- The lexical owner scope, written out here because the tests are Lua.
 local function handled(handler, body, ...)
     local installation = suspensionHost.install(handler)
-    local answers = {pcall(body, ...)}
+    local answers = pack(pcall(body, ...))
     installation:close()
     if not answers[1] then
         error(answers[2], 0)
     end
 
-    return unpack(answers, 2, table.maxn(answers))
+    return unpack(answers, 2, answers.count)
 end
 
 local M = {}
