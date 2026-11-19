@@ -24,11 +24,11 @@ for code and Doxygen comments.
 
 Register a stable task argument, harness filename, and unwind bound in
 [proofs.nupp](../../../tests/core/proofs.nupp). Allow for the loop's final exit
-check and keep the task's unwinding assertions enabled. Add any new production C
-sources and headers the proof depends on to its CI selection in
-[classify-changes.lua](../../../.github/scripts/classify-changes.lua).
-Register the task name in that selector and add its harness to the same group.
-The shared `proofintrinsics.h` selects every proof.
+check and keep the task's unwinding assertions enabled. Add the same name to
+`proofInputs` in [classify-changes.lua](../../../.github/scripts/classify-changes.lua).
+List the harness and the production C sources and headers that affect its
+contract. CI runs only the proofs matching the changed C paths. The shared
+`proofintrinsics.h` selects every proof.
 
 Run `./bin/nupp task proofs NAME` while iterating, then `./bin/nupp task proofs`.
 Set `CBMC` to the executable path to match the version pinned in the
