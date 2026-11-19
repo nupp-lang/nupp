@@ -5,6 +5,7 @@
 
 #define _POSIX_C_SOURCE 200809L
 #include "transport.h"
+#include "ringbuffer.h"
 #include "reactor.h"
 
 #include <curl/curl.h>
@@ -21,11 +22,6 @@ enum {
   UPLOAD_OFFER = 512 * 1024,
   UPLOAD_WINDOW = 1024 * 1024
 };
-
-typedef struct {
-  unsigned char *bytes;
-  size_t start, used, room;
-} Buffer;
 
 typedef struct Watch {
   struct Watch *next;
@@ -97,56 +93,6 @@ static char *copy_text (const char *value) {
 
   return value ? strdup(value) : NULL;
 #endif
-}
-
-static int append (Buffer *buffer, const void *bytes, size_t count) {
-  if (count == 0) {
-    return 1;
-  }
-
-  if (!buffer->bytes) {
-    buffer->bytes = malloc(buffer->room);
-
-    if (!buffer->bytes) {
-      return 0;
-    }
-  }
-
-  size_t at = (buffer->start + buffer->used) % buffer->room;
-  size_t first = buffer->room - at;
-
-  if (first > count) {
-    first = count;
-  }
-
-  memcpy(buffer->bytes + at, bytes, first);
-  memcpy(buffer->bytes, (const unsigned char *)bytes + first, count - first);
-  buffer->used += count;
-
-  return 1;
-}
-
-static size_t take (Buffer *buffer, void *bytes, size_t count) {
-  if (count > buffer->used) {
-    count = buffer->used;
-  }
-
-  if (count == 0) {
-    return 0;
-  }
-
-  size_t first = buffer->room - buffer->start;
-
-  if (first > count) {
-    first = count;
-  }
-
-  memcpy(bytes, buffer->bytes + buffer->start, first);
-  memcpy((unsigned char *)bytes + first, buffer->bytes, count - first);
-  buffer->start = (buffer->start + count) % buffer->room;
-  buffer->used -= count;
-
-  return count;
 }
 
 static int schedule (NuppCurlClient *client) {
@@ -1020,7 +966,7 @@ static size_t on_body (char *bytes, size_t size, size_t count, void *data) {
     return CURL_WRITEFUNC_PAUSE;
   }
 
-  if (!append(&r->body, bytes, n)) {
+  if (!bufferappend(&r->body, bytes, n)) {
     return CURL_WRITEFUNC_ERROR;
   }
 
@@ -1042,7 +988,7 @@ static size_t on_upload (char *bytes, size_t size, size_t count, void *data) {
   NuppCurlRequest *r = data;
 
   if (r->upload.used) {
-    size_t n = take(&r->upload, bytes, size * count);
+    size_t n = buffertake(&r->upload, bytes, size * count);
 
     if (r->streaming && r->upload.room - r->upload.used >= UPLOAD_OFFER) {
       r->ready |= NUPP_CURL_UPLOAD;
@@ -1211,8 +1157,8 @@ NuppCurlRequest *nupp_curl_send (NuppCurlClient *client,
   r->max_bytes = send->max_bytes;
   r->easy = curl_easy_init();
 
-  if (!r->easy ||
-      (send->body == 1 && !append(&r->upload, send->bytes, r->upload.room))) {
+  if (!r->easy || (send->body == 1 &&
+                   !bufferappend(&r->upload, send->bytes, r->upload.room))) {
     goto fail;
   }
 
@@ -1327,7 +1273,7 @@ int nupp_curl_offer (NuppCurlRequest *r, const void *bytes, size_t count) {
     return 0;
   }
 
-  if (!append(&r->upload, bytes, count)) {
+  if (!bufferappend(&r->upload, bytes, count)) {
     finish(r, "out of memory for HTTP upload");
     schedule(r->client);
 
@@ -1352,7 +1298,7 @@ void nupp_curl_arm (NuppCurlRequest *r) {
 
 int64_t nupp_curl_read (NuppCurlRequest *r, void *bytes, size_t count,
                         const char **error) {
-  size_t n = take(&r->body, bytes, count);
+  size_t n = buffertake(&r->body, bytes, count);
 
   if (n) {
     if (!r->done && r->body.room - r->body.used >= CURL_MAX_WRITE_SIZE) {
