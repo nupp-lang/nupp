@@ -80,6 +80,8 @@ with open(os.path.join(ROOT, "builds.log"), "a") as log:
 if command == "build":
     handle, stamp = tempfile.mkstemp(prefix=".stamp-", dir=PACKAGES)
     os.close(handle)
+    with open(os.path.join(ROOT, "build-started"), "w") as started:
+        started.write("started\n")
     time.sleep(float(os.environ.get("FAKE_BUILD_SECONDS", "0")))
     if os.path.exists(os.path.join(ROOT, "fail-build")):
         os.unlink(stamp)
@@ -247,7 +249,12 @@ function M.anEditDuringARebuildIsBuiltNextTime()
             [[
         cd '%s'
         %s FAKE_BUILD_SECONDS=2 ./bin/nupp check > first.txt 2>&1 &
-        sleep 1
+        waited=0
+        while [ ! -f build-started ] && [ "$waited" -lt 100 ]; do
+            sleep 0.1
+            waited=$((waited + 1))
+        done
+        test -f build-started || exit 1
         printf -- '-- during\n' >> src/compiler.nupp
         wait
     ]]
@@ -271,7 +278,12 @@ function M.anEditDuringAFailedRebuildIsBuiltNextTime()
             [[
         cd '%s'
         %s FAKE_BUILD_SECONDS=2 ./bin/nupp check > first.txt 2>&1 &
-        sleep 1
+        waited=0
+        while [ ! -f build-started ] && [ "$waited" -lt 100 ]; do
+            sleep 0.1
+            waited=$((waited + 1))
+        done
+        test -f build-started || exit 1
         printf -- '-- during\n' >> src/compiler.nupp
         wait
     ]]
@@ -399,7 +411,11 @@ function M.realSourceFingerprintIncludesRunnerBytesWithoutTimestamps()
     assert(os.execute(("mkdir -p '%s/tests'"):format(dir)) == 0)
     plant("tests/run.lua", "-- original runner\n")
     assert(os.execute(("cp '%s/scripts/vm-cli' '%s/scripts/vm-cli'"):format(ROOT, dir)) == 0)
-    assert(os.execute(("cd '%s' && " .. GIT_ISOLATED .. "git init -q && git add bin scripts src templates tests"):format(dir)) == 0)
+    assert(
+        os.execute(
+            ("cd '%s' && " .. GIT_ISOLATED .. "git init -q && git add bin scripts src templates tests"):format(dir)
+        ) == 0
+    )
     -- current/status validate only receipt bytes. This fake package never builds
     -- or runs a compiler; sourceNow supplies the actual script's fingerprint.
     plant(
@@ -469,7 +485,11 @@ esac
     )
     plant("compiler.image", "module nupp.tools.vm.root 0 root\n")
     assert(os.execute(("chmod +x '%s/runtime.fake'"):format(dir)) == 0)
-    assert(os.execute(("cd '%s' && " .. GIT_ISOLATED .. "git init -q && git add bin scripts src templates tests"):format(dir)) == 0)
+    assert(
+        os.execute(
+            ("cd '%s' && " .. GIT_ISOLATED .. "git init -q && git add bin scripts src templates tests"):format(dir)
+        ) == 0
+    )
     plant(
         "install-control.py",
         [=[
