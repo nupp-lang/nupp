@@ -1615,18 +1615,21 @@ export function forVersion(version: integer): any
                 or (last.kind == "call" or last.kind == "methodCall") and packSpec(libraryLast) ~= nil
                 or libraryLast == "pcall"
                 or libraryLast == "xpcall"
-            -- A function with open results (`R...`) returns every result of a
-            -- call last in its return, as a pack the return spreads: a library
-            -- call with several results (`string.byte`) too.
+            -- A tail call supplies its actual result count. A declared trailing
+            -- optional result can be absent, as with a successful read.
+            local resultPack = ctx.fn.signature and ctx.fn.signature.retPack
             local openReturn = not scalarLast
-                and ctx.fn.signature
-                and ctx.fn.signature.retPack
-                and (ctx.fn.signature.retPack.tail ~= nil or ctx.fn.signature.retPack.alternatives ~= nil)
+                and resultPack
+                and (
+                    resultPack.tail ~= nil
+                    or resultPack.alternatives ~= nil
+                    or version >= 8 and #resultPack.head > 1 and graphcalls.allowsNil(resultPack.head[#resultPack.head])
+                )
                 and (
                     last.kind == "call"
                     and last.runtimeLoader ~= "require"
                     and graph.coreLibraryCall(last) == nil
-                    and (ctx.fn.signature.retPack.alternatives == nil or lastSite and not lastSite.construct)
+                    and (resultPack.alternatives == nil or lastSite and not lastSite.construct)
                     or last.kind == "methodCall" and lastSite and lastSite.method
                     or graph.packedcall(last)
                     or graphcalls.spreadsLibrary(last)

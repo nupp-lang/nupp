@@ -13,6 +13,14 @@ local nativeContract = graphnative.nativeContract
 
 export const MAX_RESULTS = 16
 
+export function allowsNil(t: any): boolean
+    while t and (t.tag == "const" or t.tag == "literal") do
+        t = t.tag == "literal" and t.base or t.inner
+    end
+
+    return t ~= nil and (t.tag == "nil" or t.tag == "any" or t.tag == "unknown" or t.tag == "union" and t.hasNil)
+end
+
 -- Whether a call giving `given` arguments leaves off only parameters that
 -- admit nil, which Lua then passes: `f()` of `f(size: integer?)`.
 export function omits(called: any, given: integer): boolean
@@ -20,11 +28,7 @@ export function omits(called: any, given: integer): boolean
         return false
     end
     for index = given + 1, #called.params do
-        local t = called.params[index]
-        while t and (t.tag == "const" or t.tag == "literal") do
-            t = t.tag == "literal" and t.base or t.inner
-        end
-        if not (t and (t.tag == "nil" or t.tag == "any" or t.tag == "unknown" or t.tag == "union" and t.hasNil)) then
+        if not allowsNil(called.params[index]) then
             return false
         end
     end
