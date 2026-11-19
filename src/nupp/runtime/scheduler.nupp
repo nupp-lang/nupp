@@ -247,6 +247,31 @@ end
 
 local runone: function(any): nil
 
+local function runReady(): nil
+    local record = queue[head]
+    queue[head] = nil
+    head = head + 1
+    if head > tail then
+        head, tail = 1, 0
+    end
+    runone(record)
+end
+
+local function discardStaleTimers(): nil
+    while #timers > 0 and stale(timers[1]) do
+        poptimer()
+    end
+end
+
+local function fireDueTimers(now: number): nil
+    while #timers > 0 and timers[1].at <= now do
+        local entry = poptimer()
+        if not stale(entry) then
+            fire(entry)
+        end
+    end
+end
+
 -- Runs one runnable task, or waits for the nearest timer and fires what is
 -- due. Raises when nothing could ever wake the caller.
 local function step(): nil
@@ -255,13 +280,7 @@ local function step(): nil
         ownerTurn(poll, calls.now() as number)
     end
     if head <= tail then
-        local record = queue[head]
-        queue[head] = nil
-        head = head + 1
-        if head > tail then
-            head, tail = 1, 0
-        end
-        runone(record)
+        runReady()
         return
     end
     -- A source wakes its task through `wake`, whatever count it answers.
@@ -273,9 +292,7 @@ local function step(): nil
         end
     end
     local owner = poll ~= nil and ownerWork() and poll or nil
-    while #timers > 0 and stale(timers[1]) do
-        poptimer()
-    end
+    discardStaleTimers()
     if #timers == 0 then
         if #suspended > 0
             and reactor.pending() == 0
@@ -303,12 +320,7 @@ local function step(): nil
         wait((polling or owner ~= nil) and math.min(at - now, SOURCE_SLICE_MS) or at - now, owner)
         now = calls.now() as number
     end
-    while #timers > 0 and timers[1].at <= now do
-        local entry = poptimer()
-        if not stale(entry) then
-            fire(entry)
-        end
-    end
+    fireDueTimers(now)
 end
 
 ----------------------------------------------------------------------------
@@ -377,11 +389,58 @@ local function checkScope(scope: any): nil
     end
 end
 
+-- Lets the host poll this scheduler's reactor and deadlines. A task runs
+-- after the poll returns, outside the host's readiness callbacks.
+local function hostPark(operation: string, box: any): nil
+    suspension.suspend(operation, function(resume: function(boolean), context: suspension.Context): function()
+        local signalled = false
+        context:source("nupp.tasks", 50, function(): integer
+            if signalled then
+                return 0
+            end
+            local now = calls.now() as number
+            local poll = ownerWait
+            if poll ~= nil and nativeOwnerWork() then
+                reactor.waitOwner(poll, now)
+            elseif reactor.pending() > 0 then
+                reactor.wait(now)
+            end
+            discardStaleTimers()
+            fireDueTimers(calls.now() as number)
+            if box.done or head <= tail then
+                signalled = true
+                resume(true)
+                return 1
+            end
+
+            return 0
+        end)
+
+        return function(): nil
+        end
+    end)
+end
+
+local function drive(box: any, operation: string): nil
+    while not box.done do
+        if not suspension.handled() then
+            step()
+        elseif head > tail then
+            hostPark(operation, box)
+        elseif suspensionHost.turnAvailable() then
+            suspensionHost.consumeTurn()
+            runReady()
+        else
+            suspensionHost.deferTurn()
+        end
+    end
+end
+
 -- Waits until `arm`'s waiter is woken, answering what it was woken with.
 -- A task parks; the main thread's stack runs the scheduler meanwhile. A
 -- cancelled task's park raises its cancellation, unless `shielded`, whose
 -- caller must go on waiting regardless (a scope settling its children).
-local function park(arm: function(any): nil, shielded: boolean): any
+local function park(arm: function(any): nil, shielded: boolean, operation: string?): any
     local record = current()
     local scope = not shielded and bodyScope(record) or nil
     checkScope(scope)
@@ -411,13 +470,14 @@ local function park(arm: function(any): nil, shielded: boolean): any
     if scope ~= nil then
         scope.bodyWaiter = box
     end
-    while not box.done do
-        step()
-    end
+    local okay, problem = pcall(drive, box, operation or "nupp task scope")
     if scope ~= nil then
         scope.bodyWaiter = nil
-        checkScope(scope)
     end
+    if not okay then
+        error(problem, 0)
+    end
+    checkScope(scope)
 
     return box.value
 end
@@ -436,6 +496,9 @@ local function sleepuntil(deadline: number): nil
     if current() == nil and suspension.handled() then
         nativeTimers.sleepuntil(deadline)
         return
+    end
+    if not suspension.canSuspend() then
+        error("nupp: time.sleep cannot suspend here", 0)
     end
     park(
         function(waiter: any): nil
@@ -506,21 +569,22 @@ local function suspendpark(_: suspensionHost.Handler, waiting: suspensionHost.Wa
     end
 end
 
-local driver = suspensionHost.Handler(
-    park = suspendpark,
-    canpark = function(_: suspensionHost.Handler): boolean
-        return true
-    end,
-    shutdown = function(_: suspensionHost.Handler): nil
-    end
-)
-
 local function packed(...: any): any
     return {n = select("#", ...), ...}
 end
 
 -- A task's body, entered under the driver and leaving it however it ends.
 local function entered(body: any): any
+    local canpark = suspensionHost.delegatedCanPark()
+    local driver = suspensionHost.Handler(
+        park = suspendpark,
+        canpark = function(_: suspensionHost.Handler): boolean
+            return canpark()
+        end,
+        shutdown = function(_: suspensionHost.Handler): nil
+        end
+    )
+
     return function(...: any): ...any
         local handling = suspensionHost.installDriver(driver)
         local results = packed(pcall(body, ...))
@@ -1069,7 +1133,8 @@ local function await(thread: any): ...any
             function(waiter: any): nil
                 record.waiters[#record.waiters + 1] = waiter
             end,
-            false
+            false,
+            record.name
         )
     end
     if record.status ~= "done" then
