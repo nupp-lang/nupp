@@ -155,6 +155,16 @@ __declspec(dllexport)
 #endif
 const char *nupp_core_artifact_directory;
 static _Thread_local int retain_guest_backing;
+static uint64_t processargumentcount;
+static char **processarguments;
+
+/** Returns a UTF-8 argument from the bridge's command line. */
+#ifdef _WIN32
+__declspec(dllexport)
+#endif
+const char *nupp_core_argument_at (uint64_t index) {
+  return index < processargumentcount ? processarguments[index] : NULL;
+}
 
 void nupp_core_retain_guest_backing (void) {
   retain_guest_backing = 1;
@@ -914,13 +924,36 @@ int wmain (int argc, wchar_t **argv) {
     return error("usage: nupp-core BUNDLE INPUT OUTPUT [ARGUMENT...]");
   }
 
-  char *bundle = utf8_path(argv[1]), *input = utf8_path(argv[2]),
-       *output = utf8_path(argv[3]);
-  int result = bundle && input && output ? run(bundle, input, output)
-                                         : error("invalid path");
-  free(bundle);
-  free(input);
-  free(output);
+  char **arguments = calloc((size_t)argc, sizeof(*arguments));
+
+  if (!arguments) {
+    return error("cannot allocate arguments");
+  }
+
+  int converted = 0;
+
+  while (converted < argc) {
+    arguments[converted] = utf8_path(argv[converted]);
+
+    if (!arguments[converted]) {
+      break;
+    }
+
+    ++converted;
+  }
+
+  processargumentcount = (uint64_t)converted;
+  processarguments = arguments;
+  int result = converted == argc ? run(arguments[1], arguments[2], arguments[3])
+                                 : error("invalid argument");
+  processargumentcount = 0;
+  processarguments = NULL;
+
+  for (int at = 0; at < converted; ++at) {
+    free(arguments[at]);
+  }
+
+  free(arguments);
 
   return result;
 }
@@ -929,6 +962,9 @@ int main (int argc, char **argv) {
   if (argc < 4) {
     return error("usage: nupp-core BUNDLE INPUT OUTPUT [ARGUMENT...]");
   }
+
+  processargumentcount = (uint64_t)argc;
+  processarguments = argv;
 
   return run(argv[1], argv[2], argv[3]);
 }

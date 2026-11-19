@@ -61,11 +61,9 @@ static const char *required (const char *name) {
 }
 
 /* Makes the process's arguments the ones nupp-core would give the guest,
- * followed by CORE_TEST_ARGUMENTS split at spaces. Only macOS offers a way
- * to replace them; elsewhere they are left alone. The storage stays live
+ * followed by CORE_TEST_ARGUMENTS split at spaces. The storage stays live
  * until exit, since the guest can read its arguments at any point. */
 static int presentarguments (const char *bundle, const char *input) {
-#ifdef __APPLE__
   const char *words = getenv("CORE_TEST_ARGUMENTS");
   char *extra = strdup(words ? words : "");
 
@@ -100,11 +98,13 @@ static int presentarguments (const char *bundle, const char *input) {
 
   /* NOLINTEND(clang-analyzer-unix.Malloc) */
 
+  processargumentcount = (uint64_t)count;
+  processarguments = arguments;
+#ifdef __APPLE__
+
+  /* A bundle from the pinned Mac seed can still read the CRT's arguments. */
   *_NSGetArgc() = count;
   *_NSGetArgv() = arguments;
-#else
-  (void)bundle;
-  (void)input;
 #endif
 
   return 0;
