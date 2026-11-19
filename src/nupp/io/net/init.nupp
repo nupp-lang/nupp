@@ -460,7 +460,16 @@ export record DirectionView is io.Reader, io.Writer
             return nil, "the view is write-only"
         end
 
-        return readOnce(self._provider, self._handle, positive(count, "net.DirectionView read count", 2))
+        local bytes, problem = readOnce(
+            self._provider,
+            self._handle,
+            positive(count, "net.DirectionView read count", 2)
+        )
+        if bytes == nil then
+            return nil, problem
+        end
+
+        return bytes
     end
 
     --- @raises string when the destination is empty
@@ -669,7 +678,12 @@ export record Stream is io.Reader, io.Writer
             return nil, "the connection is closed"
         end
 
-        return readOnce(self._provider, self._handle, positive(count, "net.Stream read count", 2))
+        local bytes, problem = readOnce(self._provider, self._handle, positive(count, "net.Stream read count", 2))
+        if bytes == nil then
+            return nil, problem
+        end
+
+        return bytes
     end
 
     --- Reads directly into a checked writable span. A zero answer is the end.
