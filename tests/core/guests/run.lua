@@ -1606,7 +1606,7 @@ end
 
 local function main()
     local host = os.info()
-    local hasHttp = UNITS and host.platform == "macos" and host.arch == "aarch64"
+    local hasHttp = host.platform == "macos" and host.arch == "aarch64"
     -- `run.lua --list` names every case, and whether a run of every case
     -- includes it, for acceptance.nupp's inventory.
     if arg[1] == "--list" then
@@ -1635,7 +1635,7 @@ local function main()
     local selectedProcessLines = false
     for _, name in ipairs(arg) do
         local caseName = name == "processreuse" and "processlines" or name
-        assert(name ~= "cataloghttpcurl" or hasHttp, "cataloghttpcurl requires the macOS ARM64 unit-built core")
+        assert(name ~= "cataloghttpcurl" or hasHttp, "cataloghttpcurl requires the macOS ARM64 core")
         local matched = false
         for _, case in ipairs(CASES) do
             if case[1] == caseName then
