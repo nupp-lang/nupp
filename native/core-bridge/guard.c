@@ -13,7 +13,7 @@
 
 /* The transport itself, with its main renamed so this file can have one. */
 #define NUPP_CORE_GUARD 1
-#define main bootstrap_main
+#define main bootstrapmain
 #include "main.c"
 #undef main
 
@@ -28,7 +28,7 @@ enum { GUEST_LEADING_ARGUMENTS = 4 };
 /* One way to shorten a bundle: a header field and the value it gets. Each
  * leaves a region shorter than any generated entry needs. */
 struct shortening {
-  enum bundle_field field;
+  enum bundlefield field;
   uint64_t value;
 };
 
@@ -56,7 +56,7 @@ static const char *required (const char *name) {
  * followed by CORE_TEST_ARGUMENTS split at spaces. Only macOS offers a way
  * to replace them; elsewhere they are left alone. The storage stays live
  * until exit, since the guest can read its arguments at any point. */
-static int present_guest_arguments (const char *bundle, const char *input) {
+static int presentarguments (const char *bundle, const char *input) {
 #ifdef __APPLE__
   const char *words = getenv("CORE_TEST_ARGUMENTS");
   char *extra = strdup(words ? words : "");
@@ -101,7 +101,7 @@ static int present_guest_arguments (const char *bundle, const char *input) {
 /* Runs the bundle at path as nupp-core would, from its own directory. */
 static int invoke (const char *path, const uint64_t *words, size_t count,
                    uint64_t **answer, size_t *length, uint64_t *status) {
-  char *directory = publish_artifact_directory(path);
+  char *directory = publishdirectory(path);
 
   if (!directory) {
     return 1;
@@ -114,14 +114,14 @@ static int invoke (const char *path, const uint64_t *words, size_t count,
   return result;
 }
 
-static int check_output (const char *bundle, const uint64_t *words,
-                         size_t count) {
+static int checkoutput (const char *bundle, const uint64_t *words,
+                        size_t count) {
   uint64_t *answer = NULL, *expected = NULL, status = 0;
-  size_t length = 0, expected_count = 0;
+  size_t length = 0, expectedcount = 0;
   int result =
       invoke(bundle, words, count, &answer, &length, &status) ||
-      read_words(required("CORE_TEST_EXPECTED"), &expected, &expected_count) ||
-      status || expected_count != length ||
+      readwords(required("CORE_TEST_EXPECTED"), &expected, &expectedcount) ||
+      status || expectedcount != length ||
       memcmp(expected, answer, length * sizeof(uint64_t));
   free(expected);
   free(answer);
@@ -129,8 +129,8 @@ static int check_output (const char *bundle, const uint64_t *words,
   return result;
 }
 
-static int check_requested_status (const char *bundle, const uint64_t *words,
-                                   size_t count) {
+static int checkrequested (const char *bundle, const uint64_t *words,
+                           size_t count) {
   const char *requested = getenv("CORE_TEST_STATUS");
   uint64_t *answer = NULL, status = 0;
   size_t length = 0;
@@ -148,7 +148,7 @@ static int check_requested_status (const char *bundle, const uint64_t *words,
 }
 
 /* Reads a whole bundle no larger than the transport accepts. */
-static int read_bundle (const char *path, unsigned char **bytes, size_t *size) {
+static int readbundle (const char *path, unsigned char **bytes, size_t *size) {
   FILE *file = fopen(path, "rb");
 
   if (!file) {
@@ -180,24 +180,23 @@ out:
  * shortens the file to match, so the bundle is still well formed. */
 static int shorten (const unsigned char *original, size_t size,
                     const struct shortening *shortening,
-                    unsigned char *modified, size_t *modified_size) {
+                    unsigned char *modified, size_t *modifiedsize) {
   memcpy(modified, original, size);
-  store_le64(modified + header_offset(shortening->field), shortening->value);
-  *modified_size = size;
+  storele64(modified + headeroffset(shortening->field), shortening->value);
+  *modifiedsize = size;
 
   if (shortening->field == BUNDLE_DATA_BYTES) {
-    uint64_t code_bytes =
-        load_le64(original + header_offset(BUNDLE_CODE_BYTES));
-    *modified_size =
-        HEADER_BYTES + (size_t)code_bytes + (size_t)shortening->value;
+    uint64_t codebytes = loadle64(original + headeroffset(BUNDLE_CODE_BYTES));
+    *modifiedsize =
+        HEADER_BYTES + (size_t)codebytes + (size_t)shortening->value;
   }
 
-  return *modified_size > size;
+  return *modifiedsize > size;
 }
 
 /* Writes bytes to a new temporary file, answering its path. */
-static int write_temporary (const unsigned char *bytes, size_t size,
-                            char **path) {
+static int writetemporary (const unsigned char *bytes, size_t size,
+                           char **path) {
   const char *directory = getenv("TMPDIR");
 
   if (!directory) {
@@ -243,13 +242,13 @@ static int refused (const char *path, const uint64_t *words, size_t count) {
   return !result && status != 0;
 }
 
-static int check_short_regions (const char *bundle, const uint64_t *words,
-                                size_t count) {
+static int checkshort (const char *bundle, const uint64_t *words,
+                       size_t count) {
   unsigned char *original = NULL, *modified = NULL;
   size_t size = 0;
   int result = 1;
 
-  if (read_bundle(bundle, &original, &size)) {
+  if (readbundle(bundle, &original, &size)) {
     goto out;
   }
 
@@ -260,14 +259,14 @@ static int check_short_regions (const char *bundle, const uint64_t *words,
   }
 
   for (size_t i = 0; i < ARRAY_LENGTH(shortenings); ++i) {
-    size_t modified_size;
+    size_t modifiedsize;
     char *path = NULL;
 
-    if (shorten(original, size, &shortenings[i], modified, &modified_size)) {
+    if (shorten(original, size, &shortenings[i], modified, &modifiedsize)) {
       goto out;
     }
 
-    int written = !write_temporary(modified, modified_size, &path);
+    int written = !writetemporary(modified, modifiedsize, &path);
     int passed = written && refused(path, words, count);
 
     if (path) {
@@ -290,22 +289,22 @@ out:
 }
 
 /* The checks the guard can run, by the name the runners select them with. */
-struct guard_test {
+struct guardtest {
   const char *name;
   int (*check)(const char *bundle, const uint64_t *words, size_t count);
 };
 
-static const struct guard_test tests[] = {
+static const struct guardtest tests[] = {
     /* The entry preserves the C ABI and answers CORE_TEST_EXPECTED's words. */
-    {"abi::generated_entry_preserves_c_abi_and_output", check_output},
+    {"abi::generated_entry_preserves_c_abi_and_output", checkoutput},
     /* The entry answers CORE_TEST_STATUS, which is not zero. */
-    {"abi::generated_entry_returns_requested_status", check_requested_status},
+    {"abi::generated_entry_returns_requested_status", checkrequested},
     /* The entry refuses the bundle when any region is too short for it. */
-    {"abi::generated_entry_refuses_short_regions", check_short_regions},
+    {"abi::generated_entry_refuses_short_regions", checkshort},
 };
 
 /* Finds the test --exact names; the last one wins. */
-static const struct guard_test *select_test (int argc, char **argv) {
+static const struct guardtest *selecttest (int argc, char **argv) {
   const char *selection = NULL;
 
   for (int i = 1; i + 1 < argc; ++i) {
@@ -328,16 +327,16 @@ static const struct guard_test *select_test (int argc, char **argv) {
 int main (int argc, char **argv) {
   const char *bundle = required("CORE_TEST_BUNDLE");
   const char *input = required("CORE_TEST_INPUT");
-  const struct guard_test *test = select_test(argc, argv);
+  const struct guardtest *test = selecttest(argc, argv);
 
-  if (!test || present_guest_arguments(bundle, input)) {
+  if (!test || presentarguments(bundle, input)) {
     return 1;
   }
 
   uint64_t *words = NULL;
   size_t count = 0;
   int result =
-      read_words(input, &words, &count) || test->check(bundle, words, count);
+      readwords(input, &words, &count) || test->check(bundle, words, count);
   free(words);
 
   if (result) {

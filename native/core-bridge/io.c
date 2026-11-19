@@ -23,7 +23,7 @@ enum { MAX_THREADS = 64 };
 
 struct job {
   uint64_t ticket;
-  uint64_t kind; /* enum nupp_io_kind */
+  uint64_t kind; /* enum nuppiokind */
   uint64_t word;
   uint64_t result; /* what the call answered, or a negative errno */
   size_t count;
@@ -31,7 +31,7 @@ struct job {
   unsigned char *bytes;
   int running, done, taken;
   struct job *next; /* in the list of all jobs */
-  struct job *queue_next; /* in the waiting or the finished queue */
+  struct job *queuenext; /* in the waiting or the finished queue */
 };
 
 /* A job is on at most one queue at a time, so the two share a link. */
@@ -40,33 +40,33 @@ struct queue {
 };
 
 static pthread_mutex_t lock = PTHREAD_MUTEX_INITIALIZER;
-static pthread_cond_t work_waiting = PTHREAD_COND_INITIALIZER;
-static pthread_cond_t job_done = PTHREAD_COND_INITIALIZER;
+static pthread_cond_t workwaiting = PTHREAD_COND_INITIALIZER;
+static pthread_cond_t jobdone = PTHREAD_COND_INITIALIZER;
 static struct job *jobs;
 static struct queue waiting = {NULL, &waiting.head};
 static struct queue finished = {NULL, &finished.head};
-static uint64_t last_ticket;
+static uint64_t lastticket;
 /* A worker writes a byte to the pipe each time it finishes a job; Nupp waits
  * for the read end to become readable. */
-static int wake_pipe[2] = {-1, -1};
+static int wakepipe[2] = {-1, -1};
 /* Why starting the pool failed. A failed start is never retried. */
-static int start_error;
+static int starterror;
 
 static uint64_t failed (int error) {
   return (uint64_t)-(int64_t)error;
 }
 
 static void enqueue (struct queue *queue, struct job *job) {
-  job->queue_next = NULL;
+  job->queuenext = NULL;
   *queue->tail = job;
-  queue->tail = &job->queue_next;
+  queue->tail = &job->queuenext;
 }
 
 static struct job *dequeue (struct queue *queue) {
   struct job *job = queue->head;
 
   if (job) {
-    queue->head = job->queue_next;
+    queue->head = job->queuenext;
 
     if (!queue->head) {
       queue->tail = &queue->head;
@@ -77,14 +77,14 @@ static struct job *dequeue (struct queue *queue) {
 }
 
 /* Removes a job the queue is known to hold. */
-static void unlink_queued (struct queue *queue, struct job *job) {
+static void unqueue (struct queue *queue, struct job *job) {
   struct job **at = &queue->head;
 
   while (*at != job) {
-    at = &(*at)->queue_next;
+    at = &(*at)->queuenext;
   }
 
-  *at = job->queue_next;
+  *at = job->queuenext;
 
   if (!*at) {
     queue->tail = at;
@@ -131,11 +131,11 @@ static uint64_t perform (struct job *job) {
   return result < 0 ? failed(errno) : (uint64_t)result;
 }
 
-static void announce_finished (void) {
+static void announce (void) {
   const unsigned char byte = 1;
 
   /* EAGAIN means the pipe is full, and so readable already. */
-  while (write(wake_pipe[1], &byte, 1) < 0 && errno == EINTR) {
+  while (write(wakepipe[1], &byte, 1) < 0 && errno == EINTR) {
   }
 }
 
@@ -146,7 +146,7 @@ static void *worker (void *unused) {
     pthread_mutex_lock(&lock);
 
     while (!waiting.head) {
-      pthread_cond_wait(&work_waiting, &lock);
+      pthread_cond_wait(&workwaiting, &lock);
     }
 
     struct job *job = dequeue(&waiting);
@@ -159,21 +159,21 @@ static void *worker (void *unused) {
     job->result = result;
     job->done = 1;
     enqueue(&finished, job);
-    pthread_cond_broadcast(&job_done);
+    pthread_cond_broadcast(&jobdone);
     pthread_mutex_unlock(&lock);
-    announce_finished();
+    announce();
   }
 
   return NULL;
 }
 
 /* Makes both ends of the wake pipe nonblocking and closed on exec. */
-static int configure_wake_pipe (void) {
+static int configurepipe (void) {
   for (int i = 0; i < 2; ++i) {
-    int flags = fcntl(wake_pipe[i], F_GETFL);
+    int flags = fcntl(wakepipe[i], F_GETFL);
 
-    if (flags < 0 || fcntl(wake_pipe[i], F_SETFL, flags | O_NONBLOCK) < 0 ||
-        fcntl(wake_pipe[i], F_SETFD, FD_CLOEXEC) < 0) {
+    if (flags < 0 || fcntl(wakepipe[i], F_SETFL, flags | O_NONBLOCK) < 0 ||
+        fcntl(wakepipe[i], F_SETFD, FD_CLOEXEC) < 0) {
       return errno;
     }
   }
@@ -181,7 +181,7 @@ static int configure_wake_pipe (void) {
   return 0;
 }
 
-static int start_workers (uint64_t threads) {
+static int startworkers (uint64_t threads) {
   if (threads < 1) {
     threads = 1;
   }
@@ -205,28 +205,28 @@ static int start_workers (uint64_t threads) {
 }
 
 /* Answers the wake pipe's read end, or why the pool could not start. */
-static uint64_t start_result (void) {
-  return start_error ? failed(start_error) : (uint64_t)wake_pipe[0];
+static uint64_t startresult (void) {
+  return starterror ? failed(starterror) : (uint64_t)wakepipe[0];
 }
 
-uint64_t nupp_io_start (uint64_t threads) {
+uint64_t nuppiostart (uint64_t threads) {
   pthread_mutex_lock(&lock);
-  int started = wake_pipe[0] >= 0 || start_error;
+  int started = wakepipe[0] >= 0 || starterror;
 
   if (!started) {
-    if (pipe(wake_pipe) < 0) {
-      start_error = errno;
+    if (pipe(wakepipe) < 0) {
+      starterror = errno;
     }
     else {
-      start_error = configure_wake_pipe();
+      starterror = configurepipe();
     }
 
-    if (!start_error) {
-      start_error = start_workers(threads);
+    if (!starterror) {
+      starterror = startworkers(threads);
     }
   }
 
-  uint64_t result = start_result();
+  uint64_t result = startresult();
   pthread_mutex_unlock(&lock);
 
   return result;
@@ -234,8 +234,8 @@ uint64_t nupp_io_start (uint64_t threads) {
 
 /* Allocates a job with its own copy of the bytes it writes or opens, or
  * room for the bytes it reads. */
-static struct job *new_job (uint64_t kind, uint64_t word, uint64_t base,
-                            uint64_t bytes) {
+static struct job *newjob (uint64_t kind, uint64_t word, uint64_t base,
+                           uint64_t bytes) {
   struct job *job = calloc(1, sizeof(*job));
 
   if (!job) {
@@ -267,8 +267,8 @@ static struct job *new_job (uint64_t kind, uint64_t word, uint64_t base,
   return job;
 }
 
-uint64_t nupp_io_submit (uint64_t kind, uint64_t word, uint64_t base,
-                         uint64_t bytes) {
+uint64_t nuppiosubmit (uint64_t kind, uint64_t word, uint64_t base,
+                       uint64_t bytes) {
   /* bytes == SIZE_MAX would leave no room for an open's terminator. */
   if (kind < NUPP_IO_OPEN || kind > NUPP_IO_WRITE ||
       bytes > (uint64_t)SSIZE_MAX || bytes == SIZE_MAX) {
@@ -279,7 +279,7 @@ uint64_t nupp_io_submit (uint64_t kind, uint64_t word, uint64_t base,
     return failed(EFAULT);
   }
 
-  struct job *job = new_job(kind, word, base, bytes);
+  struct job *job = newjob(kind, word, base, bytes);
 
   if (!job) {
     return failed(ENOMEM);
@@ -288,7 +288,7 @@ uint64_t nupp_io_submit (uint64_t kind, uint64_t word, uint64_t base,
   pthread_mutex_lock(&lock);
 
   /* Tickets stay positive as int64, so they never read as an errno. */
-  if (wake_pipe[0] < 0 || start_error || last_ticket == INT64_MAX) {
+  if (wakepipe[0] < 0 || starterror || lastticket == INT64_MAX) {
     pthread_mutex_unlock(&lock);
     free(job->bytes);
     free(job);
@@ -296,18 +296,18 @@ uint64_t nupp_io_submit (uint64_t kind, uint64_t word, uint64_t base,
     return failed(EINVAL);
   }
 
-  job->ticket = ++last_ticket;
+  job->ticket = ++lastticket;
   job->next = jobs;
   jobs = job;
   enqueue(&waiting, job);
   uint64_t ticket = job->ticket;
-  pthread_cond_signal(&work_waiting);
+  pthread_cond_signal(&workwaiting);
   pthread_mutex_unlock(&lock);
 
   return ticket;
 }
 
-uint64_t nupp_io_take (void) {
+uint64_t nuppiotake (void) {
   pthread_mutex_lock(&lock);
   struct job *job = dequeue(&finished);
 
@@ -321,7 +321,7 @@ uint64_t nupp_io_take (void) {
   return ticket;
 }
 
-uint64_t nupp_io_finish (uint64_t ticket, uint64_t out, uint64_t room) {
+uint64_t nuppiofinish (uint64_t ticket, uint64_t out, uint64_t room) {
   pthread_mutex_lock(&lock);
   struct job **at = find(ticket), *job = *at;
   uint64_t result = failed(EINVAL);
@@ -342,13 +342,13 @@ uint64_t nupp_io_finish (uint64_t ticket, uint64_t out, uint64_t room) {
   return result;
 }
 
-uint64_t nupp_io_cancel (uint64_t ticket) {
+uint64_t nuppiocancel (uint64_t ticket) {
   pthread_mutex_lock(&lock);
   struct job **at = find(ticket), *job = *at;
   uint64_t cancelled = 0;
 
   if (job && !job->running) {
-    unlink_queued(&waiting, job);
+    unqueue(&waiting, job);
     dispose(at);
     cancelled = 1;
   }
@@ -358,12 +358,12 @@ uint64_t nupp_io_cancel (uint64_t ticket) {
   return cancelled;
 }
 
-uint64_t nupp_io_settle (uint64_t ticket) {
+uint64_t nuppiosettle (uint64_t ticket) {
   pthread_mutex_lock(&lock);
   struct job **at;
 
   while (*(at = find(ticket)) && !(*at)->done) {
-    pthread_cond_wait(&job_done, &lock);
+    pthread_cond_wait(&jobdone, &lock);
   }
 
   struct job *job = *at;
@@ -371,7 +371,7 @@ uint64_t nupp_io_settle (uint64_t ticket) {
 
   if (job) {
     if (!job->taken) {
-      unlink_queued(&finished, job);
+      unqueue(&finished, job);
     }
 
     result = job->result;

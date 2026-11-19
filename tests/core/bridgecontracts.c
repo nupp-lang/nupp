@@ -6,7 +6,7 @@
  * complement, rather than replace, running actual Nupp guests. */
 
 /* The transport itself, with its main renamed so this file can have one. */
-#define main bootstrap_main
+#define main bootstrapmain
 #include "../../native/core-bridge/main.c"
 #undef main
 
@@ -16,14 +16,13 @@
 #include <sys/wait.h>
 #include <time.h>
 
-/* tests/core/bridge-abi-aarch64.S. The probe calls an entry and reports its
+/* tests/core/bridgeabi.S. The probe calls an entry and reports its
  * status and a mask of the callee-saved registers it clobbered: x19 to x29
  * in bits 0 to 10, d8 to d15 in bits 11 to 18. The clobber function is its
  * calibration: it answers 7 and clobbers exactly x19 and d8. */
-extern void nupp_core_test_abi (Entry entry, const uint64_t *packet,
-                                uint64_t *output, uint64_t *report);
-extern uint64_t nupp_core_test_abi_clobber (const uint64_t *packet,
-                                            uint64_t *output);
+extern void nuppabiprobe (Entry entry, const uint64_t *packet, uint64_t *output,
+                          uint64_t *report);
+extern uint64_t nuppabiclobber (const uint64_t *packet, uint64_t *output);
 
 enum {
   CLOBBER_STATUS = 7,
@@ -39,20 +38,20 @@ enum { SAMPLE_CODE_BYTES = INSTRUCTION_BYTES * 2 };
 
 enum { SAMPLE_BYTES = HEADER_BYTES + SAMPLE_CODE_BYTES };
 
-static void put_field (unsigned char *bundle, enum bundle_field field,
-                       uint64_t value) {
-  store_le64(bundle + header_offset(field), value);
+static void putfield (unsigned char *bundle, enum bundlefield field,
+                      uint64_t value) {
+  storele64(bundle + headeroffset(field), value);
 }
 
-static void write_file (const char *path, const unsigned char *bytes,
-                        size_t size) {
+static void writefile (const char *path, const unsigned char *bytes,
+                       size_t size) {
   FILE *file = fopen(path, "wb");
   assert(file);
   assert(fwrite(bytes, 1, size, file) == size);
   assert(!fclose(file));
 }
 
-static void assert_refused (const char *path) {
+static void assertrefused (const char *path) {
   uint64_t *answer = NULL, status = 0;
   size_t length = 0;
   assert(execute(path, NULL, 0, &answer, &length, &status) != 0 && !answer);
@@ -63,12 +62,12 @@ static void assert_refused (const char *path) {
 static void malformed (void) {
   unsigned char sample[SAMPLE_BYTES] = {0};
   memcpy(sample, BUNDLE_MAGIC, MAGIC_BYTES);
-  put_field(sample, BUNDLE_VERSION, BUNDLE_FORMAT);
-  put_field(sample, BUNDLE_ARCHITECTURE, BUNDLE_ARM64);
-  put_field(sample, BUNDLE_CODE_BYTES, SAMPLE_CODE_BYTES);
+  putfield(sample, BUNDLE_VERSION, BUNDLE_FORMAT);
+  putfield(sample, BUNDLE_ARCHITECTURE, BUNDLE_ARM64);
+  putfield(sample, BUNDLE_CODE_BYTES, SAMPLE_CODE_BYTES);
 
   const struct {
-    enum bundle_field field;
+    enum bundlefield field;
     uint64_t value;
   } faults[] = {
       {BUNDLE_VERSION, BUNDLE_FORMAT + 1},
@@ -90,20 +89,20 @@ static void malformed (void) {
   for (size_t i = 0; i < ARRAY_LENGTH(faults); ++i) {
     unsigned char faulty[SAMPLE_BYTES];
     memcpy(faulty, sample, sizeof(faulty));
-    put_field(faulty, faults[i].field, faults[i].value);
-    write_file(path, faulty, sizeof(faulty));
-    assert_refused(path);
+    putfield(faulty, faults[i].field, faults[i].value);
+    writefile(path, faulty, sizeof(faulty));
+    assertrefused(path);
   }
 
   for (size_t size = 0; size < HEADER_BYTES; ++size) {
-    write_file(path, sample, size);
-    assert_refused(path);
+    writefile(path, sample, size);
+    assertrefused(path);
   }
 
   unlink(path);
 }
 
-static void pause_briefly (void) {
+static void pausebriefly (void) {
   struct timespec pause = {0, POLL_NANOSECONDS};
   nanosleep(&pause, NULL);
 }
@@ -111,13 +110,13 @@ static void pause_briefly (void) {
 /* Waits for a job to finish and answers its ticket. */
 static uint64_t take (void) {
   for (unsigned i = 0; i < POLL_ATTEMPTS; ++i) {
-    uint64_t ticket = nupp_io_take();
+    uint64_t ticket = nuppiotake();
 
     if (ticket) {
       return ticket;
     }
 
-    pause_briefly();
+    pausebriefly();
   }
 
   assert(!"I/O completion timed out");
@@ -125,19 +124,19 @@ static uint64_t take (void) {
   return 0;
 }
 
-static uint64_t submit_open (const char *path) {
-  return nupp_io_submit(NUPP_IO_OPEN, 0, (uintptr_t)path, strlen(path));
+static uint64_t submitopen (const char *path) {
+  return nuppiosubmit(NUPP_IO_OPEN, 0, (uintptr_t)path, strlen(path));
 }
 
 /* Submits a read of an empty pipe until a worker has started it, so it can
  * no longer be cancelled, and answers its ticket. */
-static uint64_t start_blocked_read (int descriptor) {
+static uint64_t startblockedread (int descriptor) {
   for (unsigned i = 0; i < POLL_ATTEMPTS; ++i) {
-    uint64_t ticket = nupp_io_submit(NUPP_IO_READ, (uint64_t)descriptor, 0, 1);
+    uint64_t ticket = nuppiosubmit(NUPP_IO_READ, (uint64_t)descriptor, 0, 1);
     assert((int64_t)ticket > 0);
-    pause_briefly();
+    pausebriefly();
 
-    if (!nupp_io_cancel(ticket)) {
+    if (!nuppiocancel(ticket)) {
       return ticket;
     }
   }
@@ -147,51 +146,51 @@ static uint64_t start_blocked_read (int descriptor) {
   return 0;
 }
 
-static void starts_once (void) {
-  assert((int64_t)nupp_io_submit(NUPP_IO_OPEN, 0, 0, 1) == -EFAULT);
-  int wake = (int)nupp_io_start(1);
+static void startsonce (void) {
+  assert((int64_t)nuppiosubmit(NUPP_IO_OPEN, 0, 0, 1) == -EFAULT);
+  int wake = (int)nuppiostart(1);
   assert(wake >= 0);
-  assert(nupp_io_start(8) == (uint64_t)wake);
+  assert(nuppiostart(8) == (uint64_t)wake);
   assert(fcntl(wake, F_GETFL) & O_NONBLOCK);
   assert(fcntl(wake, F_GETFD) & FD_CLOEXEC);
 }
 
 /* With the one worker blocked, a queued job can be cancelled and is then
  * forgotten; the blocked one settles once its read can complete. */
-static void cancels_queued_work (void) {
-  int pipe_ends[2];
-  assert(!pipe(pipe_ends));
-  uint64_t blocked = start_blocked_read(pipe_ends[0]);
-  uint64_t queued = submit_open("/dev/null");
-  assert((int64_t)queued > 0 && nupp_io_cancel(queued) == 1);
-  assert((int64_t)nupp_io_settle(queued) == -EINVAL);
-  assert(write(pipe_ends[1], "x", 1) == 1);
-  assert(nupp_io_settle(blocked) == 1);
-  assert((int64_t)nupp_io_settle(blocked) == -EINVAL);
-  assert(nupp_io_take() == 0);
-  close(pipe_ends[0]);
-  close(pipe_ends[1]);
+static void cancelsqueued (void) {
+  int ends[2];
+  assert(!pipe(ends));
+  uint64_t blocked = startblockedread(ends[0]);
+  uint64_t queued = submitopen("/dev/null");
+  assert((int64_t)queued > 0 && nuppiocancel(queued) == 1);
+  assert((int64_t)nuppiosettle(queued) == -EINVAL);
+  assert(write(ends[1], "x", 1) == 1);
+  assert(nuppiosettle(blocked) == 1);
+  assert((int64_t)nuppiosettle(blocked) == -EINVAL);
+  assert(nuppiotake() == 0);
+  close(ends[0]);
+  close(ends[1]);
 }
 
 /* Settling one job leaves the other for take, and a finished ticket is
  * forgotten. */
-static void completes_independently (void) {
-  uint64_t first = submit_open("/dev/null");
-  uint64_t second = submit_open("/dev/null");
-  int first_fd = (int)nupp_io_settle(first);
-  assert(first_fd >= 0);
+static void completesapart (void) {
+  uint64_t first = submitopen("/dev/null");
+  uint64_t second = submitopen("/dev/null");
+  int firstfd = (int)nuppiosettle(first);
+  assert(firstfd >= 0);
   assert(take() == second);
-  int second_fd = (int)nupp_io_finish(second, 0, 0);
-  assert(second_fd >= 0);
-  assert((int64_t)nupp_io_finish(second, 0, 0) == -EINVAL);
-  close(first_fd);
-  close(second_fd);
+  int secondfd = (int)nuppiofinish(second, 0, 0);
+  assert(secondfd >= 0);
+  assert((int64_t)nuppiofinish(second, 0, 0) == -EINVAL);
+  close(firstfd);
+  close(secondfd);
 }
 
 /* Sealed code faults when written. */
-static void code_is_not_writable (void) {
+static void codereadonly (void) {
   size_t page = (size_t)sysconf(_SC_PAGESIZE);
-  unsigned char *code = map_region(page);
+  unsigned char *code = mapregion(page);
   assert(code);
   assert(!mprotect(code, page, PROT_READ | PROT_EXEC));
   pid_t child = fork();
@@ -209,20 +208,20 @@ static void code_is_not_writable (void) {
   assert(!munmap(code, page));
 }
 
-static void abi_probe_detects_clobbering (void) {
+static void abiprobe (void) {
   uint64_t report[2] = {0, 0};
-  nupp_core_test_abi(nupp_core_test_abi_clobber, NULL, NULL, report);
+  nuppabiprobe(nuppabiclobber, NULL, NULL, report);
   assert(report[0] == CLOBBER_STATUS &&
          report[1] == (CLOBBERED_X19 | CLOBBERED_D8));
 }
 
 int main (void) {
-  abi_probe_detects_clobbering();
+  abiprobe();
   malformed();
-  code_is_not_writable();
-  starts_once();
-  cancels_queued_work();
-  completes_independently();
+  codereadonly();
+  startsonce();
+  cancelsqueued();
+  completesapart();
   puts("native transport contracts passed");
 
   return 0;

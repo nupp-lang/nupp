@@ -1507,7 +1507,7 @@ for _, unit in ipairs(UNITS) do
                 quote(os.getenv("NUPP_CC") or "cc"),
                 flags,
                 quote(BUILD .. "/lib/libnuppbridgefixture.dylib"),
-                quote(ROOT .. "/tests/core/bridge-ffi.c")
+                quote(ROOT .. "/tests/core/bridgeffi.c")
             )
         )
         assert(status == 0, built)

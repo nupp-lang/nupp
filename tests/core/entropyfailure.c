@@ -20,7 +20,7 @@
 /* The byte the partial write fills with, recognizable in a leaked buffer. */
 #define PARTIAL_WRITE_BYTE 0xA5
 
-typedef int (*getentropy_function)(void *buffer, size_t size);
+typedef int (*getentropyfunction)(void *buffer, size_t size);
 
 int getentropy (void *buffer, size_t size) {
   if (size == GUARDED_REQUEST_BYTES) {
@@ -30,8 +30,7 @@ int getentropy (void *buffer, size_t size) {
     return -1;
   }
 
-  getentropy_function real =
-      (getentropy_function)dlsym(RTLD_NEXT, "getentropy");
+  getentropyfunction real = (getentropyfunction)dlsym(RTLD_NEXT, "getentropy");
 
   return real(buffer, size);
 }

@@ -126,7 +126,7 @@ local CASES = {
     {"systemprovider", 0x7FFF000000000007},
     {"systeminfo", 0x7FFF00000000000F},
     {"entropy", 0x7FFF00000000000F},
-    -- The C library's getentropy failing partway, through entropy-failure.c.
+    -- The C library's getentropy failing partway, through entropyfailure.c.
     {"entropyfailure", 0x7FFF000000000007},
     {"boolean", 0x7FFB000000000000},
     {"nilValue", 0x7FF9000000000000},
@@ -669,11 +669,11 @@ local SETUP = {
     entropyfailure = (
         "d=$(mktemp -d '%s/entropy.XXXXXX') && cc -dynamiclib -o \"$d/libnuppentropyfailure.dylib\" '%s' "
         .. "&& export DYLD_INSERT_LIBRARIES=\"$d/libnuppentropyfailure.dylib\"; "
-    ):format(OUT, TESTS .. "/entropy-failure.c"),
+    ):format(OUT, TESTS .. "/entropyfailure.c"),
     ffiaggregates = (
         "d=$(mktemp -d '%s/ffi.XXXXXX') && cc -dynamiclib -o \"$d/libnuppffiaggregates.dylib\" '%s' "
         .. "&& export DYLD_LIBRARY_PATH=\"$d\"; "
-    ):format(OUT, TESTS .. "/ffi-aggregates.c"),
+    ):format(OUT, TESTS .. "/ffiaggregates.c"),
     compressioncodec = ("export NUPP_CODEC_FIXTURES='%s/tests/fixtures/compression-codec'; "):format(ROOT),
     -- The runner-chunks case's chunk is kept by its path under the
     -- checkout, as the runner's are.
@@ -1230,7 +1230,7 @@ local function tools(selectedCases)
                 ) .. " && cc -dynamiclib -o " .. quote(
                     library .. ".pending"
                 ) .. " " .. quote(
-                    TESTS .. "/bridge-ffi.c"
+                    TESTS .. "/bridgeffi.c"
                 ) .. " && mv " .. quote(library .. ".pending") .. " " .. quote(library)
             )
             assert(status == 0, "artifact-relative fixture build failed: " .. output)

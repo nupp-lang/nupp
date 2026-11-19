@@ -2,13 +2,13 @@ module nupp.core.loaderunits
 
 -- These are kernel cdefs: selection resolves them before their native calls,
 -- without going through the guest FOREIGN_CALL handler.
-cdef function nuppBridgeFixture(left: uint64, right: uint64): uint64 from"@lib/libnuppbridgefixture.dylib"
-cdef function nuppBridgeSlash(left: uint64, right: uint64): uint64 from"@/lib/libnuppbridgefixture.dylib"
+cdef function nuppbridgefixture(left: uint64, right: uint64): uint64 from"@lib/libnuppbridgefixture.dylib"
+cdef function nuppbridgeslash(left: uint64, right: uint64): uint64 from"@/lib/libnuppbridgefixture.dylib"
 
 export function plain(left: uint64, right: uint64): uint64
-    return nuppBridgeFixture(left, right) + nuppBridgeFixture(0ULL, 1ULL)
+    return nuppbridgefixture(left, right) + nuppbridgefixture(0ULL, 1ULL)
 end
 
 export function slashed(left: uint64, right: uint64): uint64
-    return nuppBridgeSlash(left, right) + nuppBridgeSlash(0ULL, 1ULL)
+    return nuppbridgeslash(left, right) + nuppbridgeslash(0ULL, 1ULL)
 end

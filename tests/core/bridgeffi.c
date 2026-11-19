@@ -10,11 +10,11 @@
 
 /* An answer no argument can produce by accident, so a call that passes the
  * wrong words or drops one shows in the result. */
-uint64_t nuppBridgeFixture (uint64_t left, uint64_t right) {
+uint64_t nuppbridgefixture (uint64_t left, uint64_t right) {
   return left ^ right;
 }
 
 /* The same answer, for the declaration that names the library "@/lib/...". */
-uint64_t nuppBridgeSlash (uint64_t left, uint64_t right) {
+uint64_t nuppbridgeslash (uint64_t left, uint64_t right) {
   return left ^ right;
 }

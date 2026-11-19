@@ -1,10 +1,12 @@
-// Test-only AAPCS64 preservation probe. No guest operations or frame policy.
+// Test-only AArch64 (AAPCS64) callee-saved register preservation probe,
+// for native/core-bridge/guard.c and tests/core/bridgecontracts.c. No guest
+// operations or frame policy.
 .text
 .p2align 2
-.globl _nupp_core_test_abi
-.globl nupp_core_test_abi
-_nupp_core_test_abi:
-nupp_core_test_abi:
+.globl _nuppabiprobe
+.globl nuppabiprobe
+_nuppabiprobe:
+nuppabiprobe:
     sub sp, sp, #192
     stp x19, x20, [sp, #0]
     stp x21, x22, [sp, #16]
@@ -152,10 +154,10 @@ nupp_core_test_abi:
 
 // Calibration deliberately violates exactly x19 and low64 d8.
 .p2align 2
-.globl _nupp_core_test_abi_clobber
-.globl nupp_core_test_abi_clobber
-_nupp_core_test_abi_clobber:
-nupp_core_test_abi_clobber:
+.globl _nuppabiclobber
+.globl nuppabiclobber
+_nuppabiclobber:
+nuppabiclobber:
     mov x19, #0
     fmov d8, xzr
     mov x0, #7
