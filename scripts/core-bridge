@@ -1,31 +1,71 @@
 #!/bin/sh
 # Build the opaque C startup transport and its independent ABI/scratch guard.
+#
+#   scripts/core-bridge [--sanitize] [--test]
+#
+# --test also builds and runs the bridge contracts. --sanitize, or
+# NUPP_CORE_BRIDGE_SANITIZE=1 in the environment, builds all three with
+# AddressSanitizer and UndefinedBehaviorSanitizer into a directory of their
+# own, so a harness that builds the bridge itself (tests/core/guests/run.lua)
+# runs its cases sanitized when the variable is set.
+#
+# The sanitizers see the bridge's own C and the C library calls it and the
+# guest make. They do not see inside the guest: its code is generated ARM64,
+# uninstrumented, working in regions the bridge maps itself, so a guest's
+# stray store into its own scratch, or into another mapping, goes unreported.
 set -eu
 ROOT=$(CDPATH= cd -- "$(dirname "$0")/.." && pwd)
 CC=${NUPP_CC:-cc}
-OUT=${NUPP_CORE_BRIDGE_DIR:-"$ROOT/build/c-core-bridge"}
+sanitize=${NUPP_CORE_BRIDGE_SANITIZE:-0}
+test=0
+for argument in "$@"; do
+    case "$argument" in
+        --sanitize) sanitize=1 ;;
+        --test) test=1 ;;
+        *)
+            printf 'usage: scripts/core-bridge [--sanitize] [--test]\n' >&2
+            exit 2
+            ;;
+    esac
+done
+flags="-std=c11 -O2 -g -Wall -Wextra -Werror -pthread"
+common="$ROOT/native/core-bridge"
+defaults=""
+if [ "$sanitize" = 1 ]; then
+    OUT=${NUPP_CORE_BRIDGE_DIR:-"$ROOT/build/c-core-bridge-sanitize"}
+    flags="$flags -fsanitize=address,undefined -fno-sanitize-recover=all"
+    flags="$flags -fno-omit-frame-pointer"
+    # The runtimes' options, as sanitize.c explains.
+    defaults="$common/sanitize.c"
+else
+    OUT=${NUPP_CORE_BRIDGE_DIR:-"$ROOT/build/c-core-bridge"}
+fi
 mkdir -p "$OUT"
 case "$(uname -s):$(uname -m)" in
     Darwin:arm64) export_flag=-Wl,-export_dynamic; libs='' ;;
     Linux:aarch64) export_flag=-rdynamic; libs=-ldl ;;
     *) printf 'core-bridge: ARM64 macOS or Linux is required\n' >&2; exit 1 ;;
 esac
-common="$ROOT/native/core-bridge"
 # Harness processes build here at once: each links under a name of its own
 # and renames it into place, so none moves another's half-written binary.
 pending=".$$.pending"
 trap 'rm -rf "$OUT"/*"$pending" "$OUT"/*"$pending".dSYM' EXIT
-"$CC" -std=c11 -O2 -g -Wall -Wextra -Werror -pthread "$export_flag" \
-    "$common/main.c" "$common/io.c" $libs -o "$OUT/nupp-core$pending"
-"$CC" -std=c11 -O2 -g -Wall -Wextra -Werror -pthread "$export_flag" \
-    "$common/guard.c" "$common/io.c" \
+# shellcheck disable=SC2086 # the flags are words
+"$CC" $flags "$export_flag" \
+    "$common/main.c" "$common/io.c" ${defaults:+"$defaults"} \
+    $libs -o "$OUT/nupp-core$pending"
+# shellcheck disable=SC2086
+"$CC" $flags "$export_flag" \
+    "$common/guard.c" "$common/io.c" ${defaults:+"$defaults"} \
     "$ROOT/tests/core/bridgeabi.S" $libs -o "$OUT/nupp-core-guard$pending"
 mv "$OUT/nupp-core$pending" "$OUT/nupp-core"
 mv "$OUT/nupp-core-guard$pending" "$OUT/nupp-core-guard"
-if [ "${1:-}" = --test ]; then
-    "$CC" -std=c11 -O2 -g -Wall -Wextra -Werror -pthread "$export_flag" \
+if [ "$test" = 1 ]; then
+    # shellcheck disable=SC2086
+    "$CC" $flags "$export_flag" \
         "$ROOT/tests/core/bridgecontracts.c" "$common/io.c" \
-        "$ROOT/tests/core/bridgeabi.S" $libs -o "$OUT/nupp-core-contracts$pending"
+        ${defaults:+"$defaults"} "$ROOT/tests/core/bridgeabi.S" \
+        $libs -o "$OUT/nupp-core-contracts$pending"
     mv "$OUT/nupp-core-contracts$pending" "$OUT/nupp-core-contracts"
     "$OUT/nupp-core-contracts" >&2
 fi
