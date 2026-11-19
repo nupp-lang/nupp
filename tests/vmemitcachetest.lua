@@ -361,6 +361,85 @@ end
     assert(ok, problem)
 end
 
+-- Emits that keep nothing check in environments that lend each other the modules
+-- they check (`families` in `nupp.compiler.project.env`). An emit lowering against
+-- modules another emit checked has to write what an emit from nothing writes,
+-- which the prelude types those modules hold decide: a cleanup declared against
+-- another environment's `io.File`, and a nested `types.reflect.Info`, did not.
+function M.anEmitAgainstBorrowedModulesWritesWhatAnEmitFromNothingWrites()
+    local check = require("nupp.compiler.check")
+    local dir = tempProject()
+    write(
+        dir .. "/src/handles.nupp",
+        [[
+module handles
+local handles = {}
+export type Handle = io.File
+function handles.identity(value: io.File): io.File
+    return value
+end
+export = handles
+]]
+    )
+    write(
+        dir .. "/src/consumer.nupp",
+        [[
+module consumer
+local handles = require("handles")
+local consumer = {}
+consumer.identity = handles.identity
+export type Owned = affine(handles.Handle, __nuppCloseFile)
+export = consumer
+]]
+    )
+    write(
+        dir .. "/src/info.nupp",
+        [[
+module info
+local info = {}
+function info.identity(value: types.reflect.Info): types.reflect.Info
+    return value
+end
+export = info
+]]
+    )
+    write(
+        dir .. "/src/inspector.nupp",
+        [[
+module inspector
+local reflected = require("info")
+export function inspect(info: types.reflect.Info): Type<unknown>?
+    return types.reflect.runtimetype(reflected.identity(info), 1)
+end
+]]
+    )
+    local original = check.check
+    local ok, problem = pcall(function()
+        -- Each emit makes an environment of its own, so the first of each pair
+        -- checks the modules and the second borrows them.
+        for _, pair in ipairs({{"consumer", "handles"}, {"inspector", "info"}}) do
+            local entry, borrowed = pair[1], pair[2]
+            local expected = project.emit(dir, entry, "", "src")
+            local checks = 0
+            check.check = function(parsed, path, env, options)
+                if options and options.moduleName == borrowed then
+                    checks = checks + 1
+                end
+                return original(parsed, path, env, options)
+            end
+            local image = project.emit(dir, entry, "", "src")
+            check.check = original
+            if not os.getenv("NUPP_NO_MODULE_FAMILY") then
+                assert(checks == 0, "the second emit's environment checked " .. borrowed .. " again")
+            end
+            same(expected, image, "an emit against a borrowed " .. borrowed)
+        end
+    end)
+    check.check = original
+    remove(dir)
+    assert(ok, problem)
+end
+
 function M.warmInterfacesKeepCheckedConstDefaultsAfterAConsumerEdit()
     local dir = tempProject()
     write(

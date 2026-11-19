@@ -140,6 +140,15 @@ export function open(dir: string, env: any, config: table, carried: {[string]: s
         end
     end
     local self: any = {}
+    -- What is kept for a module is what its own check read: the modules it
+    -- loaded and the index answers it looked up, recorded as this environment
+    -- checks it. A module the environment's family lent it was checked by another
+    -- environment, with nothing of that check's reads to record. And a module
+    -- this emit restores is decoded into identities of this emit's own, which a
+    -- check another environment borrowed would carry out of it. So an emit that
+    -- keeps what it lowered leaves its family (`families` in
+    -- `nupp.compiler.project.env`).
+    env.moduleFamily = nil
     local digest = fingerprint.contentDigest()
     local stats = {
         checked = 0,

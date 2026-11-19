@@ -319,6 +319,246 @@ function M.environmentsThatKeepNoStoresShareOnePrelude()
     os.execute("rm -rf '" .. dir .. "'")
 end
 
+-- Environments that keep no stores share the modules they check when everything a
+-- check reads is the same: a suite making one per case otherwise checked every runtime
+-- module its fixture required again in each. An edit to a project file is a new
+-- family, so the module is checked again and answers with the edit.
+function M.environmentsThatKeepNoStoresShareCheckedModules()
+    local dir = tempProject({
+        ["nupp.lua"] = 'return { include = { "src" } }\n',
+        ["src/dep.nupp"] = "module dep\n\nexport function value(): integer return 1 end\n",
+    })
+    local checkMod = require("nupp.compiler.check")
+    local function resolve()
+        local env = envMod.new(dir, {cache = false})
+        local original = checkMod.check
+        local checks = 0
+        checkMod.check = function(parsed, path, ...)
+            if tostring(path):match("/src/dep%.nupp$") then
+                checks = checks + 1
+            end
+            return original(parsed, path, ...)
+        end
+        local ok, exports = pcall(envMod.resolveModuleExports, env, "dep")
+        checkMod.check = original
+        assert(ok, tostring(exports))
+        return checks, exports
+    end
+
+    local firstChecks, first = resolve()
+    assert(firstChecks == 1, "the first environment checks the module")
+    local secondChecks, second = resolve()
+    assert(secondChecks == 0, "the second environment checked it again")
+    assert(second == first, "and shares the first one's answer")
+
+    local file = assert(io.open(dir .. "/src/dep.nupp", "wb"))
+    file:write("module dep\n\nexport function value(): string return 'one' end\n")
+    file:close()
+    local thirdChecks, third = resolve()
+    assert(thirdChecks == 1 and third ~= first, "an edited module is checked again")
+    assert(
+        tostring(third.values.value) ~= tostring(first.values.value),
+        "and answers with the edit: " .. tostring(third.values.value)
+    )
+    os.execute("rm -rf '" .. dir .. "'")
+end
+
+-- Counts the checks of each module in `names` while `run` uses an environment.
+local function counting(names, run)
+    local checkMod = require("nupp.compiler.check")
+    local original = checkMod.check
+    local counts = {}
+    for _, name in ipairs(names) do
+        counts[name] = 0
+    end
+    checkMod.check = function(parsed, path, ...)
+        local name = tostring(path):match("/src/([%w_]+)%.nupp$")
+        if name and counts[name] then
+            counts[name] = counts[name] + 1
+        end
+        return original(parsed, path, ...)
+    end
+    local ok, answer = pcall(run)
+    checkMod.check = original
+    assert(ok, tostring(answer))
+
+    return counts, answer
+end
+
+-- Whether `target` is reachable from `root` through tables' keys, values and
+-- metatables.
+local function reaches(root, target)
+    local seen, pending = {}, {root}
+    while #pending > 0 do
+        local value = table.remove(pending)
+        if value == target then
+            return true
+        end
+        if type(value) == "table" and not seen[value] then
+            seen[value] = true
+            for key, item in next, value do
+                pending[#pending + 1] = key
+                pending[#pending + 1] = item
+            end
+            local meta = getmetatable(value)
+            if type(meta) == "table" then
+                pending[#pending + 1] = meta
+            end
+        end
+    end
+
+    return false
+end
+
+local function readAll(path)
+    local file = assert(io.open(path, "rb"))
+    local text = file:read("*a")
+    file:close()
+
+    return text
+end
+
+-- A module one environment checked holds that environment's prelude types, and they
+-- are the receiving environment's own. Before environments shared a prelude, a
+-- cleanup declared against one environment's `io.File` did not apply to a value of
+-- another's, and a warm VM emit wrote different bytes for it (vmemitcachetest's
+-- prelude identity cases).
+function M.aSharedModuleHoldsTheReceivingEnvironmentsPreludeTypes()
+    local dir = tempProject({
+        ["nupp.lua"] = 'return { include = { "src" } }\n',
+        ["src/handles.nupp"] = [[
+module handles
+local handles = {}
+export type Handle = io.File
+function handles.identity(value: io.File): io.File
+    return value
+end
+export = handles
+]],
+    })
+    local first = envMod.new(dir, {cache = false})
+    local firstExports = assert(envMod.resolveModuleExports(first, "handles"))
+    local second = envMod.new(dir, {cache = false})
+    local counts, secondExports = counting({"handles"}, function()
+        return assert(envMod.resolveModuleExports(second, "handles"))
+    end)
+    assert(counts.handles == 0, "the second environment checked the module again")
+    assert(secondExports == firstExports, "the second environment does not share the first one's check")
+    assert(
+        reaches(secondExports.types.Handle, second.globalTypes["io.File"]),
+        "the shared module's io.File is not the receiving environment's own"
+    )
+    os.execute("rm -rf '" .. dir .. "'")
+end
+
+-- A shared check lends its interface, never its tree. Lowering rewrites the tree it
+-- is given and a member asking for the module's check may lower it, so the member
+-- checks the module itself; the record each member holds is its own to write.
+function M.aSharedCheckLendsItsInterfaceButNotItsTree()
+    local dir = tempProject({
+        ["nupp.lua"] = 'return { include = { "src" } }\n',
+        ["src/dep.nupp"] = "module dep\n\nexport function value(): integer return 1 end\n",
+    })
+    local first = envMod.new(dir, {cache = false})
+    assert(envMod.resolveModule(first, "dep"))
+    local path = assert(envMod.findModulePath(first, "dep"))
+    local key = require("nupp.compiler.fs").normalize(path)
+    local owned = assert(first.loadedPaths[key])
+    local tree = assert(owned.result and owned.result.root, "the checking environment keeps no tree")
+
+    local second = envMod.new(dir, {cache = false})
+    local counts = counting({"dep"}, function()
+        assert(envMod.resolveModule(second, "dep"))
+    end)
+    assert(counts.dep == 0, "the second environment checked the module again")
+    local lent = assert(second.loadedPaths[key])
+    assert(lent ~= owned, "the receiving environment holds the first one's record")
+    assert(lent.exports == owned.exports, "the receiving environment does not hold the shared interface")
+    assert(lent.result == nil, "a lent record carries another environment's tree")
+
+    local rechecked
+    counts = counting({"dep"}, function()
+        rechecked = envMod.checkModuleSource(second, path, readAll(path), {moduleName = "dep"})
+    end)
+    assert(counts.dep == 1, "asked for the module's check, the member did not check it")
+    assert(rechecked.root ~= tree, "the member was handed another environment's tree")
+    assert(first.loadedPaths[key] == owned and owned.result.root == tree, "the first record changed")
+    os.execute("rm -rf '" .. dir .. "'")
+end
+
+-- A check that read a cyclic dependency's interface before that dependency was
+-- complete is one its own environment would make again, so no other shares it.
+function M.aCheckThatReadAnIncompleteCycleIsNotShared()
+    local dir = tempProject({
+        ["nupp.lua"] = 'return { include = { "src" } }\n',
+        ["src/cyclea.nupp"] = [[
+module cyclea
+local b = require("cycleb")
+export function value(): number return b.value() end
+]],
+        ["src/cycleb.nupp"] = [[
+module cycleb
+local a = require("cyclea")
+export function value(): number return 1 end
+export function again(): number return a.value() end
+]],
+    })
+    local first = envMod.new(dir, {cache = false})
+    assert(envMod.resolveModule(first, "cyclea"))
+    local second = envMod.new(dir, {cache = false})
+    local counts = counting({"cyclea", "cycleb"}, function()
+        assert(envMod.resolveModule(second, "cycleb"))
+    end)
+    assert(counts.cycleb == 1, "a check that read an incomplete cycle was shared")
+    assert(counts.cyclea == 0, "the cycle's complete module was not shared")
+    os.execute("rm -rf '" .. dir .. "'")
+end
+
+-- What a family shares is the check alone. Nothing reachable from a shared module's
+-- interface -- a comptime function it exports, a constant one computed -- is the
+-- environment that checked it, or anything that environment keeps.
+function M.aSharedInterfaceReachesNothingOfTheEnvironmentThatMadeIt()
+    local dir = tempProject({
+        ["nupp.lua"] = 'return { include = { "src" } }\n',
+        ["src/twice.nupp"] = [[
+module twice
+local twice = {}
+@comptime function twice.of(n: integer): integer
+    return n * 2
+end
+export = twice
+]],
+        ["src/user.nupp"] = [[
+module user
+local twice = require("twice")
+const FOUR = twice.of(2)
+export function value(): integer return FOUR end
+]],
+    })
+    local first = envMod.new(dir, {cache = false})
+    assert(envMod.resolveModule(first, "user"))
+    local second = envMod.new(dir, {cache = false})
+    local counts = counting({"twice", "user"}, function()
+        assert(envMod.resolveModule(second, "user"))
+        assert(envMod.resolveModule(second, "twice"))
+    end)
+    assert(counts.twice == 0 and counts.user == 0, "the second environment checked the modules again")
+    for _, name in ipairs({"twice", "user"}) do
+        local record = assert(second.loaded[name])
+        local interface = {record.exports, record.type, record.compatDiagnostics, record.annotationDefinitions}
+        for what, kept in pairs({
+            environment = first,
+            loaded = first.loaded,
+            loadedPaths = first.loadedPaths,
+            globals = first.globals,
+            annotations = first.annotations,
+        }) do
+            assert(not reaches(interface, kept), name .. "'s shared interface reaches the first environment's " .. what)
+        end
+    end
+    os.execute("rm -rf '" .. dir .. "'")
+end
+
 -- Content-keyed stores move; the build state does not.
 function M.namedCacheDirectoryHoldsTheStoresThatAnswerAboutContent()
     local dir = tempProject({
