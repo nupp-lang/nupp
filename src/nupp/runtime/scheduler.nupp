@@ -368,7 +368,7 @@ local function scopeProblem(scope: any): (boolean, any)
     return false, nil
 end
 
-local function checkBodyScope(scope: any): nil
+local function checkScope(scope: any): nil
     if scope ~= nil then
         local failed, problem = scopeProblem(scope)
         if failed then
@@ -384,7 +384,7 @@ end
 local function park(arm: function(any): nil, shielded: boolean): any
     local record = current()
     local scope = not shielded and bodyScope(record) or nil
-    checkBodyScope(scope)
+    checkScope(scope)
     if record ~= nil then
         if record.requested and not shielded then
             error(record.cancelled, 0)
@@ -399,7 +399,7 @@ local function park(arm: function(any): nil, shielded: boolean): any
         record.status = "running"
         if scope ~= nil then
             scope.bodyWaiter = nil
-            checkBodyScope(scope)
+            checkScope(scope)
         end
         if record.requested and not shielded then
             error(record.cancelled, 0)
@@ -416,7 +416,7 @@ local function park(arm: function(any): nil, shielded: boolean): any
     end
     if scope ~= nil then
         scope.bodyWaiter = nil
-        checkBodyScope(scope)
+        checkScope(scope)
     end
 
     return box.value
@@ -581,6 +581,10 @@ local function settle(record: any, status: string, value: any): nil
     end
     local scope = record.scope
     scope.live = scope.live - 1
+    if record.lending then
+        record.lending = false
+        scope.lent = scope.lent - 1
+    end
     unlink(scope, record)
     if scope.onSettle ~= nil then
         scope.onSettle(record)
@@ -722,6 +726,7 @@ local function open(limit: integer?, timeoutms: number?): any
         {
             children = {},
             live = 0,
+            lent = 0,
             closers = {},
             slots = {},
             limit = limit,
@@ -746,20 +751,49 @@ local function open(limit: integer?, timeoutms: number?): any
     return scope
 end
 
-local function start(scope: any, name: any, body: any, arguments: any): any
+local function full(scope: any): boolean
+    return scope.limit ~= nil and scope.live - scope.lent >= scope.limit
+end
+
+local function parkForSlot(scope: any): nil
+    park(
+        function(waiter: any): nil
+            scope.slots[#scope.slots + 1] = waiter
+        end,
+        false
+    )
+end
+
+local function prepareChild(scope: any, body: any, arguments: any): (thread, any)
     if scope.closed then
         error("nupp: the task scope is closed", 3)
     end
-    -- A full scope parks the spawner until a child settles.
-    while scope.limit ~= nil and scope.live >= scope.limit do
-        park(
-            function(waiter: any): nil
-                scope.slots[#scope.slots + 1] = waiter
-            end,
-            false
-        )
+    checkScope(scope)
+    local lender: any = nil
+    while full(scope) do
+        local record = current()
+        if record ~= nil and record.scope == scope and not record.lending then
+            lender = record
+            break
+        end
+        parkForSlot(scope)
+        checkScope(scope)
     end
-    local thread = calls.new(entered(body), arguments)
+
+    return calls.new(entered(body), arguments), lender
+end
+
+local function start(scope: any, name: any, body: any, arguments: any, releaseOnRefusal: boolean?): any
+    local prepared, thread, lender = pcall(prepareChild, scope, body, arguments)
+    if not prepared then
+        if releaseOnRefusal then
+            local released, problem = pcall(taskownership.release, body)
+            if not released then
+                error(withFailures(thread, {problem}, 1), 0)
+            end
+        end
+        error(thread, 0)
+    end
     local record = {
         thread = thread,
         scope = scope,
@@ -776,10 +810,26 @@ local function start(scope: any, name: any, body: any, arguments: any): any
     calls.setdata(thread, record)
     scope.children[record.index] = record
     scope.live = scope.live + 1
+    if lender ~= nil then
+        lender.lending = true
+        scope.lent = scope.lent + 1
+    end
     if scope.cancellation ~= nil then
         cancelrecord(record, scope.cancellation)
     else
         enqueue(record, nil)
+    end
+    if lender ~= nil then
+        local reclaimed, problem = pcall(function(): nil
+            while full(scope) do
+                parkForSlot(scope)
+            end
+        end)
+        lender.lending = false
+        scope.lent = scope.lent - 1
+        if not reclaimed then
+            error(problem, 0)
+        end
     end
 
     return thread
@@ -790,11 +840,11 @@ ScopeMethods.spawn = function(scope: any, body: any, ...: any): any
     local arguments: any = {...}
     arguments[0] = select("#", ...)
 
-    return start(scope, "task", body, arguments)
+    return start(scope, "task", body, arguments, true)
 end
 
 ScopeMethods._spawnNamed = function(scope: any, body: any, name: string): any
-    return start(scope, name, body, {[0] = 0})
+    return start(scope, name, body, {[0] = 0}, true)
 end
 
 ScopeMethods.work = function(scope: any, ...: any): any
