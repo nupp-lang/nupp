@@ -77,6 +77,18 @@ function program.onVm()
     return rawget(_G, "__nupp_load_image") ~= nil
 end
 
+local function hasModuleSyntax(result)
+    for _, block in ipairs(result.root.blocks) do
+        for _, stat in ipairs(block.stats) do
+            if stat.kind == "moduleStmt" or stat.kind == "exportStmt" then
+                return true
+            end
+        end
+    end
+
+    return false
+end
+
 -- On the native core there is no image to load. The chunk compiler the core
 -- compiler carries compiles the fragment's source as a module instance, as
 -- `nupp run` compiles a program there, and loading that chunk runs it.
@@ -86,18 +98,29 @@ local function coreLoad(result, name, path)
         return nil, "fragments run on the VM or the native core"
     end
     local display = path or (name or "main") .. ".nupp"
-    local compiled, bytes, problem = pcall(corechunk.compileProgram, result.source, display, "@" .. display, name or "main")
+    local isBody = not hasModuleSyntax(result)
+    local source = result.source
+    if isBody then
+        -- A module initializer publishes one value. A fragment body runs as
+        -- a function so the caller receives every result, including nils.
+        source = "return function(...: any): ...any " .. source .. "\nend\n"
+    end
+    local compiled, bytes, problem = pcall(corechunk.compileProgram, source, display, "@" .. display, name or "main")
     if not compiled then
         return nil, tostring(bytes)
     elseif not bytes then
         return nil, problem
     end
 
-    return function()
+    return function(...)
         local value, failure = load(bytes, "@" .. display, "b")
         if failure ~= nil then
             error(failure, 0)
         end
+        if isBody then
+            return value(...)
+        end
+
         return value
     end
 end
