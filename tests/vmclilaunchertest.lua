@@ -822,4 +822,125 @@ function M.aFlippedHostWithNoCoreSeedDoesNotFallBack()
     remove(dir)
 end
 
+function M.aFlippedHostRefusesAnotherRuntimeFromTheEnvironment()
+    local dir = flippedTree()
+    os.execute(
+        ("cd '%s' && sh scripts/core-cli install core/runtime core/compiler.bundle > /dev/null 2>&1"):format(dir)
+    )
+    local out = capture(("cd '%s' && %s NUPP_RUNTIME=vm ./bin/nupp check 2>&1; echo status=$?"):format(dir, ENV))
+    assert(out:find("this host runs on the native core", 1, true), out)
+    assert(out:find("status=1", 1, true), out)
+    assert(not out:find("CORE", 1, true) and not out:find("RAN", 1, true), out)
+    remove(dir)
+end
+
+-- Before the pin, NUPP_RUNTIME=core runs every command on a core compiler
+-- that the VM generation builds (`nupp __core-compiler`). Here the VM
+-- generation's runtime writes a stand-in core compiler, named by how many it
+-- has written, and the bridge stand-in beside it.
+local OPTED_GENERATION = [=[
+import hashlib, os, shutil
+HERE = os.path.dirname(os.path.abspath(__file__))
+def generation(packages, label):
+    digest = hashlib.sha256(label.encode()).hexdigest()
+    package = os.path.join(packages, digest)
+    os.makedirs(package, exist_ok=True)
+    with open(os.path.join(package, "format"), "w") as f:
+        f.write("nupp-vm-cli-1\n")
+    with open(os.path.join(package, "compiler.image"), "w") as f:
+        f.write(label + "\n")
+    runtime = os.path.join(package, "runtime")
+    shutil.copy(os.path.join(HERE, "vm-runtime.sh"), runtime)
+    os.chmod(runtime, 0o755)
+    pending = os.path.join(packages, ".current-new")
+    with open(pending, "w") as f:
+        f.write(digest + "\n")
+    os.replace(pending, os.path.join(packages, "current"))
+]=]
+
+local OPTED_VM_RUNTIME = [=[#!/bin/sh
+if [ "$4" = __core-compiler ]; then
+    root=$(cd "$(dirname "$0")/../../.." && pwd)
+    echo "corebuild $NUPP_RUNTIME $(cat "$2")" >> "$root/corebuilds.log"
+    count=$(wc -l < "$root/corebuilds.log" | tr -d ' ')
+    mkdir -p "$5"
+    { printf 'NUPPCORE'; head -c 64 /dev/zero; printf 'cg%02d' "$count"; } > "$5/compiler.bundle"
+    cp "$root/core/runtime" "$5/runtime"
+    exit 0
+fi
+printf "RAN %s %s\n" "$(cat "$2")" "$4"
+]=]
+
+local function optedTree()
+    local dir, plant = plantedTree()
+    plant("scripts/generation.py", OPTED_GENERATION)
+    plant("scripts/vm-runtime.sh", OPTED_VM_RUNTIME)
+    assert(
+        os.execute(
+            (
+                "cd '%s' && python3 -c 'import sys; sys.path.insert(0, \"scripts\"); "
+                .. "from generation import generation; generation(\".nupp/vm-cli\", \"gen0\")'"
+            ):format(dir)
+        ) == 0
+    )
+    assert(os.execute(("mkdir -p '%s/core'"):format(dir)) == 0)
+    plant("core/runtime", CORE_RUNTIME)
+    assert(os.execute(("chmod 755 '%s/core/runtime'"):format(dir)) == 0)
+    assert(os.execute(("touch -t 202001010000 '%s'/scripts/*"):format(dir)) == 0)
+
+    return dir
+end
+
+local function coreBuilds(dir)
+    local count = 0
+    for _ in (readFile(dir .. "/corebuilds.log") or ""):gmatch("[^\n]+") do
+        count = count + 1
+    end
+
+    return count
+end
+
+function M.anOptedInHostBuildsItsCoreCompilerWithTheVm()
+    local dir = optedTree()
+    local out = ran(dir, "check src", "NUPP_RUNTIME=core")
+    assert(out:find("building one with the VM compiler", 1, true), out)
+    assert(out:find("CORE cg01 check src", 1, true), "the core compiler did not run: " .. out)
+    assert(not out:find("RAN gen0 check", 1, true), "the VM ran the command: " .. out)
+    assert(readFile(dir .. "/corebuilds.log") == "corebuild vm gen0\n", "the VM generation did not build it")
+    local selected = readFile(dir .. "/.nupp/core-cli/current"):match("%x+")
+    local builder = readFile(dir .. "/.nupp/core-cli/" .. selected .. "/builder")
+    assert(builder:match("^vm %x+\n$"), "the generation does not name the compiler that built it: " .. builder)
+    out = ran(dir, "check src", "NUPP_RUNTIME=core")
+    assert(out:find("CORE cg01 check src", 1, true) and coreBuilds(dir) == 1, "a current core compiler was rebuilt")
+    -- Unset, the VM runs the command as it did before the opt-in.
+    assert(ran(dir, "check src"):find("RAN gen0 check", 1, true))
+    remove(dir)
+end
+
+function M.anOptedInEditRebuildsByContentWithACurrentVm()
+    local dir = optedTree()
+    assert(os.execute(("cd '%s' && " .. GIT_ISOLATED .. "git init -q && git add src templates scripts"):format(dir)) == 0)
+    assert(ran(dir, "check", "NUPP_RUNTIME=core"):find("CORE cg01 check", 1, true))
+    -- Newer by time and the same by content: the generation is current.
+    assert(os.execute(("touch '%s/src/compiler.nupp'"):format(dir)) == 0)
+    local out = ran(dir, "check", "NUPP_RUNTIME=core")
+    assert(out:find("CORE cg01 check", 1, true) and coreBuilds(dir) == 1, "a touch rebuilt the core compiler: " .. out)
+    -- An edit rebuilds it, with the VM generation brought current first.
+    edit(dir)
+    out = ran(dir, "check", "NUPP_RUNTIME=core")
+    assert(out:find("rebuilding the core compiler", 1, true), out)
+    assert(out:find("CORE cg02 check", 1, true), "the rebuilt core compiler did not run: " .. out)
+    assert(builds(dir) == 1, "the VM generation that built it was not brought current first")
+    assert(readFile(dir .. "/corebuilds.log"):find("corebuild vm gen1\n", 1, true), "the stale VM built it")
+    remove(dir)
+end
+
+function M.anUnknownRuntimeIsRefused()
+    local dir = plantedTree()
+    local out = capture(("cd '%s' && %s NUPP_RUNTIME=luajit ./bin/nupp check 2>&1; echo status=$?"):format(dir, ENV))
+    assert(out:find("NUPP_RUNTIME is vm or core", 1, true), out)
+    assert(out:find("status=1", 1, true) and not out:find("RAN", 1, true), out)
+    remove(dir)
+end
+
 return M

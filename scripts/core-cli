@@ -1,25 +1,35 @@
 #!/bin/sh
 # The launcher bin/nupp hands every command to on a host the pins flip to the
-# native core (`scripts/stage0-runtime`): the compiler runs on the core through
-# the C bridge, never on the Rust VM, and nothing here falls back to it.
+# native core (`scripts/stage0-runtime`), or anywhere under NUPP_RUNTIME=core:
+# the compiler runs on the core through the C bridge, never on the Rust VM.
 #
 #   scripts/core-cli run ARGUMENT...           run the installed core compiler
 #   scripts/core-cli build                     rebuild it from these sources
 #   scripts/core-cli install RUNTIME COMPILER  install a pair and select it
+#   scripts/core-cli current                   exit 0 when it is current
 #
 # The installed compiler is `.nupp/core-cli/current`, which names a generation
 # directory by its digest: the bridge (`runtime`), the compiler
-# (`compiler.bundle`), the libraries it loads relative to itself (`lib`) and
-# `format`. A checkout with none builds one from these
-# sources with the pinned core seed (`scripts/toolchain stage0-seed`); one whose
-# compiler sources changed since rebuilds with the compiler it has. Both build
-# through scripts/core-self-build. A rebuild that fails leaves the previous
-# generation selected and says so; with no generation at all, the command fails.
+# (`compiler.bundle`), the libraries it loads relative to itself (`lib`),
+# `format`, and what it was built from -- the digest of its sources (`source`)
+# and the compiler that built it (`builder`). Both are in the digest beside the
+# files themselves, so one compiler's work is never taken for another's.
+#
+# A checkout with none builds one from these sources. On a flipped host the
+# pinned core seed builds it (`scripts/toolchain stage0-seed`), and the
+# installed core compiler rebuilds it when the sources change. Before the pin,
+# under NUPP_RUNTIME=core, the VM compiler bin/nupp runs builds it and rebuilds
+# it (`nupp __core-compiler`): the VM is the bootstrap step and nothing else.
+# Either way the build goes through scripts/core-self-build or that command.
+# A rebuild that fails leaves the previous generation selected and says so;
+# with no generation at all, the command fails.
 set -eu
 ROOT=$(CDPATH= cd -- "$(dirname "$0")/.." && pwd)
 CLI="$ROOT/.nupp/core-cli"
 FORMAT=nupp-core-cli-1
 LOCK="$CLI/build.lock"
+# What a core compiler is built from, beside the compiler that builds it.
+SOURCES='src templates native/core-bridge nupp.lua scripts/core-self-build'
 
 note() { printf 'nupp: %s\n' "$*" >&2; }
 die() {
@@ -29,9 +39,28 @@ die() {
 
 if command -v shasum >/dev/null 2>&1; then
     digest_stdin() { shasum -a 256 | cut -d' ' -f1; }
+    digest_files() { xargs -0 shasum -a 256; }
 else
     digest_stdin() { sha256sum | cut -d' ' -f1; }
+    digest_files() { xargs -0 sha256sum; }
 fi
+
+# Whether this host runs on the core because the pins say so, rather than
+# because NUPP_RUNTIME asked for it.
+flipped() {
+    [ "$(sh "$ROOT/scripts/stage0-runtime")" = core ]
+}
+
+# The digest of the sources a core compiler is built from, as they are now:
+# every file git tracks or would track under SOURCES, by name and content.
+# Nothing outside a git checkout, which then is never current by content.
+source_fingerprint() {
+    git -C "$ROOT" rev-parse --git-dir > /dev/null 2>&1 || return 0
+    # A tracked file deleted in the work tree is named with no digest.
+    # shellcheck disable=SC2086 # the sources are a list of paths
+    (cd "$ROOT" && git ls-files --cached --others --exclude-standard -- $SOURCES | LC_ALL=C sort -u \
+        | tr '\n' '\0' | digest_files 2>&1) | digest_stdin
+}
 
 # The generation `current` selects; fails when there is none.
 selected() {
@@ -45,9 +74,10 @@ selected() {
 }
 
 # Installs RUNTIME and COMPILER as a generation and selects it, with the
-# libraries the compiler loads relative to itself (`lib` beside it).
+# libraries the compiler loads relative to itself (`lib` beside it). SOURCE and
+# BUILDER say what it was built from; a pair installed by hand says neither.
 install_pair() {
-    runtime=$1 compiler=$2
+    runtime=$1 compiler=$2 source=${3:-} builder=${4:-}
     libraries=$(dirname "$compiler")/lib
     "$runtime" 2>&1 | grep -q '^nupp-core: usage: nupp-core BUNDLE INPUT OUTPUT' \
         || die "$runtime is not the core's C bridge"
@@ -61,6 +91,7 @@ install_pair() {
                 [ -f "$library" ] && digest_stdin < "$library"
             done
         fi
+        printf 'source %s\nbuilder %s\n' "$source" "$builder"
     } | digest_stdin)
     destination="$CLI/$key"
     if [ ! -d "$destination" ]; then
@@ -71,6 +102,8 @@ install_pair() {
         chmod 755 "$staged/runtime"
         cp "$compiler" "$staged/compiler.bundle"
         [ ! -d "$libraries" ] || cp -RP "$libraries" "$staged/lib"
+        printf '%s\n' "$source" > "$staged/source"
+        printf '%s\n' "$builder" > "$staged/builder"
         printf '%s\n' "$FORMAT" > "$staged/format"
         mv "$staged" "$destination" 2>/dev/null || rm -rf "$staged"
     fi
@@ -81,8 +114,53 @@ install_pair() {
 
 # Whether any file the core compiler is built from is newer than `$1`.
 sources_newer_than() {
-    [ -n "$(find "$ROOT/src" "$ROOT/templates" "$ROOT/native/core-bridge" "$ROOT/nupp.lua" \
-        "$ROOT/scripts/core-self-build" -type f ! -name '.DS_Store' -newer "$1" 2>/dev/null | head -n 1)" ]
+    # shellcheck disable=SC2086 # the sources are a list of paths
+    [ -n "$(cd "$ROOT" && find $SOURCES -type f ! -name '.DS_Store' -newer "$1" 2>/dev/null | head -n 1)" ]
+}
+
+# Whether the selected generation `$1` was built from the sources as they are
+# now. Asked once the times say stale: a fresh worktree seeded with a
+# generation has every file newer than its stamp. A match moves the stamp to
+# the moment before the sources were read, so the next command does not ask.
+content_current() {
+    recorded=$(cat "$1/source" 2>/dev/null) || return 1
+    [ -n "$recorded" ] || return 1
+    : > "$CLI/.stamp.$$"
+    if [ "$(source_fingerprint)" = "$recorded" ]; then
+        mv -f "$CLI/.stamp.$$" "$CLI/stamp"
+        return 0
+    fi
+    rm -f "$CLI/.stamp.$$"
+    return 1
+}
+
+# Whether the selected generation `$1` is current: by time when nothing is
+# newer than its stamp, and otherwise by content. A pair installed by hand,
+# with no stamp and no record of its sources, says nothing to compare, and is
+# run as it is.
+generation_current() {
+    if [ -f "$CLI/stamp" ] && ! sources_newer_than "$CLI/stamp"; then
+        return 0
+    fi
+    if [ ! -f "$CLI/stamp" ] && [ -z "$(cat "$1/source" 2>/dev/null)" ]; then
+        return 0
+    fi
+    content_current "$1"
+}
+
+# A rebuild of these very sources already failed: `failed` carries the time
+# that rebuild started, so an edit made while it ran is newer.
+failed_unchanged() {
+    [ -f "$CLI/failed" ] && ! sources_newer_than "$CLI/failed"
+}
+
+# Installs what a build wrote to `$1` from the sources `$2` by the compiler
+# `$3`: its own runtime when it emits one, and otherwise the bridge built from
+# these sources.
+install_built() {
+    built="$1/runtime"
+    [ -f "$built" ] || built="$(sh "$ROOT/scripts/core-bridge" | tail -n 1)/nupp-core"
+    install_pair "$built" "$1/compiler.bundle" "$2" "$3" > /dev/null
 }
 
 # Builds these sources with the core compiler RUNTIME COMPILER and installs
@@ -94,19 +172,56 @@ build_with() {
     output="$CLI/.build.$$"
     rm -rf "$output"
     : > "$CLI/.started.$$"
+    source=$(source_fingerprint)
+    builder="core $(cat "$runtime" "$compiler" | digest_stdin)"
     if ! sh "$ROOT/scripts/core-self-build" core "$runtime" "$compiler" "$output" > "$CLI/build.log" 2>&1; then
         mv -f "$CLI/.started.$$" "$CLI/failed"
         rm -rf "$output"
         return 1
     fi
-    # The build's own runtime when it emits one, and otherwise the bridge
-    # built from these sources.
-    built="$output/runtime"
-    [ -f "$built" ] || built="$(sh "$ROOT/scripts/core-bridge" | tail -n 1)/nupp-core"
-    install_pair "$built" "$output/compiler.bundle" > /dev/null
+    install_built "$output" "$source" "$builder"
     mv -f "$CLI/.started.$$" "$CLI/stamp"
     rm -f "$CLI/failed"
     rm -rf "$output"
+}
+
+# The VM compiler bin/nupp runs before the pin, by what names it: the image
+# NUPP_VM_CLI_IMAGE selects, or the generation `.nupp/vm-cli` installs.
+vm_builder() {
+    if [ -n "${NUPP_VM_CLI_IMAGE:-}" ] && [ -f "$NUPP_VM_CLI_IMAGE" ]; then
+        printf 'vm-image %s\n' "$(digest_stdin < "$NUPP_VM_CLI_IMAGE")"
+    else
+        printf 'vm %s\n' "$(cat "$ROOT/.nupp/vm-cli/current" 2>/dev/null)"
+    fi
+}
+
+# Builds these sources with the VM compiler bin/nupp runs, which brings itself
+# current first, and installs what it built, as build_with does.
+build_with_vm() {
+    mkdir -p "$CLI"
+    output="$CLI/.build.$$"
+    rm -rf "$output"
+    : > "$CLI/.started.$$"
+    source=$(source_fingerprint)
+    if ! NUPP_RUNTIME=vm sh "$ROOT/bin/nupp" __core-compiler "$output" > "$CLI/build.log" 2>&1; then
+        mv -f "$CLI/.started.$$" "$CLI/failed"
+        rm -rf "$output"
+        return 1
+    fi
+    install_built "$output" "$source" "$(vm_builder)"
+    mv -f "$CLI/.started.$$" "$CLI/stamp"
+    rm -f "$CLI/failed"
+    rm -rf "$output"
+}
+
+# Rebuilds with what this host builds with: the selected core compiler `$1`
+# on a flipped host, and the VM before the pin.
+rebuild() {
+    if flipped; then
+        build_with "$1/runtime" "$1/compiler.bundle"
+    else
+        build_with_vm
+    fi
 }
 
 # One build at a time per checkout, under a lock directory its builder claims
@@ -131,6 +246,25 @@ unlock() {
     trap - EXIT INT TERM
 }
 
+# Builds the first generation: from the pinned core seed on a flipped host,
+# and from the VM compiler before the pin.
+bootstrap() {
+    if flipped; then
+        note "no core compiler in this checkout; building one from the pinned core seed"
+        seed=$(sh "$ROOT/scripts/toolchain" stage0-seed) || die "the pinned core seed is unavailable"
+        if ! build_with "$seed/runtime" "$seed/compiler.bundle"; then
+            tail -n 20 "$CLI/build.log" | sed 's/^/  /' >&2
+            die "the core compiler did not build from the pinned seed (see $CLI/build.log)"
+        fi
+    else
+        note "no core compiler in this checkout; building one with the VM compiler"
+        if ! build_with_vm; then
+            tail -n 20 "$CLI/build.log" | sed 's/^/  /' >&2
+            die "the core compiler did not build with the VM compiler (see $CLI/build.log)"
+        fi
+    fi
+}
+
 # The generation to run, built first when there is none and rebuilt when the
 # sources changed since it was.
 current() {
@@ -139,23 +273,21 @@ current() {
         lock
         package=$(selected) || package=
         if [ -z "$package" ]; then
-            note "no core compiler in this checkout; building one from the pinned core seed"
-            seed=$(sh "$ROOT/scripts/toolchain" stage0-seed) || die "the pinned core seed is unavailable"
-            if ! build_with "$seed/runtime" "$seed/compiler.bundle"; then
-                tail -n 20 "$CLI/build.log" | sed 's/^/  /' >&2
-                die "the core compiler did not build from the pinned seed (see $CLI/build.log)"
-            fi
+            bootstrap
             package=$(selected)
         fi
         unlock
-    elif [ "${1:-}" = rebuild ] && [ -f "$CLI/stamp" ] && sources_newer_than "$CLI/stamp" \
-        && ! { [ -f "$CLI/failed" ] && ! sources_newer_than "$CLI/failed"; }; then
+    elif [ "${1:-}" = rebuild ] && ! generation_current "$package" && ! failed_unchanged; then
         lock
-        note "compiler sources changed, rebuilding the core compiler"
-        if ! build_with "$package/runtime" "$package/compiler.bundle"; then
-            note "the core compiler did not build; running the last one that did (see $CLI/build.log)"
-        fi
+        # The build this command waited for may have been of these same sources.
         package=$(selected)
+        if ! generation_current "$package"; then
+            note "compiler sources changed, rebuilding the core compiler"
+            if ! rebuild "$package"; then
+                note "the core compiler did not build; running the last one that did (see $CLI/build.log)"
+            fi
+            package=$(selected)
+        fi
         unlock
     fi
     printf '%s\n' "$package"
@@ -180,20 +312,25 @@ case "${1:-}" in
         NUPP_COMPILER_ROOT=${NUPP_COMPILER_ROOT:-"$ROOT"}
         NUPP_CORE_RUNTIME="$package/runtime"
         NUPP_CORE_COMPILER="$package/compiler.bundle"
-        export NUPP_COMPILER_ROOT NUPP_CORE_RUNTIME NUPP_CORE_COMPILER
+        # A child bin/nupp the compiler starts runs on the core too.
+        NUPP_RUNTIME=core
+        export NUPP_COMPILER_ROOT NUPP_CORE_RUNTIME NUPP_CORE_COMPILER NUPP_RUNTIME
         exec "$NUPP_CORE_RUNTIME" "$NUPP_CORE_COMPILER" /dev/null /dev/null "$@"
         ;;
     build)
         package=$(selected) || die "no core compiler is installed to rebuild with"
         lock
-        build_with "$package/runtime" "$package/compiler.bundle" \
-            || die "the core compiler did not build (see $CLI/build.log)"
+        rebuild "$package" || die "the core compiler did not build (see $CLI/build.log)"
         unlock
         selected
+        ;;
+    current)
+        package=$(selected) || exit 1
+        generation_current "$package"
         ;;
     install)
         [ "$#" -eq 3 ] || die "usage: scripts/core-cli install RUNTIME COMPILER"
         install_pair "$2" "$3"
         ;;
-    *) die "usage: scripts/core-cli run ARGUMENT... | build | install RUNTIME COMPILER" ;;
+    *) die "usage: scripts/core-cli run ARGUMENT... | build | current | install RUNTIME COMPILER" ;;
 esac

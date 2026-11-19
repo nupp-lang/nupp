@@ -38,13 +38,35 @@ fi
 # scripts/core-cli, and nothing below -- the VM compiler, its rebuild, its
 # bootstrap from the VM seed -- is reached. There is no fallback to it, so a
 # VM compiler selected by the environment is refused rather than run.
+#
+# Before the pin, NUPP_RUNTIME=core asks for the same anywhere the core runs,
+# and the VM compiler below is then only what builds the core one
+# (scripts/core-cli runs it as NUPP_RUNTIME=vm). Unset, or `vm`, it is the VM.
 if [ "$(sh "$ROOT/scripts/stage0-runtime")" = core ]; then
     if [ -n "${NUPP_VM_CLI_IMAGE:-}" ]; then
         echo "nupp: NUPP_VM_CLI_IMAGE selects a VM compiler, and this host runs on the native core" >&2
         exit 1
     fi
+    if [ "${NUPP_RUNTIME:-core}" != core ]; then
+        echo "nupp: NUPP_RUNTIME=$NUPP_RUNTIME selects another runtime, and this host runs on the native core" >&2
+        exit 1
+    fi
     exec sh "$ROOT/scripts/core-cli" run "$@"
 fi
+case "${NUPP_RUNTIME:-vm}" in
+    vm) ;;
+    core)
+        if [ "$(sh "$ROOT/scripts/stage0-runtime" --host)" = unsupported ]; then
+            echo "nupp: NUPP_RUNTIME=core asks for the native core, which does not run on this host" >&2
+            exit 1
+        fi
+        exec sh "$ROOT/scripts/core-cli" run "$@"
+        ;;
+    *)
+        echo "nupp: NUPP_RUNTIME is vm or core, not $NUPP_RUNTIME" >&2
+        exit 1
+        ;;
+esac
 
 # A verified local VM package is an installed compiler snapshot. Publish a new
 # snapshot with scripts/vm-cli install; source edits do not rebuild its workers.
@@ -234,8 +256,12 @@ vm_cli_rebuild() {
 
 if [ -z "${NUPP_VM_CLI_IMAGE:-}" ] && [ -e "$VM_CLI/current" ] \
     && [ "${NUPP_VM_AUTO_REBUILD:-1}" != 0 ]; then
+    # `__core-compiler` is asked too: what it builds is the core compiler
+    # scripts/core-cli installs, which is only as current as what built it.
     case "${1:-}" in
-        ""|-h|--help|help|__*) ;;
+        ""|-h|--help|help) ;;
+        __core-compiler) vm_cli_is_current || vm_cli_content_current || vm_cli_rebuild ;;
+        __*) ;;
         *) vm_cli_is_current || vm_cli_content_current || vm_cli_rebuild ;;
     esac
 fi
