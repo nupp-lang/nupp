@@ -1591,6 +1591,9 @@ end
 -- Whether a call's last argument spreads a pack: `...`, or a call whose
 -- results it takes all of, pcall's and xpcall's among them.
 export function spreadsLast(call: any): boolean
+    if call and call.trailingCallableCall then
+        return false
+    end
     local last = lastArgument(call)
     local library = last ~= nil and last.kind == "call" and coreLibraryCall(last) or nil
 

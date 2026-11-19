@@ -541,6 +541,12 @@ local ScopeMT: any = {__index = ScopeMethods}
 local rootscopes: {any} = {}
 
 local function open(limit: integer?, timeoutms: number?): any
+    if limit ~= nil and (limit < 1 or limit == math.huge or limit ~= math.floor(limit)) then
+        error("nupp: a task scope limit must be a positive integer", 2)
+    end
+    if timeoutms ~= nil and (timeoutms ~= timeoutms or timeoutms < 0 or timeoutms == math.huge) then
+        error("nupp: a task scope timeout must be a finite non-negative number", 2)
+    end
     local owner = current()
     local deadline: number? = nil
     if timeoutms ~= nil then
@@ -625,19 +631,15 @@ local function start(scope: any, name: any, body: any, arguments: any): any
     return thread
 end
 
--- scope:spawn(arguments..., f): `f` last, called with the arguments.
-ScopeMethods.spawn = function(scope: any, ...: any): any
-    local count = select("#", ...)
-    local arguments = {...}
-    local body = arguments[count]
-    arguments[count] = nil
-    arguments[0] = count - 1
+-- Passing the body first matches the method's declared signature.
+ScopeMethods.spawn = function(scope: any, body: any, ...: any): any
+    local arguments: any = {...}
+    arguments[0] = select("#", ...)
 
     return start(scope, "task", body, arguments)
 end
 
--- scope:spawn(name, f): a named body taking no arguments.
-ScopeMethods._spawnNamed = function(scope: any, name: string, body: any): any
+ScopeMethods._spawnNamed = function(scope: any, body: any, name: string): any
     return start(scope, name, body, {[0] = 0})
 end
 

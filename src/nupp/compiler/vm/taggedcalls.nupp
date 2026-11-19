@@ -978,7 +978,7 @@ export function invokeMethod(
     end
     -- A `...` last spreads its whole pack after the other arguments.
     local arguments = node.args.exprs or {}
-    local spreads = #arguments > 0 and arguments[#arguments].kind == "vararg"
+    local spreads = not node.trailingCallableCall and #arguments > 0 and arguments[#arguments].kind == "vararg"
     local expands = not spreads and graph.spreadsLast(node)
     need(not expands or prepared == nil, "prepared indexed operands cannot spread")
     local exprs, kinds = {node.obj}, {"tagged"}
@@ -1072,6 +1072,15 @@ export function invokeMethod(
         if args == nil then
             return nil
         end
+    end
+    -- All operands have been evaluated in source order. The selected
+    -- method receives the callable before the rest of its explicit arguments.
+    if node.trailingCallableCall then
+        local body = args[#args]
+        for index = #args, 3, -1 do
+            args[index] = args[index - 1]
+        end
+        args[2] = body
     end
     -- Parameters the call leaves off are nil, as Lua passes them; the
     -- method's function type leaves out its receiver. A dynamic call's
