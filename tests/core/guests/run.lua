@@ -846,6 +846,7 @@ local NUMERIC = {
     moduleslazy = "catalog-modules-main",
     modulesnamed = "catalog-modules-named",
     modulesrecords = "catalog-modules-records",
+    modulesqualified = "catalog-modules-qualified",
     modulescycle = "catalog-modules-cycle",
     pluckedarguments = "catalog-plucked-arguments",
     ownmanage = "catalog-own-manage",
