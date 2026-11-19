@@ -1452,6 +1452,38 @@ export function forVersion(version: integer): any
             ctx.release(func)
             ctx.release(held)
         end
+
+        -- A nil receiver skips both the lookup and its arguments.
+        local function safeReceiverResults(ctx: any, node: any, count: integer): {integer}?
+            local receiver = ctx.expression(node.obj, "tagged")
+            if receiver == nil then
+                return nil
+            end
+            local held = ctx.hold(receiver)
+            local results = {}
+            for index = 1, count do
+                results[index] = ctx.hold(ctx.emit(node, "Nil", {}, "tagged"))
+            end
+            local absent = profile.isNil(ctx, node, ctx.readHeld(held))
+            local present = ctx.emit(node, "Not", {absent}, "tagged")
+            ctx.when(node, present, function(c: any): nil
+                local returned = invokeMethod(c, node, true, count, nil, nil, held)
+                if returned ~= nil then
+                    for index, handle in ipairs(results) do
+                        c.write(handle, returned[index])
+                    end
+                end
+            end)
+            ctx.release(held)
+            local values = {}
+            for index, handle in ipairs(results) do
+                values[index] = ctx.readHeld(handle)
+                ctx.release(handle)
+            end
+
+            return values
+        end
+
         -- `count` results of a call, for `local a, b = f()` and its kin.
         profile.callResults = function(ctx: any, node: any, count: integer): {integer}?
             if scalarwitness(ctx, node) then
@@ -1479,6 +1511,9 @@ export function forVersion(version: integer): any
             end
             local site = catalog(ctx).callByNode[node]
             if node.kind == "methodCall" and site and site.method then
+                if node.safeObj and not node.safeMethod then
+                    return safeReceiverResults(ctx, node, count)
+                end
                 return invokeMethod(ctx, node, true, count)
             end
             if graph.coreLibraryCall(node) == "pcall" or graph.coreLibraryCall(node) == "xpcall" then
@@ -1520,6 +1555,11 @@ export function forVersion(version: integer): any
                 edges = {},
                 pos = ctx.position(at or node)
             }
+            ctx.block = nil
+        end
+
+        profile.returnValues = function(ctx: any, node: any, values: {integer}): nil
+            ctx.block.term = {kind = "return", value = values[1], values = values, edges = {}, pos = ctx.position(node)}
             ctx.block = nil
         end
 
@@ -1664,8 +1704,7 @@ export function forVersion(version: integer): any
                 values[index] = ctx.readHeld(handle)
                 ctx.release(handle)
             end
-            ctx.block.term = {kind = "return", value = values[1], values = values, edges = {}, pos = ctx.position(stat)}
-            ctx.block = nil
+            profile.returnValues(ctx, stat, values)
         end
         profile.fallthrough = function(ctx: any, node: any): nil
             if not ctx.exports and taggedcalls.emptyreturn(ctx.fn.signature, version >= 8) then
@@ -2030,6 +2069,10 @@ export function forVersion(version: integer): any
             need(expected == nil or expected == "tagged", "method call requires tagged destination")
             local site = catalog(ctx).callByNode[node]
             if site and site.method then
+                if node.safeObj and not node.safeMethod then
+                    local results = safeReceiverResults(ctx, node, 1)
+                    return results and results[1]
+                end
                 return invokeMethod(ctx, node, true)
             end
             local library = graph.coreLibraryCall(node)

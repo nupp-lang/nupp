@@ -44,10 +44,12 @@ export function localOwner(stat: any, index: integer): any
         return nil
     end
     local token = stat.names[index]
+    local exprs = stat.exprs or {}
+    local initializer = exprs[index] or exprs[#exprs]
     need(
         owner.stat == stat
         and owner.index == index
-        and owner.expr == (stat.exprs or {})[index]
+        and owner.expr == initializer
         and owner.token == token
         and owner.entry
         and owner.entry.definition == token.definition
@@ -55,7 +57,10 @@ export function localOwner(stat: any, index: integer): any
         and owner.type == owner.entry.t,
         "local owner does not match its checked binding"
     )
-    need(not owner.correlated and not owner.guards, "conditional local owner cleanup is unsupported")
+    need(
+        not owner.conditional and not owner.correlated and not owner.guards,
+        "conditional local owner cleanup is unsupported"
+    )
     local t = need(affine(owner.type), "local owner requires an affine type")
     need(owner.cleanups == t.cleanups, "local owner cleanup chain changed")
 
@@ -68,8 +73,12 @@ export function move(move: any): any
 end
 
 export function source(node: any): any
-    while node and (node.kind == "paren" or node.kind == "castExpr") do
-        node = node.expr
+    while node
+        and (
+            node.kind == "paren" or node.kind == "castExpr" or node.kind == "orExitExpr" and not node.orExitProtected
+        ) do
+        node = node.kind == "orExitExpr" and node.operand or node.expr
     end
+
     return node
 end

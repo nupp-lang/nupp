@@ -17,6 +17,7 @@ local construction = require("nupp.compiler.vm.construction")
 local function freshOwner(node: any): boolean
     return (
         node.kind == "call" and not construction.bare(node)
+        or node.kind == "orExitExpr" and node.orExitProtected
         or node.kind == "funcExpr" and #(node.body.takenCaptures or {}) > 0
     )
         and cleanup.affine(node.inferredType) ~= nil
@@ -300,6 +301,7 @@ local function compileOwner(fn: any, options: any, profile: any, site: any): any
     local currentEdge: function(any): any
     local expression: function(any, string?): integer?
     local statements: function(any): nil
+    local exitSuffix: function(any, string?): integer?
     local declareRecord: function(any, boolean?): nil
     -- The cells the module's hoisted exports were bound to as it started.
     local hoistedCells: {[any]: integer} = {}
@@ -384,6 +386,8 @@ local function compileOwner(fn: any, options: any, profile: any, site: any): any
             return invoke("call", node, expected)
         elseif node.kind == "methodCall" and profile.methodCall then
             return invoke("methodCall", node, expected)
+        elseif node.kind == "orExitExpr" and profile.returnValues then
+            return exitSuffix(node, expected)
         elseif node.kind == "switchExpr" then
             need(profile.switchCase, "numeric switch profile required")
             need(node.elseCase and #node.cases > 0, "numeric switch requires an else arm")
@@ -1169,7 +1173,7 @@ local function compileOwner(fn: any, options: any, profile: any, site: any): any
         end
     end
 
-    local function cleanupReturn(node: any, falling: boolean): nil
+    local function cleanupReturn(node: any, falling: boolean, staged: any?, owners: any?): nil
         -- A handler returns only by transfer (dispatch, failure or a support
         -- tail), never a staged value, and its scope belongs to the entry.
         if g.native and g.native.abi == "handler" then
@@ -1180,7 +1184,7 @@ local function compileOwner(fn: any, options: any, profile: any, site: any): any
         -- The profile stages zero/one result and roots it before any terminal
         -- can allocate. SSA retention alone is deliberately not a GC proof.
         context()
-        local stage = profile.stageReturn(ctx, node, falling)
+        local stage = staged or profile.stageReturn(ctx, node, falling)
         block = ctx.block
         if not block then
             return
@@ -1209,7 +1213,11 @@ local function compileOwner(fn: any, options: any, profile: any, site: any): any
         ctx.bind(rootEntry.live, flag(node, true))
         returnRoots[#returnRoots + 1] = rootEntry
         local retained = {}
-        if not falling then
+        if owners then
+            for _, owner in ipairs(owners) do
+                retained[need(cleanupOwners[owner], "returned owner lacks cleanup")] = true
+            end
+        elseif not falling then
             for _, value in ipairs(node.exprs or {}) do
                 local owner = expressionOwner(value)
                 if owner then
@@ -1247,6 +1255,100 @@ local function compileOwner(fn: any, options: any, profile: any, site: any): any
         need(returnRoots[#returnRoots] == rootEntry, "return root scopes must be nested")
         returnRoots[#returnRoots] = nil
         removeBinding(rootEntry.live)
+    end
+
+    local function loopTransfer(node: any, exit: string): nil
+        local loop = need(loops[#loops], "loop transfer outside a checked loop")
+        -- A goto ends only the current iteration, at the enclosing loop's label.
+        need(
+            exit ~= "gotoStmt" or node.name ~= nil and loop.label == node.name.text,
+            "goto is admitted only to a label ending its enclosing loop's body"
+        )
+        local target = exit == "breakStmt" and loop.exit or loop.continueTo
+        need(target ~= nil, "continue in repeat is unsupported")
+        if cleanupEnabled then
+            unwind(loop.cleanupDepth, node, exit)
+            local success = profile.cleanupStatus(ctx, node)
+            ctx.afterCall(node, nil, success)
+        end
+        jump(target, node)
+    end
+
+    exitSuffix = function(node: any, expected: string?): integer?
+        local kind = profile.booleanKind
+        need(expected == nil or expected == kind, "exit suffix changes exact result kind")
+        local operand = node.operand
+        local protected = node.orExitProtected == true
+        local width: integer = protected and 2 or node.exitKind == "return" and node.orExitWidth or 1
+        local spread = width > 1
+            and (operand.kind == "call" or operand.kind == "methodCall")
+            and not construction.bare(operand)
+        local values: any
+        if spread then
+            values = invoke("callResults", operand, width)
+            if block and cleanupEnabled and freshOwner(operand) then
+                registerCleanup(
+                    operand,
+                    operand.statementOwner or operand,
+                    cleanup.affine(operand.inferredType),
+                    values[1]
+                )
+            end
+        else
+            local first = expression(operand, kind)
+            if first ~= nil then
+                values = {first}
+                for index = 2, width do
+                    values[index] = invoke("missingLocal", node, kind)
+                end
+            end
+        end
+        if block == nil then
+            return nil
+        end
+
+        local held = {}
+        for index, value in ipairs(values) do
+            held[index] = ctx.hold(value)
+        end
+        local yes, no = branch(), branch()
+        block.term = {kind = "branch", value = values[1], edges = {yes.edge, no.edge}, pos = position(node)}
+        resume(no)
+        if node.exitKind == "return" then
+            local results = {}
+            for index, handle in ipairs(held) do
+                results[index] = ctx.readHeld(handle)
+            end
+            if protected then
+                results[1] = invoke("missingLocal", node, kind)
+            end
+            if cleanupEnabled then
+                local depth = #cleanups
+                local owner = not protected and expressionOwner(operand) or nil
+                if protected then
+                    local failure = node.orExitReturnPack.head[2]
+                    local t = cleanup.affine(failure)
+                    if t then
+                        owner = {}
+                        registerCleanup(node, owner, t, results[2])
+                    end
+                end
+                cleanupReturn(node, false, {values = results}, {owner})
+                forgetCleanups(depth)
+            else
+                invoke("returnValues", node, results)
+            end
+        else
+            loopTransfer(node, node.exitKind .. "Stmt")
+        end
+        resume(yes)
+        local result = ctx.readHeld(held[protected and 2 or 1])
+        for index = #held, 1, -1 do
+            ctx.release(held[index])
+        end
+        context()
+
+        return result
     end
 
     -- `spread` is a variadic pack whose values follow the fixed arguments;
@@ -2066,20 +2168,7 @@ local function compileOwner(fn: any, options: any, profile: any, site: any): any
                 -- A label marks a place; only a goto moves control, and only
                 -- to a label ending its loop's body (see gotoStmt).
             elseif stat.kind == "breakStmt" or stat.kind == "continueStmt" or stat.kind == "gotoStmt" then
-                local loop = need(loops[#loops], "loop transfer outside a checked loop")
-                -- `goto continue` to a label that ends the loop's body goes on
-                -- to the loop's next iteration, as `continue` does.
-                need(
-                    stat.kind ~= "gotoStmt" or stat.name ~= nil and loop.label == stat.name.text,
-                    "goto is admitted only to a label ending its enclosing loop's body"
-                )
-                if cleanupEnabled then
-                    unwind(loop.cleanupDepth, stat, stat.kind)
-                    local success = profile.cleanupStatus(ctx, stat)
-                    ctx.afterCall(stat, nil, success)
-                end
-                need(stat.kind == "breakStmt" or loop.continueTo ~= nil, "continue in repeat is unsupported")
-                jump(stat.kind == "breakStmt" and loop.exit or loop.continueTo, stat)
+                loopTransfer(stat, stat.kind)
             elseif stat.kind == "doStmt" then
                 local outer = {}
                 for index, key in ipairs(bindingOrder) do
