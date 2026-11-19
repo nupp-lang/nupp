@@ -85,7 +85,13 @@ static uint64_t after (uint64_t time, uint64_t delay) {
 }
 
 static char *copy_text (const char *value) {
+#ifdef _WIN32
+
+  return value ? _strdup(value) : NULL;
+#else
+
   return value ? strdup(value) : NULL;
+#endif
 }
 
 static int append (Buffer *buffer, const void *bytes, size_t count) {
