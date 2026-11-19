@@ -13,14 +13,22 @@ branch avoozl-plans). Follow AGENTS.md in each repo.
   core. The focused process test also passed after module instances began
   resolving `_G.require` through their own environment. [Issue #136](https://github.com/nupp-lang/nupp/issues/136)
   tracks the remaining shared-lane work.
+- The fresh 202-suite shared run at `4ccef76b3` finished with 2310 passes,
+  506 failures, and zero worker exits. It includes the worker and import
+  fixes. The table-fragment and coroutine fixes landed after it started.
+- The worker, qualified import, ownership, and callable result pack fixes
+  landed through `647e50d23`. The VM fixpoint passed, and the two assertion
+  cases passed on the native core with chunks emitted by that fixpoint.
 - A fresh app from `nupp init app` built on the native core and printed
   `Hello, world!` after moving the launcher and its `.core` directory to a
   new location and running with an empty environment apart from `PATH`.
-  Candidate `510360247` produced this package. The configured test target
-  and full shared lane still need verification.
+  Candidate `510360247` produced this package.
   `wip/core-flip-next` at `344a9f5cd` carries the rebased follow-ups and
   passed both native core entry tests, including empty arguments and
   `io.cli.args`. It lists 202 suites through the normal shared-lane command.
+  A separate project built and executed its configured core binary with
+  `nupp test` and received the forwarded argument. The build did not
+  record a completed test-build cache entry.
   `wip/core-flip-followups` at `60a03b594` also carries the safe sidecar
   publication and callable result pack fixes.
 - `ed3b79f46` landed the fragment return pack fix. `nativetablestest`
@@ -48,10 +56,11 @@ branch avoozl-plans). Follow AGENTS.md in each repo.
   preflight. `clang-tidy` could not see the declaration for `realpath`
   while checking the bridge contract fixture. No macOS guest jobs ran.
   [Nightly 44563866923](https://github.com/nupp-lang/nupp/actions/runs/44563866923).
-  `c95b4febb` sets the bridge's feature macro before any system header in
-  lint builds. The focused Linux lint and the early-header repro passed.
-  [Run 44566087488](https://github.com/nupp-lang/nupp/actions/runs/44566087488)
-  retests the macOS core guests at that commit.
+  The first retry still failed in the bundle-header proof and exposed
+  missing pthread declarations in the TCP lint entries. `035917468`
+  fixes those compile flags and passes the full Linux C lint locally.
+  [Run 44567504364](https://github.com/nupp-lang/nupp/actions/runs/44567504364)
+  retries the macOS core guests at that commit.
 
 ## Where things stand
 
@@ -95,7 +104,7 @@ libuv/curl work.
 
 | Lane | File | State |
 |---|---|---|
-| Core test path (flip blockers) | core-test-path.md | app verified; shared lane and configured test target pending |
+| Core test path (flip blockers) | core-test-path.md | app and test binaries verified; 506 shared failures |
 | Per-module rebuilds + streaming | incremental-emit.md | core reuse verified; cold fixpoint underway |
 | W1 core inventory and failures | w1.md | frozen retirement landed; checked fragments and nightly pending |
 | CI to ARM64 | below | compiler, runner, and native gates passed; HTTP fixture failed |

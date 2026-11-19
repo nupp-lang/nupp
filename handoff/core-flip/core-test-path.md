@@ -11,8 +11,10 @@ The last blockers before `STAGE0_CORE_HOSTS` in `scripts/toolchain.pins` lists m
 - A lowering callback returned nil through an integer-only signature when
   a call ended its block. The worker case
   `graphguestbranchtest/scalarVectorSpecializationKeepsSourceTerminalRefusals`
-  passed after the fix. The current 12-worker shared run includes it and
-  the module import fix. Log: `/Volumes/bigbertha/workspaces/core-shared-after/build/core-flip-shared-after.log`.
+  passed after the fix. The 12-worker shared run at `4ccef76b3` finished with
+  2816 tests, 2310 passes, 506 failures, and zero worker exits. It includes
+  the worker and import fixes, from before the table-fragment and coroutine
+  fixes. Log: `/Volumes/bigbertha/workspaces/core-shared-after/build/core-flip-shared-after.log`.
 - Module instances now resolve `_G.require` through their environment.
   `processtest` reached 53 of 58 passes. The remaining five all call the
   missing `scope` member on the table returned by `require("coroutine")`.
