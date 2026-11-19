@@ -551,6 +551,7 @@ export function describe(modules: {any}, entryModule: string, options: any?): an
         -- the one the library functions as the program started are in.
         environment = options ~= nil and options.environment or nil,
         builtins = options ~= nil and options.builtins or nil,
+        arguments = options ~= nil and options.arguments or nil,
         localRecordFactory = options ~= nil and options.recordFactory or nil,
         -- In a chunk, the library calls through a global, each to what its
         -- guard reads: the call is the core's own while the environment
@@ -928,6 +929,8 @@ export function describe(modules: {any}, entryModule: string, options: any?): an
                     p.chunkEnvironment = b.definition
                 elseif b.definition.name == p.builtins then
                     p.chunkBuiltins = b.definition
+                elseif b.definition.name == p.arguments then
+                    p.chunkArguments = b.definition
                 end
             end
         end

@@ -48,7 +48,7 @@ local function coreProgram(path: string, projectEnv: any): (any, string?)
     if text == nil then
         return nil, "cannot read " .. path .. ": " .. tostring(readErr)
     end
-    local bytes, problem = (corechunk as any).compileProgram(text, path, "@" .. path, CORE_PROGRAM_MODULE)
+    local bytes, problem = (corechunk as any).compileProgram(text, path, "@" .. path, CORE_PROGRAM_MODULE, true)
     if bytes == nil then
         return nil, problem
     end

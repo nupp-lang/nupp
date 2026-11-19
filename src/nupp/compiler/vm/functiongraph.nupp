@@ -88,7 +88,7 @@ local function compileOwner(fn: any, options: any, profile: any, site: any): any
         end
     end
     -- An anonymous `...` has no name; its node keys the hidden pack parameter.
-    local varargKey: any = nil
+    local varargKey: any = moduleOwner and options.program and options.program.chunkArguments or nil
     for index, parameter in ipairs(moduleOwner and {} or graph.parameters(body)) do
         local key = parameter.name and not parameter.vararg and (parameter.name.definition or parameter.name)
             or parameter
