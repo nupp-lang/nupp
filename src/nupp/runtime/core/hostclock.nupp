@@ -34,7 +34,7 @@ end
 cdef function time(borrows out: voidptr): int64
 cdef function clock(): uint64
 cdef function clock_gettime(id: int64, borrows out: voidptr): int32
-cdef function clock_gettime_nsec_np(id: int64): uint64
+cdef function nupp_core_monotonic_nanos(): uint64
 cdef function nanosleep(borrows wanted: voidptr, borrows left: voidptr): int32
 cdef function getpid(): int32
 cdef function gmtime_r(borrows t: voidptr, borrows out: voidptr): voidptr
@@ -47,7 +47,6 @@ cdef function free(borrows block: voidptr)
 
 -- macOS's wall clock, and the monotonic one Rust's Instant reads.
 const CLOCK_REALTIME: int64 = 0
-const CLOCK_UPTIME_RAW: int64 = 8
 -- The nanoseconds of a second, and how far a seed's address is rotated.
 const NANOS: uint64 = 1000000000ULL
 const WORD_BITS: uint64 = 64ULL
@@ -118,7 +117,7 @@ end
 -- A monotonic clock in nanoseconds, from an unspecified origin: the
 -- scheduler's and os.monotonic's.
 export function monotonicNanos(): uint64
-    return clock_gettime_nsec_np(CLOCK_UPTIME_RAW)
+    return nupp_core_monotonic_nanos()
 end
 
 -- Sleeps `nanos` nanoseconds, the rest of them again after a signal: the
@@ -147,10 +146,17 @@ export function randomSeed(): uint64
     @unsafe do
         local block = calloc(1ULL, native.sizeOf<TimeSpec>())
         local address = native.address(block)
+        local now: uint64 = 0ULL
+        if address ~= 0ULL and c.widened(clock_gettime(CLOCK_REALTIME, block)) == 0 then
+            now = native.load64(
+                block,
+                native.fieldOffset<TimeSpec>("seconds")
+            ) * NANOS + native.load64(block, native.fieldOffset<TimeSpec>("nanos"))
+        end
         free(block)
         local mixed = (address << ROTATION) | (address >> (WORD_BITS - ROTATION))
 
-        return clock_gettime_nsec_np(CLOCK_REALTIME) ~ mixed ~ native.word(c.widened(getpid()))
+        return now ~ mixed ~ native.word(c.widened(getpid()))
     end
 end
 

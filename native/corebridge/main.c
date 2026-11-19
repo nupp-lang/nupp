@@ -32,6 +32,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <sys/stat.h>
+#include <time.h>
 
 #ifdef _WIN32
 #include <uv.h>
@@ -165,6 +166,33 @@ __declspec(dllexport)
 const char *nupp_core_argument_at (uint64_t index) {
   return index < processargumentcount ? processarguments[index] : NULL;
 }
+
+/** The error number left by the calling thread's last failed C call. */
+#ifdef _WIN32
+__declspec(dllexport)
+#endif
+int32_t nupp_core_errno (void) {
+  return errno;
+}
+
+#ifndef _WIN32
+
+/** The native monotonic clock in nanoseconds. */
+uint64_t nupp_core_monotonic_nanos (void) {
+#ifdef __APPLE__
+  const clockid_t clock = CLOCK_UPTIME_RAW;
+#else
+  const clockid_t clock = CLOCK_MONOTONIC;
+#endif
+  struct timespec now;
+
+  if (clock_gettime(clock, &now)) {
+    return 0;
+  }
+
+  return (uint64_t)now.tv_sec * UINT64_C(1000000000) + (uint64_t)now.tv_nsec;
+}
+#endif
 
 void nupp_core_retain_guest_backing (void) {
   retain_guest_backing = 1;
