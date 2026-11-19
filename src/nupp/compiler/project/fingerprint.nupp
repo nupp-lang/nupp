@@ -180,6 +180,28 @@ local function vmImageIdentity(): string?
     return unidentified()
 end
 
+--- The identity of the core compiler running, or nil when it cannot say.
+---
+--- The core carries no debug library, so the compiler cannot name its own
+--- bundle the way a module tree names its files. What can is the directory
+--- scripts/core-cli and scripts/toolchain keep it in: a generation or a seed
+--- directory is named by the digest of what it holds and never changes, and
+--- the launcher names the bundle it runs in NUPP_CORE_COMPILER. A bundle kept
+--- anywhere else is unidentified, which costs every store and no answer.
+local function coreBundleIdentity(): string?
+    if rawget(_G, "__nupp_load_image") ~= nil then
+        return nil
+    end
+    local bundle = os.getenv("NUPP_CORE_COMPILER") or ""
+    local kept = bundle:match("/%.nupp/core%-cli/(%x+)/compiler%.bundle$")
+        or bundle:match("/core%-seed/(%x+)/compiler%.bundle$")
+    if kept == nil or #kept ~= 64 then
+        return nil
+    end
+
+    return "core\0" .. kept
+end
+
 local function runtimeParts(root: string, files: {string}, digest: function(string): string): {string}
     local parts = {}
     for _, path in ipairs(files) do
@@ -201,6 +223,12 @@ local function toolFingerprint(contentDigest: (function(string): string)?): stri
     local image = bundled() and vmImageIdentity() or nil
     if image ~= nil then
         toolFingerprintMemo = digest("nupp-vm\0" .. image)
+
+        return toolFingerprintMemo
+    end
+    local core = bundled() and coreBundleIdentity() or nil
+    if core ~= nil then
+        toolFingerprintMemo = digest("nupp-core\0" .. core)
 
         return toolFingerprintMemo
     end
