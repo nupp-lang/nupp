@@ -165,7 +165,8 @@ local function canonicalforward(ctx: any, node: any): boolean
 end
 
 -- A core library call (guestlib): its arguments staged as values.
-export function libraryCall(ctx: any, node: any, id: integer, arguments: any): integer
+-- If an argument ends the block, there is no value.
+export function libraryCall(ctx: any, node: any, id: integer, arguments: any): integer?
     -- gsub with a function replacement calls it, and with a table one may
     -- call its __index, so each is a loop.
     if id == corelibrary.id("STRING_GSUB") or id == corelibrary.id("STRING_GSUB_ALL") then
@@ -201,7 +202,7 @@ export function libraryCall(ctx: any, node: any, id: integer, arguments: any): i
     end
     local operands = ctx.operands(arguments, kinds)
     if operands == nil then
-        return nil as any
+        return nil
     end
     -- A call in method form (`s:rep(n)`) says so, so its errors count
     -- arguments from the one after self, as Lua's do.
