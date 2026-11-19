@@ -142,11 +142,12 @@ end
 
 function M.anOmittedAuthorityUsesThePlatformTrustStore()
     local source = require("helpers.paths").root
+    local runner = rawget(_G, "__NUPP_TEST_RUNNER_COMMAND") or ("%q"):format(source .. "/build/nupp-test")
     local command = (
         "cd %q && NUPP_TLS_SYSTEM_ROOTS_CHILD=1 "
-        .. "SSL_CERT_FILE=%q SSL_CERT_DIR= %q tlstest --jobs=1 --no-color 2>&1; "
+        .. "SSL_CERT_FILE=%q SSL_CERT_DIR= %s tlstest --jobs=1 --no-color 2>&1; "
         .. "echo '__exit__:'$?"
-    ):format(source, source .. "/tests/stdlib/io/net/fixtures/localhost-cert.pem", source .. "/build/nupp-test")
+    ):format(source, source .. "/tests/stdlib/io/net/fixtures/localhost-cert.pem", runner)
     local pipe = assert(io.popen(command))
     local output = pipe:read("*a")
     pipe:close()
