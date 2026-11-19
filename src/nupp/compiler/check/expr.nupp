@@ -2363,7 +2363,7 @@ function expr.install(c: state.Checker): nil
                 node.fixedWidthResultEstablished = node.fixedWidthResultEstablished or {}
                 node.fixedWidthResultEstablished[index] = {[T.unwrapOwnership(result).tag] = true}
             end
-            if fixedWidth.requiresTrust(result) and not node.fixedWidthUntrustedResult then
+            if fixedWidth.holdsTrust(result) and not node.fixedWidthUntrustedResult then
                 node.fixedWidthResultTrusted = node.fixedWidthResultTrusted or {}
                 node.fixedWidthResultTrusted[index] = true
             end
