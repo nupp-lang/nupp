@@ -4,6 +4,7 @@ const proofs: {[string]: {
     unwind: string
 }} = {
     ["bundle-header"] = {file = "bundleheaderproof.c", unwind = "73"},
+    ["http-response-headers"] = {file = "replyheadersproof.c", unwind = "17"},
     ["ring-buffer"] = {file = "ringbufferproof.c", unwind = "9"},
     ["markdown-allocator"] = {file = "markdownallocatorproof.c", unwind = "1"},
 }

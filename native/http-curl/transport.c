@@ -5,6 +5,7 @@
 
 #define _POSIX_C_SOURCE 200809L
 #include "transport.h"
+#include "replyheaders.h"
 #include "ringbuffer.h"
 #include "reactor.h"
 
@@ -17,7 +18,6 @@
 #include <string.h>
 
 enum {
-  HEAD_LIMIT = 256 * 1024,
   BODY_WINDOW = 1024 * 1024,
   UPLOAD_OFFER = 512 * 1024,
   UPLOAD_WINDOW = 1024 * 1024
@@ -28,12 +28,6 @@ typedef struct Watch {
   curl_socket_t socket;
   uint64_t token, interest;
 } Watch;
-
-typedef struct Reply {
-  struct Reply *next;
-  size_t name, value;
-  char text[];
-} Reply;
 
 struct NuppCurlClient {
   NuppCurlClient *next;
@@ -642,24 +636,6 @@ void nupp_curl_watch_client (NuppCurlClient *client, int watching) {
   client->watching = watching;
 }
 
-static int lower (unsigned char value) {
-  return value >= 'A' && value <= 'Z' ? value + ('a' - 'A') : value;
-}
-
-static int matches (const char *bytes, size_t length, const char *name) {
-  if (length != strlen(name)) {
-    return 0;
-  }
-
-  for (size_t i = 0; i < length; i++) {
-    if (lower((unsigned char)bytes[i]) != name[i]) {
-      return 0;
-    }
-  }
-
-  return 1;
-}
-
 static int token (const char *bytes, size_t count) {
   if (count == 0) {
     return 0;
@@ -784,60 +760,6 @@ static const char *request_headers (NuppCurlRequest *r,
   return NULL;
 }
 
-static void encode32 (unsigned char *out, size_t value) {
-  for (unsigned i = 0; i < 4; i++) {
-    out[i] = (unsigned char)(value >> (i * 8));
-  }
-}
-
-static int omit_header (const NuppCurlRequest *r, const char *name, size_t n) {
-  return r->strip_encoding && (matches(name, n, "content-encoding") ||
-                               matches(name, n, "content-length"));
-}
-
-static int pack_head (NuppCurlRequest *r) {
-  size_t room = 4 + 16 * r->reply_count + r->reply_bytes;
-  r->head = malloc(room);
-
-  if (!r->head) {
-    return 0;
-  }
-
-  size_t count = 0;
-
-  for (Reply *h = r->reply; h; h = h->next) {
-    count += !omit_header(r, h->text, h->name);
-  }
-
-  encode32(r->head, count);
-  size_t index = 4, offset = 4 + 16 * count;
-
-  for (Reply *h = r->reply; h; h = h->next) {
-    if (omit_header(r, h->text, h->name)) {
-      continue;
-    }
-
-    size_t n = h->name, v = h->value;
-    encode32(r->head + index, offset);
-    encode32(r->head + index + 4, n);
-
-    for (size_t i = 0; i < n; i++) {
-      r->head[offset + i] = (unsigned char)lower((unsigned char)h->text[i]);
-    }
-
-    offset += n;
-    encode32(r->head + index + 8, offset);
-    encode32(r->head + index + 12, v);
-    memcpy(r->head + offset, h->text + n, v);
-    offset += v;
-    index += 16;
-  }
-
-  r->head_length = offset;
-
-  return 1;
-}
-
 static int status_version (const char *text, size_t length) {
   if (length == 8 && memcmp(text, "HTTP/1.", 7) == 0) {
     if (text[7] == '0' || text[7] == '1') {
@@ -881,10 +803,15 @@ static size_t on_header (char *input, size_t size, size_t count, void *data) {
   }
 
   if (n == 0) {
-    if (!pack_head(r)) {
+    PackedHead head =
+        packhead(r->reply, r->reply_count, r->reply_bytes, r->strip_encoding);
+
+    if (!head.bytes) {
       return 0;
     }
 
+    r->head = head.bytes;
+    r->head_length = head.length;
     free_reply(r);
     r->head_ready = 1;
     r->upload_closed = 1;
@@ -917,7 +844,7 @@ static size_t on_header (char *input, size_t size, size_t count, void *data) {
 
   size_t v = (size_t)(end - value);
 
-  if (4 + 16 * (r->reply_count + 1) + r->reply_bytes + name + v > HEAD_LIMIT) {
+  if (!replyfits(r->reply_count, r->reply_bytes, name, v)) {
     snprintf(r->error, sizeof(r->error),
              "response headers exceeded 262144 bytes");
 
