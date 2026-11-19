@@ -2,11 +2,16 @@
  * bytes, native requests and opaque subscriptions; Nupp owns all task policy.
  * All calls and callbacks run on the loop's owning thread. libuv alone runs
  * filesystem work on its pool; no worker sees a Nupp value or heap pointer. */
+#ifndef _WIN32
 #define _POSIX_C_SOURCE 200809L
+#endif
+
 #include "transport.h"
 #include "reactor.h"
-#include "process.h"
 #include "transport.h"
+#ifndef _WIN32
+#include "process.h"
+#endif
 #include <uv.h>
 #include <errno.h>
 #include <fcntl.h>
@@ -14,8 +19,13 @@
 #include <stdatomic.h>
 #include <stdlib.h>
 #include <string.h>
+
+#ifdef _WIN32
+#include <io.h>
+#else
 #include <sys/socket.h>
 #include <unistd.h>
+#endif
 
 typedef struct Poller Poller;
 typedef struct Watch Watch;
@@ -23,10 +33,20 @@ typedef struct Subscription Subscription;
 typedef struct Timer Timer;
 typedef struct Job Job;
 
+typedef struct {
+  int fd;
+
+#ifdef _WIN32
+  int is_socket;
+  uv_os_sock_t socket;
+#endif
+} PollTarget;
+
 struct Watch {
   uv_poll_t handle;
   Watch *next;
-  int fd, close_fd;
+  PollTarget target;
+  int close_fd;
 };
 
 struct Subscription {
@@ -37,7 +57,8 @@ struct Subscription {
 
 struct Poller {
   uint64_t token, owner;
-  int process_fd, socket_fd;
+  int process_fd;
+  PollTarget target;
   Subscription *subscriptions;
   Poller *next;
 };
@@ -107,6 +128,46 @@ enum {
 
 static uint64_t failed (int error) {
   return (uint64_t)-(int64_t)error;
+}
+
+static void close_descriptor (int fd) {
+#ifdef _WIN32
+  _close(fd);
+#else
+  close(fd);
+#endif
+}
+
+static PollTarget descriptor (int fd) {
+  return (PollTarget){.fd = fd};
+}
+
+static int same_target (PollTarget left, PollTarget right) {
+#ifdef _WIN32
+
+  if (left.is_socket != right.is_socket) {
+    return 0;
+  }
+
+  if (left.is_socket) {
+    return left.socket == right.socket;
+  }
+
+#endif
+
+  return left.fd == right.fd;
+}
+
+static int init_poll (uv_loop_t *loop, uv_poll_t *handle, PollTarget target) {
+#ifdef _WIN32
+
+  /* uv_poll_init on Windows would interpret a CRT descriptor as a SOCKET. */
+  return target.is_socket ? uv_poll_init_socket(loop, handle, target.socket)
+                          : -ENOSYS;
+#else
+
+  return uv_poll_init(loop, handle, target.fd);
+#endif
 }
 
 static void timeout (uv_timer_t *timer) {
@@ -184,7 +245,7 @@ static void closed (uv_handle_t *handle) {
   Watch *w = handle->data;
 
   if (w->close_fd >= 0) {
-    close(w->close_fd);
+    close_descriptor(w->close_fd);
   }
 
   service->watches_count--;
@@ -252,14 +313,15 @@ static int refresh (Watch *w) {
                 : uv_poll_stop(&w->handle);
 }
 
-static int64_t open_poller (int process_fd, int socket_fd, uint64_t owner) {
+static int64_t open_poller (int process_fd, const PollTarget *target,
+                            uint64_t owner) {
   int status = admit();
 
   if (status) {
     return status;
   }
 
-  if (socket_fd >= 0 &&
+  if (target &&
       service->adapter_count + service->closing_timers >= MAX_SUBSCRIPTIONS) {
     return -EAGAIN;
   }
@@ -278,9 +340,9 @@ static int64_t open_poller (int process_fd, int socket_fd, uint64_t owner) {
 
   p->token = token;
   p->process_fd = process_fd;
-  p->socket_fd = socket_fd;
 
-  if (socket_fd >= 0) {
+  if (target) {
+    p->target = *target;
     p->owner = owner ? owner : token;
     service->adapter_count++;
   }
@@ -291,7 +353,7 @@ static int64_t open_poller (int process_fd, int socket_fd, uint64_t owner) {
   return (int64_t)p->token;
 }
 
-static int subscribe (Poller *p, int fd, Subscription **out) {
+static int subscribe (Poller *p, PollTarget target, Subscription **out) {
   if (service->subscriptions_count == MAX_SUBSCRIPTIONS) {
     return -EAGAIN;
   }
@@ -304,7 +366,7 @@ static int subscribe (Poller *p, int fd, Subscription **out) {
 
   Watch *w = service->watches;
 
-  while (w && w->fd != fd) {
+  while (w && !same_target(w->target, target)) {
     w = w->next;
   }
 
@@ -323,7 +385,7 @@ static int subscribe (Poller *p, int fd, Subscription **out) {
       return -ENOMEM;
     }
 
-    int status = uv_poll_init(&service->loop, &w->handle, fd);
+    int status = init_poll(&service->loop, &w->handle, target);
 
     if (status) {
       free(w);
@@ -333,7 +395,7 @@ static int subscribe (Poller *p, int fd, Subscription **out) {
     }
 
     w->handle.data = w;
-    w->fd = fd;
+    w->target = target;
     w->close_fd = -1;
     w->next = service->watches;
     service->watches = w;
@@ -398,14 +460,14 @@ static int disarm (Subscription **at) {
   return 0;
 }
 
-static int arm (Poller *p, int fd, int interest) {
+static int arm (Poller *p, PollTarget target, int interest) {
   if (interest && service->shutting_down) {
     return -ECANCELED;
   }
 
   Subscription **at = &p->subscriptions;
 
-  while (*at && (*at)->watch->fd != fd) {
+  while (*at && !same_target((*at)->watch->target, target)) {
     at = &(*at)->next;
   }
 
@@ -416,7 +478,7 @@ static int arm (Poller *p, int fd, int interest) {
   }
 
   if (!s) {
-    int status = subscribe(p, fd, &s);
+    int status = subscribe(p, target, &s);
 
     if (status) {
       return status;
@@ -441,7 +503,15 @@ int64_t nupp_uv_open (int64_t process_fd) {
     return -EINVAL;
   }
 
-  return open_poller((int)process_fd, -1, 0);
+#ifdef _WIN32
+
+  if (process_fd >= 0) {
+    return -ENOSYS;
+  }
+
+#endif
+
+  return open_poller((int)process_fd, NULL, 0);
 }
 
 int64_t nupp_uv_processfd (uint64_t token) {
@@ -461,16 +531,12 @@ int64_t nupp_uv_arm (uint64_t token, int64_t fd, uint64_t interest) {
     return -EINVAL;
   }
 
-  return arm(p, (int)fd, (int)interest);
+  return arm(p, descriptor((int)fd), (int)interest);
 }
 
-static int adapter_available (int64_t fd) {
-  if (fd < 0 || fd > INT_MAX) {
-    return -EBADF;
-  }
-
+static int adapter_available (PollTarget target) {
   for (Poller *p = service ? service->pollers : NULL; p; p = p->next) {
-    if (p->owner == p->token && p->socket_fd == fd) {
+    if (p->owner == p->token && same_target(p->target, target)) {
       return -EEXIST;
     }
   }
@@ -478,21 +544,50 @@ static int adapter_available (int64_t fd) {
   return 0;
 }
 
-int64_t nupp_uv_socket_open (int64_t fd) {
-  int status = adapter_available(fd);
+int64_t nupp_uv_socket_open (uintptr_t socket) {
+#ifdef _WIN32
+  _Static_assert(sizeof(uv_os_sock_t) == sizeof(uintptr_t),
+                 "the broker must retain every bit of a Winsock SOCKET");
+
+  if (socket == (uintptr_t)INVALID_SOCKET) {
+    return -EBADF;
+  }
+
+  PollTarget target = {.is_socket = 1, .socket = (uv_os_sock_t)socket};
+#else
+
+  if (socket > INT_MAX) {
+    return -EBADF;
+  }
+
+  PollTarget target = descriptor((int)socket);
+#endif
+
+  int status = adapter_available(target);
 
   if (status) {
     return status;
   }
 
   int type;
+
+#ifdef _WIN32
+  int size = sizeof(type);
+
+  if (getsockopt(target.socket, SOL_SOCKET, SO_TYPE, (char *)&type, &size)) {
+    return uv_translate_sys_error(WSAGetLastError());
+  }
+
+#else
   socklen_t size = sizeof(type);
 
-  if (getsockopt((int)fd, SOL_SOCKET, SO_TYPE, &type, &size)) {
+  if (getsockopt(target.fd, SOL_SOCKET, SO_TYPE, &type, &size)) {
     return -errno;
   }
 
-  return open_poller(-1, (int)fd, 0);
+#endif
+
+  return open_poller(-1, &target, 0);
 }
 
 int64_t nupp_uv_socket_observe (uint64_t owner) {
@@ -502,7 +597,7 @@ int64_t nupp_uv_socket_observe (uint64_t owner) {
     return -EBADF;
   }
 
-  return open_poller(-1, p->socket_fd, owner);
+  return open_poller(-1, &p->target, owner);
 }
 
 int nupp_uv_socket_arm (uint64_t token, uint64_t interest) {
@@ -516,7 +611,7 @@ int nupp_uv_socket_arm (uint64_t token, uint64_t interest) {
     return -EINVAL;
   }
 
-  return arm(p, p->socket_fd, (int)interest);
+  return arm(p, p->target, (int)interest);
 }
 
 int nupp_uv_socket_ready (uint64_t token) {
@@ -552,14 +647,23 @@ int nupp_uv_socket_take (uint64_t token) {
 
 static void drop_socket (Poller **at) {
   Poller *p = *at;
-  arm(p, p->socket_fd, 0);
+  arm(p, p->target, 0);
   *at = p->next;
   free(p);
   service->adapter_count--;
 }
 
 int64_t nupp_uv_descriptor_open (int64_t fd) {
-  int status = adapter_available(fd);
+  if (fd < 0 || fd > INT_MAX) {
+    return -EBADF;
+  }
+
+#ifdef _WIN32
+
+  return -ENOSYS;
+#else
+  PollTarget target = descriptor((int)fd);
+  int status = adapter_available(target);
 
   if (status) {
     return status;
@@ -569,7 +673,7 @@ int64_t nupp_uv_descriptor_open (int64_t fd) {
     return -errno;
   }
 
-  int64_t token = open_poller(-1, (int)fd, 0);
+  int64_t token = open_poller(-1, &target, 0);
 
   if (token < 0) {
     return token;
@@ -577,7 +681,7 @@ int64_t nupp_uv_descriptor_open (int64_t fd) {
 
   /* open_poller prepends the owner. Validate without arming any interest. */
   Subscription *s;
-  status = subscribe(service->pollers, (int)fd, &s);
+  status = subscribe(service->pollers, target, &s);
 
   if (status) {
     drop_socket(&service->pollers);
@@ -586,6 +690,7 @@ int64_t nupp_uv_descriptor_open (int64_t fd) {
   }
 
   return token;
+#endif
 }
 
 int nupp_uv_socket_drop (uint64_t observer) {
@@ -615,7 +720,7 @@ int nupp_uv_socket_retire (uint64_t owner) {
     return -EBADF;
   }
 
-  int fd = p->socket_fd;
+  PollTarget target = p->target;
   Poller **at = &service->pollers;
 
   while (*at) {
@@ -625,7 +730,7 @@ int nupp_uv_socket_retire (uint64_t owner) {
     else {
       /* Withdraw any generic native subscription before the actual close. */
       if (!(*at)->owner) {
-        arm(*at, fd, 0);
+        arm(*at, target, 0);
       }
 
       at = &(*at)->next;
@@ -777,7 +882,7 @@ static void dispose (Job **at) {
   service->bytes -= job->count;
 
   if (job->descriptor >= 0) {
-    close(job->descriptor);
+    close_descriptor(job->descriptor);
   }
 
   free(job->bytes);
@@ -793,18 +898,25 @@ static void completed (uv_fs_t *request) {
   job->done = 1;
   *service->finished_tail = job;
   service->finished_tail = &job->finished;
+
+#ifndef _WIN32
   const unsigned char byte = 1;
 
   /* A full pipe already announces queued results; notifications coalesce. */
   while (write(service->wake[1], &byte, 1) < 0 && errno == EINTR) {
   }
+
+#endif
 }
 
 static void hold_descriptor (Job *job) {
-  if (job->kind == NUPP_IO_OPEN || job->descriptor >= 0 ||
-      job->descriptor_error) {
+  if (job->kind == 1 || job->descriptor >= 0 || job->descriptor_error) {
     return;
   }
+
+#ifdef _WIN32
+  job->descriptor_error = ENOSYS;
+#else
 
   do {
     job->descriptor = fcntl((int)job->word, F_DUPFD_CLOEXEC, 0);
@@ -813,6 +925,8 @@ static void hold_descriptor (Job *job) {
   if (job->descriptor < 0) {
     job->descriptor_error = errno;
   }
+
+#endif
 }
 
 void nupp_uv_preserve_file (uint64_t descriptor) {
@@ -844,12 +958,12 @@ static void submit_jobs (void) {
     if (job->descriptor_error) {
       status = -job->descriptor_error;
     }
-    else if (job->kind == NUPP_IO_OPEN) {
+    else if (job->kind == 1) {
       status = uv_fs_open(&service->loop, &job->request, (char *)job->bytes,
                           (int)(uint32_t)job->word, (int)(job->word >> 32),
                           completed);
     }
-    else if (job->kind == NUPP_IO_READ) {
+    else if (job->kind == 2) {
       status = uv_fs_read(&service->loop, &job->request, job->descriptor,
                           &job->buffer, 1, -1, completed);
     }
@@ -1005,11 +1119,14 @@ int nupp_uv_nowait (void) {
 }
 
 static int64_t event (Poller *p) {
+#ifndef _WIN32
   int64_t child = nupp_process_event(p->token);
 
   if (child) {
     return child;
   }
+
+#endif
 
   for (Subscription *s = p->subscriptions; s; s = s->next) {
     if (!s->ready) {
@@ -1019,7 +1136,7 @@ static int64_t event (Poller *p) {
     int bits = s->ready;
     s->ready = 0;
 
-    return ((int64_t)s->watch->fd << 5) | bits;
+    return ((int64_t)s->watch->target.fd << 5) | bits;
   }
 
   return 0;
@@ -1078,7 +1195,7 @@ int64_t nupp_uv_close (uint64_t token) {
 
   Watch *owned = service->watches;
 
-  while (owned && owned->fd != p->process_fd) {
+  while (owned && !same_target(owned->target, descriptor(p->process_fd))) {
     owned = owned->next;
   }
 
@@ -1086,7 +1203,7 @@ int64_t nupp_uv_close (uint64_t token) {
     owned->close_fd = p->process_fd;
   }
   else if (p->process_fd >= 0) {
-    close(p->process_fd);
+    close_descriptor(p->process_fd);
   }
 
   p->process_fd = -1;
@@ -1099,7 +1216,9 @@ int64_t nupp_uv_close (uint64_t token) {
     }
   }
 
+#ifndef _WIN32
   nupp_process_forget_poller(token);
+#endif
   *at = p->next;
   free(p);
 
@@ -1108,6 +1227,14 @@ int64_t nupp_uv_close (uint64_t token) {
 }
 
 uint64_t nuppiostart (uint64_t threads) {
+#ifdef _WIN32
+  /* The Windows broker admits sockets only until file completion wakeup is
+   * available. A CRT pipe cannot be used as a Winsock poll target. */
+  (void)threads;
+
+  return failed(ENOSYS);
+#else
+
   if (!threads || threads > 64) {
     return failed(EINVAL);
   }
@@ -1143,20 +1270,20 @@ uint64_t nuppiostart (uint64_t threads) {
   service->active_limit = (size_t)threads;
 
   return (uint64_t)service->wake[0];
+#endif
 }
 
 uint64_t nuppiosubmit (uint64_t kind, uint64_t word, uint64_t base,
                        uint64_t bytes) {
-  if (kind < NUPP_IO_OPEN || kind > NUPP_IO_WRITE || bytes > UINT_MAX ||
-      bytes == SIZE_MAX) {
+  if (kind < 1 || kind > 3 || bytes > UINT_MAX || bytes == SIZE_MAX) {
     return failed(EINVAL);
   }
 
-  if (kind != NUPP_IO_OPEN && word > INT_MAX) {
+  if (kind != 1 && word > INT_MAX) {
     return failed(EBADF);
   }
 
-  if (!base && bytes && kind != NUPP_IO_READ) {
+  if (!base && bytes && kind != 2) {
     return failed(EFAULT);
   }
 
@@ -1184,7 +1311,7 @@ uint64_t nuppiosubmit (uint64_t kind, uint64_t word, uint64_t base,
     return failed(ENOMEM);
   }
 
-  size_t capacity = (size_t)bytes + (kind == NUPP_IO_OPEN);
+  size_t capacity = (size_t)bytes + (kind == 1);
   job->bytes = capacity ? malloc(capacity) : NULL;
 
   if (capacity && !job->bytes) {
@@ -1193,11 +1320,11 @@ uint64_t nuppiosubmit (uint64_t kind, uint64_t word, uint64_t base,
     return failed(ENOMEM);
   }
 
-  if (kind != NUPP_IO_READ && bytes) {
+  if (kind != 2 && bytes) {
     memcpy(job->bytes, (void *)(uintptr_t)base, (size_t)bytes);
   }
 
-  if (kind == NUPP_IO_OPEN) {
+  if (kind == 1) {
     job->bytes[bytes] = 0;
   }
 
@@ -1256,7 +1383,7 @@ uint64_t nuppiofinish (uint64_t ticket, uint64_t out, uint64_t room) {
 
   uint64_t result = (uint64_t)job->result;
 
-  if (out && job->kind == NUPP_IO_READ && job->result > 0) {
+  if (out && job->kind == 2 && job->result > 0) {
     memcpy((void *)(uintptr_t)out, job->bytes,
            result < room ? (size_t)result : (size_t)room);
   }
@@ -1344,6 +1471,41 @@ int nupp_uv_begin_shutdown (void) {
   return 0;
 }
 
+#ifdef _WIN32
+
+static int drain_closing (void) {
+  if (!service->closing_watches && !service->closing_timers) {
+    return 0;
+  }
+
+  /* Closing a Winsock watch can leave IOCP requests in flight. Keep the
+   * still-open wait timer as a single deadline across all completion batches.
+   * shortcut: 5s for close completions; revisit for slower supported providers.
+   */
+  enum { CLOSE_TIMEOUT_MS = 5000 };
+
+  uv_update_time(&service->loop);
+  int status = uv_timer_start(&service->timer, timeout, CLOSE_TIMEOUT_MS, 0);
+
+  if (status) {
+    return status;
+  }
+
+  service->running = 1;
+
+  while ((service->closing_watches || service->closing_timers) &&
+         uv_is_active((uv_handle_t *)&service->timer)) {
+    uv_run(&service->loop, UV_RUN_ONCE);
+  }
+
+  service->running = 0;
+  uv_timer_stop(&service->timer);
+
+  return service->closing_watches || service->closing_timers ? -ETIMEDOUT : 0;
+}
+
+#endif
+
 int64_t nupp_uv_shutdown (void) {
   if (!service) {
     return 0;
@@ -1372,6 +1534,7 @@ int64_t nupp_uv_shutdown (void) {
     queued = next;
   }
 
+#ifndef _WIN32
   status = nupp_process_shutdown();
 
   if (status) {
@@ -1385,6 +1548,8 @@ int64_t nupp_uv_shutdown (void) {
       return status;
     }
   }
+
+#endif
 
   while (service->pollers) {
     status = (int)nupp_uv_close(service->pollers->token);
@@ -1407,14 +1572,24 @@ int64_t nupp_uv_shutdown (void) {
       return result;
     }
 
-    if (kind == NUPP_IO_OPEN && result >= 0) {
-      close((int)result);
+    if (kind == 1 && result >= 0) {
+      close_descriptor((int)result);
     }
   }
 
   uv_handle_t *timer = (uv_handle_t *)&service->timer;
 
   if (!uv_is_closing(timer)) {
+#ifdef _WIN32
+    status = drain_closing();
+
+    if (status) {
+      /* Closing handles and the loop still own their backing. A later
+       * shutdown can retry with the same stopped, unclosed wait timer. */
+      return status;
+    }
+
+#endif
     uv_close(timer, NULL);
   }
 
@@ -1424,7 +1599,7 @@ int64_t nupp_uv_shutdown (void) {
     return status;
   }
 
-  /* An attached adapter still owns any remaining handle or request. */
+  /* A remaining handle or request still owns its backing. */
   status = uv_loop_close(&service->loop);
 
   if (status) {
@@ -1432,8 +1607,8 @@ int64_t nupp_uv_shutdown (void) {
   }
 
   if (service->wake[0] >= 0) {
-    close(service->wake[0]);
-    close(service->wake[1]);
+    close_descriptor(service->wake[0]);
+    close_descriptor(service->wake[1]);
   }
 
   free(service);

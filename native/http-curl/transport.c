@@ -321,6 +321,21 @@ static int curl_socket (CURL *easy, curl_socket_t socket, int action,
       return -1;
     }
 
+#if defined(_WIN32) && defined(NUPP_CORE_HTTP)
+
+    _Static_assert(sizeof(curl_socket_t) == sizeof(uintptr_t),
+                   "curl socket has to match the Winsock broker width");
+    _Static_assert(
+        _Generic(&nupp_uv_socket_open, int64_t (*)(uintptr_t): 1, default: 0),
+        "Windows HTTP requires the full-width socket broker");
+    int64_t token = nupp_uv_socket_open((uintptr_t)socket);
+
+#elif defined(_WIN32)
+
+    int64_t token = -1;
+
+#else
+
     if ((uintmax_t)socket > INT_MAX) {
       free(watch);
       client->failure = "HTTP socket is outside the reactor's descriptor range";
@@ -329,6 +344,8 @@ static int curl_socket (CURL *easy, curl_socket_t socket, int action,
     }
 
     int64_t token = nupp_uv_descriptor_open((int64_t)socket);
+
+#endif
 
     if (token < 0) {
       free(watch);
@@ -481,9 +498,7 @@ static void free_client (NuppCurlClient *client) {
 NuppCurlClient *nupp_curl_open (uv_loop_t *loop, uintptr_t scope,
                                 const NuppCurlOptions *options,
                                 const char **error) {
-#ifdef _WIN32
-  /* shortcut: the POSIX broker has int descriptors, upgrade once the reactor
-   * supplies full-width Winsock registration. */
+#if defined(_WIN32) && !defined(NUPP_CORE_HTTP)
   *error = "Windows HTTP requires a full-width reactor socket broker";
 
   return NULL;

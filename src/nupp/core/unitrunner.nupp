@@ -15,6 +15,7 @@ local base = require("nupp.compiler.vm.nativegraph")
 local cleanup = require("nupp.compiler.vm.nativecleanup")
 local sink = require("nupp.compiler.s0.nativegraph")
 local linker = require("nupp.core.link")
+local artifact = require("nupp.core.guestartifact")
 local sharedcache = require("nupp.core.sharedcache")
 local kernelcompiler = require("nupp.core.kernelcompiler")
 local fingerprint = require("nupp.compiler.project.fingerprint")
@@ -450,19 +451,8 @@ export function build(
     end
     local code = table.concat(bytes)
 
-    local function u64(value: integer): string
-        local out = {}
-        for at = 0, 7 do
-            out[at + 1] = string.char((value >> (at * 8)) & 255)
-        end
-
-        return table.concat(out)
-    end
-
     local data = string.rep(string.char(0), 8)
-    local bundle = "NUPPCORE" .. u64(
-        1
-    ) .. u64(1) .. u64(0) .. u64(#code) .. u64(#data) .. u64(SCRATCH) .. u64(2) .. u64(0) .. code .. data
+    local bundle = artifact.transportBundle("aarch64", 0, code, data, SCRATCH, 2)
 
     phase("link")
 

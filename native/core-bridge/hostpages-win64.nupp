@@ -1,0 +1,54 @@
+module nupp.runtime.core.hostpages
+
+-- The system's pages, as the C library maps them: the page size, and
+-- anonymous private readable and writable mappings, zeroed, made and
+-- unmade a whole page at a time. pagemappings, which keeps the ledger of
+-- what is mapped, is the only caller (nativeservice holds it to that).
+const native = require("nupp.runtime.vm.intrinsics")
+
+cdef function nupp_core_page_size(): uint64
+cdef function nupp_core_map_pages(length: uint64): voidptr
+cdef function nupp_core_release_pages(borrows base: voidptr): uint64
+
+const LARGEST: uint64 = 0x7fffffffffffffffULL
+-- What unmapPages answers for an extent it refuses before asking the system.
+const REFUSED: uint64 = 1ULL
+
+-- The system's page size in bytes.
+export function pageSize(): uint64
+    return nupp_core_page_size()
+end
+
+-- `bytes` rounded up to whole pages, or 0 for none or too many.
+local function rounded(bytes: uint64): uint64
+    local page = pageSize()
+    if bytes == 0ULL or page == 0ULL or (page & (page - 1ULL)) ~= 0ULL or bytes > LARGEST - (page - 1ULL) then
+        return 0ULL
+    end
+
+    return (bytes + page - 1ULL) & ~(page - 1ULL)
+end
+
+-- The address of `bytes` of zeroed memory at a page boundary, or 0 when the
+-- system refuses. The caller (pagemappings) makes it the pointer it owns.
+export function mapPages(bytes: uint64): uint64
+    local size = rounded(bytes)
+    if size == 0ULL then
+        return 0ULL
+    end
+
+    return native.address(nupp_core_map_pages(size))
+end
+
+-- Unmaps what mapPages mapped at `base` for `bytes`: 0, or the system's
+-- error number, or REFUSED for an extent that is not whole pages from a
+-- page boundary.
+export function unmapPages(base: voidptr, bytes: uint64): uint64
+    local size = rounded(bytes)
+    local address = native.address(base)
+    if size == 0ULL or address == 0ULL or (address & (pageSize() - 1ULL)) ~= 0ULL then
+        return REFUSED
+    end
+
+    return nupp_core_release_pages(base)
+end

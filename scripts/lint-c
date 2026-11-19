@@ -170,6 +170,10 @@ flags() {
                 echo "-D_POSIX_C_SOURCE=200809L"
             fi
             ;;
+        # The Win64 probes compile with the target headers in scripts/core-bridge.
+        native/core-bridge/host-win64.h | tests/core/*win64*.c | tests/core/units/win64-*.c)
+            echo skip
+            ;;
         native/core-bridge/main.c | native/core-bridge/guard.c | tests/core/bridgecontracts.c)
             echo "-pthread -DNUPP_CORE_HTTP -isystem $(libcurl)/include"
             ;;

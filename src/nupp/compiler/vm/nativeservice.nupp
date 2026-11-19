@@ -190,10 +190,16 @@ end
 -- effect tables. Enumeration is the unit's canonical membership index; this
 -- module never walks syntax or lowers an expression.
 local function catalog(entry: any, roots: any, review: any): any
+    local function permits(name: string): boolean
+        if review.win64Startup then
+            return review.win64Startup[name] == true
+        end
+
+        return allowed[name] == true or unitModules[name] == true
+    end
+
     need(
-        unit.contains(entry)
-        and (allowed[entry.scope.name] or unitModules[entry.scope.name])
-        and not rawOwners[entry.scope.name],
+        unit.contains(entry) and permits(entry.scope.name) and not rawOwners[entry.scope.name],
         "entry is outside the closed allocator service modules"
     )
     local state = {
@@ -210,10 +216,7 @@ local function catalog(entry: any, roots: any, review: any): any
     local pending = {}
 
     local function add(owner: any): any
-        need(
-            unit.sameOwners(entry, owner) and (allowed[owner.scope.name] or unitModules[owner.scope.name]),
-            "callee outside closed service unit"
-        )
+        need(unit.sameOwners(entry, owner) and permits(owner.scope.name), "callee outside closed service unit")
         local item = state.owners[owner]
         if not item then
             need(#state.order < MAX_OWNERS, "service owner limit")
@@ -3783,6 +3786,151 @@ export function build(): any
     local result = catalog(entries[1], entries, review)
 
     return {catalog = result, entries = entries}
+end
+
+-- This fixed target is a private startup graph preflight. It accepts no
+-- caller roots, target, owner or service options.
+export function buildWin64Startup(): any
+    local root = need(os.getenv("NUPP_COMPILER_ROOT"), "build source root required")
+    local path = root .. "/build/core-win64-startup/snapshot.json"
+    local text = read(path)
+    local snapshot = require("nupp.serde.internal.json.values").decode(text)
+    local targetTriple = "x86_64-pc-windows-msvc"
+    need(snapshot.version == 1 and snapshot.target == targetTriple, "Win64 startup snapshot version/target")
+    local requested, permitted = {}, {}
+    for _, name in ipairs({
+        "nupp.runtime.core.guestscope",
+        "nupp.runtime.vm.arena",
+        "nupp.runtime.vm.heap",
+        "nupp.runtime.vm.values",
+        "nupp.runtime.vm.objecthash",
+        "nupp.runtime.vm.collector",
+        "nupp.runtime.vm.gcweak",
+        "nupp.runtime.vm.weakindex",
+        "nupp.runtime.vm.backing",
+        "nupp.runtime.vm.objecttable",
+        "nupp.runtime.vm.marking",
+        "nupp.runtime.vm.objectweak",
+        "nupp.runtime.vm.childwalk",
+        "nupp.runtime.vm.weakentries",
+        "nupp.runtime.vm.gcfinal",
+        "nupp.runtime.vm.objectwalk",
+        "nupp.runtime.core.pagemappings",
+        "nupp.runtime.core.hostpages",
+        "nupp.runtime.core.servicescope",
+        "nupp.runtime.core.resourcejournal",
+        "nupp.runtime.core.hostfiles",
+        "nupp.runtime.core.corestrings",
+        "nupp.runtime.core.corestorage",
+        "nupp.runtime.core.coreintegers",
+        "nupp.runtime.core.storage",
+        "nupp.runtime.core.sharedbacking",
+        "nupp.runtime.core.hostc",
+        "nupp.runtime.core.hostclock",
+        "nupp.runtime.core.hostprocess",
+        "nupp.runtime.core.hostentropy",
+        "nupp.runtime.core.hostarguments",
+        "nupp.runtime.core.hostpoll",
+        "nupp.runtime.core.hostuv",
+        "nupp.runtime.core.context",
+        "nupp.runtime.core.coretables",
+        "nupp.runtime.vm.valuearray",
+        "nupp.runtime.core.guestcatalog",
+        "nupp.runtime.core.frames",
+        "nupp.runtime.core.arena",
+        "nupp.runtime.core.guestentry",
+        "nupp.runtime.core.instances",
+        "nupp.runtime.core.stacks",
+        "nupp.runtime.core.foreignabi",
+    }) do
+        local source = "src/" .. name:gsub("%.", "/") .. ".nupp"
+        need(snapshot.sources[source] == read(root .. "/" .. source), "Win64 startup source differs: " .. name)
+        requested[#requested + 1] = {moduleName = name, path = root .. "/" .. source}
+        permitted[name] = true
+    end
+    for _, source in ipairs({
+        "src/nupp/runtime/vm/intrinsics.d.nupp",
+        "src/nupp/runtime/vm/os.d.nupp",
+        "src/nupp/compiler/vm/nativeservice.nupp",
+        "src/nupp/compiler/vm/nativeos.nupp",
+        "native/core-bridge/hostpages-win64.nupp",
+        "native/core-bridge/host-win64.h",
+        "native/core-bridge/main.c"
+    }) do
+        need(snapshot.sources[source] == read(root .. "/" .. source), "Win64 startup policy differs: " .. source)
+    end
+    need(
+        snapshot.sources[
+            "src/nupp/runtime/core/hostpages.nupp"
+        ] == snapshot.sources["native/core-bridge/hostpages-win64.nupp"],
+        "Win64 startup page hooks differ"
+    )
+    local programRoot = "tests/core/win64-startup-program"
+    local programPath = programRoot .. "/nupp/core/catalogboolean.nupp"
+    local programSource = read(root .. "/" .. programPath)
+    need(
+        snapshot.sources[programPath] == programSource
+        and require(
+            "nupp.compiler.hash"
+        ).sha256(programSource) == "cdc7d726a54046cb29ec47643a00b0ee0c69b44e7530cc99926e4be3759badf4",
+        "Win64 startup program source differs"
+    )
+    requested[#requested + 1] = {moduleName = "nupp.core.catalogboolean", path = root .. "/" .. programPath}
+    local review = {root = root, path = path, text = text, snapshot = snapshot, win64Startup = permitted}
+    reviewUnchanged(review)
+    local verified = unit.session(root, requested, targetTriple, {"src", programRoot}, true)
+    local entries = {}
+    for _, row in ipairs({
+        {"guestscope", "prepareOwned", "open", "close", "finish"},
+        {"guestentry", "start", "complete"},
+        {"pagemappings", "initialize", "acquireEntry", "releaseEntry"},
+        {"servicescope", "initialize", "close", "retain"}
+    }) do
+        local region = verified.module("nupp.runtime.core." .. row[1])
+        for index = 2, #row do
+            entries[#entries + 1] = need(region.exports[row[index]], "Win64 startup owner missing")
+        end
+    end
+    local startupOwner = entries[1]
+    local result = catalog(startupOwner, entries, review)
+    local prepareSignature = signature(startupOwner, options(result, startupOwner))
+    local context = unit.ownerContext(startupOwner)
+    local physical = require("nupp.compiler.vm.nativephysical")
+    local input = unit.win64StartupProgram(startupOwner, context)
+    local rootNode = input.parsed.root
+    local programName, taggedName, executableName = "programgraph", "taggedprofile", "coregraphexecutable"
+    local program: any = require("nupp.compiler.vm." .. programName)
+    local tagged: any = require("nupp.compiler.vm." .. taggedName)
+    local executable: any = require("nupp.compiler.vm." .. executableName)
+    local programGraph = executable.fromChecked(
+        program.compile(program.describe({input}, input.name), tagged.forVersion(8)),
+        8
+    )
+    local entry = executable.checkedOwner(programGraph, programGraph.semantic.entry)
+    need(entry.node == rootNode, "Win64 startup checked program entry differs")
+    reviewUnchanged(review)
+
+    -- Checked graph evidence only. No native entry or service call is issued.
+    local function checkedProgram(requestOwner: any, requestContext: any): any
+        need(requestOwner == startupOwner, "Win64 startup program owner differs")
+        need(
+            requestContext == context
+            and unit.ownerContext(startupOwner) == context
+            and physical.validateContext(context),
+            "Win64 startup program context differs"
+        )
+        reviewUnchanged(review)
+        unit.finish(startupOwner)
+        held(prepareSignature)
+        need(
+            executable.checkedOwner(programGraph, programGraph.semantic.entry) == entry and entry.node == rootNode,
+            "Win64 startup program entry changed"
+        )
+
+        return programGraph
+    end
+
+    return {catalog = result, entries = entries, session = verified, checkedProgram = checkedProgram}
 end
 
 local function sourceExists(path: string): boolean

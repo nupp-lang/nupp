@@ -168,6 +168,10 @@ local function guestExecutable(): any
 end
 
 local function validateSource(state: any): nil
+    if state.win64Unit then
+        need(state.win64Unit.validate(), "sealed Win64 unit changed")
+        return
+    end
     if state.serviceCatalog then
         service.validateCatalog(state.serviceCatalog);
         return
@@ -523,6 +527,73 @@ local function assemble(returns: boolean): any
     need(ok, tostring(problem))
 
     return {resolved = resolved, context = state.context, probe = moduleName .. "." .. entryName, refusals = refusals}
+end
+
+-- Win64 scalar entries reuse original graph issuance and callee identity.
+local function buildWin64(entry: any, callee: any): any
+    need(current == nil, "nested construction")
+    local unit = require("nupp.compiler.vm.nativeunit")
+    local context = unit.ownerContext(entry)
+    need(context.target == "x86_64-pc-windows-msvc", "Win64 entry requires a checked Win64 target")
+    local entryOptions = unit.ownerOptions(entry, "leaf")
+    local calleeOptions: any = nil
+    if callee then
+        need(
+            entry ~= callee and entry.scope == callee.scope and unit.ownerContext(callee) == context,
+            "Win64 call requires two owners from one checked target unit"
+        )
+        calleeOptions = unit.ownerOptions(callee, "leaf")
+        need(entryOptions.nativeUnit == calleeOptions.nativeUnit, "Win64 call unit differs")
+    end
+    local profileName = "nativegraph"
+    local profile: any = require("nupp.compiler.vm." .. profileName)
+    local state: any = {
+        win64Unit = entryOptions.nativeUnit,
+        context = context,
+        roles = {},
+        finalOwners = {},
+        resolved = {}
+    }
+    need(not owners[entry] and (not callee or not owners[callee]), "Win64 call owner already issued")
+    owners[entry] = state
+    if callee then
+        owners[callee] = state
+    end
+
+    local function compile(owner: any, opts: any): any
+        current = {state = state, owner = owner}
+        local g = profile.compile(owner, opts)
+        state.resolved[owner] = g
+        current = nil
+
+        return {graph = g, owner = owner}
+    end
+
+    local ok, answer = pcall(function(): any
+        local child = callee and compile(callee, calleeOptions) or nil
+        local caller = compile(entry, entryOptions)
+        return {entry = caller, callee = child, context = context}
+    end)
+    current = nil
+    if not ok then
+        owners[entry] = nil
+        if callee then
+            owners[callee] = nil
+        end
+        error(answer, 0)
+    end
+
+    return answer
+end
+
+export function buildWin64Call(entry: any, callee: any): any
+    need(callee, "Win64 call requires a checked callee")
+
+    return buildWin64(entry, callee)
+end
+
+export function buildWin64Foreign(entry: any): any
+    return buildWin64(entry, nil)
 end
 
 -- Independent fixed build entries: the accepted publish proof never reads the

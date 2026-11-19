@@ -806,6 +806,25 @@ export function ownerContext(fn: any): any
     return held.state.context
 end
 
+-- The private Win64 startup producer acquires only its one reviewed module.
+-- Keep the checked root in the producer until managed graph construction.
+export function win64StartupProgram(fn: any, context: any): any
+    local held = need(owners[fn], "unknown Win64 startup owner")
+    local state = held.state
+    local scope = state.modules["nupp.runtime.core.guestscope"]
+    need(scope and scope.exports.prepareOwned == fn, "Win64 startup owner differs")
+    need(
+        state.context == context and physical.validateContext(context) and context.target == "x86_64-pc-windows-msvc",
+        "Win64 startup context differs"
+    )
+    validate(state, true)
+    local program = need(state.modules["nupp.core.catalogboolean"], "Win64 startup program is outside sealed batch")
+    local checked = state.checked[program.path]
+    need(read(program.path) == state.sources[program.path], "checked Win64 startup source changed")
+
+    return {name = program.name, path = program.path, parsed = checked.result, diagnostics = checked.diags}
+end
+
 export function ownerOptions(fn: any, abi: string): any
     local held = need(owners[fn], "unknown service owner")
     return held.state.api.options(fn, abi)

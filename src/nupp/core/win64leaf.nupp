@@ -1,0 +1,50 @@
+module nupp.core.win64leaf
+
+local unit = require("nupp.compiler.vm.nativeunit")
+local sink = require("nupp.compiler.s0.nativegraph")
+local finalframe = require("nupp.compiler.vm.nativeframecontract")
+local artifact = require("nupp.core.guestartifact")
+
+const TARGET = "x86_64-pc-windows-msvc"
+
+-- Explicit standalone entry. The build checks the source for this target
+-- before emitting a regular Core bundle. Managed guests use their own shim.
+export function build(root: string, include: {string}, moduleName: string, path: string, name: string): string
+    local checked = unit.session(root, {{moduleName = moduleName, path = path}}, TARGET, include)
+    local owner = assert(checked.module(moduleName).exports[name], "Win64 leaf: expected an exported function")
+    local code = sink.win64Leaf(owner)
+
+    return artifact.transportBundle(TARGET, 0, code, "", 0, 1)
+end
+
+-- The object writer binds this entry extent and unwind to the same code.
+export function buildCall(
+    root: string,
+    include: {string},
+    moduleName: string,
+    path: string,
+    entryName: string,
+    calleeName: string
+): (string, integer, string)
+    local checked = unit.session(root, {{moduleName = moduleName, path = path}}, TARGET, include)
+    local exports = checked.module(moduleName).exports
+    local entry = assert(exports[entryName], "Win64 call: expected an exported entry")
+    local callee = assert(exports[calleeName], "Win64 call: expected an exported callee")
+    local issued = finalframe.buildWin64Call(entry, callee)
+
+    return sink.win64Call(issued)
+end
+
+-- Explicit Win64 startup proof using the existing one-word packet entry.
+export function buildPageSize(
+    root: string,
+    include: {string},
+    moduleName: string,
+    path: string,
+    name: string
+): (string, integer, string)
+    local checked = unit.session(root, {{moduleName = moduleName, path = path}}, TARGET, include)
+    local owner = assert(checked.module(moduleName).exports[name], "Win64 startup: expected an exported function")
+
+    return sink.win64PageSize(finalframe.buildWin64Foreign(owner))
+end

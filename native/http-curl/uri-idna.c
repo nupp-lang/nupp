@@ -1,7 +1,20 @@
 #include "uri-idna.h"
 
 #include <string.h>
+
+#ifdef _WIN32
+
+#ifndef NUPP_WIN64_HTTP_SYSTEM_ICU
+#error "Win64 URI mapping requires opt-in to the system ICU SDK"
+#endif
+
+#include <icu.h>
+
+#else
+
 #include <unicode/uidna.h>
+
+#endif
 
 int32_t nupp_uri_idna_ascii (const char *domain, size_t count, char *out,
                              size_t room) {

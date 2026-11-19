@@ -1,0 +1,385 @@
+module nupp.compiler.s0.win64leaf
+
+local ir = require("nupp.compiler.s0.ir")
+local allocate = require("nupp.compiler.s0.allocate")
+local allocationcheck = require("nupp.compiler.s0.allocationcheck")
+local nativeos = require("nupp.compiler.vm.nativeos")
+
+-- A C entry receives the existing packet in RCX and its output in RDX.
+-- Use volatile registers only. The allocator numbers them from one.
+const RAX, RCX, RDX, RSP, R8, R9, R10, R11 = 1, 2, 3, 5, 9, 10, 11, 12
+const IMPORTS_AT = 7 * 8
+const IMPORT_COUNT_AT = 8 * 8
+const INPUT_AT = 9 * 8
+const INPUT_WORDS_AT = 10 * 8
+const BAD_INPUT = 3
+const BAD_IMPORT = 4
+const LOAD_NOW = 2
+const PAGE_SYMBOL = "nupp_core_page_size"
+const HOME_BYTES = 32
+const FRAME_BYTES = HOME_BYTES + 8
+const ALLOC_SMALL = 2
+
+local type Rel32 = {
+    piece: integer,
+    nextByte: integer
+}
+
+local function littleEndian(value: integer, count: integer): string
+    local encoded: {string} = {}
+    for byte = 0, count - 1 do
+        encoded[byte + 1] = string.char((value >> (byte * 8)) & 255)
+    end
+
+    return table.concat(encoded)
+end
+
+local type Direct = {
+    symbol: string,
+    code: string
+}
+
+-- shortcut: one word in and out, one scalar call, no spills. Extend when
+-- frame layout and unwind describe the additional state.
+local function selectBody(
+    f: ir.Function,
+    packet: boolean,
+    direct: Direct?,
+    pageSize: boolean?
+): (string, integer, string)
+    assert(
+        f.signature.convention == ir.INTERNAL
+        and f.signature.fixed == nil
+        and #f.signature.params == 1
+        and f.signature.params[1] == ir.I64
+        and #f.signature.results == 1
+        and f.signature.results[1] == ir.I64,
+        "Win64 leaf: one word input and result required"
+    )
+    assert(#f.stackBytes == 0, "Win64 leaf: stack slots are unsupported")
+    local tableSlot, openSlot, symbolSlot = nativeos.foreignImports()
+    if pageSize then
+        local resolver = table.concat(
+            {"foreign", tostring(tableSlot), tostring(openSlot), tostring(symbolSlot), "", PAGE_SYMBOL},
+            "\0"
+        )
+        local routine = nativeos.foreignRoutine(nativeos.foreignPlacement({}, nil), "x")
+        assert(
+            #f.importNames == 2 and f.importNames[1] == resolver and f.importNames[2] == routine,
+            "Win64 startup: expected the exact page size import"
+        )
+    else
+        assert(
+            direct and #f.importNames == 1 and f.importNames[1] == direct.symbol or not direct and #f.importNames == 0,
+            "Win64 leaf: unsupported call target"
+        )
+    end
+    local callCount: integer = 0
+    local resolution = 0
+    for at, op in ipairs(f.op) do
+        assert(
+            f.result2[at] == 0
+            and (
+                op == ir.OP_ICONST
+                or op == ir.OP_IADD
+                or op == ir.OP_ICMP
+                or op == ir.OP_JUMP
+                or op == ir.OP_BRIF
+                or op == ir.OP_RETURN
+                or (direct ~= nil or pageSize) and op == ir.OP_CALL
+            ),
+            "Win64 leaf: unsupported operation " .. ir.opNames[op]
+        )
+        if op == ir.OP_CALL and pageSize then
+            local index = f.aux[at]
+            local signature = f.signatures[f.importSignatures[index]]
+            assert(
+                f.kind[at] == ir.I64
+                and signature.convention == ir.C
+                and signature.fixed == nil
+                and #signature.results == 1
+                and signature.results[1] == ir.I64,
+                "Win64 startup: expected an exact C word result"
+            )
+            if callCount == 0 then
+                assert(index == 1 and f.nargs[at] == 0 and #signature.params == 0, "Win64 startup: invalid resolver")
+                resolution = f.result[at]
+            else
+                assert(
+                    index == 2
+                    and f.nargs[at] == 1
+                    and #signature.params == 1
+                    and signature.params[1] == ir.I64
+                    and f.args[f.firstArg[at]] == resolution,
+                    "Win64 startup: invalid resolved call"
+                )
+            end
+            callCount += 1
+        elseif op == ir.OP_CALL then
+            local signature = f.signatures[f.importSignatures[1]]
+            assert(
+                f.aux[at] == 1
+                and f.nargs[at] == 1
+                and f.kind[at] == ir.I64
+                and signature.convention == ir.INTERNAL
+                and signature.fixed == nil
+                and #signature.params == 1
+                and signature.params[1] == ir.I64
+                and #signature.results == 1
+                and signature.results[1] == ir.I64,
+                "Win64 call: unsupported signature"
+            )
+            callCount = callCount + 1
+        end
+    end
+    assert(callCount == (pageSize and 2 or direct and 1 or 0), "Win64 call: unsupported call count")
+    for _, kind in ipairs(f.valueKinds) do
+        assert(kind == 0 or kind == ir.I64 or kind == ir.I8, "Win64 leaf: unsupported value kind")
+    end
+    local target = allocate.Target(
+        integerRegisters = {RAX, R8, R9, R10},
+        floatRegisters = {},
+        preservedInternal = {},
+        preservedC = {},
+        scratchInt = R11,
+        scratchFloat = 65
+    )
+    local a = allocate.run(f, target)
+    assert(a.spillSlots == 0, "Win64 leaf: spills are unsupported")
+    assert(allocationcheck.run(f, target, a))
+
+    local pieces: {string} = {}
+    local bytes: integer = 0
+
+    local function emit(code: string): nil
+        pieces[#pieces + 1] = code
+        bytes = bytes + #code
+    end
+
+    local function rel32(opcode: string): Rel32
+        emit(opcode)
+        emit("\0\0\0\0")
+
+        return {piece = #pieces, nextByte = bytes}
+    end
+
+    local function fix(site: Rel32, destination: integer): nil
+        local delta = destination - site.nextByte
+        assert(delta >= -0x80000000 and delta <= 0x7fffffff, "Win64 leaf: branch out of range")
+        pieces[site.piece] = littleEndian(delta, 4)
+    end
+
+    -- REX.W and ModR/M for register and simple base-address operands.
+    local function modrm(opcode: string, mode: integer, reg: integer, rm: integer): nil
+        local r, m = reg - 1, rm - 1
+        emit(string.char(0x48 | (r >> 3) << 2 | (m >> 3)) .. opcode)
+        emit(string.char(mode | (r & 7) << 3 | (m & 7)))
+    end
+
+    local function move(to: integer, from: integer): nil
+        if to ~= from then
+            modrm("\x89", 0xc0, from, to)
+        end
+    end
+
+    local blockAt: {integer} = {}
+    local jumps: {{
+        site: Rel32,
+        block: integer
+    }} = {}
+
+    local function edge(e: integer): nil
+        for m = a.firstMove[e], a.firstMove[e] + a.nmoves[e] - 1 do
+            move(a.moveTarget[m], a.moveSource[m])
+        end
+        jumps[#jumps + 1] = {site = rel32("\xe9"), block = f.edgeTarget[e]}
+    end
+
+    local frame = pageSize and FRAME_BYTES + 16 or direct and FRAME_BYTES or 0
+    local importsSpill = FRAME_BYTES
+    local unwind = ""
+    if frame ~= 0 then
+        -- Entry RSP is 8 mod 16. Keep output and imports above home space.
+        emit("\x48\x83\xec" .. string.char(frame))
+        local prologueEnd = bytes
+        local alloc = ((frame - 8) // 8) << 4 | ALLOC_SMALL
+        unwind = string.char(1, prologueEnd, 1, 0, prologueEnd, alloc, 0, 0)
+        modrm("\x89", 0x40, RDX, RSP)
+        emit(string.char(0x24, HOME_BYTES)) -- [rsp + disp8]
+    end
+
+    local function ret(): nil
+        if frame ~= 0 then
+            emit("\x48\x83\xc4" .. string.char(frame))
+        end
+        emit("\xc3")
+    end
+
+    local badInput: Rel32? = nil
+    local badImports: {Rel32} = {}
+    local pageName: Rel32? = nil
+    local call: Rel32? = nil
+
+    local function refuseNull(reg: integer): nil
+        modrm("\x85", 0xc0, reg, reg)
+        badImports[#badImports + 1] = rel32("\x0f\x84")
+    end
+
+    local function loadImport(slot: integer): nil
+        modrm("\x8b", 0x40, R11, RSP)
+        emit(string.char(0x24, importsSpill))
+        modrm("\x8b", 0x40, R11, R11)
+        emit(string.char(slot * 8))
+        refuseNull(R11)
+    end
+
+    local function resolvePage(): nil
+        emit("\x31\xc9\xba" .. littleEndian(LOAD_NOW, 4)) -- open_library(NULL, LOAD_NOW)
+        loadImport(openSlot)
+        modrm("\xff", 0xc0, RDX, R11)
+        refuseNull(RAX)
+        move(RCX, RAX)
+        pageName = rel32("\x48\x8d\x15") -- lea rdx,[rip + name]
+        loadImport(symbolSlot)
+        modrm("\xff", 0xc0, RDX, R11)
+        refuseNull(RAX)
+    end
+
+    local argument = a.location[f.params[f.firstParam[1]]]
+    if packet then
+        -- Check the extent before reading the packet input pointer.
+        modrm("\x83", 0x40, 8, RCX)
+        emit(string.char(INPUT_WORDS_AT, 1))
+        badInput = rel32("\x0f\x85")
+        if pageSize then
+            modrm("\x83", 0x40, 8, RCX)
+            emit(string.char(IMPORT_COUNT_AT, nativeos.importCount()))
+            badImports[#badImports + 1] = rel32("\x0f\x85")
+            modrm("\x8b", 0x40, R11, RCX)
+            emit(string.char(IMPORTS_AT))
+            refuseNull(R11)
+            modrm("\x89", 0x40, R11, RSP)
+            emit(string.char(0x24, importsSpill))
+        end
+        modrm("\x8b", 0x40, R11, RCX)
+        emit(string.char(INPUT_AT))
+        modrm("\x8b", 0, argument, R11)
+    else
+        move(argument, RCX)
+    end
+
+    for _, block in ipairs(a.blockOrder) do
+        blockAt[block] = bytes
+        for at = f.blockStart[block], f.blockEnd[block] do
+            local op, result = f.op[at], f.result[at]
+            local first = f.firstArg[at]
+            local out = a.location[result]
+            if op == ir.OP_ICONST then
+                local reg = out - 1
+                local value = f.kind[at] == ir.I8 and f.imm[at] & 255 or f.imm[at]
+                emit(string.char(0x48 | reg >> 3, 0xb8 | (reg & 7)) .. littleEndian(value, 8))
+            elseif op == ir.OP_IADD then
+                assert(f.kind[at] == ir.I64, "Win64 leaf: word add required")
+                local left, right = a.location[f.args[first]], a.location[f.args[first + 1]]
+                if out == right then
+                    modrm("\x01", 0xc0, left, out)
+                else
+                    move(out, left)
+                    modrm("\x01", 0xc0, right, out)
+                end
+            elseif op == ir.OP_ICMP then
+                local left, right = f.args[first], f.args[first + 1]
+                local condition = f.aux[at]
+                assert(
+                    f.valueKinds[left] == ir.I64 and f.valueKinds[right] == ir.I64,
+                    "Win64 leaf: word compare required"
+                )
+                assert(condition == ir.condition("eq") or condition == ir.condition("ne"), "Win64 leaf: equality only")
+                modrm("\x39", 0xc0, a.location[right], a.location[left])
+                modrm(condition == ir.condition("eq") and "\x0f\x94" or "\x0f\x95", 0xc0, RAX, out)
+                modrm("\x0f\xb6", 0xc0, out, out)
+            elseif op == ir.OP_JUMP then
+                edge(f.firstEdge[at])
+            elseif op == ir.OP_BRIF then
+                assert(f.valueKinds[f.args[first]] == ir.I8, "Win64 leaf: boolean branch required")
+                local condition = a.location[f.args[first]]
+                modrm("\x85", 0xc0, condition, condition)
+                local otherwise = rel32("\x0f\x84")
+                edge(f.firstEdge[at])
+                fix(otherwise, bytes)
+                edge(f.firstEdge[at] + 1)
+            elseif op == ir.OP_CALL and pageSize then
+                if f.aux[at] == 1 then
+                    -- A standalone startup entry resolves on each call.
+                    -- Bundle-wide symbol cache allocation belongs to the linker.
+                    resolvePage()
+                else
+                    modrm("\xff", 0xc0, RDX, a.location[f.args[first]])
+                end
+                move(out, RAX)
+            elseif op == ir.OP_CALL then
+                move(RCX, a.location[f.args[first]])
+                call = rel32("\xe8")
+                move(out, RAX)
+            else
+                assert(op == ir.OP_RETURN and f.nargs[at] == 1, "Win64 leaf: word return required")
+                local value = a.location[f.args[first]]
+                if packet then
+                    if frame ~= 0 then
+                        modrm("\x8b", 0x40, RDX, RSP)
+                        emit(string.char(0x24, HOME_BYTES))
+                    end
+                    modrm("\x89", 0, value, RDX)
+                    emit("\x31\xc0") -- xor eax, eax
+                else
+                    move(RAX, value)
+                end
+                ret()
+            end
+        end
+    end
+    if badInput then
+        fix(badInput, bytes)
+        emit("\xb8" .. littleEndian(BAD_INPUT, 4))
+        ret()
+    end
+    if pageSize then
+        for _, site in ipairs(badImports) do
+            fix(site, bytes)
+        end
+        emit("\xb8" .. littleEndian(BAD_IMPORT, 4))
+        ret()
+    end
+    for _, jump in ipairs(jumps) do
+        fix(jump.site, (assert(blockAt[jump.block], "Win64 leaf: missing block")))
+    end
+
+    local entryBytes = bytes
+    if direct then
+        fix((assert(call)), entryBytes)
+        emit(direct.code)
+    elseif pageSize then
+        fix((assert(pageName)), entryBytes)
+        emit(PAGE_SYMBOL .. "\0")
+    end
+
+    return table.concat(pieces), entryBytes, unwind
+end
+
+export function select(f: ir.Function): string
+    local code = selectBody(f, true, nil)
+
+    return code
+end
+
+-- The caller and symbol must already have been bound by the checked graph
+-- sink. Only the packet entry allocates a native frame.
+export function selectCall(f: ir.Function, symbol: string, callee: ir.Function): (string, integer, string)
+    local body = selectBody(callee, false, nil)
+
+    return selectBody(f, true, {symbol = symbol, code = body})
+end
+
+export function selectPageSize(f: ir.Function): (string, integer, string)
+    return selectBody(f, true, nil, true)
+end

@@ -130,14 +130,21 @@ end
 -- Prototype: private compiler-result provenance is checked before public data
 -- can be observed. Loader opcode/tag and integer-window authority remain pending.
 -- The returned artifact retains the exact body owner through linking/execution.
-local function lower(bound: any, name: string, unbound: boolean, resolved: any?, context: any?): sink.Result
+local function lower(
+    bound: any,
+    name: string,
+    unbound: boolean,
+    resolved: any?,
+    context: any?,
+    physicalTarget: string?
+): sink.Result
     local g = bound.graph
     graph.verify(g)
     if g.nativePhysical then
         assert(g.native.abi == "leaf", "S0 graph: physical graphs require leaf ABI")
         assert(
-            unbound and g.nativePhysical.context.target == "aarch64-apple-darwin",
-            "S0 graph: physical graph requires explicit owned ARM64 target"
+            unbound and g.nativePhysical.context.target == (physicalTarget or "aarch64-apple-darwin"),
+            "S0 graph: physical graph requires explicit owned " .. (physicalTarget or "ARM64") .. " target"
         )
     end
     assert(bound.body ~= nil, "S0 graph: retained body owner required")
@@ -1025,6 +1032,65 @@ function sink.compilerGraph(g: any, name: string, owner: any, resolved: any?, co
     end
 
     return result
+end
+
+local function win64Graph(g: any, owner: any, context: any, resolved: any?): sink.Result
+    local target = "x86_64-pc-windows-msvc"
+    assert(
+        context.target == target
+        and g.nativePhysical
+        and g.nativePhysical.context == context
+        and g.native.abi == "leaf"
+        and #g.native.params == 1
+        and g.native.params[1] == "uint64"
+        and g.native.result == "uint64",
+        "Win64 leaf: checked uint64 entry required"
+    )
+    for _, block in ipairs(g.blocks) do
+        local term = block.term.kind
+        assert(term == "jump" or term == "branch" or term == "return", "Win64 leaf: unsupported terminator " .. term)
+    end
+
+    return lower({graph = g, body = owner, pc = 0, count = 1}, owner.name, true, resolved, nil, target)
+end
+
+-- An explicit checked scalar entry. It does not issue a final-frame graph.
+function sink.win64Leaf(owner: any): string
+    local unit = require("nupp.compiler.vm.nativeunit")
+    local selector = require("nupp.compiler.s0.win64leaf")
+    local profile = require("nupp.compiler.vm.nativegraph")
+    local context = unit.ownerContext(owner)
+    local g = profile.compile(owner, unit.ownerOptions(owner, "leaf"))
+
+    return selector.select(win64Graph(g, owner, context, nil).machine)
+end
+
+-- Match the exact issued entry and callee before applying the byte fixup.
+function sink.win64Call(issued: any): (string, integer, string)
+    local entry, callee, context = issued.entry, issued.callee, issued.context
+    assert(finalframe.requireOriginal(entry.graph, entry.owner), "Win64 call: original entry required")
+    finalframe.requireContext(entry.graph, entry.owner, context)
+    finalframe.requireContext(callee.graph, callee.owner, context)
+    finalframe.target(entry.graph, entry.owner, callee.graph, callee.owner)
+
+    local symbol: string = callee.owner.scope.name .. "." .. callee.owner.name
+    local child = win64Graph(callee.graph, callee.owner, context, nil)
+    local caller = win64Graph(entry.graph, entry.owner, context, {[symbol] = callee})
+    assert(caller.callees[symbol] == callee, "Win64 call: checked callee missing")
+    local selector = require("nupp.compiler.s0.win64leaf")
+
+    return selector.selectCall(caller.machine, symbol, child.machine)
+end
+
+-- The exact startup foreign call uses the same sealed entry and OS call IR.
+function sink.win64PageSize(issued: any): (string, integer, string)
+    local entry, context = issued.entry, issued.context
+    finalframe.requireEntry(entry.graph, entry.owner)
+    finalframe.requireContext(entry.graph, entry.owner, context)
+    local result = win64Graph(entry.graph, entry.owner, context, nil)
+    local selector = require("nupp.compiler.s0.win64leaf")
+
+    return selector.selectPageSize(result.machine)
 end
 
 -- This wrapper issues code provenance only after verifying the original graph

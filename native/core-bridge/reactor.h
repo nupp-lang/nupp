@@ -62,10 +62,10 @@ int nupp_uv_set_owner_driver (nupp_uv_owner_step_fn step,
  * A shared watch stays alive for other subscriptions. File jobs remain owned
  * by their tickets and require finish/settle independently. */
 int64_t nupp_uv_close (uint64_t token);
-/* One registration per canonical socket fd, owned by the adapter that closes
- * it. Aliases must use that same canonical fd and owner token. Other adapters
- * observe through the owner token. Tokens never recycle. */
-int64_t nupp_uv_socket_open (int64_t fd);
+/* One registration per canonical socket, owned by the adapter that closes it.
+ * Win64 passes the full Winsock SOCKET. On POSIX it is the canonical fd.
+ * Aliases must use the same owner token. Tokens never recycle. */
+int64_t nupp_uv_socket_open (uintptr_t socket);
 /* POSIX pollable fd, including resolver pipes and eventfd. Borrows the fd
  * through the same token API below. Retire the token before closing the fd.
  * libuv may set O_NONBLOCK when creating the watch. */
@@ -78,8 +78,8 @@ int nupp_uv_socket_arm (uint64_t token, uint64_t interest);
 int nupp_uv_socket_take (uint64_t token);
 /* Same bits and errors as take, without consuming or driving the loop. */
 int nupp_uv_socket_ready (uint64_t token);
-/* Drop only the observer. Retire all subscriptions before the socket owner
- * closes its fd. Neither function closes the fd or drives the loop. */
+/* Drop only the observer. Retire all subscriptions before the owner closes its
+ * socket or descriptor. Neither function closes it or drives the loop. */
 int nupp_uv_socket_drop (uint64_t observer);
 int nupp_uv_socket_retire (uint64_t owner);
 

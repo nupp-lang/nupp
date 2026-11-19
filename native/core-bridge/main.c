@@ -8,24 +8,33 @@
  * can reach its static functions; guard.c also defines NUPP_CORE_GUARD, which
  * fences scratch and checks that the entry preserves the C ABI. */
 
+#ifndef _WIN32
 /* MAP_ANONYMOUS, realpath and the rest of POSIX the bridge uses. */
 #define _DARWIN_C_SOURCE 1
 #define _GNU_SOURCE 1
+#endif
 
 #include "reactor.h"
 #include "transport.h"
 #include "../http-curl/uri-idna.h"
 
-#include <dlfcn.h>
 #include <errno.h>
 #include <limits.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <sys/mman.h>
 #include <sys/stat.h>
+
+#ifdef _WIN32
+#include <uv.h>
+
+#include "host-win64.h"
+#else
+#include <dlfcn.h>
+#include <sys/mman.h>
 #include <unistd.h>
+#endif
 
 #ifdef NUPP_CORE_HTTP
 #include "../http-curl/transport.h"
@@ -39,11 +48,20 @@
 /* The number of elements in an array the compiler can see the size of. */
 #define ARRAY_LENGTH(array) (sizeof(array) / sizeof(*(array)))
 
-/* Bundle code is ARM64 code, so it runs nowhere else. */
-#if defined(__aarch64__) || defined(__arm64__)
+enum { BUNDLE_ARM64 = 1, BUNDLE_WIN64 = 2 };
+
+#if defined(_WIN32) && (defined(_M_X64) || defined(__x86_64__))
 #define HOST_SUPPORTED 1
+
+enum { HOST_ARCH = BUNDLE_WIN64, INSTRUCTION_BYTES = 1 };
+#elif !defined(_WIN32) && (defined(__aarch64__) || defined(__arm64__))
+#define HOST_SUPPORTED 1
+
+enum { HOST_ARCH = BUNDLE_ARM64, INSTRUCTION_BYTES = 4 };
 #else
 #define HOST_SUPPORTED 0
+
+enum { HOST_ARCH = 0, INSTRUCTION_BYTES = 1 };
 #endif
 
 /* Every word the transport reads or writes is a little-endian uint64. */
@@ -58,7 +76,7 @@ enum { MAGIC_BYTES = 8 };
 
 enum bundlefield {
   BUNDLE_VERSION, /* BUNDLE_FORMAT */
-  BUNDLE_ARCHITECTURE, /* BUNDLE_ARM64, the only one */
+  BUNDLE_ARCHITECTURE, /* Host-specific instruction set and ABI. */
   BUNDLE_ENTRY, /* the entry's byte offset within code */
   BUNDLE_CODE_BYTES,
   BUNDLE_DATA_BYTES,
@@ -70,9 +88,7 @@ enum bundlefield {
 
 enum {
   BUNDLE_FORMAT = 1,
-  BUNDLE_ARM64 = 1,
   HEADER_BYTES = MAGIC_BYTES + BUNDLE_FIELDS * WORD_BYTES,
-  INSTRUCTION_BYTES = 4,
 };
 
 /* Each region is at most REGION bytes and all three together at most twice
@@ -126,7 +142,10 @@ enum { GUEST_ERROR_STATUS = 6 };
 static uint64_t symboltable[SYMBOL_TABLE_WORDS];
 
 /* The directory the bundle was loaded from. The Nupp loader finds it by name
- * with dlsym and resolves artifact-relative library paths against it. */
+ * through the import table and resolves artifact-relative paths against it. */
+#ifdef _WIN32
+__declspec(dllexport)
+#endif
 const char *nupp_core_artifact_directory;
 static _Thread_local int retain_guest_backing;
 
@@ -257,31 +276,69 @@ static void *mapregion (size_t bytes) {
     return NULL;
   }
 
+#ifdef _WIN32
+
+  return win64_map_pages(bytes);
+#else
   void *region = mmap(NULL, bytes, PROT_READ | PROT_WRITE,
                       MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
 
   return region == MAP_FAILED ? NULL : region;
+#endif
+}
+
+static void unmap_region (void *region, size_t bytes) {
+#ifdef _WIN32
+  (void)bytes;
+  win64_release_pages(region);
+#else
+  munmap(region, bytes);
+#endif
+}
+
+static FILE *open_path (const char *path, const char *mode) {
+#ifdef _WIN32
+  wchar_t *wide = wide_path(path);
+  FILE *file = wide ? _wfopen(wide, mode[0] == 'r' ? L"rb" : L"wb") : NULL;
+  free(wide);
+
+  return file;
+#else
+
+  return fopen(path, mode);
+#endif
+}
+
+static int64_t file_size (FILE *file) {
+#ifdef _WIN32
+  struct _stat64 info;
+
+  return _fstat64(_fileno(file), &info) ? -1 : info.st_size;
+#else
+  struct stat info;
+
+  return fstat(fileno(file), &info) ? -1 : info.st_size;
+#endif
 }
 
 /* Reads a file of whole words into a new array, which the caller frees. */
 static int readwords (const char *path, uint64_t **words, size_t *count) {
-  FILE *file = fopen(path, "rb");
+  FILE *file = open_path(path, "rb");
 
   if (!file) {
     return error("input cannot be opened");
   }
 
-  struct stat info;
+  int64_t size = file_size(file);
 
-  if (fstat(fileno(file), &info) || info.st_size < 0 ||
-      info.st_size % WORD_BYTES ||
-      (uint64_t)info.st_size / WORD_BYTES > MAX_WORDS) {
+  if (size < 0 || size % WORD_BYTES ||
+      (uint64_t)size / WORD_BYTES > MAX_WORDS) {
     fclose(file);
 
     return error("input must contain bounded complete words");
   }
 
-  size_t bytes = (size_t)info.st_size;
+  size_t bytes = (size_t)size;
   unsigned char *raw = malloc(bytes ? bytes : 1);
 
   if (!raw) {
@@ -313,7 +370,7 @@ static int readwords (const char *path, uint64_t **words, size_t *count) {
 
 /* Reads and checks the header of an open bundle filebytes long, leaving the
  * file at the code region. */
-static int readheader (FILE *file, off_t filebytes, struct bundle *bundle) {
+static int readheader (FILE *file, int64_t filebytes, struct bundle *bundle) {
   unsigned char header[HEADER_BYTES];
 
   if (filebytes < HEADER_BYTES ||
@@ -335,7 +392,7 @@ static int readheader (FILE *file, off_t filebytes, struct bundle *bundle) {
   bundle->outputwords = fields[BUNDLE_OUTPUT_WORDS];
 
   if (fields[BUNDLE_VERSION] != BUNDLE_FORMAT ||
-      fields[BUNDLE_ARCHITECTURE] != BUNDLE_ARM64 || fields[BUNDLE_RESERVED]) {
+      fields[BUNDLE_ARCHITECTURE] != HOST_ARCH || fields[BUNDLE_RESERVED]) {
     return error("unsupported bundle version, architecture or reserved field");
   }
 
@@ -362,9 +419,16 @@ static int readheader (FILE *file, off_t filebytes, struct bundle *bundle) {
 }
 
 static int pagesize (size_t *page) {
+#ifdef _WIN32
+  size_t size = win64_page_size();
+
+  if (!size || (size & (size - 1))) {
+#else
   long size = sysconf(_SC_PAGESIZE);
 
   if (size <= 0 || (size & (size - 1))) {
+#endif
+
     return error("invalid host page size");
   }
 
@@ -375,6 +439,16 @@ static int pagesize (size_t *page) {
 
 /* Makes loaded code executable, and so no longer writable. */
 static int sealcode (unsigned char *code, size_t bytes) {
+#ifdef _WIN32
+  DWORD prior;
+
+  if (!VirtualProtect(code, bytes, PAGE_EXECUTE_READ, &prior) ||
+      !FlushInstructionCache(GetCurrentProcess(), code, bytes)) {
+    return error("seal failed");
+  }
+
+#else
+
   if (mprotect(code, bytes, PROT_READ | PROT_EXEC)) {
     return error("seal failed");
   }
@@ -383,6 +457,7 @@ static int sealcode (unsigned char *code, size_t bytes) {
   sys_icache_invalidate(code, bytes);
 #else
   __builtin___clear_cache((char *)code, (char *)code + bytes);
+#endif
 #endif
 
   return 0;
@@ -452,8 +527,17 @@ static int fencescratch (struct regions *regions, size_t page,
 
   regions->scratch = mapping + page;
 
+#ifdef _WIN32
+  DWORD prior;
+
+  if (!VirtualProtect(mapping, page, PAGE_NOACCESS, &prior) ||
+      !VirtualProtect(mapping + mapbytes - page, page, PAGE_NOACCESS, &prior)) {
+#else
+
   if (mprotect(mapping, page, PROT_NONE) ||
       mprotect(mapping + mapbytes - page, page, PROT_NONE)) {
+#endif
+
     return error("test guard protection failed");
   }
 
@@ -562,9 +646,15 @@ static int enter (const struct bundle *bundle, const struct regions *regions,
       [IMPORT_IO_FINISH] = (uintptr_t)nuppiofinish,
       [IMPORT_IO_CANCEL] = (uintptr_t)nuppiocancel,
       [IMPORT_IO_SETTLE] = (uintptr_t)nuppiosettle,
+#ifdef _WIN32
+      [IMPORT_DLOPEN] = (uintptr_t)open_library,
+      [IMPORT_DLSYM] = (uintptr_t)find_symbol,
+      [IMPORT_DLCLOSE] = (uintptr_t)close_library,
+#else
       [IMPORT_DLOPEN] = (uintptr_t)dlopen,
       [IMPORT_DLSYM] = (uintptr_t)dlsym,
       [IMPORT_DLCLOSE] = (uintptr_t)dlclose,
+#endif
       [IMPORT_SYMBOLS] = (uintptr_t)symboltable,
   };
   uint64_t packet[PACKET_FIELDS] = {
@@ -591,8 +681,7 @@ static int enter (const struct bundle *bundle, const struct regions *regions,
 static int execute (const char *path, const uint64_t *words, size_t count,
                     uint64_t **answer, size_t *length, uint64_t *status) {
   if (!HOST_SUPPORTED) {
-    return error(
-        "standalone bridge requires little-endian ARM64 macOS or Linux");
+    return error("standalone bridge requires ARM64 macOS/Linux or x64 Windows");
   }
 
   int result = 1;
@@ -600,20 +689,21 @@ static int execute (const char *path, const uint64_t *words, size_t count,
   struct regions regions = {0};
   size_t page = 0, highwater = 0;
   uint64_t *output = NULL;
-  struct stat info;
 
-  FILE *file = fopen(path, "rb");
+  FILE *file = open_path(path, "rb");
 
   if (!file) {
     return error("bundle cannot be opened");
   }
 
-  if (fstat(fileno(file), &info)) {
+  int64_t size = file_size(file);
+
+  if (size < 0) {
     error("invalid bundle header");
     goto out;
   }
 
-  if (readheader(file, info.st_size, &bundle) || pagesize(&page) ||
+  if (readheader(file, size, &bundle) || pagesize(&page) ||
       readhighwater((size_t)bundle.scratchbytes, &highwater)) {
     goto out;
   }
@@ -672,15 +762,15 @@ out:
   fclose(file);
 
   if (regions.code) {
-    munmap(regions.code, (size_t)bundle.codebytes);
+    unmap_region(regions.code, (size_t)bundle.codebytes);
   }
 
   if (regions.data) {
-    munmap(regions.data, (size_t)bundle.databytes);
+    unmap_region(regions.data, (size_t)bundle.databytes);
   }
 
   if (regions.scratchmap) {
-    munmap(regions.scratchmap, regions.scratchmapbytes);
+    unmap_region(regions.scratchmap, regions.scratchmapbytes);
   }
 
   free(output);
@@ -692,7 +782,11 @@ out:
  * nupp_core_artifact_directory, answering it for the caller to free once the
  * entry has returned. */
 static char *publishdirectory (const char *path) {
+#ifdef _WIN32
+  char *directory = canonical_path(path);
+#else
   char *directory = realpath(path, NULL);
+#endif
 
   if (!directory) {
     error("bundle cannot be resolved");
@@ -709,8 +803,14 @@ static char *publishdirectory (const char *path) {
     return NULL;
   }
 
-  /* A bundle at the root keeps the slash: its directory is "/". */
-  if (slash == directory) {
+  /* Keep the slash at a filesystem root. */
+  int root = slash == directory;
+
+#ifdef _WIN32
+  root = root || slash[-1] == ':';
+#endif
+
+  if (root) {
     slash[1] = 0;
   }
   else {
@@ -723,7 +823,7 @@ static char *publishdirectory (const char *path) {
 }
 
 static int writewords (const char *path, const uint64_t *words, size_t count) {
-  FILE *file = fopen(path, "wb");
+  FILE *file = open_path(path, "wb");
 
   if (!file) {
     return error("output cannot be opened");
@@ -764,12 +864,7 @@ static int checkstatus (uint64_t status) {
   return 1;
 }
 
-int main (int argc, char **argv) {
-  if (argc < 4) {
-    return error("usage: nupp-core BUNDLE INPUT OUTPUT [ARGUMENT...]");
-  }
-
-  const char *bundle = argv[1], *input = argv[2], *output = argv[3];
+static int run (const char *bundle, const char *input, const char *output) {
   char *directory = publishdirectory(bundle);
 
   if (!directory) {
@@ -787,3 +882,29 @@ int main (int argc, char **argv) {
 
   return result;
 }
+
+#ifdef _WIN32
+int wmain (int argc, wchar_t **argv) {
+  if (argc < 4) {
+    return error("usage: nupp-core BUNDLE INPUT OUTPUT [ARGUMENT...]");
+  }
+
+  char *bundle = utf8_path(argv[1]), *input = utf8_path(argv[2]),
+       *output = utf8_path(argv[3]);
+  int result = bundle && input && output ? run(bundle, input, output)
+                                         : error("invalid path");
+  free(bundle);
+  free(input);
+  free(output);
+
+  return result;
+}
+#else
+int main (int argc, char **argv) {
+  if (argc < 4) {
+    return error("usage: nupp-core BUNDLE INPUT OUTPUT [ARGUMENT...]");
+  }
+
+  return run(argv[1], argv[2], argv[3]);
+}
+#endif

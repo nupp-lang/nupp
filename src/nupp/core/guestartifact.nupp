@@ -18,6 +18,43 @@ const LOADER = "nupp.runtime.core.guestloader"
 const ADMISSION = "nupp.runtime.core.chunkadmission"
 const CHUNK_OWNERS: {[string]: boolean} = {[LOADER] = true, [ADMISSION] = true}
 
+local function transportWord(value: integer): string
+    local bytes: {string} = {}
+    for at = 0, WORD_BYTES - 1 do
+        bytes[at + 1] = string.char((value >> (at * 8)) & 255)
+    end
+
+    return table.concat(bytes)
+end
+
+-- Serialize selected machine code. The caller names the code's ABI, which
+-- can differ from the host writing the artifact.
+export function transportBundle(
+    architecture: string,
+    entry: integer,
+    code: string,
+    data: string,
+    scratch: integer,
+    outputs: integer
+): string
+    local tag = architecture == "aarch64" and 1 or architecture == "x86_64-pc-windows-msvc" and 2
+    assert(tag, "unsupported core bundle architecture " .. architecture)
+
+    return table.concat({
+        "NUPPCORE",
+        transportWord(1),
+        transportWord(tag),
+        transportWord(entry),
+        transportWord(#code),
+        transportWord(#data),
+        transportWord(scratch),
+        transportWord(outputs),
+        transportWord(0),
+        code,
+        data
+    })
+end
+
 -- Where each constant the writer emits by is declared.
 const CONSTANT_OWNERS: {
     [string]: string

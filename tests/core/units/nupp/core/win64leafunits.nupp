@@ -1,0 +1,40 @@
+module nupp.core.win64leafunits
+
+export function choose(input: uint64): uint64
+    if input == 0ULL then
+        return 0x2345ULL
+    end
+
+    return input + 0x100000000ULL
+end
+
+export function unsupported(input: uint64): uint64
+    return input * 3ULL
+end
+
+export function addWord(input: uint64): uint64
+    return input + 0x100000000ULL
+end
+
+export function callWord(input: uint64): uint64
+    return addWord(input) + 3ULL
+end
+
+cdef function nupp_core_page_size(): uint64
+cdef function nupp_core_monotonic_nanos(): uint64
+
+export function startupPageSize(input: uint64): uint64
+    if input == 0ULL then
+        return nupp_core_page_size()
+    end
+
+    return input
+end
+
+export function startupWrongSymbol(input: uint64): uint64
+    if input == 0ULL then
+        return nupp_core_monotonic_nanos()
+    end
+
+    return input
+end

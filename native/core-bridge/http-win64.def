@@ -1,0 +1,24 @@
+; Link only into a Win64 bridge built with NUPP_CORE_HTTP and its HTTP SDK.
+; The ordinary bridge links no HTTP exports.
+EXPORTS
+    nupp_curl_arm
+    nupp_curl_cancel
+    nupp_curl_client_token
+    nupp_curl_close
+    nupp_curl_error
+    nupp_curl_find_client
+    nupp_curl_find_request
+    nupp_curl_head
+    nupp_curl_offer
+    nupp_curl_open
+    nupp_curl_pending
+    nupp_curl_read
+    nupp_curl_ready
+    nupp_curl_release
+    nupp_curl_request_token
+    nupp_curl_send
+    nupp_curl_watch_client
+    nupp_http_scope_attach
+    nupp_http_scope_detach
+    nupp_uri_idna_ascii
+    nupp_uv_loop
