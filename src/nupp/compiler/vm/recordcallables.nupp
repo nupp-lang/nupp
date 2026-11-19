@@ -399,7 +399,17 @@ local function spec(plan: any): any
     local made: any = {fields = {}, positions = {}, defaulted = {}, defaults = {}, constructors = {}}
     if plan.reflected then
         local reflection = require("nupp.compiler.reflection")
-        made.blueprint = reflection.describe(nominal, nominal.runtimePath or nominal.name)
+        local codec = require("nupp.compiler.project.plaincodec")
+        local blueprint = reflection.describe(nominal, nominal.runtimePath or nominal.name)
+        local bytes = codec.encode(blueprint, true)
+        -- Keep each constant within the executable's string limit. The
+        -- encoded graph avoids lowering each field as table-building code.
+        const chunkSize = 32768
+        local chunks: {string} = {}
+        for start = 1, #bytes, chunkSize do
+            chunks[#chunks + 1] = bytes:sub(start, start + chunkSize - 1)
+        end
+        made.blueprintChunks = chunks
         made.references = reflection.runtimeReferences(nominal)
     end
     for position, field in ipairs(nominal.fieldOrder or {}) do

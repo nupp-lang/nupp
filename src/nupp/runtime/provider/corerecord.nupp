@@ -61,8 +61,13 @@ local function admits(owner: any, spec: any, domains: any, value: any): boolean
 end
 
 export function create(owner: any, spec: any): any
-    if spec.blueprint ~= nil then
-        owner["\0nupp:reflection"] = {blueprint = spec.blueprint, references = spec.references}
+    local blueprint = spec.blueprint
+    if spec.blueprintChunks ~= nil then
+        local codec = require("nupp.compiler.project.plaincodec")
+        blueprint = codec.decode(table.concat(spec.blueprintChunks))
+    end
+    if blueprint ~= nil then
+        owner["\0nupp:reflection"] = {blueprint = blueprint, references = spec.references}
     end
 
     local function construct(_: any, ...: any): any
