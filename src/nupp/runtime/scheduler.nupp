@@ -277,6 +277,15 @@ local function step(): nil
         poptimer()
     end
     if #timers == 0 then
+        if #suspended > 0
+            and reactor.pending() == 0
+            and not nativeOwnerWork()
+            and not suspension.handled()
+            and not readiness.hasActiveSources()
+        then
+            suspended[1].refuse()
+            return
+        end
         if polling or owner ~= nil then
             wait(SOURCE_SLICE_MS, owner)
             return
@@ -449,20 +458,21 @@ end
 
 -- What a suspended wait's park answers once its waker fires.
 local WOKEN = reactor.Completion(value = 0)
+local NO_SOURCE = reactor.Completion(value = -1)
 
 -- A suspended wait parks its task through the reactor's park until the
 -- wait's own waker fires. A cancellation that wakes the park abandons the
 -- wait before it is raised. Either way the task stops counting as suspended.
 local function suspendpark(_: suspensionHost.Handler, waiting: suspensionHost.Waiting, cancel: function(): nil): nil
     while not waiting:ready() do
-        reactor.suspend(function(resume: reactor.Waker): function(): nil
-            local entry = {waiting = waiting, index = #suspended + 1}
+        local answer = reactor.suspend(function(resume: reactor.Waker): function(): nil
+            local entry: any = {waiting = waiting, index = #suspended + 1}
             suspended[entry.index] = entry
 
-            local function settle(): nil
+            local function settle(): boolean
                 local index = entry.index
                 if index == 0 then
-                    return
+                    return false
                 end
                 local last = #suspended
                 local moved = suspended[last]
@@ -470,18 +480,29 @@ local function suspendpark(_: suspensionHost.Handler, waiting: suspensionHost.Wa
                 moved.index = index
                 suspended[last] = nil
                 entry.index = 0
+
+                return true
             end
 
             waiting:onresume(function(): nil
-                settle()
-                resume(WOKEN)
+                if settle() then
+                    resume(WOKEN)
+                end
             end)
+            entry.refuse = function(): nil
+                if settle() then
+                    resume(NO_SOURCE)
+                end
+            end
 
             return function(): nil
                 settle()
                 cancel()
             end
         end)
+        if answer.value == NO_SOURCE.value then
+            error(("nupp: %s cannot complete: no readiness source is registered"):format(waiting.operation), 0)
+        end
     end
 end
 

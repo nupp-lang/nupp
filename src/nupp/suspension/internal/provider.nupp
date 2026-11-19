@@ -322,19 +322,22 @@ export function waitOnce(waiting: any): boolean
     return true
 end
 
+-- Whether polling can still complete a pending wait.
+export function hasActiveSources(): boolean
+    for index = 1, #providerState.sources do
+        local src = providerState.sources[index]
+        local isActive = src.active
+        if not src._released and (isActive == nil or isActive(src)) then
+            return true
+        end
+    end
+
+    return false
+end
+
 local function blockingPark(waiting: any): nil
     while not waiting:ready() do
-        local active = false
-        for index = 1, #providerState.sources do
-            local src = providerState.sources[index]
-            local isActive = src.active
-            if not src._released and (isActive == nil or isActive(src)) then
-                active = true
-
-                break
-            end
-        end
-        if not active then
+        if not hasActiveSources() then
             error(("nupp: %s cannot complete: no readiness source is registered"):format(waiting.operation), 0)
         end
         if poll() == 0 and waitOnce(waiting) and not waiting:ready() then
