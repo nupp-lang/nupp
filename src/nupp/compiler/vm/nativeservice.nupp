@@ -3854,7 +3854,7 @@ export function buildWin64Startup(): any
         "src/nupp/compiler/vm/nativeservice.nupp",
         "src/nupp/compiler/vm/nativeos.nupp",
         "native/core-bridge/hostpages-win64.nupp",
-        "native/core-bridge/host-win64.h",
+        "native/core-bridge/hostwin64.h",
         "native/core-bridge/main.c"
     }) do
         need(snapshot.sources[source] == read(root .. "/" .. source), "Win64 startup policy differs: " .. source)

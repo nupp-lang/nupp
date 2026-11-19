@@ -22,7 +22,7 @@
 
 #include "reactor.h"
 #include "transport.h"
-#include "../http-curl/uri-idna.h"
+#include "../http-curl/uriidna.h"
 
 #include <errno.h>
 #include <limits.h>
@@ -35,7 +35,7 @@
 #ifdef _WIN32
 #include <uv.h>
 
-#include "host-win64.h"
+#include "hostwin64.h"
 #else
 #include <dlfcn.h>
 #include <sys/mman.h>

@@ -20,7 +20,7 @@ local proofInputs = {
         "native/core-bridge/main.c",
         "native/core-bridge/reactor.h",
         "native/core-bridge/transport.h",
-        "native/http-curl/uri-idna.h",
+        "native/http-curl/uriidna.h",
         "tests/core/bundleheaderproof.c",
     },
     [

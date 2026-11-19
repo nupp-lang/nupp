@@ -2,7 +2,7 @@
 //!
 //! It loads a program image, registers `demo.counter` (the C extension in
 //! `tests/extension/counter.c`, a shared library written against
-//! `native/include/nupp_extension.h`) checked against its `.d.nupp`
+//! `native/include/nuppextension.h`) checked against its `.d.nupp`
 //! declaration, calls an export, drives a task that parks on a request the
 //! module completes from another thread, and carries a native resource through
 //! a checkpoint into a second VM.

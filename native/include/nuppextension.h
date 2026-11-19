@@ -1,5 +1,5 @@
 /*
- * nupp_extension.h -- the versioned C ABI of Nupp native extensions.
+ * nuppextension.h -- the versioned C ABI of Nupp native extensions.
  *
  * A native extension is a shared library that registers one typed Nupp module
  * with the VM that loads it. It exports one entry point, NUPP_EXTENSION_ENTRY,

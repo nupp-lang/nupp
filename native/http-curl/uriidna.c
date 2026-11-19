@@ -3,7 +3,7 @@
  * @brief Converts a UTF-8 domain to its ASCII wire form with ICU.
  */
 
-#include "uri-idna.h"
+#include "uriidna.h"
 
 #include <string.h>
 

@@ -287,7 +287,7 @@ are rebuilt with the toolchain that reads them.
 | Format | Version | Rule | Declared in |
 | --- | --- | --- | --- |
 | Native provider ABI | 2 | exact major | `native/include/nuppnative.h` `NUPP_NATIVE_ABI_VERSION` |
-| Native extension ABI | 1 | exact | `native/include/nupp_extension.h` `NUPP_EXTENSION_ABI_VERSION` |
+| Native extension ABI | 1 | exact | `native/include/nuppextension.h` `NUPP_EXTENSION_ABI_VERSION` |
 | Payload trailer | 1 | exact | `native/crates/vm/src/payload.rs` `FORMAT_VERSION` |
 | Documentation model | 3 | read by consumers | `src/nupp/tools/doc/init.nupp` `schemaVersion` |
 | Coverage report | 1 | exact | `src/nupp/tools/coverage.nupp` `SCHEMA_VERSION` |

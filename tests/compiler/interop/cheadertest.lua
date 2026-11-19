@@ -54,7 +54,7 @@ function M.pointersAndStructsDecode()
 end
 
 function M.completeDirectDeclaratorsDecode()
-    local res, err = cheaderMod.load(HERE .. "/fixtures/complete_c_interop.h")
+    local res, err = cheaderMod.load(HERE .. "/fixtures/completecinterop.h")
     assert(res, "complete header must load: " .. tostring(err))
     local parameter = res.exports.nupp_complete_use_context.params[1]
     local pointer = parameter.members[1] == T.nil_ and parameter.members[2] or parameter.members[1]
@@ -254,24 +254,29 @@ end
 -- preprocesses with gcc. Everywhere else, and wherever cc exists, it is cc.
 function M.theDefaultCompilerIsGccOnlyOnAWindowsWithoutCc()
     local ccompiler = require("nupp.compiler.cinterop.ccompiler")
+
     local function having(...)
         local names = {}
         for _, name in ipairs({...}) do
             names[name] = true
         end
+
         return function(name)
             return names[name] == true
         end
     end
+
     testAssert.eq(ccompiler.choose(false, having("gcc")), "cc")
     testAssert.eq(ccompiler.choose(true, having("cc", "gcc")), "cc")
     testAssert.eq(ccompiler.choose(true, having("gcc")), "gcc")
     testAssert.eq(ccompiler.choose(true, having()), "cc", "with neither, the failure names cc")
 
     local files = {["C:\\mingw64\\bin\\gcc.exe"] = true, ["D:\\tools\\cc.BAT"] = true}
+
     local function exists(path)
         return files[path] == true
     end
+
     assert(ccompiler.onWindowsPath("gcc", "C:\\Windows;C:\\mingw64\\bin\\", ".COM;.exe", exists))
     assert(not ccompiler.onWindowsPath("cc", "C:\\Windows;C:\\mingw64\\bin", ".COM;.exe", exists))
     assert(ccompiler.onWindowsPath("cc", "C:\\mingw64\\bin;D:\\tools", ".exe;.BAT", exists))

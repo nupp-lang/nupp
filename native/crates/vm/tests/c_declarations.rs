@@ -434,7 +434,7 @@ fn unsupported_roots_and_pragma_operators_close_only_new_replay() {
 #[test]
 fn whole_fixture_replay_uses_the_actual_guard_stripped_header() {
     let mut registry = Registry::new().unwrap();
-    let whole = include_str!("../../../../tests/fixtures/complete_c_interop.h")
+    let whole = include_str!("../../../../tests/fixtures/completecinterop.h")
         .lines()
         .filter(|line| !line.trim_start().starts_with('#'))
         .collect::<Vec<_>>()

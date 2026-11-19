@@ -2,7 +2,7 @@
 //!
 //! A [`Vm`] owns one isolated runtime. The embedder loads verified images into
 //! it, registers native modules ([`Module`]: a C description as
-//! `include/nupp_extension.h` defines it) checked against their `.d.nupp`
+//! `include/nuppextension.h` defines it) checked against their `.d.nupp`
 //! declarations, calls Nupp exports with typed values, keeps VM values alive
 //! across calls with [`Root`]s, and drives the task scheduler, including tasks
 //! parked on host functions the module completes later from any thread. The

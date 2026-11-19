@@ -21,8 +21,8 @@ int main (void) {
   assert(!strcmp((const char *)(code + instructions), "nupp_core_page_size"));
 
   struct bundle program = {
-      .code_bytes = instructions + sizeof("nupp_core_page_size"),
-      .output_words = 1,
+      .codebytes = instructions + sizeof("nupp_core_page_size"),
+      .outputwords = 1,
   };
   struct regions regions = {.code = code};
   uint64_t input = 0, output = 0, status;
@@ -38,7 +38,7 @@ int main (void) {
       [PACKET_INPUT_WORDS] = 1,
       [PACKET_IMPORT_COUNT] = IMPORT_COUNT - 1,
   };
-  assert(!call_entry(nupp_core_win64_entry, bad_packet, &output, &status));
+  assert(!callentry(nupp_core_win64_entry, bad_packet, &output, &status));
   assert(status == 4 && !output);
 
   return 0;

@@ -1,6 +1,6 @@
 /*
  * `demo.counter` as a C extension, built independently of the VM with the
- * system compiler against nothing but `include/nupp_extension.h`. It leaves
+ * system compiler against nothing but `include/nuppextension.h`. It leaves
  * marker files beside itself so a test can see what ran: `<library>.init`
  * when a VM initialized it, `<library>.shutdown` when one shut it down, and
  * `<library>.unloaded` when the platform unloaded it.
@@ -9,7 +9,7 @@
  * number, which no declaration of the module matches.
  */
 #define _GNU_SOURCE
-#include "nupp_extension.h"
+#include "nuppextension.h"
 
 #include <dlfcn.h>
 #include <pthread.h>

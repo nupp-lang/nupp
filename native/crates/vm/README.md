@@ -3006,7 +3006,7 @@ C description (`embed::Module`, from a shared library's `nupp_extension_v1`
 entry or linked in by the embedder): a name, functions under their declared
 Nupp types, and resource types. The same library is a native extension a
 program loads with `require`. Both reach the VM through one versioned C ABI,
-`native/include/nupp_extension.h`, which the VM reads through
+`native/include/nuppextension.h`, which the VM reads through
 `extension::abi`; `tests/extension_header.rs` (the `c-headers` feature) reads
 the header with libclang and holds every size and offset to that layout.
 (Until 2026-11-17 a Rust SDK, the `nupp-extension` crate, built the same

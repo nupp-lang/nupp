@@ -1,6 +1,6 @@
 # Source only for the opt-in x64 MSVC HTTP fixture. ROOT and die come from
 # the caller. The combined icu.dll requires Windows 10 1903 or Server 2022.
-# Build uri-idna.c with -DNUPP_WIN64_HTTP_SYSTEM_ICU=1 and icu_include;
+# Build uriidna.c with -DNUPP_WIN64_HTTP_SYSTEM_ICU=1 and icu_include;
 # link icu_import. Use the system DLL and stage only curl_dlls beside the
 # executable, with curl_notices from the same verified curl package.
 [ -n "${WindowsSdkDir:-}" ] && [ -n "${WindowsSDKVersion:-}" ] ||

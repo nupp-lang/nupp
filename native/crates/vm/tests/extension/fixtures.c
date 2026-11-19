@@ -9,7 +9,7 @@
  * - FIXTURE_NAMED: `demo.named`, a function whose result is a named record
  *   type the boundary cannot check.
  */
-#include "nupp_extension.h"
+#include "nuppextension.h"
 
 #include <stdlib.h>
 

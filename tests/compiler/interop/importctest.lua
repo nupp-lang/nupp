@@ -113,7 +113,7 @@ function M.inspectingAHeaderOutsideEveryRootNeedsNoModuleName()
 end
 
 function M.completeDirectDeclaratorsArePreserved()
-    local text, warnings = importc.import(HERE .. "/fixtures/complete_c_interop.h", {module = "completecinterop"})
+    local text, warnings = importc.import(HERE .. "/fixtures/completecinterop.h", {module = "completecinterop"})
     assert(text, "complete declarator import failed: " .. table.concat(warnings or {}, "; "))
     assertContains(text, "cdef struct nupp_complete_context")
     assertContains(text, "matrix: float32[3][2]", "nested fixed arrays")

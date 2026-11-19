@@ -1,4 +1,4 @@
-//! The C ABI of `include/nupp_extension.h`, field for field, as the VM reads
+//! The C ABI of `include/nuppextension.h`, field for field, as the VM reads
 //! it. Extensions are written against the header; the `extension_header` test
 //! holds these definitions to its sizes and offsets.
 #![allow(non_camel_case_types)]

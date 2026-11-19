@@ -1,4 +1,4 @@
-//! `include/nupp_extension.h` and the VM's reading of it (`extension::abi`)
+//! `include/nuppextension.h` and the VM's reading of it (`extension::abi`)
 //! describe one layout: libclang reads the header, and every struct's size and
 //! every field's offset must equal the VM's definition's.
 #![cfg(feature = "c-headers")]
@@ -8,7 +8,7 @@ use serde_json::{json, Value};
 use std::mem::{offset_of, size_of};
 
 fn header() -> String {
-    let text = include_str!("../../../include/nupp_extension.h");
+    let text = include_str!("../../../include/nuppextension.h");
     // Parsed in memory with no system headers: the fixed-width types are
     // declared from the compiler's own spelling of them on this target.
     let prelude = "typedef __SIZE_TYPE__ size_t; typedef __INT32_TYPE__ int32_t; typedef __UINT32_TYPE__ uint32_t; \

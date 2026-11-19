@@ -2,7 +2,7 @@
 """Run a Nupp program over a native extension module on the VM.
 
 Builds `demo.counter` apart from the VM: `extension/counter.c` with the system
-C compiler against `include/nupp_extension.h`. Lowers `extension-project` with
+C compiler against `include/nuppextension.h`. Lowers `extension-project` with
 a VM compiler seed, whose image then carries the module's declaration, and
 runs `demo.app` against the library on the Rust,
 threaded, JIT and compiled-frame engines under collector stress with the root

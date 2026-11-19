@@ -3,7 +3,7 @@
 //! An embedder registers one in process (`embed::Vm::register`); a program
 //! loads one from a separately built shared library when it requires a module
 //! whose `.d.nupp` declaration carries `@extension LIBRARY`. Both arrive as the
-//! C description `nupp_extension.h` defines, both are checked against the
+//! C description `nuppextension.h` defines, both are checked against the
 //! module's declaration before any of their code runs, and both appear to Nupp
 //! as an ordinary module table whose fields are runtime functions.
 //!
@@ -35,7 +35,7 @@ pub const RESOURCE_KIND: &str = "nupp.extension.resource";
 const RECORD: &str = "nupp.vm.extensions";
 const RETAINED: u64 = 1 << 63;
 
-/// The target this runtime loads extensions for, as `nupp_extension.h`
+/// The target this runtime loads extensions for, as `nuppextension.h`
 /// spells `NUPP_EXTENSION_TARGET`.
 pub fn target() -> String {
     abi::target()

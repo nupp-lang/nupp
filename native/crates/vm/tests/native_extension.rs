@@ -1,5 +1,5 @@
 //! Native extensions: `demo.counter` built as a separate shared library from C
-//! against `include/nupp_extension.h` with the system compiler, and loaded
+//! against `include/nuppextension.h` with the system compiler, and loaded
 //! when a program requires the module its image declares. The checks run before the library's own
 //! code; the library stays loaded while its VM lives; a checkpoint reloads it
 //! before restoring its resources. Collector stress with the root oracle and

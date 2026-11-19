@@ -14,7 +14,7 @@ two ways, and the program cannot tell which:
 - A program run by `nupp` loads the module when it first requires it.
 
 Either way the module arrives through one versioned C ABI,
-`native/include/nupp_extension.h`, and either way it is checked against the
+`native/include/nuppextension.h`, and either way it is checked against the
 module's `.d.nupp` declaration before any of its code runs. The declaration is
 what typed callers were checked against, so a library that registers another
 signature is refused, not called.
@@ -80,13 +80,13 @@ Variadic and generic host functions are refused, too.
 
 ## Writing it in C
 
-An extension includes `nupp_extension.h` and nothing else of Nupp's, and links
+An extension includes `nuppextension.h` and nothing else of Nupp's, and links
 nothing of Nupp's. It describes the module in static data: the module name, the
 target it was built for, its functions under their declared Nupp types, and its
 resource types. One exported entry point answers that description:
 
 ```c
-#include "nupp_extension.h"
+#include "nuppextension.h"
 
 static nupp_status add(const nupp_host *host, nupp_call *call, void *instance, void *data,
                        const nupp_slot *args, size_t nargs, nupp_slot *results, size_t nresults) {

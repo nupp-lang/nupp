@@ -1,5 +1,5 @@
 //! A C extension fixture built apart from the VM, with the system C compiler
-//! against nothing but `include/nupp_extension.h`, into a directory of its own.
+//! against nothing but `include/nuppextension.h`, into a directory of its own.
 //! The embedding and extension tests share it.
 use std::path::{Path, PathBuf};
 use std::process::Command;

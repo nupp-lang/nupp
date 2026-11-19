@@ -78,7 +78,7 @@ if [ "$win64_mode" = --win64-contracts ] || [ "$win64_mode" = --win64-http-link 
         # LINK accepts -DEF, which avoids a slash-prefixed MSYS argument.
         compile_win64 -DNUPP_CORE_HTTP -DNUPP_WIN64_HTTP_SYSTEM_ICU=1 -DNUPP_WIN64_PROCESS \
             -iquote "$common" -I"$curl_headers" -I"$icu_headers" \
-            "$common/main.c" "$common/uv.c" "$http/transport.c" "$http/uri-idna.c" \
+            "$common/main.c" "$common/uv.c" "$http/transport.c" "$http/uriidna.c" \
             "$common/process.c" "$common/winpipe.c" "$common/streamio.c" \
             "$curl_lib" "$icu_lib" -Xlinker "-DEF:$common/http-win64.def" \
             -o "$stage_native/nupp-core.exe"
@@ -87,12 +87,12 @@ if [ "$win64_mode" = --win64-contracts ] || [ "$win64_mode" = --win64-http-link 
     fi
     tests="$root_native/tests/core"
     compile_win64 "$common/main.c" "$common/uv.c" -o "$stage_native/nupp-core.exe"
-    compile_win64 "$tests/socket-broker-win64.c" -o "$stage_native/socket-broker.exe"
+    compile_win64 "$tests/socketbrokerwin64.c" -o "$stage_native/socket-broker.exe"
     compile_win64 -DNUPP_WIN64_PROCESS -iquote "$common" \
-        "$tests/bridge-loader-win64-contract.c" "$common/uv.c" \
+        "$tests/bridgeloaderwin64contract.c" "$common/uv.c" \
         "$common/process.c" "$common/winpipe.c" "$common/streamio.c" \
         -o "$stage_native/bridge-loader.exe"
-    compile_win64 "$tests/bridge-abi-win64-contract.c" "$tests/bridge-abi-win64.S" -o "$stage_native/bridge-abi.exe"
+    compile_win64 "$tests/bridgeabiwin64contract.c" "$tests/bridge-abi-win64.S" -o "$stage_native/bridge-abi.exe"
     compile_win64 -DNUPP_WIN64_PROCESS -iquote "$common" \
         "$tests/processwin64contract.c" "$common/process.c" "$common/uv.c" \
         "$common/winpipe.c" "$common/streamio.c" \
@@ -185,13 +185,13 @@ link_bridge() {
     fi
     compile "$export_flag" -Wl,-rpath,"$rpath" "$@" "$common/process.c" \
         ${defaults:+"$defaults"} \
-        "$http/transport.c" "$stage/uri-idna.o" "$stage/lib/libcurl.$shared_suffix" \
+        "$http/transport.c" "$stage/uriidna.o" "$stage/lib/libcurl.$shared_suffix" \
         "$icu" "$stage/lib/$uv_name"
 }
 if [ "$platform" = Darwin:arm64 ]; then
-    compile -c "$http/uri-idna.c" -o "$stage/uri-idna.o"
+    compile -c "$http/uriidna.c" -o "$stage/uriidna.o"
 else
-    compile -I"$icu_include" -c "$http/uri-idna.c" -o "$stage/uri-idna.o"
+    compile -I"$icu_include" -c "$http/uriidna.c" -o "$stage/uriidna.o"
 fi
 link_bridge "$common/main.c" "$common/uv.c" -o "$OUT/nupp-core$pending"
 link_bridge "$common/guard.c" "$common/uv.c" "$ROOT/tests/core/bridgeabi.S" \
@@ -209,8 +209,8 @@ mv "$OUT/nupp-core$pending" "$OUT/nupp-core"
 mv "$OUT/nupp-core-guard$pending" "$OUT/nupp-core-guard"
 if [ "$test" = 1 ]; then
     link_bridge \
-        "$ROOT/tests/core/bridgecontracts.c" "$ROOT/tests/core/uv-contracts.c" \
-        "$ROOT/tests/core/process-contracts.c" \
+        "$ROOT/tests/core/bridgecontracts.c" "$ROOT/tests/core/uvcontracts.c" \
+        "$ROOT/tests/core/processcontracts.c" \
         "$ROOT/tests/core/bridgeabi.S" -o "$OUT/nupp-core-contracts$pending"
     check_floor "$OUT/nupp-core-contracts$pending"
     mv "$OUT/nupp-core-contracts$pending" "$OUT/nupp-core-contracts"
