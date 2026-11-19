@@ -1,8 +1,3 @@
-/**
- * @file
- * @brief Exercises C callbacks, multidimensional arrays, and pointer declarations.
- */
-
 #ifndef NUPP_COMPLETE_C_INTEROP_H
 #define NUPP_COMPLETE_C_INTEROP_H
 

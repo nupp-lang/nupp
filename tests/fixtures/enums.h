@@ -1,7 +1,4 @@
-/**
- * @file
- * @brief Exercises importing named C enum constants.
- */
+/* Test fixture for nupp import-c: enum members as named constants. */
 
 enum miniStatus {
     MINI_OK = 0,

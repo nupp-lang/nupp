@@ -1,10 +1,5 @@
-/**
- * @file
- * @brief Exercises reading a self-contained header through checked C interop.
- *
- * The fixture can be read without a system C preprocessor.
- */
-
+/* Fixture mirroring a project's own C header: self-contained, no
+ * preprocessor needed. */
 #ifndef NUPP_SINK_H
 #define NUPP_SINK_H
 

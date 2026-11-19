@@ -1,23 +1,15 @@
-/**
- * @file
- * @brief Compares generated and hand-written Base64 encoders.
- *
- * Times bench/base64simd's generated encoder against bench/base64's
+/* Times bench/base64simd's generated encoder against bench/base64's
  * hand-written NEON encoder and its scalar one. The generated library is the
  * base64simd module compiled with the harness flags:
  *
- * @code{.sh}
  *   ./bin/nupp aot --emit c --features neon bench/base64simd/src/base64simd.nupp > /tmp/b64.c
  *   clang -std=c11 -O3 -ffp-contract=off -fno-fast-math -fPIC -dynamiclib /tmp/b64.c -o /tmp/b64.dylib
  *   clang -std=c11 -O3 -D_POSIX_C_SOURCE=200809L -Ibench/base64 bench/base64/base64_control.c \
  *       bench/simd11/handwritten/base64.c -o /tmp/base64-compare
  *   /tmp/base64-compare /tmp/b64.dylib
- * @endcode
  *
  * The two vector encoders must write the same bytes before either is timed;
- * each figure is the fastest of 101 interleaved samples.
- */
-
+ * each figure is the fastest of 101 interleaved samples. */
 #include <dlfcn.h>
 #include <stdint.h>
 #include <stdio.h>

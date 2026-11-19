@@ -1,8 +1,4 @@
-/**
- * @file
- * @brief Scalar and NEON controls for the Base64 benchmark.
- *
- * Base64 encoding, scalar and vectorized, as the ceiling `src/base64bench.nupp`
+/* Base64 encoding, scalar and vectorized, as the ceiling `src/base64bench.nupp`
  * is measured against. See `nupp_base64.h` for why this exists.
  *
  * The vectorized encoder is the NEON one, which is shorter than the SSE and

@@ -1,9 +1,9 @@
-/**
- * @file
- * @brief Entry point for the SHA-256 benchmark control.
+/* The benchmark control's digest, declared for the two files that name it.
  *
- * The benchmark calls the frozen control in `sha256_control.c` from
- * `implementations.lua` through the FFI.
+ * Nothing outside this benchmark builds this. The compiler digest is now in
+ * Nupp, and the check a stamped binary runs before trusting its payload is
+ * XXH64, in the Rust base provider. What is left here is the frozen control
+ * `sha256_control.c` defines and `implementations.lua` calls through the FFI.
  */
 
 #ifndef NUPP_SHA256_H
@@ -13,14 +13,8 @@
 #include <stddef.h>
 #include <stdint.h>
 
-/**
- * @brief Writes a SHA-256 digest as 64 lowercase hexadecimal digits.
- * @param[in] bytes Input bytes, or null when length is zero.
- * @param[in] length Input size in bytes.
- * @param[out] output Buffer of at least 65 bytes, including the terminator.
- * @return True on success. A null output or a null input with nonzero
- *         length returns false.
- */
+/* Writes the digest of `length` bytes as 64 lowercase hexadecimal digits and a
+ * terminator. `output` must have room for 65 bytes. */
 bool nuppSha256(const uint8_t *bytes, size_t length, char *output);
 
 #endif

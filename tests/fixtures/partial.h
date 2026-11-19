@@ -1,10 +1,6 @@
-/**
- * @file
- * @brief Exercises partial imports when the layout of a field is unavailable.
- *
- * One record needs the layout of an incomplete type. The other declarations
- * can still be imported when that record is skipped.
- */
+/* Test fixture for nupp import-c: one declaration the C parser will not take,
+   among several it will. The shape a real header has when a type it lays a
+   struct out from is defined in a header this import filtered away. */
 
 struct partialOpaque;
 

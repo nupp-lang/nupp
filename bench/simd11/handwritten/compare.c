@@ -1,17 +1,11 @@
-/**
- * @file
- * @brief Checks and times generated, scalar, and NEON kernels.
- *
- * Times the generated explicit kernels in the harness library against their
+/* Times the generated explicit kernels in the harness library against their
  * hand-written NEON versions and the scalar-source C, over the harness's
  * inputs and sizes. Every implementation must agree bit for bit with the
  * scalar entry before anything is timed. Each figure is the fastest of 101
  * interleaved samples of about a millisecond, which is what a deterministic
  * loop on a shared machine measures best.
  *
- * usage: compare LIBRARY   (bench/simd11/build/native.dylib after --prepare)
- */
-
+ * usage: compare LIBRARY   (bench/simd11/build/native.dylib after --prepare) */
 #include <dlfcn.h>
 #include <stdint.h>
 #include <stdio.h>

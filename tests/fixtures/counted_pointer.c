@@ -1,8 +1,3 @@
-/**
- * @file
- * @brief Records whether checked C interop calls reach the C callee.
- */
-
 #include <stddef.h>
 #include <stdint.h>
 

@@ -1,8 +1,4 @@
-/**
- * @file
- * @brief Host channel benchmark driven by an embedding application.
- *
- * Times one frame's boundary traffic between an embedding application and the
+/* Times one frame's boundary traffic between an embedding application and the
  * `framebench` component, three ways (see src/framebench.nupp):
  *
  *   n1  Tecs's winit host today: an export per input event, the frame export,
