@@ -32,6 +32,7 @@ uint64_t nuppiosettle (uint64_t ticket);
 struct uv_loop_s;
 
 /* Raw completion transport only. Tokens are never operating-system fds. */
+
 /** Owner-thread borrow, NULL on initialization failure or shutdown. Never drive
  * recursively;
  * adapters retire every attached request/handle before runtime shutdown. */

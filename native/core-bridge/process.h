@@ -33,6 +33,7 @@ int64_t nupp_process_reap (uint64_t child);
 int64_t nupp_process_kill (uint64_t child, uint64_t signal);
 
 /* Reactor hooks. Draining remains the responsibility of the loop owner. */
+
 /**
  * Consumes one ready child notification for the poller, or returns zero.
  * The event carries the child identity above the readiness bits.

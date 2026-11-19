@@ -992,7 +992,6 @@ static void releaseWriterBacking(luaWriter *writer) noexcept {
         try {
             WRITER_POOL.push_back(std::move(owned));
         } catch (...) {
-
             // `owned` deletes the backing. Cleanup must remain non-throwing.
         }
     } else {

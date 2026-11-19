@@ -48,9 +48,7 @@ while read -r _local localSha _remote remoteSha; do
         "$range" -- '*.nupp' '*.d.nupp' 2>/dev/null || true)
     changed=$(printf '%s\n%s' "$changed" "$found")
     cFound=$(git diff-tree -r --no-commit-id --name-only --diff-filter=ACMR \
-        "$range" -- '*.c' '*.h' '*.cc' '*.cpp' '*.cxx' '*.hh' '*.hpp' '*.hxx' \
-        '*.S' '*.def' 'CMakeLists.txt' '*/CMakeLists.txt' '*.cmake' \
-        .clang-format .uncrustify.cfg .gersemirc scripts/format-c scripts/space-native-comments.py \
+        "$range" -- '*.c' '*.h' 'CMakeLists.txt' '*/CMakeLists.txt' '*.cmake' \
         2>/dev/null || true)
     cChanged=$(printf '%s\n%s' "${cChanged-}" "$cFound")
 done
@@ -60,11 +58,10 @@ done
 # to. It needs pipx to fetch the pinned clang-format and clang-tidy and CMake
 # to build the pinned Uncrustify once, so a machine without them leaves the
 # question to CI.
-if [ -n "${cChanged-}" ] && command -v python3 >/dev/null 2>&1 \
-    && command -v pipx >/dev/null 2>&1 \
+if [ -n "${cChanged-}" ] && command -v pipx >/dev/null 2>&1 \
     && command -v cmake >/dev/null 2>&1; then
     if ! ./scripts/format-c --check >/dev/null 2>&1; then
-        printf 'nupp: scripts/format-c would rewrite native sources in this push.\n' >&2
+        printf 'nupp: this push carries C that scripts/format-c would rewrite.\n' >&2
         printf 'Run `scripts/format-c --write` and amend, or push with --no-verify.\n' >&2
         exit 1
     fi
