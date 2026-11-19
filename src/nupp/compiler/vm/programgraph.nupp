@@ -1870,7 +1870,8 @@ export function describe(modules: {any}, entryModule: string, options: any?): an
         -- So does a library call taking a function it calls back, which is
         -- that function's callsite: table.sort's comparator, and gsub's
         -- function replacement, in `s:gsub(p, f)` form too.
-        if node.kind == "call"
+        if node.kind == "safeCall"
+            or node.kind == "call"
             and (node.obj.kind ~= "name" or throughValue)
             and not loader
             and not intrinsic
@@ -2645,7 +2646,7 @@ export function verify(p: any): boolean
             )
         elseif item.field then
             need(
-                (node.kind == "call" and node.obj.kind ~= "name"
+                (node.kind == "safeCall" or node.kind == "call" and node.obj.kind ~= "name"
                 -- A library function called by its name through its value.
                 or node.kind == "call" and graph.libraryValue(node.obj) ~= nil
                 or node.kind == "call" and chunkValueCall(p, node)

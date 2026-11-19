@@ -373,6 +373,8 @@ local function compileOwner(fn: any, options: any, profile: any, site: any): any
             return invoke("unary", node, expected)
         elseif node.kind == "call" then
             return invoke("call", node, expected)
+        elseif node.kind == "safeCall" and profile.safeCall then
+            return invoke("safeCall", node, expected)
         elseif node.kind == "methodCall" and profile.methodCall then
             return invoke("methodCall", node, expected)
         elseif node.kind == "orExitExpr" and profile.returnValues then
@@ -745,14 +747,19 @@ local function compileOwner(fn: any, options: any, profile: any, site: any): any
 
     -- A profile's guarded operation uses the same binding transport as source
     -- branches, including values held across its callback.
-    ctx.when = function(node: any, condition: integer, action: any): nil
+    ctx.when = function(node: any, condition: integer, action: any, preserveCleanups: boolean?): nil
         local before = need(block, "conditional operation after terminator")
         need(profile.valueKind(g, condition) == profile.booleanKind, "conditional operation requires a Boolean")
         local yes, done = branch(), branch()
         before.term = {kind = "branch", value = condition, edges = {yes.edge, done.edge}, pos = position(node)}
         resume(yes)
         context()
+        local cleanupDepth = #cleanups
         action(ctx, node)
+        need(
+            not preserveCleanups or #cleanups == cleanupDepth,
+            "a guarded operation cannot introduce a conditional owner"
+        )
         block = ctx.block
         if block then
             jump(done, node)
@@ -816,7 +823,9 @@ local function compileOwner(fn: any, options: any, profile: any, site: any): any
         if not profile.callResults or not last or count <= #exprs then
             return nil
         end
-        if last.kind ~= "call" and last.kind ~= "methodCall" and last.kind ~= "vararg" or construction.bare(last) then
+        if last.kind ~= "call" and last.kind ~= "methodCall" and last.kind ~= "safeCall" and last.kind ~= "vararg"
+            or construction.bare(last)
+        then
             return nil
         end
 

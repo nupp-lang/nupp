@@ -1143,16 +1143,67 @@ export function emptyreturn(signature: any, nilIsEmpty: boolean?): boolean
         )
 end
 
--- An empty result pack uses the existing open return transport.
-export function emptyresults(ctx: any, node: any): integer
+local function emptyPack(ctx: any, node: any, count: integer): integer
     local pack = ctx.emit(node, "NewTable", {}, "tagged")
     local zero = ctx.emit(node, "K", {pool(ctx, "int64", "0")}, "tagged")
-    ctx.emit(node, "SetIdx", {pack, zero, zero}, nil)
+    local width = count == 0 and zero or ctx.emit(node, "K", {pool(ctx, "int64", tostring(count))}, "tagged")
+    ctx.emit(node, "SetIdx", {pack, zero, width}, nil)
+
     return pack
 end
 
+export function emptyresults(ctx: any, node: any): integer
+    return emptyPack(ctx, node, 0)
+end
+
+-- An optional call tests its callee before evaluating any arguments.
+export function safeinvoke(ctx: any, node: any, keep: boolean, count: integer?, open: boolean?): any
+    need(
+        not (node.inferredType and node.inferredType.tag == "affine") and #(node.automaticOwnerMoves or {}) == 0,
+        "an optional call cannot introduce a conditional owner"
+    )
+    local callee = ctx.expression(node.obj, "tagged")
+    if callee == nil then
+        return nil
+    end
+    local held = ctx.hold(callee)
+    local slots = {}
+    if keep then
+        for index = 1, count or 1 do
+            local answer = open and emptyPack(ctx, node, 1) or ctx.emit(node, "Nil", {}, "tagged")
+            slots[index] = ctx.hold(answer)
+        end
+    end
+    local none = ctx.emit(node, "Nil", {}, "tagged")
+    local absent = ctx.emit(node, "Eq", {ctx.readHeld(held), none}, "tagged")
+    local present = ctx.emit(node, "Not", {absent}, "tagged")
+    ctx.when(
+        node,
+        present,
+        function(c: any): nil
+            local returned = invoke(c, node, keep, true, count, open, c.readHeld(held))
+            if keep and returned ~= nil then
+                for index, slot in ipairs(slots) do
+                    c.write(slot, count and returned[index] or returned)
+                end
+            end
+        end,
+        true
+    )
+    ctx.release(held)
+    local values: {integer} = {}
+    for index, slot in ipairs(slots) do
+        values[index] = ctx.readHeld(slot)
+        ctx.release(slot)
+    end
+
+    return count and values or values[1]
+end
+
 export function openinvoke(ctx: any, node: any): any
-    if protectedcall(node) then
+    if node.kind == "safeCall" then
+        return safeinvoke(ctx, node, true, nil, true)
+    elseif protectedcall(node) then
         return protectedpack(ctx, node)
     end
     if node.kind == "methodCall" and not graph.packedcall(node) then

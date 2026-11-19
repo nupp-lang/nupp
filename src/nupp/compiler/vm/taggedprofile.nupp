@@ -1465,6 +1465,11 @@ export function forVersion(version: integer): any
             ctx.release(held)
         end
 
+        profile.safeCall = function(ctx: any, node: any, expected: string?): integer?
+            need(expected == nil or expected == "tagged", "an optional call requires a tagged destination")
+            return taggedcalls.safeinvoke(ctx, node, true)
+        end
+
         -- A nil receiver skips both the lookup and its arguments.
         local function safeReceiverResults(ctx: any, node: any, count: integer): {integer}?
             local receiver = ctx.expression(node.obj, "tagged")
@@ -1498,6 +1503,9 @@ export function forVersion(version: integer): any
 
         -- `count` results of a call, for `local a, b = f()` and its kin.
         profile.callResults = function(ctx: any, node: any, count: integer): {integer}?
+            if node.kind == "safeCall" then
+                return taggedcalls.safeinvoke(ctx, node, true, count)
+            end
             if scalarwitness(ctx, node) then
                 local first = call(ctx, node, "tagged")
                 if first == nil then
@@ -1622,6 +1630,7 @@ export function forVersion(version: integer): any
                 and not scalarLast
                 and last.runtimeLoader ~= "require"
                 and libraryLast == nil
+                or version >= 8 and last.kind == "safeCall"
                 or last.kind == "methodCall" and lastSite ~= nil and lastSite.method
                 or (last.kind == "call" or last.kind == "methodCall") and packSpec(libraryLast) ~= nil
                 or libraryLast == "pcall"
@@ -1641,6 +1650,7 @@ export function forVersion(version: integer): any
                     and last.runtimeLoader ~= "require"
                     and graph.coreLibraryCall(last) == nil
                     and (resultPack.alternatives == nil or lastSite and not lastSite.construct)
+                    or version >= 8 and last.kind == "safeCall"
                     or last.kind == "methodCall" and lastSite and lastSite.method
                     or graph.packedcall(last)
                     or graphcalls.spreadsLibrary(last)
@@ -2131,7 +2141,13 @@ export function forVersion(version: integer): any
         end
         profile.statementCall = function(ctx: any, node: any): nil
             local site = catalog(ctx).callByNode[node]
-            if node.layoutOf or graph.dynamicRequire(node) or node.ownershipIntrinsic or scalarwitness(ctx, node) then
+            if node.kind == "safeCall" then
+                taggedcalls.safeinvoke(ctx, node, false)
+            elseif node.layoutOf
+                or graph.dynamicRequire(node)
+                or node.ownershipIntrinsic
+                or scalarwitness(ctx, node)
+            then
                 profile.call(ctx, node, nil)
             elseif node.runtimeLoader == "require" then
                 statementCall(ctx, node)

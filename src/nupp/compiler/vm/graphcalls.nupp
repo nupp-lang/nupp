@@ -443,7 +443,11 @@ export function checkcontract(contract: any): nil
         local offset = protected and (contract.handled == true and 2 or 1) or 0
         assert(
             type(call) == "table"
-            and (call.kind == "call" or callback and call.kind == "methodCall")
+            and (
+                call.kind == "call"
+                or call.kind == "safeCall" and not protected and not callback
+                or callback and call.kind == "methodCall"
+            )
             and (
                 protected
                 and call.args
@@ -1563,6 +1567,10 @@ end
 -- Whether a call last in a list gives other than exactly one result, a fixed
 -- count or an open one: then the list takes them all, as a pack.
 export function expandsResults(expr: any): boolean
+    -- A skipped call answers one nil, whatever its present callee answers.
+    if expr and expr.kind == "safeCall" then
+        return true
+    end
     -- A library call with several results gives them all, as Lua's do.
     if packedcall(expr) then
         return true
