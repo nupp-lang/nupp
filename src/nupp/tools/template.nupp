@@ -417,6 +417,20 @@ local function loadSandboxed(text: string, where: string): any?, string?
     if jit then
         jit.off(chunk, true)
     end
+    -- The native core has no debug library to hook with, and no budget to
+    -- give: the chunk runs as it is, so one that never finishes is not refused.
+    local hostDebug: any = debug
+    if hostDebug == nil or hostDebug.sethook == nil then
+        local ok, result = pcall(chunk)
+        if not ok then
+            return nil, where .. ": " .. tostring(result)
+        end
+        if type(result) ~= "table" then
+            return nil, where .. " must return a table"
+        end
+
+        return result
+    end
     local hooked = false
     -- The host may have a hook of its own -- a coverage run does -- so it is put
     -- back afterwards rather than cleared.
