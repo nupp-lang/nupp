@@ -1,3 +1,8 @@
+/**
+ * @file
+ * @brief Loads a component and calls one of its exports through the C API.
+ */
+
 #include "nupp.h"
 
 #include <stdio.h>
@@ -32,6 +37,7 @@ static unsigned char *read_all(const char *path, size_t *length) {
     return bytes;
 }
 
+/** Takes a component path, calls game.answer, and then runs the entry point. */
 int main(int argc, char **argv) {
     nupp_runtime *runtime = NULL;
     nupp_component *component = NULL;

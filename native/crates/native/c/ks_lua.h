@@ -1,12 +1,17 @@
-/* The AOT runtime's implementation: what an LLVM-compiled Lua-builder entry
- * needs from the host VM, and the value-stream builder that assembles Lua
- * tables from a compiled body's stream. `ks_rt.c` includes it and exposes it
- * through the runtime table.
+/**
+ * @file
+ * @brief Lua API declarations and helpers for ahead-of-time compiled Lua builders.
+ *
+ * The value-stream builder assembles Lua tables from a compiled body's stream.
+ * `ks_rt.c` includes this header and exposes the helpers through its function
+ * table.
  *
  * The Lua API surface is declared here rather than taken from lua.h so the
  * runtime compiles without locating development headers; these are the public
  * ABI declarations, not LuaJIT object layouts. `ks_rt.c` turns each into a
- * pointer it fills from the process. */
+ * pointer it fills from the process.
+ */
+
 #include <limits.h>
 #include <math.h>
 #include <stdbool.h>
@@ -771,7 +776,7 @@ static const uint64_t ks_json_power_of_five_128[1302] = {
 0xe3d8f9e563a198e5,0x58180fddd97723a6,
 0x8e679c2f5e44ff8f,0x570f09eaa7ea7648,
 };
-/* The full 128-bit product, from 32-bit halves where the target has no
+/** The full 128-bit product, from 32-bit halves where the target has no
  * 128-bit integer (i386, wasm32). */
 static inline KsJsonU128 ks_json_full_multiplication(uint64_t left, uint64_t right) {
 #if defined(__SIZEOF_INT128__)
@@ -826,14 +831,14 @@ static size_t ks_lua_utf8(unsigned char *out, uint32_t codepoint) {
 }
 typedef struct { const char *bytes; size_t length; uint64_t packed; uint32_t hash; int32_t scalar; } KsLuaShapeKey;
 typedef struct { const void *identity; const unsigned char *compiled; size_t compiled_length; uint32_t first, count; uint64_t required; int aliases, defaults, factory; } KsLuaShapePlan;
-/* `serial` names an object frame for the duplicate-member sets; it sits in what
+/** `serial` names an object frame for the duplicate-member sets; it sits in what
  * was the struct's tail padding, so the frame keeps its size. */
 typedef struct { int table_index, shape_index; uint32_t kind, next, count, mode, plan, expected; uint64_t seen; int expects_key, aliases, tuple; uint32_t serial; } KsLuaBuildFrame;
 typedef struct { int null_index, array_marker_index, object_marker_index, root_index, frame_root_index, byte_root_index, selection_shape_index, array_shape_marker_index, serde_markers_index, pending_shape_index; uint32_t depth, frame_capacity, pending_mode; int pending_shape_owned, pending_scalar, root_done; KsLuaBuildFrame *frames; KsLuaBuildFrame inline_frames[16]; unsigned char *bytes; uint32_t byte_capacity, byte_allocated, plan_count, key_count; KsLuaShapePlan plans[16]; KsLuaShapeKey keys[64]; int dup_index; uint32_t dup_serial; } KsLuaBuilder;
 typedef struct { uint32_t capacity; uint32_t words[1]; } KsLuaScratchU32Storage;
 typedef struct { uint32_t *words; uint32_t capacity, length, escape_length; int root_index; uint32_t inline_words[32]; } KsLuaScratchU32;
 typedef struct { unsigned char *bytes; uint32_t capacity, length; int root_index, cached; } KsLuaScratchU8;
-/* The selector is already a rooted string. Length-aware equality preserves
+/** The selector is already a rooted string. Length-aware equality preserves
  * embedded NUL bytes and never allocates or interns the literal case. */
 static bool ks_lua_string_match(lua_State *L, int index, const char *literal, size_t literal_length) {
     size_t length = 0;
@@ -848,11 +853,11 @@ static uint32_t ks_lua_string_byte(lua_State *L, const unsigned char *bytes, siz
     if ((size_t)offset >= length) { luaL_error(L, "AOT builder byte is out of bounds"); return 0u; }
     return (uint32_t)bytes[offset];
 }
-/* A string index as Lua reads one: truncated toward zero, NaN as 0. */
+/** A string index as Lua reads one: truncated toward zero, NaN as 0. */
 static double ks_lua_truncated_index(double index) {
     return index != index ? 0.0 : (index < 0.0 ? ceil(index) : floor(index));
 }
-/* Lua's index rules: a fraction truncates and a negative index counts from
+/** Lua's index rules: a fraction truncates and a negative index counts from
  * the end. Where ordinary Lua answers no value at all, the typed result has
  * nothing to hold, so that is refused rather than invented. */
 static double ks_lua_string_byte_lua(lua_State *L, const unsigned char *bytes, size_t length, double index) {
@@ -908,7 +913,7 @@ static void ks_lua_scratch_u32(lua_State *L, KsLuaScratchU32 *scratch, uint32_t 
  * pages is a real cost in a parser and it earns it by never reading what
  * it has not written -- but a fixed buffer promises every word, so it
  * pays the fill once and answers what a fresh word should. */
-/* A fixed buffer whose storage is the caller's array. Nothing is
+/** A fixed buffer whose storage is the caller's array. Nothing is
  * allocated and nothing is rooted, because nothing here outlives the
  * frame that declared it or can be reached from Lua at all. */
 static void ks_lua_scratch_u32_stack(KsLuaScratchU32 *scratch, uint32_t *storage, uint32_t capacity) {
@@ -960,7 +965,7 @@ static KsLuaScratchU8 ks_lua_scratch_u8(lua_State *L, uint32_t capacity) {
  * Nothing is zeroed and nothing needs to be. An appending buffer reads
  * only below a fill length that starts at zero, so bytes left by the
  * previous call are unreachable rather than stale. */
-/* One slot for every module in a state. A file-scope address would be
+/** One slot for every module in a state. A file-scope address would be
  * a different key in each translation unit, so each would keep its own
  * buffer and the bound below would be per module rather than per
  * state. An interned string is the same slot everywhere. */
@@ -981,7 +986,7 @@ static KsLuaScratchU8 ks_lua_scratch_u8_cached(lua_State *L, uint32_t capacity) 
     unsigned char *bytes = (unsigned char *)lua_newuserdata(L, want);
     KsLuaScratchU8 scratch = {bytes, capacity, 0u, lua_gettop(L), 1}; return scratch;
 }
-/* A fixed byte buffer whose storage is the caller's array. Nothing is
+/** A fixed byte buffer whose storage is the caller's array. Nothing is
  * allocated and nothing is rooted, because nothing here outlives the
  * frame that declared it or can be reached from Lua at all. Readable to
  * its capacity from the moment it exists, so it is zeroed once. */
@@ -1051,7 +1056,7 @@ static int ks_lua_scratch_u8_push(lua_State *L, KsLuaScratchU8 *scratch, uint32_
 #define KS_LUA_BUILD_OBJECT UINT32_C(2)
 #define KS_LUA_BUILD_ARRAY UINT32_C(3)
 #define KS_LUA_BUILD_PENDING UINT32_MAX
-/* In place, in the block generated code set aside for the state, so only
+/** In place, in the block generated code set aside for the state, so only
  * the live fields are written rather than a whole struct copied back. */
 static void ks_lua_builder_init(lua_State *L, KsLuaBuilder *builder, int null_index, int array_marker_index, int object_marker_index, uint32_t max_depth, uint32_t byte_capacity, int selection_shape_index, int array_shape_marker_index, int serde_markers_index) {
     if (KS_COUNT_OVERFLOWS(max_depth, sizeof(KsLuaBuildFrame))) { luaL_error(L, "AOT value stream depth capacity overflows"); max_depth = 0u; }
@@ -1062,6 +1067,7 @@ static void ks_lua_builder_init(lua_State *L, KsLuaBuilder *builder, int null_in
 static KsLuaBuildFrame *ks_lua_builder_frame(KsLuaBuilder *builder, uint32_t index) {
     return builder->frames != NULL ? &builder->frames[index] : &builder->inline_frames[index];
 }
+/** Adjusts stored Lua stack indices after inserting a root at destination. */
 static void ks_lua_builder_shift_indices(KsLuaBuilder *builder, int destination) {
     if (builder->byte_root_index >= destination) { builder->byte_root_index += 1; }
     if (builder->array_marker_index >= destination) { builder->array_marker_index += 1; } if (builder->object_marker_index >= destination) { builder->object_marker_index += 1; }
@@ -1071,6 +1077,7 @@ static void ks_lua_builder_shift_indices(KsLuaBuilder *builder, int destination)
     for (uint32_t at = 0u; at < builder->depth; ++at) { KsLuaBuildFrame *frame = ks_lua_builder_frame(builder, at); if (frame->table_index >= destination) { frame->table_index += 1; } if (frame->shape_index >= destination) { frame->shape_index += 1; } }
     if (builder->root_index >= destination) { builder->root_index += 1; }
 }
+/** Moves the inline frame stack to rooted Lua storage for deeper streams. */
 static void ks_lua_builder_ensure_frames(lua_State *L, KsLuaBuilder *builder) {
     if (builder->frames != NULL || builder->frame_capacity <= 16u) { return; }
     size_t bytes = (size_t)builder->frame_capacity * sizeof(KsLuaBuildFrame);
@@ -1078,6 +1085,7 @@ static void ks_lua_builder_ensure_frames(lua_State *L, KsLuaBuilder *builder) {
     int destination = builder->frame_root_index + 1; lua_insert(L, destination); builder->frame_root_index = destination;
     ks_lua_builder_shift_indices(builder, destination);
 }
+/** Grows rooted temporary string storage up to the stream's declared capacity. */
 static unsigned char *ks_lua_builder_bytes(lua_State *L, KsLuaBuilder *builder, uint32_t needed) {
     if (needed > builder->byte_capacity) { luaL_error(L, "AOT value stream string exceeds its authored capacity"); return NULL; }
     if (builder->bytes != NULL && needed <= builder->byte_allocated) { return builder->bytes; }
@@ -1198,6 +1206,7 @@ static int ks_lua_builder_plan_key(KsLuaBuilder *builder, KsLuaShapePlan *plan, 
     const unsigned char *header = plan->compiled + 12u + (size_t)index * 24u; uint32_t offset = ks_lua_builder_blob_u32(header + 16u); key->length = (size_t)ks_lua_builder_blob_u32(header); key->hash = ks_lua_builder_blob_u32(header + 4u); memcpy(&key->packed, header + 8u, sizeof(key->packed)); key->scalar = (int32_t)ks_lua_builder_blob_u32(header + 20u);
     size_t names = 12u + (size_t)plan->count * 24u; if (names > plan->compiled_length || (size_t)offset > plan->compiled_length - names || key->length > plan->compiled_length - names - (size_t)offset) { return 0; } key->bytes = (const char *)(plan->compiled + names + (size_t)offset); return 1;
 }
+/** Caches a shape plan by identity, or returns UINT32_MAX to use lookup. */
 static uint32_t ks_lua_builder_shape_plan(lua_State *L, KsLuaBuilder *builder, int shape_index) {
     const void *identity = lua_topointer(L, shape_index);
     for (uint32_t index = 0u; index < builder->plan_count; ++index) { if (builder->plans[index].identity == identity) return index; }
@@ -1483,6 +1492,13 @@ static double ks_lua_number_token_value(lua_State *L, const unsigned char *sourc
     int64_t decimal_exponent = explicit_exponent - (int64_t)fraction_digits; int exponent_fits = decimal_exponent >= INT32_MIN && decimal_exponent <= INT32_MAX;
     return ks_lua_decimal64_value(L, source, source_length, start, length, magnitude, exponent_fits ? (int32_t)decimal_exponent : 0, negative, exact && exponent_fits);
 }
+/**
+ * @brief Reads and validates a JSON number and advances the value stream.
+ *
+ * The high bit marks a successful result and the lower bits give the first
+ * byte after the token. Without the high bit, the result is an error position
+ * counted from one.
+ */
 static uint32_t ks_lua_builder_number_token(lua_State *L, KsLuaBuilder *builder, const unsigned char *source, size_t source_length, uint32_t start, uint32_t limit, int eager) {
     uint32_t at = start, magnitude_digits = 0u, fraction_digits = 0u; uint64_t magnitude = 0u; int negative = 0, exact = 1, integer_token = 1; int64_t explicit_exponent = 0;
     if ((size_t)limit > source_length || limit >= UINT32_C(2147483648) || start >= limit) { return start + 1u; } if (source[at] == '-') { negative = 1; at += 1u; if (at >= limit) { return at + 1u; } }
@@ -1543,6 +1559,7 @@ static inline __attribute__((always_inline)) int ks_lua_builder_close(lua_State 
     if (pushed) { int marker_index = frame->kind == 5u ? builder->array_marker_index : builder->object_marker_index; if (frame->kind == 5u && frame->mode == KS_LUA_BUILD_ARRAY && frame->tuple && frame->count != (uint32_t)lua_objlen(L, frame->shape_index)) { return luaL_error(L, "nupp: tuple length does not match"); } if (frame->kind == 6u && frame->mode == KS_LUA_BUILD_OBJECT) { if (frame->plan != UINT32_MAX) { KsLuaShapePlan *plan = &builder->plans[frame->plan]; uint64_t missing = plan->required & ~frame->seen; if (missing != 0u) { KsLuaShapeKey key; uint32_t index = (uint32_t)__builtin_ctzll(missing); if (!ks_lua_builder_plan_key(builder, plan, index, &key)) { return luaL_error(L, "AOT serde key plan is malformed"); } lua_pushlstring(L, key.bytes, key.length); return luaL_error(L, "nupp: missing required member %s", lua_tolstring(L, -1, NULL)); } if (plan->defaults) { ks_lua_builder_finish_object(L, builder, frame); } if (plan->factory && ks_lua_builder_finalize_object(L, builder, frame)) { marker_index = 0; } } else { ks_lua_builder_finish_object(L, builder, frame); if (ks_lua_builder_finalize_object(L, builder, frame)) { marker_index = 0; } } if (marker_index != 0) { if (frame->plan != UINT32_MAX && builder->plans[frame->plan].compiled != NULL) { lua_rawgeti(L, frame->shape_index, -65); } else { ks_lua_builder_shape_marker(L, builder, frame->shape_index, 4); } int serde_mt = lua_gettop(L); if (lua_type(L, serde_mt) != 0) { lua_setmetatable(L, frame->table_index); marker_index = 0; } else { lua_settop(L, serde_mt - 1); } } } if (marker_index != 0) { lua_pushvalue(L, marker_index); lua_setmetatable(L, frame->table_index); } }
     int shape_index = frame->shape_index; builder->depth -= 1u; if (shape_index != 0) { lua_remove(L, shape_index); } return ks_lua_builder_complete(L, builder, pushed, eager);
 }
+/** Checks that exactly one complete root value is at the top of the Lua stack. */
 static int ks_lua_builder_finish(lua_State *L, KsLuaBuilder *builder) {
     if (builder->depth != 0u) { return luaL_error(L, "AOT value stream has an unclosed container"); }
     if (!builder->root_done || builder->root_index == 0) { return luaL_error(L, "AOT value stream has no root"); }

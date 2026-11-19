@@ -1,4 +1,8 @@
-/* An embedding application answering the host channel's contract scenarios.
+/**
+ * @file
+ * @brief Drives host channel contract scenarios from a C embedding application.
+ *
+ * An embedding application answering the host channel's contract scenarios.
  *
  * It loads a component exporting `contract.start`, `contract.poll` and
  * `contract.result`, registers a C handler per `test.*` kind, and runs one

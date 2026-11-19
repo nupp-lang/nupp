@@ -1,5 +1,9 @@
-/* Test fixture for nupp import-c: a header whose vocabulary is a chain built
-   in an included file, the shape every real system header has. */
+/**
+ * @file
+ * @brief Exercises declarations that use typedefs from an included header.
+ *
+ * `chain_len` uses a typedef reached through a chain in the included file.
+ */
 
 #include "chain_base.h"
 

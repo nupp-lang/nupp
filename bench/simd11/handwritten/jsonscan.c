@@ -1,4 +1,8 @@
-/* Times the fused JSON decoder's structural scan, as `jsonscan.nupp` lifts
+/**
+ * @file
+ * @brief Checks and times generated and NEON fused JSON scanning.
+ *
+ * Times the fused JSON decoder's structural scan, as `jsonscan.nupp` lifts
  * it out of the decoder, against the same scan written with NEON
  * intrinsics. Both classify sixteen bytes at a time, validate a block with a
  * non-ASCII byte by the lookup4 tables against the bytes before it, drain
@@ -8,13 +12,17 @@
  * where the Nupp source reads it again, and reads masks out four bits a lane
  * through `shrn`, which is how NEON code usually does both.
  *
+ * @code{.sh}
  *   ./bin/nupp aot --emit c --features neon bench/simd11/handwritten/jsonscan.nupp > /tmp/scan.c
  *   clang -std=c11 -O3 -ffp-contract=off -fno-fast-math -fPIC -dynamiclib /tmp/scan.c -o /tmp/scan.dylib
  *   clang -std=c11 -O3 -D_POSIX_C_SOURCE=200809L bench/simd11/handwritten/jsonscan.c -o /tmp/jsonscan
  *   /tmp/jsonscan /tmp/scan.dylib
+ * @endcode
  *
  * Each figure is the fastest of 101 interleaved samples of about a
- * millisecond. */
+ * millisecond.
+ */
+
 #include <arm_neon.h>
 #include <dlfcn.h>
 #include <stdbool.h>
@@ -193,7 +201,7 @@ __attribute__((noinline)) ScanResult hand_scan(const uint8_t *source, size_t cou
 
 static double now(void) { struct timespec t; clock_gettime(CLOCK_MONOTONIC, &t); return t.tv_sec + t.tv_nsec * 1e-9; }
 
-/* Three document classes, each repeated to the size asked for: dense
+/** Three document classes, each repeated to the size asked for: dense
  * records, long ASCII text and text in several scripts with escapes. */
 static size_t build(char *out, size_t size, int kind) {
     static const char *pieces[3] = {

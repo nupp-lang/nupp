@@ -1,3 +1,8 @@
+/**
+ * @file
+ * @brief Exercises importing inline functions through a C bridge.
+ */
+
 #ifndef NUPP_BRIDGE_H
 #define NUPP_BRIDGE_H
 

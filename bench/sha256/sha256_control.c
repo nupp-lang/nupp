@@ -1,7 +1,9 @@
-/* Standalone SHA-256 benchmark control.
+/**
+ * @file
+ * @brief Frozen SHA-256 benchmark control.
  *
- * Built only by this benchmark. Keep the implementation fixed so repeated
- * measurements compare the same control code.
+ * Build this control only for the benchmark. Keep its implementation fixed
+ * so repeated measurements compare the same code.
  */
 
 #include "nupp_sha256.h"

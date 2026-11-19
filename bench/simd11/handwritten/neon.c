@@ -1,14 +1,18 @@
-/* Hand-written NEON versions of the explicit kernels in ../kernels.nupp.
+/**
+ * @file
+ * @brief Hand-written NEON controls for the explicit SIMD harness.
  *
  * These are the bar the generated explicit SIMD is held to: what a C
  * programmer writes with intrinsics for the same algorithm, lane width and
  * numerical contract. Build with the harness's flags (-O3 -ffp-contract=off
- * -fno-fast-math), so neither side gets a contraction the other does not. */
+ * -fno-fast-math), so neither side gets a contraction the other does not.
+ */
+
 #include <arm_neon.h>
 #include <stddef.h>
 #include <stdint.h>
 
-/* output[i] = input[i] * scale + bias, eight doubles an iteration, then one
+/** output[i] = input[i] * scale + bias, eight doubles an iteration, then one
  * register, then one element. */
 void hand_map(double *restrict output, const double *input, double scale, double bias, size_t count) {
     float64x2_t s = vdupq_n_f64(scale), b = vdupq_n_f64(bias);
@@ -29,7 +33,7 @@ void hand_map(double *restrict output, const double *input, double scale, double
     }
 }
 
-/* Halve each value while it exceeds one, at most 32 times, and add the
+/** Halve each value while it exceeds one, at most 32 times, and add the
  * number of halvings: four lanes at a time under a live mask. */
 void hand_refine(double *restrict output, const double *input, size_t count) {
     const float64x2_t one = vdupq_n_f64(1.0), half = vdupq_n_f64(0.5), cap = vdupq_n_f64(32.0);
@@ -60,7 +64,7 @@ void hand_refine(double *restrict output, const double *input, size_t count) {
     }
 }
 
-/* The same loop with the live masks pinned in their registers. Without the
+/** The same loop with the live masks pinned in their registers. Without the
  * empty asm, clang carries the masks as one bit a lane and widens them again
  * at every select, which is what the plain version above pays. This is the
  * version an author who read the assembly would keep. */
@@ -96,7 +100,7 @@ void hand_refine_tuned(double *restrict output, const double *input, size_t coun
 
 /* The dot products. Each keeps the numerical contract its reducer names. */
 
-/* Products in source order, added one at a time: only the multiplies can run
+/** Products in source order, added one at a time: only the multiplies can run
  * in lanes. */
 double hand_ordered(const double *left, const double *right, size_t count) {
     double total = 0.0;
@@ -115,7 +119,7 @@ double hand_ordered(const double *left, const double *right, size_t count) {
     return total;
 }
 
-/* The adjacent-pair tree whose first leaf is the seed: a binary counter of
+/** The adjacent-pair tree whose first leaf is the seed: a binary counter of
  * completed blocks, merged left to right, then the partial blocks from the
  * smallest up. Products are formed in lanes. */
 typedef struct { double sum[65]; unsigned char full[65]; } hand_pairwise_state;
@@ -131,6 +135,7 @@ static inline void hand_pairwise_push(hand_pairwise_state *state, double leaf) {
     state->full[level] = 1;
 }
 
+/** Reduces products in the adjacent-pair tree seeded with zero. */
 double hand_pairwise(const double *left, const double *right, size_t count) {
     hand_pairwise_state state;
     for (unsigned level = 0; level < 65; level++) state.full[level] = 0;
@@ -155,7 +160,7 @@ double hand_pairwise(const double *left, const double *right, size_t count) {
     return total;
 }
 
-/* Reassociation allowed: the kernel's shape, one four-lane accumulator and a
+/** Reassociation allowed: the kernel's shape, one four-lane accumulator and a
  * horizontal sum at the end. */
 double hand_algebraic(const double *left, const double *right, size_t count) {
     float64x2_t a0 = vdupq_n_f64(0.0), a1 = vdupq_n_f64(0.0);
@@ -169,7 +174,7 @@ double hand_algebraic(const double *left, const double *right, size_t count) {
     return total;
 }
 
-/* The prefix of `source` that spells whole, well-formed UTF-8 scalars, by the
+/** The prefix of `source` that spells whole, well-formed UTF-8 scalars, by the
  * same lookup validator as bench/utf8simd/src/utf8simd.nupp: sixteen bytes at
  * a time until a vector holds an error, then the same scalar ladder from the
  * last scalar start at or before it. */

@@ -1,4 +1,6 @@
-/* Hot reload driven from a host's own loop.
+/**
+ * @file
+ * @brief Applies hot reload from an embedding application's event loop.
  *
  * Usage: reload COMPILER_DIR PROJECT_DIR ENTRY.nupp
  *
@@ -6,7 +8,8 @@
  * `nupp build --target bootstrapCompiler` writes. The entry is compiled in
  * watch mode, `game.update` is taken once, and every poll below is a commit
  * boundary this program chose: edit the entry while it runs and the next poll
- * publishes the new body to the handle already held. */
+ * publishes the new body to the handle already held.
+ */
 
 #include "nupp.h"
 
@@ -31,6 +34,7 @@ static const char *verdict_name(uint32_t verdict) {
     }
 }
 
+/** Holds one handle to game.update and polls for edits between calls. */
 int main(int argc, char **argv) {
     nupp_runtime *runtime = NULL;
     nupp_reload *reload = NULL;

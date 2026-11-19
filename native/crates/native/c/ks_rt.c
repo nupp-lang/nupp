@@ -1,4 +1,6 @@
-/* The AOT runtime: what LLVM-compiled Lua-builder entries call.
+/**
+ * @file
+ * @brief Function table used by ahead-of-time compiled Lua builders.
  *
  * Generated code reaches the runtime through one table of pointers rather
  * than through symbols, so nothing has to be exported from the process that
@@ -18,7 +20,9 @@
  * does not return.
  *
  * The slot order is the ABI. `nupp.compiler.aot.llvm.lua.runtime` lists the
- * same slots, and a test holds the two lists to one another. */
+ * same slots, and a test holds the two lists to one another.
+ */
+
 #if defined(__linux__) && !defined(_GNU_SOURCE)
 #define _GNU_SOURCE 1
 #endif
@@ -123,7 +127,7 @@ KS_RT_LUA_API(KS_RT_POINTER)
 #if defined(_WIN32)
 __declspec(dllimport) void *__stdcall GetModuleHandleA(const char *name);
 __declspec(dllimport) void *__stdcall GetProcAddress(void *module, const char *name);
-/* The program's own exports first: LuaJIT linked in exports its API. Null
+/** The program's own exports first: LuaJIT linked in exports its API. Null
  * when no loaded module exports it. */
 static void *ks_rt_lua_module(void) {
     void *module = GetModuleHandleA(NULL);
@@ -134,14 +138,18 @@ static void *ks_rt_lua_module(void) {
 #define KS_RT_LOOKUP(module, name) GetProcAddress((module), (name))
 #else
 #include <dlfcn.h>
-/* Every loaded object, the program first. glibc spells this handle null,
+/** Every loaded object, the program first. glibc spells this handle null,
  * so it is not a failure here. */
 static void *ks_rt_lua_module(void) { return RTLD_DEFAULT; }
 #define KS_RT_HAS_MODULE(module) 1
 #define KS_RT_LOOKUP(module, name) dlsym((module), (name))
 #endif
 
-/* 1 once every pointer is filled, 0 when the process exports no Lua API. */
+/**
+ * @brief Resolves the Lua API needed by the runtime table in a native host.
+ * @retval 1 All required symbols were found.
+ * @retval 0 At least one required symbol was unavailable.
+ */
 int ks_rt_bind(void) {
     static int bound;
     void *module;
@@ -338,6 +346,7 @@ static void ks_rt_scratch_u8_push(lua_State *L, void *scratch, uint64_t start, u
     ks_lua_scratch_u8_push(L, (KsLuaScratchU8 *)scratch, (uint32_t)start, (uint32_t)length);
 }
 
+/** Initializes caller-provided builder storage. Eager mode ignores shape selection. */
 static void ks_rt_builder_init(
     lua_State *L,
     void *builder,
@@ -500,7 +509,7 @@ static void ks_rt_builder_finish(lua_State *L, void *builder) {
     ks_lua_builder_finish(L, (KsLuaBuilder *)builder);
 }
 
-/* The ABI, slot by slot. Sizes and offsets first so a registrar can check
+/** The ABI, slot by slot. Sizes and offsets first so a registrar can check
  * its blocks and the fields it reads. */
 const void *const ks_rt_table[] = {
     (const void *)(uintptr_t)KS_RT_ABI_VERSION,

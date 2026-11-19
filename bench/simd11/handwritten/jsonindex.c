@@ -1,4 +1,8 @@
-/* Times bench/simd-json's generated structural indexer against the same
+/**
+ * @file
+ * @brief Checks and times generated and NEON JSON structural indexing.
+ *
+ * Times bench/simd-json's generated structural indexer against the same
  * algorithm written with NEON intrinsics. Both classify sixteen bytes at a
  * time into one event mask, drain it lowest lane first, and feed each event
  * byte to the same string, backslash-parity and UTF-8 state machine; the
@@ -6,14 +10,18 @@
  * The hand version reads the mask out the way NEON code usually does, four
  * bits a lane through `shrn`.
  *
+ * @code{.sh}
  *   (cd bench/simd-json && ../../bin/nupp aot --emit c --features neon \
  *       src/simd_json/indexer.nupp > /tmp/index.c)
  *   clang -std=c11 -O3 -ffp-contract=off -fno-fast-math -fPIC -dynamiclib /tmp/index.c -o /tmp/index.dylib
  *   clang -std=c11 -O3 -D_POSIX_C_SOURCE=200809L bench/simd11/handwritten/jsonindex.c -o /tmp/jsonindex
  *   /tmp/jsonindex /tmp/index.dylib
+ * @endcode
  *
  * Each figure is the fastest of 101 interleaved samples of about a
- * millisecond. */
+ * millisecond.
+ */
+
 #include <arm_neon.h>
 #include <dlfcn.h>
 #include <stdbool.h>
@@ -116,7 +124,7 @@ __attribute__((noinline)) IndexResult hand_index(const uint8_t *source, size_t c
 
 static double now(void) { struct timespec t; clock_gettime(CLOCK_MONOTONIC, &t); return t.tv_sec + t.tv_nsec * 1e-9; }
 
-/* Three document classes, each repeated to the size asked for: dense
+/** Three document classes, each repeated to the size asked for: dense
  * records, long ASCII text and text in several scripts. */
 static size_t build(char *out, size_t size, int kind) {
     static const char *pieces[3] = {

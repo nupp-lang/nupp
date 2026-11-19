@@ -1,4 +1,7 @@
-/* Test fixture for nupp import-c: a small self-contained C header. */
+/**
+ * @file
+ * @brief Exercises importing macros, typedefs, records, and C functions.
+ */
 
 #define MINI_MAX 64
 #define MINI_FLAG (1 << 3)

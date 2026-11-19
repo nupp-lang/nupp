@@ -1,4 +1,11 @@
-/* PID 1 and the pre-LuaJIT snapshot gate. No application data enters a snapshot. */
+/**
+ * @file
+ * @brief Starts the browser guest and coordinates the pre-LuaJIT snapshot.
+ *
+ * The guest runs this program as PID 1. It waits for startup data after
+ * reaching the snapshot point.
+ */
+
 #define _GNU_SOURCE
 #include <errno.h>
 #include <fcntl.h>
@@ -90,6 +97,7 @@ static void reseed(const unsigned char bytes[32]) {
     if (close(fd)) fail("close random");
 }
 
+/** Waits for the host to start the guest, then launches and reaps LuaJIT. */
 int main(void) {
     if (mount("proc", "/proc", "proc", 0, NULL)) fail("mount proc");
     if (mount("devtmpfs", "/dev", "devtmpfs", 0, NULL)) fail("mount devtmpfs");
