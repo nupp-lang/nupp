@@ -264,7 +264,16 @@ export function spawn(h: heap.Heap*, spec: uint64, flags: uint64): int64
 end
 
 export function pipeWith(reader: boolean, writer: boolean): int64
-    return nupp_process_pipe(reader and 1ULL or 0ULL, writer and 1ULL or 0ULL)
+    local readNonblock: uint64 = 0ULL
+    local writeNonblock: uint64 = 0ULL
+    if reader then
+        readNonblock = 1ULL
+    end
+    if writer then
+        writeNonblock = 1ULL
+    end
+
+    return nupp_process_pipe(readNonblock, writeNonblock)
 end
 
 export function watch(poller: uint64, child: uint64): int64
@@ -304,7 +313,11 @@ end
 -- Ends the process with exit code `code`.
 export function finish(code: uint64): int64
     local status = nupp_uv_shutdown()
-    exit(status < 0 and code == 0ULL and 1 or native.index(code))
+    local result = native.index(code)
+    if status < 0 and code == 0ULL then
+        result = 1
+    end
+    exit(result)
 
     return 0
 end
