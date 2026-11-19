@@ -300,6 +300,25 @@ function M.environmentsInOneProcessShareHeadersByContent()
     os.execute("rm -rf '" .. dir .. "'")
 end
 
+-- Environments that keep no stores check the prelude once per process and share it,
+-- so they agree about what a prelude type is: each declared its own `io.File`, and a
+-- type one of them handed another was not the receiver's `io.File`. Each still
+-- declares into maps of its own.
+function M.environmentsThatKeepNoStoresShareOnePrelude()
+    local dir = tempProject({["nupp.lua"] = 'return { include = { "src" } }\n'})
+    local first = envMod.new(dir, {cache = false})
+    local second = envMod.new(dir, {cache = false})
+    assert(first.globalTypes["io.File"] ~= nil, "the prelude declares no io.File")
+    assert(
+        second.globalTypes["io.File"] == first.globalTypes["io.File"],
+        "two environments that keep no stores declare io.File apart"
+    )
+    assert(second.globalTypes ~= first.globalTypes, "two environments declare types into one map")
+    assert(second.globals ~= first.globals, "two environments declare values into one map")
+    assert(second.globals.types ~= first.globals.types, "two environments write one entry of the prelude's")
+    os.execute("rm -rf '" .. dir .. "'")
+end
+
 -- Content-keyed stores move; the build state does not.
 function M.namedCacheDirectoryHoldsTheStoresThatAnswerAboutContent()
     local dir = tempProject({
