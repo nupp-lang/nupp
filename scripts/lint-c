@@ -175,7 +175,9 @@ flags() {
             echo skip
             ;;
         native/core-bridge/main.c | native/core-bridge/guard.c | tests/core/bridgecontracts.c)
-            echo "-pthread -DNUPP_CORE_HTTP -isystem $(libcurl)/include"
+            # A contract test includes main.c. Select its feature mode before
+            # any system header is read so realpath is always declared.
+            echo "-pthread -D_GNU_SOURCE=1 -DNUPP_CORE_HTTP -isystem $(libcurl)/include"
             ;;
         native/http-curl/transport.c)
             echo "-pthread -I$ROOT/native/core-bridge -isystem $(libcurl)/include -isystem $(libuv)/include"
