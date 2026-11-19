@@ -71,7 +71,11 @@ export function call(ctx: voidptr, operation: uint64, a: uint64, b: uint64): uin
         elseif operation == librarylayouts.PROCESS_SIGNAL then
             return ints.make(h, native.word(hostprocess.signal(integerOf(a), integerOf(b))))
         elseif operation == librarylayouts.PROCESS_EXIT then
-            local _ = hostprocess.finish(integerOf(a))
+            local code = integerOf(a)
+            if not servicescope.beforeBackingClose(scope) and code == 0ULL then
+                code = 1ULL
+            end
+            local _ = hostprocess.finish(code)
             return values.NIL
         end
     end
