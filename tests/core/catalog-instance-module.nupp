@@ -44,3 +44,9 @@ local {type Hooks} = require("nupp.runtime.temporaryhooks")
 export function configured(hooks: Hooks?): boolean
     return hooks ~= nil
 end
+
+export function qualifiedNow(): number
+    local clock = _G.require("nupp.runtime.clockcalls")
+
+    return clock.walltime()
+end

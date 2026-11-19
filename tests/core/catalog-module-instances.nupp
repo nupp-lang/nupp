@@ -31,6 +31,8 @@ local function environment(stands: {[string]: any}, asked: {string}): table
         return stand
     end
 
+    env._G = env
+
     return setmetatable(env, {__index = _G})
 end
 
@@ -82,7 +84,7 @@ end
 if a.exponent(1.5) == 7 and b.exponent(1.5) == 9 then
     score = score + 4
 end
-if a.now() == 42 and b.now() == 7.5 then
+if a.now() == 42 and b.now() == 7.5 and a.qualifiedNow() == 42 and b.qualifiedNow() == 7.5 then
     score = score + 8
 end
 if a.pair(3, 4) == 34 then
@@ -92,7 +94,11 @@ local ok, message = pcall(a.fail)
 if not ok and cites(message, "catalog-instance-module.nupp:37: instance failure") then
     score = score + 32
 end
-if #askedA == 2 and askedA[1] == "nupp.compiler.floatparts" and askedA[2] == "nupp.runtime.clockcalls" then
+if #askedA == 3
+    and askedA[1] == "nupp.compiler.floatparts"
+    and askedA[2] == "nupp.runtime.clockcalls"
+    and askedA[3] == "nupp.runtime.clockcalls"
+then
     score = score + 64
 end
 -- A core call module the environment stands in for nothing: its own
