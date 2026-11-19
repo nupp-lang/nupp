@@ -155,6 +155,29 @@ function M.embeddedResourcesHaveOneCheckoutSpelling()
     assert(#unspelled == 0, "embedded resources with no eol=lf in .gitattributes: " .. table.concat(unspelled, ", "))
 end
 
+-- A resource the manifest names but the tree no longer has is skipped by the
+-- bundle without a word, and leaves the completed test build's key unreadable:
+-- three retired declarations kept every `nupp test` from reusing its runner.
+function M.everyNamedResourceIsInTheTree()
+    local targets = assert(loadfile(ROOT .. "/nupp.lua"))().build.targets
+    local missing = {}
+    for name, target in pairs(targets) do
+        for _, resource in ipairs(target.resources or {}) do
+            local source = type(resource) == "table" and resource.source or resource
+            if not source:find("*", 1, true) then
+                local file = io.open(ROOT .. "/" .. source, "rb")
+                if file then
+                    file:close()
+                else
+                    missing[#missing + 1] = name .. ": " .. source
+                end
+            end
+        end
+    end
+    table.sort(missing)
+    assert(#missing == 0, "resources the tree does not have: " .. table.concat(missing, ", "))
+end
+
 function M.nativeCompilerResourcesCarryTheCliTestHarness()
     local targets = assert(loadfile(ROOT .. "/nupp.lua"))().build.targets
     for _, name in ipairs({"dist", "testRunner"}) do
