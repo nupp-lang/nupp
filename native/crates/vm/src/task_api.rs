@@ -302,6 +302,9 @@ pub(crate) fn call(vm: &mut Interp, tid: usize, name: &str, args: &[Value]) -> A
                 | "tasks.vmClose"
                 | "tasks.vmDiscard"
         )
+        && !(name.starts_with("tasks.channelMessage")
+            || name.starts_with("tasks.channelEndpoint")
+                && !matches!(name, "tasks.channelEndpointSend" | "tasks.channelEndpointReceive"))
     {
         vm.err("task operation in a nonsuspending cleanup callback")
     }

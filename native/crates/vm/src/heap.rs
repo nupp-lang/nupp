@@ -404,7 +404,7 @@ pub struct Stats { pub cycles: u64, pub freed: u64, pub allocated: u64, pub barr
 pub struct Heap {
     // Native queue references follow their managed endpoint's lifetime. This
     // side table does not root endpoints; sweep drops the Arc before slot reuse.
-    pub(crate) channels: HashMap<Value, crate::channels::Channel, crate::value::BitsBuild>,
+    pub(crate) channels: HashMap<Value, crate::channels::Resource, crate::value::BitsBuild>,
     allocator: NativeAllocator,
     chunk_bytes_mapped: u64,
     live_count: usize,
@@ -1076,7 +1076,7 @@ impl Heap {
                 KIND_BYTES => { let b = h.byte_buffer(); std::ptr::drop_in_place(b); }
                 KIND_ITER => std::ptr::drop_in_place(h.iter()),
                 KIND_USERDATA => std::ptr::drop_in_place(h.userdata_mut()),
-                KIND_RECORD => { std::ptr::drop_in_place(h.record_tail()); }
+                KIND_RECORD => { self.channels.remove(&Value::obj(p)); std::ptr::drop_in_place(h.record_tail()); }
                 _ => {}
             }
             self.allocator.reclaim(p, self.stress, self.quarantine);

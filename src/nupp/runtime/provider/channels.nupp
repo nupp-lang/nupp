@@ -3,8 +3,7 @@ module nupp.runtime.provider.channels
 
 local native = require("nupp.workers.native")
 local suspension = require("nupp.suspension")
-local cancellation = require("nupp.suspension.cancellation")
-local codec = require("nupp.workers.internal.valuecodec")
+local core = require("nupp.vm.tasks") as any
 local contract = require("nupp.workers.internal.channeltypes")
 
 -- Runtime identities are table identities backed by checked native userdata.
@@ -27,6 +26,7 @@ local function state(endpoint: any, direction: string): any
         or found.direction ~= direction
         or found.closed
         or found.owner ~= nil and found.owner._resourcesClosed
+        or native.endpointDirection(found.handle) < 0
     then
         error("nupp: invalid, closed, or moved channel endpoint", 3)
     end
@@ -35,10 +35,7 @@ local function state(endpoint: any, direction: string): any
 end
 
 local function checkpoint(): nil
-    local requested, deadline = native.workerTaskCheckpoint()
-    if requested then
-        error(cancellation.create("worker task", deadline and "its deadline passed" or nil), 0)
-    end
+    core.checkpoint()
 end
 
 local function wait(value: any, bytes: integer): nil
@@ -53,8 +50,7 @@ local function wait(value: any, bytes: integer): nil
             if resumed then
                 return 0
             end
-            local cancelled = native.workerTaskCheckpoint()
-            if cancelled or native.endpointReady(value.handle, bytes) ~= 1 then
+            if native.endpointReady(value.handle, bytes) ~= 1 then
                 resumed = true
                 resume(true)
                 return 1
@@ -64,7 +60,9 @@ local function wait(value: any, bytes: integer): nil
         end
 
         context:source("nupp.channels", 49, poll, function(timeout: integer): integer
-            native.endpointWait(value.handle, bytes, timeout)
+            if timeout > 0 then
+                require("nupp.vm.clock").sleep(math.min(timeout, 1))
+            end
             return poll()
         end)
         poll()
@@ -76,12 +74,6 @@ local function wait(value: any, bytes: integer): nil
     checkpoint()
 end
 
-local function encode(value: any): string
-    local packed = {values = {value}, count = 1}
-    codec.validate({values = {}, count = 0}, packed)
-    return codec.encode(packed)
-end
-
 local function failed(status: integer): nil
     if status == 3 then
         error("nupp: channel payload exceeds its byte limit", 3)
@@ -89,33 +81,12 @@ local function failed(status: integer): nil
     error("nupp: invalid, closed, or moved channel endpoint", 3)
 end
 
-local function prepare(value: any): (string, any)
-    if type(value) == "table" then
-        return storage().channelprepare(value)
-    end
-    return encode(value), nil
-end
-
-local function decode(bytes: string, attachments: any): any
-    if attachments ~= nil then
-        return storage().channeldecode(bytes, attachments)
-    end
-    local packed = codec.decode(bytes)
-    if packed.count ~= 1 then
-        error("nupp: invalid channel message", 2)
-    end
-
-    return packed.values[1]
-end
-
 local function trySend(endpoint: any, value: any): (string, any)
     local pending: any = nil
     local ok, status, unsent = pcall(function(): (string, any)
         local owner = state(endpoint, "sender")
-        local bytes, prepared = prepare(value)
-        pending = prepared
-        local result = pending ~= nil and native.messageOffer(owner.handle, pending)
-            or native.endpointSend(owner.handle, bytes)
+        pending = native.messagePrepare(value)
+        local result = native.messageOffer(owner.handle, pending)
         if result == 0 then
             return "sent", nil
         end
@@ -123,8 +94,7 @@ local function trySend(endpoint: any, value: any): (string, any)
             failed(result)
         end
         if pending ~= nil then
-            local returned, attachments = native.messageTake(pending)
-            value = decode(assert(returned), attachments)
+            value = native.messageValue(pending)
         end
 
         return result == 1 and "full" or "closed", value
@@ -146,17 +116,14 @@ local function send(endpoint: any, value: any): nil
     local pending: any = nil
     local ok, problem = pcall(function(): nil
         local owner = state(endpoint, "sender")
-        local bytes, prepared = prepare(value)
-        pending = prepared
-        local retained = pending ~= nil and assert(native.messageSize(pending)) or #bytes
+        pending = native.messagePrepare(value)
+        local retained = assert(native.messageSize(pending))
         while true do
             checkpoint()
-            local status = pending ~= nil and native.messageOffer(owner.handle, pending)
-                or native.endpointSend(owner.handle, bytes)
+            local status = native.messageOffer(owner.handle, pending)
             if status == 0 then
                 return
-            end
-            if status == 2 then
+            elseif status == 2 then
                 error("nupp: channel receiver is closed", 2)
             end
             if status ~= 1 then
@@ -178,14 +145,12 @@ end
 
 local function tryReceive(endpoint: any): (string, any)
     local owner = state(endpoint, "receiver")
-    local status, bytes, attachments = native.endpointReceive(owner.handle)
+    local status, value = native.endpointValue(owner.handle)
     if status == 0 then
-        return "value", decode(bytes as string, attachments)
-    end
-    if status == 1 then
+        return "value", value
+    elseif status == 1 then
         return "empty", nil
-    end
-    if status == 2 then
+    elseif status == 2 then
         return "closed", nil
     end
     failed(status)
@@ -224,6 +189,7 @@ local function wrap(owner: any, handle: any, direction: string): any
         )
     end
     endpoints[endpoint] = value
+    native.endpointBind(handle, endpoint)
 
     return endpoint
 end
@@ -255,6 +221,10 @@ end
 export function identify(endpoint: any): (string?, any, boolean)
     local value = endpoints[endpoint]
     if value == nil then
+        local direction = native.endpointDirection(endpoint)
+        if direction >= 0 then
+            return direction == 1 and "sender" or "receiver", nil, true
+        end
         return nil, nil, false
     end
 
@@ -265,7 +235,7 @@ end
 
 export function contains(...: any): boolean
     for index = 1, select("#", ...) do
-        if endpoints[(select(index, ...))] ~= nil then
+        if endpoints[(select(index, ...))] ~= nil or native.endpointDirection((select(index, ...))) >= 0 then
             return true
         end
     end
@@ -302,6 +272,10 @@ export function cleanup(value: any, depth: integer): nil
     local found = endpoints[value]
     if found ~= nil then
         close(found);
+        return
+    end
+    if native.endpointDirection(value) >= 0 then
+        native.endpointClose(value)
         return
     end
     for _, item in next, value as {[any]: any} do

@@ -60,6 +60,11 @@ pub(crate) fn capture(vm: &mut Interp, callee: Value, args: &[Value]) -> Value {
             if !seen.insert(v) {
                 continue;
             }
+            // Channel codecs carry their opaque identity. Following a facade's
+            // private scope/handler graph would capture parent-only providers.
+            if vm.heap.channels.contains_key(&v) {
+                continue;
+            }
             let h = unsafe { p.as_ref() };
             match h.kind {
                 KIND_CLOSURE => functions.push(h.fid()),

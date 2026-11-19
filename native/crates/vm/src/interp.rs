@@ -1197,6 +1197,25 @@ impl Interp {
         // `nupp.runtime.workersprovider` reads before it falls back to native
         // lanes, which on the VM are `nupp.runtime.provider.workers`'s own.
         let bridge = self.new_table(); self.registered.push(bridge); self.loaded.insert("nupp.workers.native".into(), bridge);
+        for (name, builtin) in [
+            ("endpointCreate", "tasks.channelEndpointCreate"),
+            ("endpointBind", "tasks.channelEndpointBind"),
+            ("endpointAnchor", "tasks.channelEndpointAnchor"),
+            ("endpointClose", "tasks.channelEndpointClose"),
+            ("channelRelease", "tasks.channelEndpointClose"),
+            ("endpointMove", "tasks.channelEndpointMove"),
+            ("endpointDirection", "tasks.channelEndpointDirection"),
+            ("endpointReady", "tasks.channelEndpointReady"),
+            ("endpointValue", "tasks.channelEndpointTake"),
+            ("messagePrepare", "tasks.channelEndpointPrepare"),
+            ("messageOffer", "tasks.channelEndpointOffer"),
+            ("messageSize", "tasks.channelMessageSize"),
+            ("messageValue", "tasks.channelMessageTake"),
+            ("messageClose", "tasks.channelMessageClose"),
+            ("isArray", "tasks.channelEndpointIsArray"),
+        ] {
+            crate::task_api::put(self, bridge, name, Value::builtin(crate::builtins::id_of(builtin).unwrap()));
+        }
         let unwinds = self.new_table(); self.registered.push(unwinds); self.loaded.insert("nupp.vm.unwinds".into(), unwinds); self.unwinds = unwinds;
         let cancelled = self.new_table(); self.registered.push(cancelled);
         self.loaded.insert("nupp.vm.cancellation".into(), cancelled);

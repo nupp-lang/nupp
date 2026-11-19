@@ -13,7 +13,9 @@ type Result<T> = std::result::Result<T, String>;
 pub(crate) const KIND: &str = "nupp.channel";
 #[derive(Default)]
 pub(crate) struct Registry {
-    next: u64,
+    pub(crate) next: u64,
+    pub(crate) endpoints: HashMap<u64, Weak<Mutex<crate::channel_endpoints::Queue>>>,
+    pub(crate) endpoint_tokens: HashMap<u64, Weak<crate::channel_endpoints::Token>>,
     channels: HashMap<u64, Weak<Mutex<Queue>>>,
 }
 pub(crate) type Shared = Arc<Mutex<Registry>>;
@@ -30,6 +32,20 @@ struct Message {
     attachments: crate::sharing::Attachments,
 }
 pub(crate) type Channel = Arc<Mutex<Queue>>;
+#[derive(Clone)]
+pub(crate) enum Resource {
+    Legacy(Channel),
+    Endpoint(crate::channel_endpoints::Endpoint),
+    Message(crate::channel_endpoints::Pending),
+}
+impl Resource {
+    pub(crate) fn legacy(&self) -> Option<&Channel> { if let Self::Legacy(v) = self { Some(v) } else { None } }
+    pub(crate) fn endpoint(&self) -> Option<&crate::channel_endpoints::Endpoint> { if let Self::Endpoint(v) = self { Some(v) } else { None } }
+    pub(crate) fn message(&self) -> Option<&crate::channel_endpoints::Pending> { if let Self::Message(v) = self { Some(v) } else { None } }
+    pub(crate) fn kind(&self) -> &'static str { match self { Self::Legacy(_) => KIND, Self::Endpoint(_) => crate::channel_endpoints::KIND, Self::Message(_) => crate::channel_endpoints::MESSAGE_KIND } }
+}
+pub(crate) fn is_kind(kind: &str) -> bool { matches!(kind, KIND | crate::channel_endpoints::KIND | crate::channel_endpoints::MESSAGE_KIND) }
+
 pub(crate) struct Codec {
     pub registry: Shared,
     pub transfer: bool,
@@ -40,6 +56,7 @@ impl ResourceCodec for Codec {
             .heap
             .channels
             .get(&object)
+            .and_then(Resource::legacy)
             .ok_or("unknown channel")?
             .lock()
             .map_err(|e| e.to_string())?;
@@ -126,7 +143,7 @@ impl ResourceCodec for Codec {
                 q
             }
         };
-        vm.heap.channels.insert(object, channel);
+        vm.heap.channels.insert(object, Resource::Legacy(channel));
         install_methods(vm, object);
         Ok(())
     }
@@ -148,10 +165,14 @@ fn install_methods(vm: &mut Interp, object: Value) {
 }
 pub(crate) fn codecs(registry: Shared, transfer: bool) -> ResourceCodecs {
     let mut c = ResourceCodecs::default();
-    c.insert(KIND.into(), Box::new(Codec { registry, transfer }));
+    c.insert(KIND.into(), Box::new(Codec { registry: registry.clone(), transfer }));
+    crate::channel_endpoints::add_codecs(&mut c, registry, transfer);
     c
 }
 pub(crate) fn call(vm: &mut Interp, name: &str, args: &[Value]) -> Answer {
+    if name.starts_with("tasks.channelEndpoint") || name.starts_with("tasks.channelMessage") {
+        return crate::channel_endpoints::call(vm, name, args);
+    }
     let at = |i| args.get(i).copied().unwrap_or(Value::NIL);
     if name == "tasks.channel" {
         let cap = at(0);
@@ -178,7 +199,7 @@ pub(crate) fn call(vm: &mut Interp, name: &str, args: &[Value]) -> Answer {
         };
         let object = vm.new_table();
         let root = vm.register(object);
-        vm.heap.channels.insert(object, channel);
+        vm.heap.channels.insert(object, Resource::Legacy(channel));
         install_methods(vm, object);
         vm.release(root);
         return Answer::Values(vec![object]);
@@ -200,6 +221,7 @@ pub(crate) fn call(vm: &mut Interp, name: &str, args: &[Value]) -> Answer {
         .heap
         .channels
         .get(&object)
+        .and_then(Resource::legacy)
         .cloned()
         .unwrap_or_else(|| vm.err("invalid channel"));
     match name {
@@ -278,6 +300,7 @@ pub(crate) fn call(vm: &mut Interp, name: &str, args: &[Value]) -> Answer {
 }
 impl Interp {
     pub(crate) fn poll_channels(&mut self) {
+        crate::channel_endpoints::poll(self);
         let Some(s) = &self.scheduler else {
             return;
         };

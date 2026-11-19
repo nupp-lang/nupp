@@ -20,6 +20,7 @@ struct Prepared {
     registry: crate::channels::Shared,
     code_recipe: Vec<CodeEvent>,
     linked_frames: Vec<u64>,
+    endpoint_tokens: Vec<std::sync::Arc<crate::channel_endpoints::Token>>,
 }
 enum Seed {
     Graph {
@@ -72,6 +73,7 @@ impl Prepared {
             registry,
             code_recipe,
             linked_frames,
+            endpoint_tokens: _endpoint_tokens,
         } = self;
         if let Seed::Snapshot(bytes) = seed {
             let mut vm = persist::load_queued_worker_vm(&bytes, registry)?;
@@ -170,6 +172,7 @@ impl Prepared {
             registry: self.registry.clone(),
             code_recipe: self.code_recipe.clone(),
             linked_frames: self.linked_frames.clone(),
+            endpoint_tokens: self.endpoint_tokens.clone(),
         })
     }
     fn snapshot(&self) -> Result<Vec<u8>> {
@@ -219,6 +222,7 @@ impl Prepared {
             registry,
             code_recipe: vm.code_events.clone(),
             linked_frames,
+            endpoint_tokens: crate::channel_endpoints::held_tokens(&vm),
         };
         Ok(prepared)
     }
@@ -286,13 +290,16 @@ impl Worker {
         roots.extend_from_slice(args);
         roots.push(context);
         let registry = parent.channel_registry.clone();
+        let transfer = crate::channel_endpoints::Transfer::new(parent, args);
         let send = |parent: &mut Interp, roots: &[Value]| {
+            let mut codecs = crate::channels::codecs(registry.clone(), true);
+            codecs.insert(crate::channel_endpoints::KIND.into(), transfer.codec(registry.clone(), args));
             crate::sharing::send(parent, args, |parent| {
                 persist::save_graph_with(
                     parent,
                     roots,
                     &Policies::default(),
-                    Some(&mut crate::channels::codecs(registry.clone(), true)),
+                    Some(&mut codecs),
                     false,
                 )
             })
@@ -306,6 +313,9 @@ impl Worker {
             *roots.last_mut().unwrap() = Value::NIL;
             graph = send(parent, &roots);
         }
+        if graph.is_ok() {
+            transfer.commit(parent, args);
+        }
         parent.close_scope(scope);
         let (graph, attachments) = graph?;
         let prepared = Prepared {
@@ -317,6 +327,7 @@ impl Worker {
             registry,
             code_recipe: parent.code_events.clone(),
             linked_frames: parent.linked_frames.clone(),
+            endpoint_tokens: transfer.into_tokens(),
         };
         let mut worker = Self::prepared(prepared);
         if !structured {
@@ -532,6 +543,9 @@ impl Worker {
                                     } else {
                                         vec![vm.tasks[task.index].error]
                                     };
+                                    if status == Status::Completed && crate::channel_endpoints::contains(&vm, &roots) {
+                                        return Err("nupp: task results cannot contain a channel endpoint".into());
+                                    }
                                     // A settled task's results leave its VM:
                                     // arrays among them move to the parent.
                                     let (bytes, attached) =
@@ -682,6 +696,7 @@ impl Worker {
                 registry: prepared.registry.clone(),
                 code_recipe: prepared.code_recipe.clone(),
                 linked_frames: prepared.linked_frames.clone(),
+                endpoint_tokens: prepared.endpoint_tokens.clone(),
             });
             return Ok(bytes);
         }
@@ -830,6 +845,12 @@ impl Interp {
         while let Some((value, path)) = pending.pop() {
             let Some(p) = value.as_obj() else { continue };
             let h = unsafe { p.as_ref() };
+            if self.heap.channels.get(&value).and_then(crate::channels::Resource::endpoint).is_some() {
+                if args.contains(&value) && crate::channel_endpoints::direction(self, value).is_some() {
+                    continue;
+                }
+                return Err(format!("nupp: {path} contains an invalid or nested channel endpoint"));
+            }
             if !matches!(h.kind, KIND_TABLE | KIND_RECORD) || !seen.insert(value) {
                 continue;
             }

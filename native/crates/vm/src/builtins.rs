@@ -98,6 +98,12 @@ pub const NAMES: &[&str] = &[
     "vm.hotPatch",
     "foreign.namespace", "foreign.resolve", "foreign.pin",
     "math.tointeger", "math.type", "wide.u64.tostring", "wide.u64.float",
+    "tasks.channelEndpointCreate", "tasks.channelEndpointBind", "tasks.channelEndpointAnchor",
+    "tasks.channelEndpointClose", "tasks.channelEndpointCloseState", "tasks.channelEndpointDirection",
+    "tasks.channelEndpointPrepare", "tasks.channelEndpointOffer", "tasks.channelEndpointTake",
+    "tasks.channelEndpointReady", "tasks.channelEndpointSend", "tasks.channelEndpointTrySend",
+    "tasks.channelEndpointReceive", "tasks.channelEndpointTryReceive", "tasks.channelEndpointMove",
+    "tasks.channelEndpointIsArray", "tasks.channelMessageSize", "tasks.channelMessageTake", "tasks.channelMessageClose",
 ];
 
 enum Lit { Int(i64), Num(f64), Str(Vec<u8>), Bool(bool), Nil }
@@ -671,7 +677,7 @@ enum Special {
     DebugTraceback,
     ErrorSite,
     Foreign,
-    TasksVm,
+    TasksSync,
     IoStdinRead,
     IoPopen,
     Process,
@@ -719,7 +725,10 @@ fn classify(name: &str) -> Special {
     if name.starts_with("retired.") { return Special::Retired; }
     if name.starts_with("sbuf.") { return Special::Sbuf; }
     if name.starts_with("snapshot.") { return Special::Snapshot; }
-    if name.starts_with("tasks.vm") { return Special::TasksVm; }
+    if name.starts_with("tasks.vm")
+        || (name.starts_with("tasks.channelMessage") || name.starts_with("tasks.channelEndpoint"))
+            && !matches!(name, "tasks.channelEndpointSend" | "tasks.channelEndpointReceive")
+    { return Special::TasksSync; }
     if name == "io.stdin.read" || name == "io.stdout.flush" || name == "io.stderr.flush" || name == "io.flush" || name == "io.stdout.setvbuf" || name == "io.stderr.setvbuf" { return Special::IoStdinRead; }
     if name == "io.popen" { return Special::IoPopen; }
     if name == "os.exit" { return Special::OsExit; }
@@ -808,8 +817,8 @@ fn random(it: &mut Interp, name: &str, args: &[Value]) -> Outs {
 fn tobit(x: f64) -> i32 { (x + 6755399441055744.0).to_bits() as u32 as i32 }
 
 pub fn call(it: &mut Interp, id: u32, args: &[Value]) -> Outs {
-    // Supervision is synchronous, including affine cleanup invoked directly
-    // through the builtin path rather than a scheduled bytecode call.
+    // Supervision and nonblocking endpoint operations also run through affine
+    // cleanup's direct builtin path rather than a scheduled bytecode call.
     let special = special_of(id);
     match special {
         Special::Foreign => {
@@ -822,11 +831,11 @@ pub fn call(it: &mut Interp, id: u32, args: &[Value]) -> Outs {
         }
         Special::Sbuf => return crate::strbuf::call(it, NAMES[id as usize], args),
         Special::Snapshot => return crate::snapshot::call_builtin(it, NAMES[id as usize], args),
-        Special::TasksVm => {
+        Special::TasksSync => {
             let name = NAMES[id as usize];
             return match crate::task_api::call(it, 0, name, args) {
                 crate::task_api::Answer::Values(values) => values.into_iter().collect(),
-                _ => unreachable!("supervision cannot suspend its caller"),
+                _ => unreachable!("synchronous task operations cannot suspend their caller"),
             };
         }
         Special::IoStdinRead => {

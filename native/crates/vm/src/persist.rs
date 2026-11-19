@@ -814,8 +814,11 @@ fn save_graph_mode(
             if !whole_vm && (crate::coroutines::is_coroutine(vm,v) || crate::coroutines::wrapped(vm,v)!=Value::NIL) {
                 return Err("coroutine continuations require a whole-VM checkpoint".into());
             }
-            if let Some(kind) = vm.resources.get(&v).cloned().or_else(|| vm.heap.channels.contains_key(&v).then(|| crate::channels::KIND.to_owned())) {
-                if unsafe { v.as_obj().unwrap().as_ref().kind } != KIND_TABLE {
+            if let Some(kind) = vm.resources.get(&v).cloned().or_else(|| vm.heap.channels.get(&v).map(|r| r.kind().to_owned())) {
+                let representation = unsafe { v.as_obj().unwrap().as_ref().kind };
+                if representation != KIND_TABLE
+                    && !(kind == crate::channel_endpoints::KIND && representation == KIND_RECORD)
+                {
                     return Err(format!("resource {kind} requires a table identity"));
                 }
                 let codec = codecs
@@ -1681,7 +1684,7 @@ fn load_graph_mode(
                     .get_mut(kind)
                     .unwrap()
                     .restore(vm, objects[i], data)?;
-                if kind != crate::channels::KIND { vm.resources.insert(objects[i], kind.clone()); }
+                if !crate::channels::is_kind(kind) { vm.resources.insert(objects[i], kind.clone()); }
             }
         }
         for (i, n) in g.nodes.iter().enumerate() {
@@ -1781,6 +1784,7 @@ pub fn save_vm(
         crate::task_api::put(vm, clock, "_checkpointNow", now);
     }
     codecs.entry(crate::channels::KIND.into()).or_insert_with(|| Box::new(crate::channels::Codec {registry:vm.channel_registry.clone(),transfer:false}));
+    crate::channel_endpoints::add_codecs(codecs, vm.channel_registry.clone(), false);
     if let Some(s) = &vm.scheduler {
         s.validate(vm)?;
     }
@@ -2195,6 +2199,7 @@ fn load_vm_channels_mode(data: &[u8], policies: &Policies, codecs: &mut Resource
     let mut vm = Interp::new();
     vm.channel_registry=registry;
     codecs.insert(crate::channels::KIND.into(),Box::new(crate::channels::Codec {registry:vm.channel_registry.clone(),transfer:false}));
+    crate::channel_endpoints::add_codecs(codecs, vm.channel_registry.clone(), false);
     if !queued { crate::snapshot::install_codecs(codecs); }
     let n = r.count()?;
     for _ in 0..n {
@@ -2410,7 +2415,7 @@ fn load_vm_channels_mode(data: &[u8], policies: &Policies, codecs: &mut Resource
     vm.random_state = random_state;
     vm.resources.clear();
     for (id, kind) in resources {
-        if kind != crate::channels::KIND { vm.resources.insert(get_root(&roots, id)?, kind); }
+        if !crate::channels::is_kind(&kind) { vm.resources.insert(get_root(&roots, id)?, kind); }
     }
     for (mut t, results, positions) in tasks {
         t.result = get_root(&roots, t.result.0 as usize)?;

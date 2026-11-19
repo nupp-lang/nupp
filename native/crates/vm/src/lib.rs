@@ -39,6 +39,7 @@ mod native_shape_registry;
 mod native_value_table;
 mod native_record_tail;
 pub mod heap;
+mod channel_endpoints;
 mod heap_trace;
 pub mod interp;
 pub mod metamethods;

@@ -9,6 +9,9 @@ local clock = require("nupp.vm.clock")
 local suspension = require("nupp.suspension")
 local cancellation = require("nupp.suspension.cancellation")
 local coroutines = require("nupp.suspension.internal.coroutines")
+local channels = require("nupp.runtime.provider.channels") as any
+local native = require("nupp.workers.native")
+local arrays = require("nupp.array") as any
 local workers = {}
 local workerState = coroutines.localState("workers", function(): any
     return {live = {}}
@@ -114,19 +117,110 @@ function workers.settle(task: any): (string, {any}?, integer, any)
             end
         end)
     end
+    -- The public scope owns failure reporting. Mark the host handle observed so
+    -- its cleanup does not report the same failure a second time.
+    pcall(task.raw.await, task.raw)
 
     return task.state, task.values, task.count, task.problem
 end
 
+function Task.await(self: any): ...any
+    local status, values, count, problem = workers.settle(self)
+    if status == "failed" or status == "cancelled" then
+        error(problem, 0)
+    end
+
+    return unpack(values as {any}, 1, count)
+end
+
+local function cleanup(value: any, seen: {[any]: boolean}): nil
+    if type(value) ~= "table" or seen[value] then
+        return
+    end
+    seen[value] = true
+    if native.isArray(value) then
+        arrays.destroyarray(value)
+        return
+    end
+    local direction = channels.identify(value)
+    if direction ~= nil then
+        channels.cleanup(value, 0)
+        return
+    end
+    for key, item in next, value as {[any]: any} do
+        cleanup(key, seen)
+        cleanup(item, seen)
+    end
+end
+
+function workers.channeldrop(value: any): nil
+    cleanup(value, {})
+end
+
+function workers.cleanuparguments(...: any): nil
+    local seen: {[any]: boolean} = {}
+    for index = 1, select("#", ...) do
+        cleanup((select(index, ...)), seen)
+    end
+end
+
+function workers.ownsarguments(...: any): boolean
+    for index = 1, select("#", ...) do
+        if type((select(index, ...))) == "table" then
+            return true
+        end
+    end
+
+    return false
+end
+
+function workers.channel(owner: any, messages: integer, bytes: integer): (any, any)
+    return channels.create(owner, messages, bytes)
+end
+
+function workers.closechannels(owner: any): nil
+    channels.closeScope(owner)
+end
+
 function workers.openscope(deadline: number?, observer: any): any
+    observer = observer or {
+        created = function(_: any, _: any): nil
+        end,
+        settled = function(_: any, _: any, _: string, _: any): nil
+        end,
+    }
     local scope: any = {raw = core.workerOpen(), registered = 0, observer = observer, closed = false, tasks = {}}
-    function scope.spawn(self: any, body: any, ...: any): any
+    function scope._submit(self: any, _: boolean, body: any, ...: any): any
+        if self.closed then
+            error("nupp: the worker scope is closed", 2)
+        end
+        for index = 1, select("#", ...) do
+            local direction, owner, live = channels.identify((select(index, ...)))
+            if direction ~= nil then
+                if not live then
+                    error("nupp: invalid, closed, or moved channel endpoint", 2)
+                end
+                if owner ~= self and owner ~= self._channelOwner then
+                    error("nupp: channel endpoint belongs to another scope", 2)
+                end
+            end
+        end
         local task = setmetatable({raw = self.raw:fork(body, ...), owner = self, done = false, waiters = {}}, Task)
         self.tasks[#self.tasks + 1] = task
         workerState.live[#workerState.live + 1] = task
         self.registered = self.registered + 1
         observer.created(self, task)
         readiness()
+
+        return task
+    end
+
+    function scope.spawn(self: any, body: any, ...: any): any
+        local ok, task = pcall(self._submit, self, false, body, ...)
+        if not ok then
+            workers.cleanuparguments(...)
+            error(task, 0)
+        end
 
         return task
     end
@@ -165,6 +259,7 @@ function workers.openscope(deadline: number?, observer: any): any
             workers.settle(self.tasks[1])
         end
         self.raw:close()
+        channels.closeScope(self)
         self.tasks = {}
         self.closed = true
     end

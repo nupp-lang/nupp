@@ -1,4 +1,6 @@
 const {type Task as CanonicalTask, type Status} = require("nupp.workers.contracts")
+const contracts = require("nupp.workers.contracts")
+const {type Sender, type Receiver} = require("nupp.workers.internal.channeltypes")
 
 local record Cancellation
     operation: string
@@ -29,8 +31,12 @@ local record Scope is own.Closeable
         takes body: function(): R...,
         name: string
     ): Task<R...> borrows (self)
-    work: function<A..., R...>(borrows self: Scope, body: function(A...): R..., ...: A...): Task<R...> borrows (self)
-    worker: function<A..., R...>(borrows self: Scope, body: function(A...): R..., ...: A...): Task<R...> borrows (self)
+    work: function<F>(borrows self: Scope, F, ...: unpackof contracts.Submitted(F)): CanonicalTask<F> borrows (self)
+    worker: function<F>(borrows self: Scope, F, ...: unpackof contracts.Submitted(F)): CanonicalTask<F> borrows (self)
+    channel: function<T>(
+        borrows self: Scope,
+        ...: unpackof contracts.ChannelLimits(T)
+    ): (affine(Sender<T>) borrows (self), affine(Receiver<T>) borrows (self))
     cancel: function(borrows self: Scope, reason: string?): nil
     close: function(takes self: Scope): nil
 end
