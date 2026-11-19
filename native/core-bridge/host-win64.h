@@ -160,6 +160,7 @@ static void *open_library (const char *path, int mode) {
   return library;
 }
 
+void nupp_core_retain_guest_backing (void);
 #ifndef NUPP_CORE_HTTP
 int nupp_http_scope_detach (void *scope);
 #endif
@@ -190,6 +191,8 @@ static void *find_symbol (void *library, const char *name) {
         {"nupp_core_open_poller", (void (*)(void))win64_open_poller},
         {"nupp_core_page_size", (void (*)(void))win64_page_size},
         {"nupp_core_release_pages", (void (*)(void))win64_release_pages},
+        {"nupp_core_retain_guest_backing",
+         (void (*)(void))nupp_core_retain_guest_backing},
 #ifndef NUPP_CORE_HTTP
         {"nupp_http_scope_detach", (void (*)(void))nupp_http_scope_detach},
 #endif

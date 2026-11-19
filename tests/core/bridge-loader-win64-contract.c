@@ -154,6 +154,8 @@ int main (void) {
   executable_region();
   void *self = open_library(NULL, 0);
   assert(self && find_symbol(self, "nupp_core_artifact_directory"));
+  assert(find_symbol(self, "nupp_core_retain_guest_backing") ==
+         (void *)(uintptr_t)nupp_core_retain_guest_backing);
   void *kernel = open_library("kernel32.dll", 0);
   assert(kernel && find_symbol(kernel, "GetSystemInfo"));
   lookup_error(self, kernel);
