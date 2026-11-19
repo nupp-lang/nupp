@@ -621,6 +621,122 @@ end
 
 package_.entryModule = entryModule
 package_.carriedResources = carriedResources
+-- A core binary consists of the launcher, a program bundle and the bridge
+-- with its libraries beside that bundle.
+function package_.coreBinary(
+    root: string,
+    config: Config,
+    target: Target,
+    outDir: string,
+    output: string,
+    inc: any,
+    digest: function(string): string
+): ({[string]: boolean}, string, string, {string}, {string})
+    local host = assert(os.getenv("NUPP_CORE_RUNTIME"), "the core runtime path is unavailable")
+    local entry = (target.entries or {})[1] or "nupp.tools.main"
+    local isPath = entry:find("[/\\]") or entry:match("%.nupp$") or entry:match("%.lua$")
+    local path = assert(isPath and join(root, entry) or inc.modulePath(entry), "entry not found: " .. entry) as string
+    local checked = inc.checkFile(path)
+    local name: string = checked.result and checked.result.moduleName or entry
+    local _, mainPath = entryModule(root, outDir, target)
+    local resources, unreachable, resourceErr = carriedResources(root, config, target, name, mainPath, outDir)
+    local carried = assert(resources, resourceErr)
+    local embedded: string? = nil
+    if #carried > 0 then
+        local fields = {"return {\n"}
+        for _, resource in ipairs(carried) do
+            fields[#fields + 1] = interpolate("[%q] = %q,\n", resource.name, resource.text)
+        end
+        fields[#fields + 1] = "}\n"
+        local source = table.concat(fields)
+        local path = fs.absolute(join(root, join(outDir, "cache/core-resources/" .. digest(source) .. ".lua")))
+        assert(fs.writeFile(path, source))
+        inc.stageCarriedDocument("nupp.embedded", path, source)
+        embedded = path
+    end
+    local bytes = require("nupp.core.guestprogramproducer").projectBundle(name, path, inc, embedded)
+    local bindings = (config as any)._nativeLibraryBindings or {}
+    local libraries = require("nupp.core.guestbuild").packagedLibraryFiles(bytes, bindings)
+    local used: {string} = {}
+    for name, binding in pairs(bindings) do
+        local reference = binding.reference
+        local relative = reference and reference:match("^@(lib/.+)$")
+        if relative ~= nil and libraries[relative] ~= nil then
+            used[#used + 1] = name
+        end
+    end
+    table.sort(used)
+    local hostDirectory = dirname(host)
+    for _, subdirectory in ipairs({"lib", "notices"}) do
+        local path = join(hostDirectory, subdirectory)
+        for _, source in ipairs(fs.listFiles(path)) do
+            local relative = source:sub(#hostDirectory + 2)
+            if libraries[relative] == nil then
+                libraries[relative] = source
+            end
+        end
+    end
+    libraries.runtime = host
+    local layout: {string} = {}
+    for relative, source in pairs(libraries) do
+        local content, problem = fs.readFile(source)
+        assert(content ~= nil, problem)
+        layout[#layout + 1] = relative .. "\0" .. digest(content as string)
+    end
+    table.sort(layout)
+    layout[#layout + 1] = digest(bytes)
+    local generation = digest(table.concat(layout, "\n"))
+    local packageDir = output .. ".core"
+    local directory = join(packageDir, generation)
+    local bundleName = basename(output) .. ".bundle"
+    local bundle = join(directory, bundleName)
+    local runtime = join(directory, "runtime")
+    local outputs: {[string]: boolean} = {}
+    for relative, source in pairs(libraries) do
+        local destination = join(directory, relative)
+        assert(fs.copyFile(source, destination))
+        outputs[destination] = true
+    end
+    local status, problem = process.capture({"chmod", "755", runtime})
+    assert(status == 0, problem)
+    assert(fs.writeFile(bundle, bytes))
+    outputs[bundle] = true
+    if target.payloadOutput ~= nil then
+        local payload = join(root, target.payloadOutput as string)
+        assert(
+            fs.absolute(payload) ~= fs.absolute(output),
+            "a binary payloadOutput must differ from its executable output"
+        )
+        assert(fs.writeFile(payload, bytes))
+        outputs[payload] = true
+    end
+    local launcher = table.concat(
+        {
+            "#!/bin/sh",
+            'here=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd) || exit 1',
+            'bundle="$here"/' .. process.quote(basename(packageDir) .. "/" .. generation),
+            'exec "$bundle/runtime" "$bundle"/' .. process.quote(bundleName) .. ' /dev/null /dev/null "$@"',
+            "",
+        },
+        "\n"
+    )
+    local pending = output .. "." .. fs.stagingSuffix()
+    assert(fs.writeFile(pending, launcher))
+    status, problem = process.capture({"chmod", "755", pending})
+    if status ~= 0 then
+        os.remove(pending)
+        error(problem, 0)
+    end
+    local published, problem = os.rename(pending, output)
+    if not published then
+        os.remove(pending)
+        error(problem, 0)
+    end
+    outputs[output] = true
+
+    return outputs, bundle, host, unreachable or {}, used
+end
+
 package_.binaryOutput = binaryOutput
 package_.stampFile = stampFile
 package_.stampBinary = stampBinary
