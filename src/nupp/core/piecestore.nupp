@@ -163,12 +163,12 @@ local function unsealed(key: string, text: string?): any
     return decoded and value or nil
 end
 
--- The name a record called `name` is kept under by the producer under `root`,
--- or nil when nothing may be kept.
+-- A catalog holds absolute source paths. Keep a producer's record separate
+-- for each checkout, even when their installed compiler is the same.
 local function recordKey(root: string, name: string): string?
     local made = producerOf(root)
 
-    return made and contentDigest((made as string) .. "\0" .. name) .. ".record" or nil
+    return made and contentDigest((made as string) .. "\0" .. fs.absolute(root) .. "\0" .. name) .. ".record" or nil
 end
 
 -- The record the producer under `root` kept as `name`, or nil.
