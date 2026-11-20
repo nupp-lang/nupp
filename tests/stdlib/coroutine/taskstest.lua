@@ -1183,7 +1183,7 @@ function M.aSettleThatRaisesGivesBackTheFrame()
     local before = require("nupp.suspension").handled()
     local withdrawn = 0
     local scope = tasks.scope()
-    scope:spawn(function()
+    local child = scope:spawn(function()
         coroutine.suspend("never answered", function()
             return function()
                 withdrawn = withdrawn + 1
@@ -1194,6 +1194,7 @@ function M.aSettleThatRaisesGivesBackTheFrame()
     testAssert.eq(ok, false, "a wait nothing can answer settled")
     assert(tostring(problem):find("no readiness source", 1, true), tostring(problem))
     testAssert.eq(withdrawn, 1, "the abandoned wait was withdrawn once")
+    testAssert.eq(child:isdone(), true, "the child unwound before close raised")
     testAssert.eq(require("nupp.suspension").handled(), before, "the scope's frame handler outlived its settle")
     testAssert.eq(tasks.deadline(), nil, "the scope is still registered on the frame")
 end

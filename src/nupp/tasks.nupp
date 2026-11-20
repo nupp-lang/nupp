@@ -1879,7 +1879,18 @@ local function closeScope(owner: ScopeState): nil
     if owner.closed then
         return
     end
-    const drained, problem = pcall(settle, owner)
+    local drained, problem = pcall(settle, owner)
+    if not drained then
+        -- A failed wait cannot make progress on its own. Record the failure
+        -- before settling again so the children are cancelled and can unwind.
+        if not owner.failed or owner.failure ~= problem then
+            ownFailure(owner, problem)
+        end
+        drained, problem = pcall(settle, owner)
+        if not drained and owner.failure ~= problem then
+            ownFailure(owner, problem)
+        end
+    end
     -- The frame goes back and the registration goes whatever the drain raised: a
     -- scope whose block has ended must not go on handling the frame's waits or
     -- answering `checkpoint` for it. A failed drain stays retryable.
@@ -1890,10 +1901,7 @@ local function closeScope(owner: ScopeState): nil
         owner.frame = nil
         frame:close()
     end
-    if not drained then
-        error(problem, 0)
-    end
-    owner.closed = true
+    owner.closed = drained
     if owner.failed then
         const suppressed = owner.suppressed
         if suppressed ~= nil then

@@ -499,29 +499,29 @@ export function suspend<T>(operation: string, subscribe: function(function(T), C
         error(("nupp: %s cannot suspend here"):format(operation), 0)
     end
 
+    local unsubscribe: (function())? = cancel
+
+    local function cancelOnce(): nil
+        local callback = unsubscribe
+        if callback ~= nil then
+            unsubscribe = nil
+            callback()
+        end
+    end
+
     -- Registered against the *installation* that accepted it, so an extent ending with
     -- this park outstanding can find it, and so a nested extent sharing the handler
     -- cannot.
     local ticket = nil
     if current ~= nil then
-        ticket = {operation = operation, unsubscribeAttempted = false}
+        ticket = {operation = operation}
         function ticket.abandon(reason: string): nil
             -- Retryable, because a release that could not finish is called again. Each
             -- half of abandoning tracks its own progress: unsubscribing happens at most
             -- once whatever it did, and a wake that failed is put back so the next
             -- attempt can deliver it.
-            local unsubscribeError = nil
-            if not ticket.unsubscribeAttempted then
-                ticket.unsubscribeAttempted = true
-                -- Under protection, with the failure held rather than raised. A
-                -- cancellation that threw used to abandon the abandonment: the park was
-                -- never marked cancelled and never woken, so the coroutine stayed
-                -- suspended forever with its cleanup unrun.
-                local ok, err = pcall(cancel)
-                if not ok then
-                    unsubscribeError = err
-                end
-            end
+            -- Even when the cancellation raises, wake the park to unwind it.
+            local unsubscribed, unsubscribeError = pcall(cancelOnce)
             state.cancelled, state.reason = true, reason
             local wakeError = nil
             local wake = state.waker
@@ -537,7 +537,7 @@ export function suspend<T>(operation: string, subscribe: function(function(T), C
                 end
             end
             -- Both attempted, then the first failure reported.
-            if unsubscribeError ~= nil then
+            if not unsubscribed then
                 error(unsubscribeError, 0)
             end
             if wakeError ~= nil then
@@ -579,7 +579,7 @@ export function suspend<T>(operation: string, subscribe: function(function(T), C
     -- not, so the failure is caught here and told what it was doing.
     local ok, err
     if handler then
-        ok, err = pcall(handler.park, handler, waiting as Waiting, cancel as function(): nil)
+        ok, err = pcall(handler.park, handler, waiting as Waiting, cancelOnce)
     else
         ok, err = pcall(blockingPark, waiting)
     end
@@ -596,7 +596,7 @@ export function suspend<T>(operation: string, subscribe: function(function(T), C
     if not ok then
         -- Every failed park unsubscribes. A park that raised left the subscription live
         -- and nobody else is going to take it down.
-        pcall(cancel)
+        pcall(cancelOnce)
         local text = tostring(err)
         if text:find("C%-call boundary") or text:find("attempt to yield across") then
             error(("nupp: %s cannot suspend: non-yieldable C code is on the stack"):format(operation), 0)
@@ -604,7 +604,7 @@ export function suspend<T>(operation: string, subscribe: function(function(T), C
         error(err, 0)
     end
     if not state.resumed then
-        pcall(cancel)
+        pcall(cancelOnce)
         error(("nupp: %s: the handler returned without resuming it"):format(operation), 0)
     end
 
