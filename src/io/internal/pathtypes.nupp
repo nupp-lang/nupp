@@ -179,6 +179,10 @@ end
     return implementation("io.internal.path").equal(left, right)
 end
 
+export function fromvalidatedtext(text: string): Path
+    return Path(_text = text)
+end
+
 --- Tests whether a value is a `Path`.
 --- @param value the candidate path
 --- @return whether the value is a `Path`

@@ -271,7 +271,7 @@ raw = function(text: string): Path
         return found
     end
 
-    local value = setmetatable({_text = text,} as any, Path as any) as Path
+    local value = pathTypes.fromvalidatedtext(text)
     pathCache:put(text, value)
 
     return value
@@ -350,7 +350,7 @@ application = function(provider: string, root: string, parts: {string}, floor: i
     else
         text = "opfs:/" .. table.concat(parts, "/")
     end
-    local value = setmetatable({_text = text,} as any, Path as any) as Path
+    local value = pathTypes.fromvalidatedtext(text)
     descriptors[value] = {provider = provider, root = root, parts = parts, floor = floor,}
 
     return value
