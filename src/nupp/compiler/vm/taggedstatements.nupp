@@ -178,6 +178,10 @@ local function stepSign(ctx: any, stat: any, version: integer): integer?
         return nil
     end
     local value = need(tonumber(constant.text), "numeric for step literal")
+    -- Raise after evaluating the control expressions, as for a dynamic step.
+    if version >= 8 and value == 0 then
+        return nil
+    end
     need(value == value and value ~= 0, "'for' step is zero")
 
     return value > 0 and 1 or -1
