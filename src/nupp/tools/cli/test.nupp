@@ -153,10 +153,8 @@ local REPORT_SCHEMA = {
                     casesMs = {type = "number"},
                     engine = {
                         type = "string",
-                        enum = {"vm", "luajit"},
-                        description = "The engine the suite runs on. The VM runner reports a suite it "
-                        .. "leaves to LuaJIT -- one the corpus classification marks port-required, "
-                        .. "retired or harness -- as `luajit`, with a not-executed case, unless it was named."
+                        enum = {"core", "vm", "luajit"},
+                        description = "The engine that ran the suite."
                     },
                     tests = {type = "integer"},
                     slowestCase = {type = "string"},

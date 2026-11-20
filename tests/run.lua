@@ -44,7 +44,7 @@ if modulesRoot and modulesRoot ~= "" then
 end
 
 -- Which engine runs the suites this process loads. Every suite record says so.
-local engine = "vm"
+local engine = rawget(_G, "__nupp_load_image") and "vm" or rawget(_G, "jit") and "luajit" or "core"
 
 -- NUPP_TEST_WORKTRACE names a directory each process records the compiler work
 -- its cases do in (`tests/helpers/worktrace.lua`), to find work repeated.
@@ -1507,7 +1507,8 @@ end)
 
 -- What runs the shared lane: Nupp worker states inside a LuaJIT host, or on
 -- the VM, where a worker shares no Lua state with the runner, processes.
-local sharedWorkers = workerHost and "Nupp workers" or engine == "vm" and "VM processes" or "Nupp workers"
+local processes = {vm = "VM processes", core = "core processes", luajit = "LuaJIT processes"}
+local sharedWorkers = workerHost and "Nupp workers" or processes[engine]
 
 -- Audit test code and hooks, excluding capture files and runner bookkeeping.
 local function audited(fn, ...)
