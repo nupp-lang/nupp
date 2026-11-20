@@ -12,15 +12,9 @@ module nupp.compiler.vm.construction
 
 local wrappers: any = setmetatable({}, {__mode = "k"})
 
--- A nested declaration gets a runtime table only when it owns a body.
-export function nestedRecordValue(node: any): boolean
-    for _, entry in ipairs(node.entries or {}) do
-        if entry.kind == "inlineMethod" or entry.kind == "constructorDecl" then
-            return true
-        end
-    end
-
-    return false
+-- A nested record publishes its callable constructor in its parent's table.
+export function nestedRecord(node: any): boolean
+    return node.kind == "recordDecl" and node.declKind == "record"
 end
 
 -- Function bodies lower independently. Within a record, an erased parent's
@@ -36,7 +30,7 @@ export function recordValues(root: any): {[any]: boolean}
         if node.kind == "funcbody" or node.kind == "shortfn" then
             parent = nil
         elseif node.kind == "recordDecl" then
-            if parent == nil or found[parent] and node.declKind == "record" and nestedRecordValue(node) then
+            if parent == nil or found[parent] and nestedRecord(node) then
                 found[node] = true
             end
             parent = node

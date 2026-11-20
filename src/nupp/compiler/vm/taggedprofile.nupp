@@ -1350,8 +1350,8 @@ export function forVersion(version: integer): any
                     ctx.emit(entry, "SetIdx", {ctx.readHeld(held), key, ctx.readHeld(func)}, nil)
                     ctx.release(func)
                 elseif entry.kind == "recordDecl" and entry.name and ctx.bound(entry.name.definition) then
-                    -- A nested record with methods was made first; its table
-                    -- is reached through the declaration's, as `R.Nested`.
+                    -- The nested record was made first; its table is reached
+                    -- through the declaration's, as `R.Nested`.
                     local nested = ctx.hold(ctx.expression({kind = "name", token = entry.name, entry.name}, "tagged"))
                     local key = ctx.emit(entry, "K", {pool(ctx, "str", entry.name.text)}, "tagged")
                     ctx.emit(entry, "SetIdx", {ctx.readHeld(held), key, ctx.readHeld(nested)}, nil)
