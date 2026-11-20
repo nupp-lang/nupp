@@ -1,6 +1,7 @@
 # Resume the Nupp native core migration
 
-Snapshot from November 20, 2026 at 01:24 Central. Use this page before the
+Updated November 20, 2026 at 01:34 Central. The original Mac's local
+validation runs were stopped after the handoff. Use this page before the
 older lane notes. The Git refs below are enough to resume on a machine that
 cannot mount bigbertha.
 
@@ -59,8 +60,9 @@ header filenames.
 
 `STAGE0_CORE_HOSTS` is still empty. The last completed native shared replay
 at `353ef09a5` passed 2,734 of 2,885 tests, with every worker reporting.
-A fresh replay at `25f7b515b` was still running at handoff. Treat the last
-completed count as the baseline until the fresh JSON receipt closes. Keep
+A fresh replay at `25f7b515b` was stopped after 168 suites started, before
+it wrote the final JSON receipt. Use the last completed count as the
+baseline. Keep
 macOS ARM64 opt-in until every lane can validate on the core. Native
 `run --watch` still needs live patching. Native binary targets still need
 parity for standalone, reload, and AOT options. x64 needs an encoder.
@@ -73,7 +75,7 @@ parity for standalone, reload, and AOT options. x64 needs an encoder.
   at `efec1418a` carries two commits for `nupp bc` and LSP bytecode and
   image artifacts. Direct native source probes passed with the Rust VM
   refused, and the exact VM compiler fixpoint passed. The native package
-  and its normal CLI entry-point checks are running on the original Mac.
+  build was stopped before the normal CLI entry-point checks.
   Rebuild the branch as a native compiler and check `bc --json`,
   `lsp artifact --kind bytecode --json`, and
   `lsp artifact --kind image --json` on a short typed function. Include an
@@ -85,8 +87,9 @@ parity for standalone, reload, and AOT options. x64 needs an encoder.
   in `until` expressions to the enclosing loop, and joins checked bindings
   at the condition after a body `continue`. The checker passed. The first
   native probe verified the cleanup case on the earlier version before its
-  second fixture failed a type check. A corrected native probe of the full
-  branch is running. Validate these cases before landing:
+  second fixture failed a type check. The corrected native probe of the full
+  branch was stopped before it reported results. Validate these cases
+  before landing:
 
   ```sh
   NUPP_RUNTIME=core ./bin/nupp test --fresh --jobs=2 \
@@ -145,11 +148,12 @@ at `ea8e90345` passes the actual native bridge to the nested builds in
 new worktree from current `core-dev`. The earlier inventory commit in
 the WIP branch is already integrated as `fe9d7603c`.
 
-`compilerderive` normal built and executed the real app with the Rust VM
-refused, producing the expected result word `0x7fff000000000003`. The
-forced-spill derive and normal comptime runs were still in progress. The
-harness launches both normal and forced-spill guests. Measure the long runs
-before choosing a case timeout, then verify the real bridge and guard jobs.
+`compilerderive` and `compilercomptime` both built and executed the real
+app in normal mode with the Rust VM refused. Both produced the expected
+result word `0x7fff000000000003`. The forced-spill derive was stopped and
+the forced-spill comptime run is pending. The harness launches both modes.
+Measure the long runs before choosing a case timeout, then verify the real
+bridge and guard jobs.
 
 ```sh
 ./bin/nupp run tests/core/guests/acceptance.nupp \
@@ -169,13 +173,13 @@ The original Linux ARM64 native replay uses exact source
 compiler bundle SHA-256
 `77e085db6623549403a9d646cdbdc4a38313a3819e1e823570da41b509a95fc6`.
 A provisional stage-two archive installed and launched offline with its
-bundled libuv and curl. Stage three emitted all 580 compiler pieces and
-was selecting the runtime at handoff. The fixpoint and cold-rebuild
-receipts are pending.
+bundled libuv and curl. Stage three emitted all 580 compiler pieces and was
+stopped during runtime selection. The fixpoint and cold-rebuild receipts
+are pending.
 
-The original Mac still has the Docker run
-`nupp-core-linux-arm64-fixpoint-abi`. If the next machine needs to
-reproduce it, use a Linux ARM64 worktree at the exact source above and
+The original Mac keeps the output of the stopped Docker run
+`nupp-core-linux-arm64-fixpoint-abi`. To reproduce it, use a Linux ARM64
+worktree at the exact source above and
 provision the pinned toolchain and bridge dependencies. The repository
 command builds the compiler with its pinned stage zero, runs the native
 fixpoint, packages the candidate locally, and performs a cold bootstrap:
@@ -198,9 +202,8 @@ Read the `cutting-a-release` skill for tagging, publishing, and pin order.
 
 ## Original machine receipts
 
-The background runs may finish on the original Mac. These are local paths
-under `/Volumes/bigbertha/workspaces`, and the Git branches above carry the
-source changes independently.
+These are local paths under `/Volumes/bigbertha/workspaces`. The Git
+branches above carry the source changes independently.
 
 | Result | Worktree and receipt |
 |---|---|
