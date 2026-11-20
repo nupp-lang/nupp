@@ -6,8 +6,7 @@ made it. That answers a question a typed language gets asked: what did the
 annotations cost? Usually nothing, and the instructions say so more convincingly
 than a benchmark does, on any machine, with no warm-up.
 
-Only the VM-hosted compiler can answer it: the image is what that compiler
-produces, so a LuaJIT-hosted run says so and stops.
+The compiler emits the listing directly on either runtime.
 ]]
 module nupp.tools.cli.bc
 
@@ -129,9 +128,6 @@ local function run(options: any): integer
     if not source then
         report.fileFailure(path, problem, "check that the path exists and is readable", collected)
         return fail()
-    end
-    if not rawget(_G, "__nupp_load_image") then
-        return fail(report.TOOL_FAILED, "bytecode inspection needs the VM-hosted compiler")
     end
     local ok, functions = pcall(require("nupp.tools.vm.project").inspect, ".", path)
     if not ok then
