@@ -1337,13 +1337,25 @@ local function compileOwner(fn: any, options: any, profile: any, site: any): any
 
     local function loopTransfer(node: any, exit: string): nil
         local loop = need(loops[#loops], "loop transfer outside a checked loop")
+        if exit == "continueStmt" and loop.untilEdges then
+            need(not cleanupEnabled or #cleanups == loop.cleanupDepth, "repeat continue crosses pending cleanup")
+            -- The condition sees body locals, whose bindings are only known
+            -- after every path through the body has been lowered.
+            local carried, order = {}, {}
+            for index, key in ipairs(bindingOrder) do
+                carried[key], order[index] = bindings[key], key
+            end
+            loop.untilEdges[#loop.untilEdges + 1] = {block = block, bindings = carried, order = order, node = node}
+            block = nil
+            return
+        end
         -- A goto ends only the current iteration, at the enclosing loop's label.
         need(
             exit ~= "gotoStmt" or node.name ~= nil and loop.label == node.name.text,
             "goto is admitted only to a label ending its enclosing loop's body"
         )
         local target = exit == "breakStmt" and loop.exit or loop.continueTo
-        need(target ~= nil, "continue in repeat is unsupported")
+        need(target ~= nil, "loop transfer has no target")
         if cleanupEnabled then
             unwind(loop.cleanupDepth, node, exit)
             local success = profile.cleanupStatus(ctx, node)
@@ -2260,25 +2272,58 @@ local function compileOwner(fn: any, options: any, profile: any, site: any): any
                 before.term = {kind = "jump", edges = {header.edge}, pos = position(stat)}
                 resume(header)
                 local exit = branch()
-                loops[#loops + 1] = {exit = exit, cleanupDepth = #cleanups}
                 local depth = #cleanups
+                local untilEdges: {any} = {}
+                loops[#loops + 1] = {exit = exit, cleanupDepth = depth, untilEdges = untilEdges}
                 statements(stat.body.stats)
-                if block then
-                    local condition = expression(stat.cond, profile.booleanKind)
-                    if block then
-                        if cleanupEnabled then
-                            finishScope(depth, stat)
-                        end
-                        block.term = {
-                            kind = "branch",
-                            value = condition,
-                            edges = {currentEdge(exit), currentEdge(header)},
-                            pos = position(stat)
-                        }
-                        block = nil
-                    end
-                end
+                -- A transfer written in the condition belongs to the enclosing loop.
                 loops[#loops] = nil
+                if #untilEdges > 0 then
+                    if block then
+                        untilEdges[
+                            #untilEdges + 1
+                        ] = {block = block, bindings = bindings, order = bindingOrder, node = stat}
+                    end
+                    local first = untilEdges[#untilEdges]
+                    local common, order = {}, {}
+                    for _, key in ipairs(first.order) do
+                        local value = handles[key] ~= false and first.bindings[key] or nil
+                        for _, incoming in ipairs(untilEdges) do
+                            if incoming.bindings[key] == nil then
+                                value = nil
+                                break
+                            end
+                        end
+                        if value ~= nil then
+                            common[key], order[#order + 1] = value, key
+                        end
+                    end
+                    bindings, bindingOrder = common, order
+                    local conditionEntry = branch()
+                    for _, incoming in ipairs(untilEdges) do
+                        resume(incoming)
+                        jump(conditionEntry, incoming.node)
+                    end
+                    resume(conditionEntry)
+                end
+                local condition = block and expression(stat.cond, profile.booleanKind) or nil
+                local held = block and cleanupEnabled and #cleanups > depth and ctx.hold(condition) or nil
+                if cleanupEnabled then
+                    finishScope(depth, stat)
+                end
+                if held then
+                    condition = ctx.readHeld(held)
+                    ctx.release(held)
+                end
+                if block then
+                    block.term = {
+                        kind = "branch",
+                        value = condition,
+                        edges = {currentEdge(exit), currentEdge(header)},
+                        pos = position(stat)
+                    }
+                    block = nil
+                end
                 resume(exit)
             elseif stat.kind == "yieldStmt" and #yields > 0 then
                 local target = yields[#yields]
