@@ -179,6 +179,9 @@ end
     return implementation("io.internal.path").equal(left, right)
 end
 
+--- Constructs a `Path` from validated text.
+--- @param text the path text already validated for its provider
+--- @return the path carrying that text
 export function fromvalidatedtext(text: string): Path
     return Path(_text = text)
 end
