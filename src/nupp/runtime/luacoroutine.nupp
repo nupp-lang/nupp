@@ -38,6 +38,7 @@ export const value: table = do
     for name, member in pairs(scheduler.functions) do
         original[name:sub(#"coroutine." + 1)] = member
     end
+    scheduler.installCoroutineMetatable(original)
     libraries.publish("coroutine", original)
     yield original
 end

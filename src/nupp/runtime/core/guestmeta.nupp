@@ -388,8 +388,8 @@ export function setMetatable(ctx: voidptr, value: uint64, mt: uint64): uint64
     return value
 end
 
--- The metatable every thread shares (Decision 18) when `value` is a thread
--- and the scheduler installed one, else nil.
+-- Raw threads share the coroutine library as __index. Scheduled tasks use
+-- the scheduler's own methods. Older bundles install one metatable for both.
 export function threadMeta(ctx: voidptr, value: uint64): uint64
     if value & values.TAG_MASK ~= values.TAG_OBJ or value & values.PAYLOAD == 0ULL then
         return values.NIL
@@ -403,7 +403,26 @@ export function threadMeta(ctx: voidptr, value: uint64): uint64
         if meta == 0ULL then
             return values.NIL
         end
-        return meta
+        local installed = tableOf(meta)
+        if installed == 0ULL then
+            return meta
+        end
+        local task = tables.get(installed, values.TAG_INTEGER | 1ULL)
+        if task == values.NIL then
+            return meta
+        end
+        -- The scheduler installs the record before publishing a task handle.
+        local body = native.offset(header, native.index(heap.HEADER_BYTES))
+        local taskRecord = native.load64(body, native.fieldOffset<heap.ThreadBody>("data"))
+        if taskRecord ~= values.NIL then
+            return task
+        end
+
+        local raw = tables.get(installed, values.TAG_INTEGER | 2ULL)
+        if raw == values.NIL then
+            return task
+        end
+        return raw
     end
 end
 

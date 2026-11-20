@@ -1278,7 +1278,12 @@ local function deadline(): number?
     return scope ~= nil and scope.deadline or nil
 end
 
-calls.install({__index = methods}, closetask)
+local threadMetatables: {table} = {{__index = methods}}
+calls.install(threadMetatables, closetask)
+
+export function installCoroutineMetatable(library: table): nil
+    threadMetatables[2] = {__index = library}
+end
 
 -- The reactor's side of a task's wait (`reactor.Parker`): its waker, made
 -- before the operation is submitted, wakes the park that follows it, or
