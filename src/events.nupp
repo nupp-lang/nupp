@@ -144,11 +144,6 @@ end
 local infos: {[any]: Info} = setmetatable({}, {__mode = "k"}) as {[any]: Info}
 local nextId: integer = 1
 
---- Where a record witness carries its own entry, so the hot path reads a field
---- rather than hashing the weak table. A struct witness is a ctype and cannot
---- carry one; it stays in the table.
-local INFO_KEY = "__nuppEventInfo"
-
 --- The registry entry for an event type, made on first use.
 --- @raises string when the type did not derive `events.event`
 local function infoOf(witness: any): Info
@@ -172,25 +167,6 @@ local function infoOf(witness: any): Info
     )
     nextId = nextId + 1
     infos[witness] = info
-    if type(witness) == "table" then
-        rawset(witness, INFO_KEY, info)
-    end
-
-    return info
-end
-
---- The registry entry an emitting path reads: a field on a record witness, the
---- weak table for a struct, and the slow path the first time either is asked.
-local function infoFor(witness: any): Info
-    local info: Info? = nil
-    if type(witness) == "table" then
-        info = rawget(witness, INFO_KEY) as Info?
-    else
-        info = infos[witness]
-    end
-    if info == nil then
-        return infoOf(witness)
-    end
 
     return info
 end
@@ -506,7 +482,7 @@ local function register<A, E is events.Emittable>(
     once: boolean
 ): nil
     local observers = self.state as any
-    local info = infoFor(event)
+    local info = infoOf(event)
     local map = observers.byAddress[address]
     if map == nil then
         map = takeMap(observers)
@@ -604,7 +580,7 @@ function events.MessageBus.stop<A, E is events.Emittable>(
     if observers.count == 0 then
         return false
     end
-    local info = infoFor(event)
+    local info = infoOf(event)
     local map = observers.byAddress[address]
     local list = map and map[info.id] or nil
     if list == nil then
@@ -656,7 +632,7 @@ function events.MessageBus.contains<A, E is events.Emittable>(
         return false
     end
     local map = observers.byAddress[address]
-    local list = map and map[infoFor(event).id] or nil
+    local list = map and map[infoOf(event).id] or nil
 
     return list ~= nil and liveIn(list) > 0
 end
@@ -843,7 +819,7 @@ function events.MessageBus.emit<A, E is events.Emittable>(
     if observers.count == 0 then
         return
     end
-    local info = infoFor(event)
+    local info = infoOf(event)
     local map = observers.byAddress[address]
     local list = map and map[info.id] or nil
     if list == nil or list.n == 0 then
@@ -885,7 +861,7 @@ function events.MessageBus.deliver<A, E is events.Emittable>(
     if observers.count == 0 then
         return
     end
-    local info = infoFor(event)
+    local info = infoOf(event)
     local map = observers.byAddress[address]
     local list = map and map[info.id] or nil
     if list == nil or list.n == 0 then
