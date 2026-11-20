@@ -1135,7 +1135,7 @@ function M.threadValueSignaturesRemainLimitedToTheDynamicProfile()
     end
 end
 
-function M.threadValueAdmissionDoesNotAdmitPhysicalStructDeclarations()
+function M.plainStructValuesPassThroughCheckedFunctions()
     local input = checked(
         [[
 local struct Pair
@@ -1143,15 +1143,16 @@ local struct Pair
 end
 local function pass(value: Pair): Pair return value end
 local function use(value: Pair): Pair return pass(value) end
-return use
+return use(Pair(17)).value
 ]]
     )
-    refuses(
-        function()
-            program.compile(program.describe({input}, input.name), tagged.forVersion(8))
-        end,
-        "only plain record declarations are admitted"
-    )
+    local catalog = program.describe({input}, input.name)
+    local compiled = program.compile(catalog, tagged.forVersion(8))
+    local executable = require("nupp.compiler.vm.coregraphexecutable").fromChecked(compiled, 8)
+    local pass = executable.functions[owner(catalog, "pass").id + 1]
+    local use = executable.functions[owner(catalog, "use").id + 1]
+    test.eq(pass.nparams, 1)
+    test.eq(use.nparams, 1)
 end
 
 function M.taggedModuleCompletionReturnsZeroOrOneValue()
@@ -1292,10 +1293,11 @@ function M.protectedCallsForwardTrailingPacks()
             [[
 local function values(...: any): (any, any, any) return ... end
 local function relay(...: any): (boolean, any, any, any)
-    return ]]
+    local ok, a, b, c = ]]
             .. call
             .. [[
 
+    return ok, a, b, c
 end
 return relay(1, nil, 3)
 ]]
