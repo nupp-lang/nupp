@@ -85,6 +85,22 @@ local function recordValues(p: any): {[any]: boolean}
     return found
 end
 
+-- A closure made above a method's class declaration captures the cell
+-- that the declaration fills when it runs.
+local function forwardMethodClass(p: any, definition: any, owner: any): boolean
+    local binding = p.byDefinition[definition]
+    if binding == nil or owner.id == binding.owner then
+        return false
+    end
+    local child = owner
+    while child.parent ~= nil and child.parent ~= binding.owner do
+        child = p.owners[child.parent + 1]
+    end
+    local start = child.parent and cst.firstToken(child.node)
+
+    return start ~= nil and start.offset < binding.token.offset
+end
+
 -- The ownership intrinsics the core runs: transfers, which answer the value
 -- they move, and `partition`, which answers its two parts. Their ownership
 -- is the checker's; at run time each is its value.
@@ -737,7 +753,7 @@ export function describe(modules: {any}, entryModule: string, options: any?): an
         end
     end
 
-    -- The record name each method written in a record body belongs to.
+    -- The record each method written in a record body belongs to.
     local inlineRecords: {[any]: any} = {}
     -- The declarations of comptime helpers, which the program never sees.
     local erasedDefinitions: {[any]: boolean} = {}
@@ -794,7 +810,7 @@ export function describe(modules: {any}, entryModule: string, options: any?): an
         if node.kind == "recordDecl" and node.name then
             for _, entry in ipairs(node.entries or {}) do
                 if entry.kind == "inlineMethod" or entry.kind == "constructorDecl" then
-                    inlineRecords[entry] = node.name
+                    inlineRecords[entry] = node
                     p.recordMembers[entry] = node.name.definition
                     if node.declKind == "interface" then
                         p.interfaceMethods[entry] = true
@@ -870,7 +886,7 @@ export function describe(modules: {any}, entryModule: string, options: any?): an
             -- A constructor has no name: it is given a synthetic one, which its
             -- construction callsites name.
             if node.kind == "constructorDecl" and inlineRecords[node] then
-                local record = inlineRecords[node]
+                local record = inlineRecords[node].name
                 local token: any = {
                     kind = "name",
                     text = "constructor",
@@ -1734,7 +1750,7 @@ export function describe(modules: {any}, entryModule: string, options: any?): an
         local foreignRecord = declaration
             and declaration.coreDefinition
             and inlineRecords[declaration]
-            and inlineRecords[declaration].definition.filename ~= owner.scope.path
+            and inlineRecords[declaration].name.definition.filename ~= owner.scope.path
         if foreignRecord then
             -- A record another module declares is that module's export:
             -- `m.R(...)` reads R's table through m's, which the caller
@@ -1755,7 +1771,7 @@ export function describe(modules: {any}, entryModule: string, options: any?): an
             loopForms[built.call] = true
             collect(built.call.obj, owner)
         elseif declaration and declaration.coreDefinition and inlineRecords[declaration] then
-            local base = inlineRecords[declaration]
+            local base = inlineRecords[declaration].name
             local classToken: any = {
                 kind = "name",
                 text = base.text,
@@ -1921,12 +1937,13 @@ export function describe(modules: {any}, entryModule: string, options: any?): an
         if target and p.interfaceMethods[target.node] then
             target = nil
         end
-        local base = target and target.node.kind == "funcStmt" and target.node.name.method and target.node.name.base
-            or target
+        local class = target
             and target.node.kind == "inlineMethod"
             and not target.node.inlineStatic
             and inlineRecords[target.node]
             or nil
+        local base = target and target.node.kind == "funcStmt" and target.node.name.method and target.node.name.base
+            or class and class.name
         -- `function t.R:m()` names its record through the table `t`, which
         -- holds it: its table is the receiver's metatable, as for another
         -- module's record.
@@ -1948,6 +1965,10 @@ export function describe(modules: {any}, entryModule: string, options: any?): an
             }
             p.calls[#p.calls + 1], p.callByNode[node] = item, item
         elseif base then
+            local forward = recordcallables.record(class) and forwardMethodClass(p, base.definition, owner)
+            if forward then
+                p.classCells[base.definition] = class
+            end
             local classToken: any = {
                 kind = "name",
                 text = base.text,
@@ -1964,7 +1985,8 @@ export function describe(modules: {any}, entryModule: string, options: any?): an
                 node = node,
                 definition = method,
                 method = true,
-                classToken = classToken
+                classToken = classToken,
+                forwardClass = forward or nil
             }
             p.calls[#p.calls + 1], p.callByNode[node] = item, item
         elseif node.kind == "methodCall"
@@ -2555,6 +2577,7 @@ export function verify(p: any): boolean
 
         end
     end
+    local forwardClasses: {[any]: boolean} = {}
     for index, item in ipairs(p.calls) do
         local node = item.node
         need(item.id == index - 1 and p.owners[item.owner + 1], "invalid callsite owner")
@@ -2624,6 +2647,19 @@ export function verify(p: any): boolean
                 item.metatable or referenceOwners[item.classToken] == item.owner,
                 "method callsite does not belong to its checked owner"
             )
+            if item.forwardClass then
+                local key = item.classToken and item.classToken.definition
+                local target = p.functionsByDefinition[item.definition]
+                need(
+                    key
+                    and target
+                    and p.recordMembers[target.node] == key
+                    and p.classCells[key]
+                    and forwardMethodClass(p, key, p.owners[item.owner + 1]),
+                    "forward method lacks its class cell"
+                )
+                forwardClasses[key] = true
+            end
         elseif item.iterator then
             need(
                 node.kind == "forinStmt"
@@ -2720,7 +2756,7 @@ export function verify(p: any): boolean
                 found = found or witness.token ~= nil and witness.token.definition == definition
             end
         end
-        need(found, "record class cell lacks its constructor domain")
+        need(found or forwardClasses[definition], "record class cell lacks its constructor domain or forward method")
     end
     for node, access in pairs(p.indexedByNode) do
         local site = need(p.callByNode[access.call], "indexed span lacks its issued callsite")
