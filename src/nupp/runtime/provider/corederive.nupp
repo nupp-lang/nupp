@@ -75,9 +75,21 @@ export function member(entry: any, spec: any): any
     end
 end
 
---- The initializer a derive asked for on a declaration built from its fields:
---- each stored field from its argument, its default where that is nil.
+--- Returns an initializer for existing storage. It fills the fields from
+--- arguments or applies defaults and runs the constructor.
 export function initializer(owner: any, spec: any): any
+    if spec.constructor ~= nil then
+        local constructor = assert(owner[spec.constructor], "derived constructor is missing")
+        return function(self: any, ...: any): any
+            for index, field in ipairs(spec.fields) do
+                self[field] = copy(spec.defaults[index])
+            end
+            constructor(self, ...)
+
+            return self
+        end
+    end
+
     return function(self: any, ...: any): any
         local given: any = {...}
         for index, field in ipairs(spec.fields) do

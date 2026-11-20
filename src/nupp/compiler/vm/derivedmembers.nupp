@@ -109,14 +109,24 @@ end
 local function initializerSpec(stat: any): any
     local nominal = stat.resolvedType
     local spec: any = {fields = {}, defaulted = {}, defaults = {}}
+    local constructor = (nominal.constructorEntries or {})[1]
+    if constructor ~= nil then
+        spec.constructor = "\0new" .. tostring(constructor.index)
+    end
     for _, field in ipairs(nominal.fieldOrder or {}) do
+        local default = nominal.fieldDefaults and nominal.fieldDefaults[field] or nil
+        if constructor ~= nil then
+            if default ~= nil then
+                appendField(spec, field, 0, default)
+            end
+            continue
+        end
         local fieldType = nominal.byname and nominal.byname[field] or nil
         local stored = fieldType ~= nil
             and fieldType.tag ~= "typeobject"
             and not (nominal.nestedTypes and nominal.nestedTypes[field])
             and not (nominal.privateFields and nominal.privateFields[field])
         if stored then
-            local default = nominal.fieldDefaults and nominal.fieldDefaults[field] or nil
             appendField(spec, field, 0, default)
         end
     end

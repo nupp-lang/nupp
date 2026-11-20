@@ -98,7 +98,8 @@ export function prepare(p: any, node: any, owner: any): any
 
     local plan: any = {node = node, owner = owner.id, recipe = recipe, register = step("register"), members = {}}
     local nominal = node.resolvedType
-    if recipe.initializer and nominal and #(nominal.constructorEntries or {}) == 0 then
+    local count = nominal and #(nominal.constructorEntries or {}) or 0
+    if recipe.initializer and nominal and (count == 0 or count == 1 and node.declKind == "record") then
         plan.initializer = step("initializer")
     end
     for _, member in ipairs(recipe.members or {}) do
