@@ -20,11 +20,18 @@ Reflection, ownership cleanup, native pointer access, and exception
 handler timing still need parity. Leave collector and table-key changes
 to the M1 lane. Run a new full shared replay once the focused fixes land.
 
+Optional method calls, compile-time local bindings, and minimum-integer
+float encoding landed through `3f2c24793`. Derived struct writes, portable
+S0 math, checked annotations, and task cleanup landed through `25f7b515b`.
+The native focused replay passed all four struct event cases and both S0
+suites. The failed task settle case passed on both runtimes.
+
 Active worktrees under `/Volumes/bigbertha/workspaces` include
-`core-derived-struct-init` (derived struct storage, optional method calls,
-float bytes, and compile-time local bindings), `core-s0-float-scaling`
-(native S0 reader and oracle math), `core-checked-annotations`, and
-`core-optional-owned-fields`. Linux fixpoint output is under
+`core-derived-struct-bootstrap` for the next full shared replay and the
+pinned compiler pointer-field probe, `core-guest-inventory` for the
+nightly guest cases, and `core-path-and-thread-parity` for checked file
+paths, raw thread methods, optional-field cleanup, and zero-step errors.
+Linux fixpoint output is under
 `core-library-bootstrap-abi/build/bootstrap-abi/linux-fixpoint/`.
 
 ## November 19 resumption

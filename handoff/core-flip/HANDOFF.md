@@ -9,22 +9,25 @@ branch avoozl-plans). Follow AGENTS.md in each repo.
 - macOS ARM64 remains opt-in. [The refreshed seed](https://github.com/nupp-lang/nupp/releases/tag/v0.0.15-core-seed.2)
   passed a native fixpoint and an offline cold compiler rebuild before
   publication. `88b088762` pins it. `b1be45bb7` preserves the bitwise
-  library-call IDs older native compilers read during bootstrap.
+  library-call IDs older native compilers read during bootstrap. The
+  downloaded seed rebuilt and launched the full compiler at `b1be45bb7`
+  without the Rust VM.
 - The complete macOS native shared run at `353ef09a5` passed 2,734 of
   2,885 tests. All eight workers finished. See [core-test-path.md](core-test-path.md)
   for the open failure groups and active worktrees.
 - Linux ARM64 built and ran the native CLI and a relocated app at
-  `2cf4b2d54`. The Linux native fixpoint at `88b088762` is in progress.
-  A Linux release seed still needs an offline cold rebuild and approval
-  to publish. Hosted compiler CI on Linux ARM64 is running.
+  `2cf4b2d54`. The native compiler at `88b088762` finished stage two and
+  began rebuilding itself for the fixpoint comparison. A Linux release
+  seed still needs an offline cold rebuild and approval to publish.
 - The other computer owns [Windows ARM64](https://github.com/nupp-lang/nupp/issues/134).
   The M1 laptop owns checker literal typing and collector/table-key issues.
   libuv and curl integration landed at `8e12e2f19`.
 - [W1 #136](https://github.com/nupp-lang/nupp/issues/136) is closed.
   Its six fixes landed in `7843ef6b8` and the exact native package passed
-  all 48 W1 suite tests. The hosted core guest inventory still needs
-  reconciliation. [The first nightly guest leg](https://github.com/nupp-lang/nupp/actions/runs/44567504364/job/135760171466)
-  also reported failures in `processlayer` and `runnerchunks`.
+  all 48 W1 suite tests. A local replay passed both `processlayer` and
+  `runnerchunks` after they failed in
+  [the first nightly guest leg](https://github.com/nupp-lang/nupp/actions/runs/44567504364/job/135760171466).
+  The guest inventory and nested compiler build setup are still under test.
 
 ## November 19 resumption
 
