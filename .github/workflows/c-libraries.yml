@@ -20,6 +20,11 @@ on:
       - 'tests/fixtures/libuv/**'
       - 'tests/tools/toolchain/clibraries.test.mjs'
       - 'notices/*LICENSE*'
+      - 'scripts/host-machine'
+      - 'scripts/core-bridge'
+      - 'scripts/core-bridge-windows.sh'
+      - 'native/corebridge/**'
+      - 'native/httpcurl/**'
   pull_request:
     paths: *inputs
 permissions:
@@ -164,3 +169,42 @@ jobs:
             build/libffi/abi.json
             build/libffi/libffi.identity
           if-no-files-found: error
+  # Windows on ARM64 builds natively with LLVM MinGW from MSYS2's clangarm64
+  # environment, which the runner image carries at C:/msys64. Every pinned
+  # library is built for aarch64-pc-windows-gnullvm, and the native core's
+  # bridge, guard and Windows contracts are built and run on them.
+  windows-arm64:
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name != github.repository
+    runs-on: windows-11-arm
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v5
+      - name: Provision MSYS2's clangarm64 toolchain
+        shell: pwsh
+        run: |
+          $bash = 'C:/msys64/usr/bin/bash.exe'
+          if (!(Test-Path $bash)) { throw 'MSYS2 is required at C:/msys64' }
+          & $bash -lc 'pacman -S --needed --noconfirm mingw-w64-clang-aarch64-toolchain mingw-w64-clang-aarch64-cmake mingw-w64-clang-aarch64-ninja make perl diffutils'
+          if ($LASTEXITCODE) { throw 'clangarm64 provisioning failed' }
+          Add-Content $env:GITHUB_PATH 'C:\msys64\clangarm64\bin'
+      - uses: actions/cache@v4
+        with:
+          path: .nupp-c-library-cache
+          key: c-libraries-aarch64-pc-windows-gnullvm-${{ hashFiles('scripts/toolchain.pins', 'scripts/native-libraries', 'scripts/host-machine', 'scripts/c-libraries/**', 'native/crc/**', 'native/markdown/**', 'notices/*LICENSE*') }}
+      - name: Build the pinned libraries and the core bridge without Rust
+        shell: bash
+        env:
+          NUPP_TOOLCHAIN_DIR: ${{ github.workspace }}/.nupp-c-library-cache
+          NUPP_NATIVE_JOBS: '4'
+        run: |
+          mkdir -p build/no-rust-tools
+          for tool in cargo rustc rustup cargo-c; do
+            printf '#!/bin/sh\necho "Unexpected Rust tool invocation" >&2\nexit 99\n' > "build/no-rust-tools/$tool"
+            chmod +x "build/no-rust-tools/$tool"
+          done
+          export PATH="$PWD/build/no-rust-tools:$PATH"
+          [ "$(sh scripts/host-machine | cut -d: -f2)" = aarch64 ] || { echo 'host is not ARM64' >&2; exit 1; }
+          [ "$(sh scripts/stage0-runtime --host)" = aarch64-pc-windows-gnullvm ]
+          sh scripts/native-libraries zlib libuv openssl libcurl libffi isal cmark
+          sh scripts/core-bridge --test
+          llvm-objdump -f build/c-core-bridge/nupp-core.exe | grep -q aarch64
