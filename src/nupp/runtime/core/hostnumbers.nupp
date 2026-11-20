@@ -1,13 +1,23 @@
 module nupp.runtime.core.hostnumbers
 
--- Number text through the C library: a float written as Nupp writes one
--- (Decision 13) or by one of string.format's float conversions, with
--- snprintf, and a numeral read with strtod. Scratch comes from malloc, so
+-- Number text through the C library: a float written as Nupp writes one (Decision 13)
+-- or by one of string.format's float conversions, with the bridge's fixed-arity
+-- snprintf adapters, and a numeral read with strtod. Scratch comes from malloc, so
 -- neither allocates in the heap.
 const native = require("nupp.runtime.vm.intrinsics")
 const host = require("nupp.runtime.core.hostc")
 
-cdef function snprintf(borrows out: voidptr, room: uint64, borrows format: voidptr, ...): int32
+-- snprintf with one float, and with an int then a float. Kernel calls take
+-- fixed signatures: a variadic call places its arguments differently on
+-- Apple, AAPCS64 and Windows ARM64.
+cdef function nuppsnprintf1(borrows out: voidptr, room: uint64, borrows format: voidptr, value: float64): int32
+cdef function nuppsnprintf2(
+    borrows out: voidptr,
+    room: uint64,
+    borrows format: voidptr,
+    count: int64,
+    value: float64
+): int32
 cdef function strtod(borrows text: voidptr, borrows rest: voidptr): float64
 cdef function malloc(bytes: uint64): voidptr
 cdef function free(borrows block: voidptr)
@@ -152,13 +162,13 @@ local function shortest(scratch: voidptr, bits: uint64): uint64
     local precision: int64 = 0
     local value = native.fromBits(bits & MAGNITUDE)
     while precision < MOST_PRECISION do
-        local _ = snprintf(text, TEXT_BYTES, scratch, precision, value)
+        local _ = nuppsnprintf2(text, TEXT_BYTES, scratch, precision, value)
         if native.bits(strtod(text, native.pointer(0ULL))) == bits & MAGNITUDE then
             break
         end
         precision = precision + 1
     end
-    local _ = snprintf(text, TEXT_BYTES, scratch, precision, value)
+    local _ = nuppsnprintf2(text, TEXT_BYTES, scratch, precision, value)
     local count: int64 = 0
     local digits = 0ULL
     local at: int64 = 0
@@ -296,7 +306,7 @@ export function formatNumber(bits: uint64, out: voidptr, room: uint64): int64
         local limit = room
         if room & FORMAT_SPEC ~= 0ULL then
             -- At most CONVERSION_BYTES less its NUL, as much as `out` holds.
-            length = native.index(native.word(snprintf(text, CONVERSION_BYTES, out, native.fromBits(bits))))
+            length = native.index(native.word(nuppsnprintf1(text, CONVERSION_BYTES, out, native.fromBits(bits))))
             if length > native.index(CONVERSION_BYTES) - 1 then
                 length = native.index(CONVERSION_BYTES) - 1
             end

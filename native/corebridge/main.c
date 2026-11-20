@@ -177,6 +177,22 @@ int32_t nupp_core_errno (void) {
   return errno;
 }
 
+/* snprintf at fixed arities: one double, or an int then a double. The
+ * runtime's number text calls these rather than snprintf itself, because
+ * generated calls place variadic arguments by one ABI, and Apple, AAPCS64
+ * and Windows ARM64 each place them differently. */
+int32_t nuppsnprintf1 (char *out, uint64_t room, const char *format,
+                       double value) {
+  return snprintf(out, room > SIZE_MAX ? SIZE_MAX : (size_t)room, format,
+                  value);
+}
+
+int32_t nuppsnprintf2 (char *out, uint64_t room, const char *format,
+                       int64_t count, double value) {
+  return snprintf(out, room > SIZE_MAX ? SIZE_MAX : (size_t)room, format,
+                  count > INT_MAX ? INT_MAX : (int)count, value);
+}
+
 #ifndef _WIN32
 
 /** The native monotonic clock in nanoseconds. */

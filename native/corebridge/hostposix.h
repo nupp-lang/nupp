@@ -130,6 +130,11 @@ int32_t nupp_core_sync_file (int64_t fd) {
 #endif
 }
 
+/** os.tmpname's mkstemp template, as Lua's own: LUA_TMPNAMTEMPLATE. */
+const char *nupptemporarytemplate (void) {
+  return "/tmp/lua_XXXXXX";
+}
+
 /** The executable path's byte length, copied out when it fits. */
 int64_t nupp_core_executable_path (char *out, uint64_t room) {
   char path[PATH_MAX];

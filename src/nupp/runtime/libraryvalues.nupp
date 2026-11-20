@@ -19,7 +19,11 @@ local type PairIterator = @nosuspend function(): ((any, any) | (nil))
 -- fields a program sets on it. `loaded` holds the standard libraries, as
 -- Lua's does (require("coroutine") is the coroutine table); the image
 -- holds the other modules.
-const ambient = {loaded = {}, preload = {}, path = "", cpath = "", config = "/\n;\n?\n!\n-\n"}
+-- Its `config` starts with the directory separator, Windows' own there, as
+-- Lua's does: the path library reads which rules to spell paths by from it.
+const PLATFORM = 0
+const SEPARATOR = hostcalls.systemtext(PLATFORM) == "windows" and "\\" or "/"
+const ambient = {loaded = {}, preload = {}, path = "", cpath = "", config = SEPARATOR .. "\n;\n?\n!\n-\n"}
 -- What Lua's require names a preload's module source as.
 const PRELOAD = ":preload:"
 

@@ -41,6 +41,9 @@ cdef function fdopendir(fd: int64): voidptr
 cdef function rewinddir(borrows dir: voidptr)
 cdef function nupp_core_next_name(borrows dir: voidptr): voidptr
 cdef function closedir(borrows dir: voidptr): int32
+-- os.tmpname's mkstemp template, Lua's "/tmp/lua_XXXXXX" on POSIX and one in
+-- the user's temporary directory on Windows, valid until the thread's next.
+cdef function nupptemporarytemplate(): voidptr
 
 -- filecalls' access flags.
 const READ: uint64 = 1ULL
@@ -58,12 +61,6 @@ const SHARED_MODE: int64 = 438
 const PRIVATE_MODE: int64 = 384
 const LAST_WHENCE: uint64 = 2ULL
 const MODE_SHIFT: int64 = 32
-
--- os.tmpname's template, "/tmp/lua_XXXXXX", as the two words it is.
-const TEMPLATE_HEAD: uint64 = 0x61756c2f706d742fULL
-const TEMPLATE_TAIL: uint64 = 0x005858585858585fULL
-const TEMPLATE_BYTES: uint64 = 15ULL
-const WORD_BYTES: uint64 = 8ULL
 
 -- The C open flags for filecalls' `flags`, as Rust's OpenOptions makes
 -- them; -1 for a combination it refuses.
@@ -283,9 +280,13 @@ end
 -- with mkstemp, and closes it, leaving its name in `b`: 0.
 export function temporary(h: heap.Heap*, borrows b: strings.Builder*): int64
     @unsafe do
-        if strings.appendWord(h, b, TEMPLATE_HEAD, WORD_BYTES) ~= 0ULL
-            or strings.appendWord(h, b, TEMPLATE_TAIL, WORD_BYTES) ~= 0ULL
-        then
+        local template = nupptemporarytemplate()
+        if native.address(template) == 0ULL then
+            return c.failure()
+        end
+        local length = strlen(template)
+        -- The template and its NUL, which mkstemp reads it to.
+        if strings.append(h, b, native.address(template), length + 1ULL) ~= 0ULL then
             error("not enough memory")
         end
         local fd: int64 = mkstemp(c.at(b, 0ULL))
@@ -293,7 +294,7 @@ export function temporary(h: heap.Heap*, borrows b: strings.Builder*): int64
             return c.failure()
         end
         local _: int64 = close(fd)
-        local _ = strings.truncate(b, TEMPLATE_BYTES)
+        local _ = strings.truncate(b, length)
 
         return 0
     end
