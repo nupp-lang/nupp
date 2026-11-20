@@ -75,7 +75,10 @@ end
 -- back what it was given.
 do
     local name = os.tmpname()
-    check(string.match(name, "^/tmp/lua_......$") ~= nil and os.tmpname() ~= name)
+    -- Lua's POSIX template, or one in the user's temporary directory on
+    -- Windows, whose separator package.config names.
+    local template = package.config:sub(1, 1) == "\\" and "/lua_......$" or "^/tmp/lua_......$"
+    check(string.match(name, template) ~= nil and os.tmpname() ~= name)
     local made = assert(io.open(name, "r"))
     check(made:read("a") == "")
     made:close()
@@ -98,6 +101,6 @@ do
     local categoryOk, categoryMessage = pcall(function(): any
         return setlocale("C", "bogus")
     end)
-    check(not categoryOk and ends(categoryMessage, ":99: bad argument #2 to 'setlocale' (invalid option 'bogus')"))
+    check(not categoryOk and ends(categoryMessage, ":102: bad argument #2 to 'setlocale' (invalid option 'bogus')"))
 end
 export const result = score

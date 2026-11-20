@@ -610,6 +610,57 @@ static wchar_t *resolve (int64_t parent, const char *path) {
   return full;
 }
 
+/** Whether path's nearest existing ancestor is something other than a
+ * directory, which POSIX reports as ENOTDIR rather than ENOENT. */
+static int throughfile (const wchar_t *path) {
+  wchar_t *copy = _wcsdup(path);
+  int file = 0;
+
+  for (wchar_t *c = copy ? copy + wcslen(copy) : NULL; c && c > copy; --c) {
+    if (*c != L'\\') {
+      continue;
+    }
+
+    *c = 0;
+    DWORD attributes = GetFileAttributesW(copy);
+
+    if (attributes != INVALID_FILE_ATTRIBUTES) {
+      file = !(attributes & FILE_ATTRIBUTE_DIRECTORY);
+      break;
+    }
+  }
+
+  free(copy);
+
+  return file;
+}
+
+/** Fails with the thread's last Win32 error for path, as POSIX would: a
+ * missing path under a file is ENOTDIR, and a directory refusing to be
+ * opened as a file is EISDIR. */
+static int failpath (const wchar_t *path) {
+  DWORD error = GetLastError();
+
+  if ((error == ERROR_PATH_NOT_FOUND || error == ERROR_FILE_NOT_FOUND ||
+       error == ERROR_DIRECTORY) &&
+      throughfile(path)) {
+    return failerrno(ENOTDIR);
+  }
+
+  if (error == ERROR_ACCESS_DENIED) {
+    DWORD attributes = GetFileAttributesW(path);
+
+    if (attributes != INVALID_FILE_ATTRIBUTES &&
+        (attributes & FILE_ATTRIBUTE_DIRECTORY)) {
+      return failerrno(EISDIR);
+    }
+  }
+
+  seterror(error);
+
+  return -1;
+}
+
 /** Opens a handle for metadata on path, following a final link or not. */
 static HANDLE openmetadata (const wchar_t *path, int follow, DWORD access) {
   DWORD flags =
@@ -630,9 +681,10 @@ static int32_t opendirectory (int64_t parent, const char *path, int follow) {
   DWORD attributes = GetFileAttributesW(full);
 
   if (attributes == INVALID_FILE_ATTRIBUTES) {
+    int32_t failed = failpath(full);
     free(full);
 
-    return failwin32();
+    return failed;
   }
 
   if (!(attributes & FILE_ATTRIBUTE_DIRECTORY) ||
@@ -661,6 +713,17 @@ int32_t nuppwinopenfile (const char *path, int64_t flags, int64_t mode) {
   }
 
   int access = (int)(flags & (_O_RDONLY | _O_WRONLY | _O_RDWR));
+  DWORD existing = GetFileAttributesW(full);
+
+  /* POSIX refuses to open a directory for writing, unless it asked to make
+   * a new file, which the directory being there refuses first. */
+  if (existing != INVALID_FILE_ATTRIBUTES &&
+      (existing & FILE_ATTRIBUTE_DIRECTORY) && access != _O_RDONLY) {
+    free(full);
+
+    return failerrno((flags & _O_CREAT) && (flags & _O_EXCL) ? EEXIST : EISDIR);
+  }
+
   DWORD desired = access == _O_WRONLY ? GENERIC_WRITE
                   : access == _O_RDWR ? GENERIC_READ | GENERIC_WRITE
                                       : GENERIC_READ;
@@ -687,11 +750,15 @@ int32_t nuppwinopenfile (const char *path, int64_t flags, int64_t mode) {
   HANDLE file = CreateFileW(
       full, desired, FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
       &inherit, disposition, attributes | FILE_FLAG_BACKUP_SEMANTICS, NULL);
-  free(full);
 
   if (file == INVALID_HANDLE_VALUE) {
-    return failwin32();
+    int32_t failed = failpath(full);
+    free(full);
+
+    return failed;
   }
+
+  free(full);
 
   BY_HANDLE_FILE_INFORMATION information;
 
@@ -722,7 +789,7 @@ static int32_t unlinkpath (const wchar_t *path, int directory) {
       NULL);
 
   if (file == INVALID_HANDLE_VALUE) {
-    return failwin32();
+    return failpath(path);
   }
 
   FILE_ATTRIBUTE_TAG_INFO tag;
@@ -816,7 +883,7 @@ int32_t nuppwinremove (const char *path) {
   DWORD attributes = GetFileAttributesW(full);
   int32_t result =
       attributes == INVALID_FILE_ATTRIBUTES
-          ? failwin32()
+          ? failpath(full)
           : unlinkpath(full, (attributes & FILE_ATTRIBUTE_DIRECTORY) &&
                                  !(attributes & FILE_ATTRIBUTE_REPARSE_POINT));
   free(full);
@@ -830,9 +897,16 @@ int32_t nuppwinrename (const char *from, const char *to) {
   int32_t result = -1;
 
   if (source && target) {
-    result = MoveFileExW(source, target, MOVEFILE_REPLACE_EXISTING)
-                 ? 0
-                 : failwin32();
+    if (MoveFileExW(source, target, MOVEFILE_REPLACE_EXISTING)) {
+      result = 0;
+    }
+    else {
+      /* The path to blame: the source when it is missing, else the target. */
+      DWORD error = GetLastError();
+      int missing = GetFileAttributesW(source) == INVALID_FILE_ATTRIBUTES;
+      SetLastError(error);
+      result = failpath(missing ? source : target);
+    }
   }
 
   free(source);
@@ -1049,11 +1123,15 @@ int32_t nuppwinstatfile (const char *path, uint64_t follow,
   }
 
   HANDLE file = openmetadata(full, follow != 0, FILE_READ_ATTRIBUTES);
-  free(full);
 
   if (file == INVALID_HANDLE_VALUE) {
-    return failwin32();
+    int32_t failed = failpath(full);
+    free(full);
+
+    return failed;
   }
+
+  free(full);
 
   int32_t result = describe(file, !follow && islink(file), out);
   CloseHandle(file);
@@ -1194,7 +1272,7 @@ int32_t nuppwinmkdir (const char *path, int64_t mode) {
     return -1;
   }
 
-  int32_t result = CreateDirectoryW(full, NULL) ? 0 : failwin32();
+  int32_t result = CreateDirectoryW(full, NULL) ? 0 : failpath(full);
   free(full);
 
   return result;
