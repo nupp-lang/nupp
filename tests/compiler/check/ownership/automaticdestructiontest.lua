@@ -76,6 +76,37 @@ function M.repeatConditionsCanReadBodyOwnersBeforeCleanup()
     testAssert.eq(chunk(), "r")
 end
 
+-- A continue keeps the body's own owners for the condition and closes only the
+-- scopes it leaves; an owner declared after it was never acquired on that path.
+function M.repeatContinueClosesEachOwnerOnceAroundTheCondition()
+    local chunk = compile(
+        PRELUDE .. table.concat(
+            {
+                "",
+                "local count = 0",
+                "local function seen(name: string): boolean",
+                "   calls = calls .. '?' .. name",
+                "   return count == 3",
+                "end",
+                "repeat",
+                "   count = count + 1",
+                "   local body = open_resource('b' .. count)",
+                "   do local inner = open_resource('i' .. count) ;",
+                "      if count == 1 then continue end",
+                "      calls = calls .. inner.name:upper()",
+                "   end",
+                "   if count == 2 then continue end",
+                "   local late = open_resource('l' .. count)",
+                "   calls = calls .. late.name:upper()",
+                "until seen(body.name)",
+                "return calls",
+            },
+            "\n"
+        )
+    )
+    testAssert.eq(chunk(), "i1?b1b1I2i2?b2b2I3i3L3?b3l3b3")
+end
+
 function M.anOrdinaryScopeClosesAnAffineOwner()
     local ordinary = parser.parse(
         "local with = function(value) return value end\nreturn with(1)",

@@ -86,6 +86,9 @@ export record Loop
     exit: Block
     next: Block
     cleanupDepth: integer
+    -- A repeat's continue keeps the owners its body declared before the
+    -- statement it is in, which the condition still reads.
+    keepDepth: integer?
 end
 
 --- A `goto` whose label is not yet placed: its unwind, which learns the

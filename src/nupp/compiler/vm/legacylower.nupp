@@ -4885,7 +4885,9 @@ function lower.emit(
             loopBegin(f)
             f:push()
             local depth = f.cleanupDepth or 0
+            local repeating = f.breaks[#f.breaks]
             for _, s in ipairs(node.body.stats or {}) do
+                repeating.keepDepth = f.cleanupDepth or 0
                 coverStatement(f, s)
                 stmtReclaim(f, s)
             end
@@ -5129,8 +5131,9 @@ function lower.emit(
             f:pop()
         elseif k == "continueStmt" then
             local loop = assert(f.breaks[#f.breaks], "continue outside a loop")
-            if (f.cleanupDepth or 0) > loop.cleanupDepth then
-                f:op("Unwind", loop.cleanupDepth)
+            local kept = loop.keepDepth or loop.cleanupDepth
+            if (f.cleanupDepth or 0) > kept then
+                f:op("Unwind", kept)
             end
             f:jump(loop.next)
         elseif k == "breakStmt" then

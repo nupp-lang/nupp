@@ -905,7 +905,15 @@ local function compileOwner(fn: any, options: any, profile: any, site: any): any
         local plan = need(profile.cleanupPlan(ctx, site, t, t.cleanups, owner), "checked cleanup plan required")
         need(ctx.block == block, "cleanup planning must not change control flow")
         checkHeldScope(active)
-        local entry = {owner = owner, site = site, plan = plan, value = {}, live = {}, temporary = freshOwner(site)}
+        local entry = {
+            owner = owner,
+            site = site,
+            plan = plan,
+            value = {},
+            live = {},
+            kind = profile.valueKind(g, value),
+            temporary = freshOwner(site)
+        }
         ctx.bind(entry.value, value)
         ctx.bind(entry.live, flag(site, not empty))
         cleanups[#cleanups + 1], cleanupOwners[owner] = entry, entry
@@ -1338,14 +1346,27 @@ local function compileOwner(fn: any, options: any, profile: any, site: any): any
     local function loopTransfer(node: any, exit: string): nil
         local loop = need(loops[#loops], "loop transfer outside a checked loop")
         if exit == "continueStmt" and loop.untilEdges then
-            need(not cleanupEnabled or #cleanups == loop.cleanupDepth, "repeat continue crosses pending cleanup")
+            -- The condition reads the body's own owners, which close after it.
+            -- Only the owners of the scopes this continue leaves close here.
+            local kept = #cleanups
+            if cleanupEnabled then
+                kept = need(loop.bodyDepth, "repeat continue outside its body")
+                need(kept >= loop.cleanupDepth and kept <= #cleanups, "repeat continue crosses its body's owners")
+                if #cleanups > kept then
+                    unwind(kept, node, exit)
+                    local success = profile.cleanupStatus(ctx, node)
+                    ctx.afterCall(node, nil, success)
+                end
+            end
             -- The condition sees body locals, whose bindings are only known
             -- after every path through the body has been lowered.
             local carried, order = {}, {}
             for index, key in ipairs(bindingOrder) do
                 carried[key], order[index] = bindings[key], key
             end
-            loop.untilEdges[#loop.untilEdges + 1] = {block = block, bindings = carried, order = order, node = node}
+            loop.untilEdges[
+                #loop.untilEdges + 1
+            ] = {block = block, bindings = carried, order = order, node = node, kept = kept}
             block = nil
             return
         end
@@ -1685,8 +1706,16 @@ local function compileOwner(fn: any, options: any, profile: any, site: any): any
         if block and profile.recordBindings then
             invoke("recordBindings", stats, nil)
         end
+        local repeating = loops[#loops]
+        if repeating and repeating.bodyStats ~= stats then
+            repeating = nil
+        end
         for _, stat in ipairs(stats) do
             local statementDepth = #cleanups
+            if repeating then
+                -- Owners declared before this statement are the repeat body's own.
+                repeating.bodyDepth = statementDepth
+            end
             if cleanupEnabled and not block then
                 return
             end
@@ -2274,7 +2303,9 @@ local function compileOwner(fn: any, options: any, profile: any, site: any): any
                 local exit = branch()
                 local depth = #cleanups
                 local untilEdges: {any} = {}
-                loops[#loops + 1] = {exit = exit, cleanupDepth = depth, untilEdges = untilEdges}
+                loops[
+                    #loops + 1
+                ] = {exit = exit, cleanupDepth = depth, untilEdges = untilEdges, bodyStats = stat.body.stats}
                 statements(stat.body.stats)
                 -- A transfer written in the condition belongs to the enclosing loop.
                 loops[#loops] = nil
@@ -2282,7 +2313,23 @@ local function compileOwner(fn: any, options: any, profile: any, site: any): any
                     if block then
                         untilEdges[
                             #untilEdges + 1
-                        ] = {block = block, bindings = bindings, order = bindingOrder, node = stat}
+                        ] = {block = block, bindings = bindings, order = bindingOrder, node = stat, kept = #cleanups}
+                    end
+                    -- An owner the body declares after a continue was never
+                    -- acquired on that path, so the path arrives with it dead.
+                    for _, incoming in ipairs(untilEdges) do
+                        if incoming.kept < #cleanups then
+                            resume(incoming)
+                            for index = incoming.kept + 1, #cleanups do
+                                local entry = cleanups[index]
+                                need(profile.missingLocal, "repeat continue before an owner needs an empty value")
+                                bindings[entry.value] = invoke("missingLocal", incoming.node, entry.kind)
+                                bindings[entry.live] = flag(incoming.node, false)
+                                bindingOrder[#bindingOrder + 1] = entry.value
+                                bindingOrder[#bindingOrder + 1] = entry.live
+                            end
+                            incoming.block = block
+                        end
                     end
                     local first = untilEdges[#untilEdges]
                     local common, order = {}, {}
