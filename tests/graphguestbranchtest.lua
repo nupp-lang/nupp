@@ -1034,16 +1034,12 @@ function M.checkedLoopsBreakContinueAndRepeat()
         {"local t = 0\nrepeat t = t + 1 if t == 4 then break end until false\nexport = t", 4},
         -- break out of while true
         {"local t = 0\nwhile true do t = t + 2 if t > 7 then break end end\nexport = t", 8},
+        -- continue in repeat still evaluates the until condition
+        {"local t = 0\nrepeat t = t + 1 if t < 3 then continue end until t > 5\nexport = t", 6},
     }
     for _, case in ipairs(cases) do
         same(interpret(numericProgram(case[1])), case[2])
     end
-    refuses(
-        function()
-            numericProgram("local t = 0\nrepeat t = t + 1 if t < 3 then continue end until t > 5\nexport = t")
-        end,
-        "continue in repeat is unsupported"
-    )
 end
 
 local function capabilityChunk(source)
