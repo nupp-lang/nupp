@@ -26,11 +26,15 @@ local function fixture()
     local env = environment.new(ROOT, {config = {include = {"src"}}})
 
     local compile = require("nupp.tools.cli.compile")
-    local loadImage = assert(rawget(_G, "__nupp_load_image"))
+    local loadImage = rawget(_G, "__nupp_load_image")
 
     local function sourceModule(short)
         local path = ROOT .. "/src/nupp/core/" .. short .. ".nupp"
+        if not loadImage then
+            return require("nupp.runtime.luaload").instance(path, _G)
+        end
         local image = assert(compile.image(path, env, "nupp.core." .. short))
+
         return assert(loadImage(image))()
     end
 
@@ -71,18 +75,21 @@ local function fixture()
     for _, subject in ipairs(corelibrary.subjects()) do
         subjects[subject.name] = subject
     end
-    local removeLoader = runtime.install(
-        env,
-        function(path, moduleEnv, name, source)
-            local image = compile.image(path, moduleEnv, name, nil, source)
-            return image, image == nil and "type errors" or nil
-        end,
-        nil,
-        nil,
-        function(image)
-            return loadImage(image)
-        end
-    )
+    local removeLoader = nil
+    if loadImage then
+        removeLoader = runtime.install(
+            env,
+            function(path, moduleEnv, name, source)
+                local image = compile.image(path, moduleEnv, name, nil, source)
+                return image, image == nil and "type errors" or nil
+            end,
+            nil,
+            nil,
+            function(image)
+                return loadImage(image)
+            end
+        )
+    end
     local okay, result = pcall(function()
         return {
             writer = sourceModule("guestartifact"),
@@ -92,7 +99,9 @@ local function fixture()
             subjects = subjects
         }
     end)
-    removeLoader()
+    if removeLoader then
+        removeLoader()
+    end
     assert(okay, result)
     held = result
 
