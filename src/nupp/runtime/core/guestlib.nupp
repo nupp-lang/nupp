@@ -14,6 +14,7 @@ const guestscope = require("nupp.runtime.core.guestscope")
 const texts = require("nupp.runtime.core.guesttexts")
 const ints = require("nupp.runtime.core.coreintegers")
 const librarycalls = require("nupp.runtime.core.librarycalls")
+const tablelibrary = require("nupp.runtime.core.tablelibrary")
 const loadlibrary = require("nupp.runtime.core.loadlibrary")
 const debuglibrary = require("nupp.runtime.core.debuglibrary")
 const librarylayouts = require("nupp.runtime.core.librarylayouts")
@@ -357,11 +358,11 @@ export function call(ctx: voidptr, id: uint64, count: uint64, a: uint64, b: uint
         return guesttables.tableFreeze(ctx, a)
     elseif id == librarycalls.TABLE_ISFROZEN then
         return guesttables.tableIsfrozen(ctx, a)
-    elseif id == librarycalls.TABLE_NEW then
+    elseif id == tablelibrary.TABLE_NEW then
         return guesttables.tableNew(ctx, a, b)
-    elseif id == librarycalls.TABLE_CLEAR or id == librarycalls.TABLE_CLEAR_ALL then
-        return guesttables.tableClear(ctx, a, id == librarycalls.TABLE_CLEAR_ALL)
-    elseif id == librarycalls.TABLE_CLONE then
+    elseif id == tablelibrary.TABLE_CLEAR or id == tablelibrary.TABLE_CLEAR_ALL then
+        return guesttables.tableClear(ctx, a, id == tablelibrary.TABLE_CLEAR_ALL)
+    elseif id == tablelibrary.TABLE_CLONE then
         return guesttables.tableClone(ctx, a)
     elseif id == librarycalls.TABLE_SORT then
         -- The state is held while the sort runs: reading a packed table's

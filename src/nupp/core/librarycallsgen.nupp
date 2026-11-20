@@ -9,7 +9,7 @@ local function constant(lines: {string}, name: string, value: integer): nil
     lines[#lines + 1] = "export const " .. name .. ": uint64 = " .. tostring(value) .. "ULL"
 end
 
-local function subjectconstants(lines: {string}, subject: corelibrary.Subject): nil
+local function subjectconstants(lines: {string}, subject: corelibrary.Subject, callsOnly: boolean?): nil
     lines[#lines + 1] = ""
     lines[#lines + 1] = "-- " .. subject.name
     local low: integer, high: integer = corelibrary.LIMIT, 0
@@ -18,7 +18,7 @@ local function subjectconstants(lines: {string}, subject: corelibrary.Subject): 
         low = math.min(low, entry.id) as integer
         high = math.max(high, entry.id) as integer
     end
-    if subject.range then
+    if subject.range and not callsOnly then
         constant(lines, subject.name:upper() .. "_FIRST", low)
         constant(lines, subject.name:upper() .. "_LAST", high)
     end
@@ -44,12 +44,15 @@ export function source(): string
     for _, subject in ipairs(corelibrary.subjects()) do
         if subject.output == nil then
             subjectconstants(lines, subject)
+        elseif subject.name == "bits" then
+            -- Earlier native seeds validate these call IDs in this module.
+            subjectconstants(lines, subject, true)
         end
         for _, entry in ipairs(subject.calls) do
             if entry.text then
-                assert(subject.output == nil, "a separate core subject cannot carry named errors")
                 assert(texts[entry.text], "core library text " .. entry.text .. " is not a core text")
-                named[#named + 1] = entry
+                local operand = subject.output and tostring(entry.id) .. "ULL" or entry.name
+                named[#named + 1] = {id = entry.id, operand = operand, text = entry.text}
             end
         end
     end
@@ -62,7 +65,7 @@ export function source(): string
     lines[#lines + 1] = "-- The text a library call's errors name it by, or 0 for none."
     lines[#lines + 1] = "export function libraryname(id: uint64): uint64"
     for index, entry in ipairs(named) do
-        lines[#lines + 1] = (index == 1 and "    if" or "    elseif") .. " id == " .. entry.name .. " then"
+        lines[#lines + 1] = (index == 1 and "    if" or "    elseif") .. " id == " .. entry.operand .. " then"
         lines[#lines + 1] = "        return " .. tostring(texts[entry.text].id) .. "ULL"
     end
     lines[#lines + 1] = "    end"

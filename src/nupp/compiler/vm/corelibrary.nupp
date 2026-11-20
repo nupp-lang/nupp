@@ -179,16 +179,23 @@ local subjectrows: {Subject} = {
             -- Decision 16).
             {name = "TABLE_FREEZE", id = 114, text = "NAME_FREEZE", call = "table.freeze", min = 1, max = 1},
             {name = "TABLE_ISFROZEN", id = 115, text = "NAME_ISFROZEN", call = "table.isfrozen", min = 1, max = 1},
-            {name = "TABLE_NEW", id = 222, text = "NAME_NEW", call = "table.new", min = 2, max = 2},
-            {name = "TABLE_CLEAR", id = 223, text = "NAME_CLEAR", call = "table.clear", min = 1, max = 1},
-            {name = "TABLE_CLEAR_ALL", id = 224, text = "NAME_CLEAR", packs = "table.clear"},
-            {name = "TABLE_CLONE", id = 225, text = "NAME_CLONE", call = "table.clone", min = 1, max = 1},
             -- A table constructor for a checked `{T}` whose elements pack: the
             -- fresh table, its array part packed as kind a (coretables), with
             -- room for b. And storagecalls.packedkind(t): that kind, 0 once
             -- the table is general (or for a value that is not a table).
             {name = "TABLE_NEWARRAY", id = 116},
             {name = "TABLE_PACKEDKIND", id = 122, call = "storagecalls.packedkind", min = 1, max = 1}
+        }
+    },
+    {
+        name = "tableupdates",
+        range = false,
+        output = "tablelibrary",
+        calls = {
+            {name = "TABLE_NEW", id = 222, text = "NAME_NEW", call = "table.new", min = 2, max = 2},
+            {name = "TABLE_CLEAR", id = 223, text = "NAME_CLEAR", call = "table.clear", min = 1, max = 1},
+            {name = "TABLE_CLEAR_ALL", id = 224, text = "NAME_CLEAR", packs = "table.clear"},
+            {name = "TABLE_CLONE", id = 225, text = "NAME_CLONE", call = "table.clone", min = 1, max = 1}
         }
     },
     {

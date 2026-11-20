@@ -1356,6 +1356,7 @@ end
 local GENERATED = {
     {require("nupp.core.librarycallsgen"), "librarycalls", "nupp.core.librarycallsgen"},
     {require("nupp.core.bitlibrarygen"), "bitlibrary", "nupp.core.bitlibrarygen"},
+    {require("nupp.core.tablelibrarygen"), "tablelibrary", "nupp.core.tablelibrarygen"},
     {require("nupp.core.storagelibrarygen"), "storagelibrary", "nupp.core.storagelibrarygen"},
     {require("nupp.core.loadlibrarygen"), "loadlibrary", "nupp.core.loadlibrarygen"},
     {require("nupp.core.debuglibrarygen"), "debuglibrary", "nupp.core.debuglibrarygen"},

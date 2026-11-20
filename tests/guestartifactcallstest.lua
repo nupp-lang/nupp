@@ -53,6 +53,7 @@ local function fixture()
         "guestcatalog",
         "librarycalls",
         "bitlibrary",
+        "tablelibrary",
         "storagelibrary",
         "loadlibrary",
         "debuglibrary",
@@ -143,6 +144,7 @@ function M.generatedSubjectFilesMatchTheCanonicalTable()
     local f = fixture()
     test.eq(f.generator.source(), read(ROOT .. "/src/nupp/runtime/core/librarycalls.nupp"))
     test.eq(f.generator.subject("bits"), read(ROOT .. "/src/nupp/runtime/core/bitlibrary.nupp"))
+    test.eq(f.generator.subject("tableupdates"), read(ROOT .. "/src/nupp/runtime/core/tablelibrary.nupp"))
     test.eq(f.generator.subject("storage"), read(ROOT .. "/src/nupp/runtime/core/storagelibrary.nupp"))
 end
 
@@ -161,12 +163,22 @@ function M.generatedLibraryNamesKeepEveryCanonicalTextId()
     for _, subject in ipairs(corelibrary.subjects()) do
         for _, entry in ipairs(subject.calls) do
             if entry.text then
-                test.eq(actual[entry.name], texts[entry.text], entry.name)
+                local operand = subject.output and tostring(entry.id) .. "ULL" or entry.name
+                test.eq(actual[operand], texts[entry.text], entry.name)
                 expected = expected + 1
             end
         end
     end
     test.eq(total, expected)
+end
+
+function M.olderNativeSeedsStillFindBitwiseCallIds()
+    local f = fixture()
+    local previousOwner = f.scopes["nupp.runtime.core.librarycalls"]
+    local literal = require("nupp.compiler.s0.literal")
+    for _, entry in ipairs(f.subjects.bits.calls) do
+        test.eq(literal.integer(assert(previousOwner.exportedConstants[entry.name])), entry.id, entry.name)
+    end
 end
 
 function M.issuedExecutableEncodesWithTheRealSplitCallScopes()
