@@ -61,13 +61,22 @@ local function stageMarkdown(root: string): nil
     assert(fs.exists(directory) or fs.mkdir(directory), "cannot create " .. directory)
     local destination = fs.join(directory, filename)
     local pending = destination .. "." .. fs.stagingSuffix()
-    assert(fs.copyFile(fs.join(prefix, "lib/" .. filename), pending), "cannot stage " .. filename)
+    -- A Windows DLL is installed beside the programs, named as MinGW names it.
+    local source = fs.join(prefix, "lib/" .. filename)
+    for _, candidate in ipairs({"bin/" .. filename, "bin/lib" .. filename}) do
+        if not fs.exists(source) then
+            source = fs.join(prefix, candidate)
+        end
+    end
+    assert(fs.copyFile(source, pending), "cannot stage " .. filename)
     assert(os.rename(pending, destination), "cannot stage " .. destination)
 end
 
 -- What a bundle's foreign calls with signatures known only as they run load,
 -- relative to the bundle (`nupp.runtime.core.foreignabi`): libffi's core C API.
+-- Windows appends .dll to the name, so its file carries one.
 const FFI_LIBRARY = "lib/libnuppffi"
+const FFI_WINDOWS_LIBRARY = "lib/libnuppffi.dll"
 
 -- Copies `source` to `relative` under `output`, through a staging name.
 local function stage(output: string, relative: string, source: string): nil
@@ -85,7 +94,8 @@ local function stageFfi(root: string, output: string): nil
     local status, built = process.capture({"sh", fs.join(root, "scripts/native-libraries"), "libffi"}, {cwd = root})
     assert(status == 0, "libffi did not build: " .. built)
     local prefix = assert(built:match("([^\r\n]+)\r?\n?$"), "scripts/native-libraries libffi named no library")
-    stage(output, FFI_LIBRARY, fs.join(prefix, FFI_LIBRARY))
+    local library = fs.exists(fs.join(prefix, FFI_WINDOWS_LIBRARY)) and FFI_WINDOWS_LIBRARY or FFI_LIBRARY
+    stage(output, library, fs.join(prefix, library))
 end
 
 local function fail(message: string, status: integer): integer

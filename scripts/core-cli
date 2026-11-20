@@ -105,6 +105,14 @@ install_pair() {
     runtime=$1 compiler=$2 source=${3:-} builder=${4:-}
     libraries=$(dirname "$compiler")/lib
     runtime_dir=$(dirname "$runtime")
+    # A Windows bridge is an .exe whose DLLs sit beside it; it is installed
+    # as runtime.exe, which `runtime` names to the shell and to CreateProcess.
+    suffix=
+    # MSYS's test finds runtime.exe as runtime, so look for the .exe first.
+    if [ -f "$runtime.exe" ]; then
+        runtime=$runtime.exe
+    fi
+    case "$runtime" in *.exe) suffix=.exe ;; esac
     "$runtime" 2>&1 | grep -q '^nupp-core: usage: nupp-core BUNDLE INPUT OUTPUT' \
         || die "$runtime is not the core's C bridge"
     [ "$(head -c 8 "$compiler")" = NUPPCORE ] || die "$compiler is not a core compiler"
@@ -117,7 +125,7 @@ install_pair() {
                 [ -f "$library" ] && digest_stdin < "$library"
             done
         fi
-        for file in "$runtime_dir"/lib/*.dylib "$runtime_dir"/lib/*.so "$runtime_dir"/lib/*.so.* "$runtime_dir"/notices/*.txt; do
+        for file in "$runtime_dir"/lib/*.dylib "$runtime_dir"/lib/*.so "$runtime_dir"/lib/*.so.* "$runtime_dir"/*.dll "$runtime_dir"/notices/*.txt; do
             if [ -f "$file" ]; then
                 printf 'sidecar %s\n' "${file#"$runtime_dir"/}"
                 digest_stdin < "$file"
@@ -130,14 +138,14 @@ install_pair() {
         staged="$CLI/.install.$$"
         rm -rf "$staged"
         mkdir -p "$staged"
-        cp "$runtime" "$staged/runtime"
-        chmod 755 "$staged/runtime"
+        cp "$runtime" "$staged/runtime$suffix"
+        chmod 755 "$staged/runtime$suffix"
         cp "$compiler" "$staged/compiler.bundle"
         [ ! -d "$libraries" ] || cp -RP "$libraries" "$staged/lib"
-        for file in "$runtime_dir"/lib/*.dylib "$runtime_dir"/lib/*.so "$runtime_dir"/lib/*.so.* "$runtime_dir"/notices/*.txt; do
+        for file in "$runtime_dir"/lib/*.dylib "$runtime_dir"/lib/*.so "$runtime_dir"/lib/*.so.* "$runtime_dir"/*.dll "$runtime_dir"/notices/*.txt; do
             [ -f "$file" ] || continue
             relative=${file#"$runtime_dir"/}
-            mkdir -p "$staged/${relative%/*}"
+            case "$relative" in */*) mkdir -p "$staged/${relative%/*}" ;; esac
             cp -P "$file" "$staged/$relative"
         done
         "$staged/runtime" 2>&1 | grep -q '^nupp-core: usage: nupp-core BUNDLE INPUT OUTPUT' \

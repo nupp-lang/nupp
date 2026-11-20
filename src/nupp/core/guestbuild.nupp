@@ -1064,8 +1064,33 @@ local function opensslLibraries(root: string): string?
     local output = tostring(pipe:read("a") or "")
     local ok = pipe:close()
     local prefix = output:match("([^\r\n]+)%s*$")
+    if not ok or prefix == nil then
+        return nil
+    end
+    -- Windows keeps its DLLs beside the programs.
+    if package.config:sub(1, 1) == "\\" then
+        return prefix .. "/bin"
+    end
 
-    return ok and prefix ~= nil and prefix .. "/lib" or nil
+    return prefix .. "/lib"
+end
+
+-- The name OpenSSL's library `base` is bound by in `directory`: Windows' DLLs
+-- carry MinGW's prefix and the ABI version (libcrypto-3.dll), and every other
+-- system's the plain name the loader resolves (libcrypto.dylib).
+local function opensslName(directory: string?, base: string): string
+    if directory == nil or package.config:sub(1, 1) ~= "\\" then
+        return base
+    end
+    local fs: any = require("nupp.compiler.fs")
+    for name in fs.children(directory) do
+        local found = (name as string):match("^(lib" .. base .. "%-%d+)%.dll$")
+        if found ~= nil then
+            return found
+        end
+    end
+
+    return base
 end
 
 local function checkedProject(root: string): any
@@ -1092,9 +1117,13 @@ local function checkedProject(root: string): any
                 -- provisioned on first use (nupp.compiler.project.libraries).
                 -- OpenSSL is named by its variable or found where the pinned
                 -- one is provisioned (`opensslLibraries`).
-                nuppcrypto = {name = "crypto", env = "NUPP_CRYPTO_LIBRARY", search = opensslSearch},
+                nuppcrypto = {
+                    name = opensslName(openssl, "crypto"),
+                    env = "NUPP_CRYPTO_LIBRARY",
+                    search = opensslSearch
+                },
                 nuppssl = {
-                    name = "ssl",
+                    name = opensslName(openssl, "ssl"),
                     env = "NUPP_SSL_LIBRARY",
                     dependencies = {"nuppcrypto"},
                     search = opensslSearch
