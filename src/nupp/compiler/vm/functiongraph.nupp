@@ -920,7 +920,14 @@ local function compileOwner(fn: any, options: any, profile: any, site: any): any
     end
 
     transfer = function(node: any, owner: any): nil
-        local entry = need(cleanupOwners[cleanup.move(owner)], "transfer lacks a registered checked owner")
+        local moved = cleanup.move(owner)
+        local entry = need(cleanupOwners[moved.owner or moved], "transfer lacks a registered checked owner")
+        if moved.field then
+            local clear = need(profile.clearOwnedField, "optional owned field transfer is unsupported")
+            context()
+            clear(ctx, node, bindings[entry.value], moved.field)
+            return
+        end
         bindings[entry.live] = flag(node, false)
     end
 

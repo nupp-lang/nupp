@@ -1341,7 +1341,7 @@ export function install(c: state.Checker): Ops
             container.movedFieldTypes = container.movedFieldTypes or {}
             container.movedFieldTypes[field] = t
             if container.automaticOwner then
-                expr.automaticOwnerMove = {owner = container.automaticOwner, field = field}
+                expr.automaticOwnerMove = {owner = container.automaticOwner, field = field, clearField = wholeCleanup}
                 container.automaticOwner.movedFields = container.automaticOwner.movedFields or {}
                 container.automaticOwner.movedFields[field] = true
             end

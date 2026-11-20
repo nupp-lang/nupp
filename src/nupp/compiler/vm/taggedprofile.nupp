@@ -965,6 +965,12 @@ export function forVersion(version: integer): any
             return ctx.emit(node, "GetIdx", {object, key}, "tagged") as integer
         end
         profile.isGlobal = taggedvalues.isGlobal
+        -- A whole-record cleanup still runs after an optional field leaves.
+        profile.clearOwnedField = function(ctx: any, node: any, receiver: integer, field: string): nil
+            local key = ctx.emit(node, "K", {pool(ctx, "str", field)}, "tagged")
+            local none = ctx.emit(node, "Nil", {}, "tagged")
+            ctx.emit(node, "SetIdx", {receiver, key, none}, nil)
+        end
         profile.assignmentTarget = function(ctx: any, node: any, rhs: any): any
             -- A chunk's global is a field of the running program's `_G`.
             if taggedvalues.isGlobal(ctx, node) then

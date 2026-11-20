@@ -82,7 +82,14 @@ export function localOwner(stat: any, index: integer): any
 end
 
 export function move(move: any): any
-    need(move and not move.field and not move.owner, "partial-field ownership transfer is unsupported")
+    need(
+        move
+        and (
+            not move.field and not move.owner or move.owner and type(move.field) == "string" and move.clearField == true
+        ),
+        "partial-field ownership transfer is unsupported"
+    )
+
     return move
 end
 
