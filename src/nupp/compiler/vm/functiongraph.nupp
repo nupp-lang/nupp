@@ -330,6 +330,8 @@ local function compileOwner(fn: any, options: any, profile: any, site: any): any
     end
 
     local transfer: function(any, any): nil
+    -- Reuse a receiver already evaluated by a guarded read or assignment.
+    local heldExpressions: {[any]: any} = {}
     local expressionBody: function(any, string?): integer?
     expressionBody = function(node: any, expected: string?): integer?
         if node.kind == "heldPluckSource" then
@@ -368,6 +370,36 @@ local function compileOwner(fn: any, options: any, profile: any, site: any): any
             return invoke("comptime", node, expected)
         elseif node.kind == "isExpr" and profile.typeTest then
             return invoke("typeTest", node, expected)
+        elseif (node.kind == "safeIndex" or node.kind == "safeBracket") and profile.isNil and profile.fieldRead then
+            local receiver = expression(node.obj, "tagged")
+            if not block then
+                return nil
+            end
+            local held = ctx.hold(need(receiver, "optional field access lacks its receiver"))
+            local result = ctx.hold(ctx.emit(node, "Nil", {}, "tagged"))
+            local absent = invoke("isNil", node, ctx.readHeld(held))
+            local present = ctx.emit(node, "Not", {absent}, profile.booleanKind)
+            local read = node.kind == "safeIndex" and "fieldRead" or "indexRead"
+            ctx.when(
+                node,
+                present,
+                function(): nil
+                    local previous = heldExpressions[node.obj]
+                    heldExpressions[node.obj] = held
+                    local value = invoke(read, node, expected)
+                    heldExpressions[node.obj] = previous
+                    if block then
+                        ctx.write(result, value)
+                    end
+                end,
+                true
+            )
+            block = ctx.block
+            local value = ctx.readHeld(result)
+            ctx.release(result)
+            ctx.release(held)
+
+            return value
         elseif node.kind == "dotIndex" then
             return invoke(profile.fieldRead and "fieldRead" or "constant", node, expected)
         elseif node.kind == "vararg" then
@@ -650,9 +682,6 @@ local function compileOwner(fn: any, options: any, profile: any, site: any): any
         end
     end
 
-    -- The address and previous value of a compound or guarded destination
-    -- survive any calls and branches while the right operand runs.
-    local heldExpressions: {[any]: any} = {}
     expression = function(node: any, expected: string?): integer?
         local held = heldExpressions[node]
         if held ~= nil then

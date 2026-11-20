@@ -194,9 +194,20 @@ local function view(ctx: any, node: any, object: integer, kind: integer, offset:
     return ctx.emit(node, "LibCall", {id, object, k, at, n}, "tagged") as integer
 end
 
--- The field the access `node` (obj.name) reaches, when obj is a struct.
+local function present(t: any, optional: boolean): any
+    local subject = bare(t)
+    if optional and subject and subject.tag == "union" and subject.hasNil and #subject.members == 2 then
+        return subject.members[1].tag == "nil" and subject.members[2] or subject.members[1]
+    end
+
+    return subject
+end
+
+-- The field the access `node` reaches when its receiver is a struct.
 export function access(node: any): any
-    local declared = node.kind == "dotIndex" and node.name and origin(node.obj.inferredType)
+    local declared = (node.kind == "dotIndex" or node.kind == "safeIndex")
+        and node.name
+        and origin(present(node.obj.inferredType, node.kind == "safeIndex"))
     if not declared then
         return nil
     end
@@ -326,8 +337,8 @@ export function allocated(t: any): any
 end
 
 -- The struct the elements of a `carray(T, n)` array are, or nil.
-export function element(t: any): any
-    local subject = bare(t)
+export function element(t: any, optional: boolean?): any
+    local subject = present(t, optional == true)
     if subject and subject.tag == "carray" then
         return origin(subject.elem)
     end

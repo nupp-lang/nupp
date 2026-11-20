@@ -808,7 +808,7 @@ export function forVersion(version: integer): any
                 return nil as any
             end
             -- An element of an array of structs is a view of its bytes.
-            local declared = taggedstructs.element(node.obj.inferredType)
+            local declared = taggedstructs.element(node.obj.inferredType, node.kind == "safeBracket")
             if declared then
                 return taggedstructs.elementAt(ctx, node, declared, operands[1], operands[2])
             end
