@@ -42,7 +42,7 @@ end
 -- dynamic numeric operators over checked integer, float or number operands;
 -- `a > b` evaluates both operands in order and then compares as `b < a`.
 export function binary(ctx: any, node: any, expected: string?, version: integer): integer?
-    local operation = node.op.text
+    local operation = node.op.kind or node.op.text
     need(expected == nil or expected == "tagged", "tagged result required")
     if version >= 8 then
         if node.fixedArithmetic then
@@ -52,16 +52,16 @@ export function binary(ctx: any, node: any, expected: string?, version: integer)
             and node.fixedWidthEstablished
             and node.fixedWidthEstablished.int32
         then
-            local operation = ({
+            local fixed = ({
                 ["&"] = "andBits",
                 ["|"] = "orBits",
                 ["~"] = "xorBits",
                 ["<<"] = "shiftLeft",
                 [">>"] = "shiftRightLogical"
-            })[node.op.text]
-            if operation then
-                local logical = operation == "shiftRightLogical"
-                return scalar(ctx, node, (logical and "u32." or "i32.") .. operation, {node.lhs, node.rhs}, logical)
+            })[operation]
+            if fixed then
+                local logical = fixed == "shiftRightLogical"
+                return scalar(ctx, node, (logical and "u32." or "i32.") .. fixed, {node.lhs, node.rhs}, logical)
             end
         end
     end

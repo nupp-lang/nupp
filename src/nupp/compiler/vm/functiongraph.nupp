@@ -543,7 +543,7 @@ local function compileOwner(fn: any, options: any, profile: any, site: any): any
             context()
             return result as integer
         elseif node.kind == "binop" then
-            local operator = node.op.text
+            local operator = node.op.kind or node.op.text
             if operator ~= "and" and operator ~= "or" then
                 return invoke("binary", node, expected)
             end

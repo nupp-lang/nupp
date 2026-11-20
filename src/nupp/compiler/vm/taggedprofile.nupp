@@ -2187,7 +2187,7 @@ export function forVersion(version: integer): any
             then
                 return taggedstatements.scalar(ctx, node, "i32.notBits", {node.operand})
             end
-            if node.op and node.op.text == "not" then
+            if node.op and (node.op.kind or node.op.text) == "not" then
                 need(expected == nil or expected == "tagged", "negation requires tagged destination")
                 local operand = ctx.expression(node.operand, "tagged")
                 if operand == nil then
