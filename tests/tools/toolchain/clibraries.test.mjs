@@ -26,7 +26,7 @@ function fixture(t) {
     fs.mkdirSync(path.dirname(file), {recursive: true});
     fs.writeFileSync(file, text, mode ? {mode} : undefined);
   };
-  for (const name of ['scripts/native-libraries', 'scripts/c-libraries/zlib.sh']) {
+  for (const name of ['scripts/native-libraries', 'scripts/host-machine', 'scripts/c-libraries/zlib.sh']) {
     write(name, fs.readFileSync(path.join(root, name)));
   }
   write('scripts/c-libraries/libcurl.sh', '# unrelated recipe\n');
