@@ -952,17 +952,35 @@ gsubWith = function(ctx: any, node: any, arguments: any, all: boolean, indexed: 
     ) as integer
 end
 
--- A record method call, `c:m(...)`: the method is loaded from the table the
--- record's name holds and called with the receiver first. With `count`, it
--- keeps that many results and answers them as a list.
-export function invokeMethod(
+local function methodCallee(ctx: any, node: any, site: any, receiver: integer?): integer?
+    local owner: integer?
+    if site.dynamic then
+        owner = receiver
+    elseif site.metatable then
+        owner = ctx.emit(node, "LibCall", {corelibrary.id("GETMETATABLE"), receiver}, "tagged")
+    else
+        owner = ctx.expression({kind = "name", token = site.classToken, site.classToken}, "tagged")
+    end
+    if owner == nil then
+        return nil
+    end
+    local member = node.trailingCallableMember or node.overloadMember or node.name.text
+    local key = ctx.emit(node, "K", {pool(ctx, "str", member)}, "tagged")
+
+    return ctx.emit(node, "GetIdx", {owner, key}, "tagged")
+end
+
+-- A record method call, `c:m(...)`: the method is called with the receiver
+-- first. With `count`, it keeps that many results and answers them as a list.
+local function callMethod(
     ctx: any,
     node: any,
     keepResult: boolean,
     count: integer?,
     prepared: {integer}?,
     open: boolean?,
-    receiverHandle: any?
+    receiverHandle: any?,
+    calleeHandle: any?
 ): any
     local p = catalog(ctx)
     local site = need(p.callByNode[node], "method call lacks checked callsite")
@@ -971,7 +989,6 @@ export function invokeMethod(
         prepared == nil or site.indexed ~= nil and #prepared == #(node.args.exprs or {}) + 1,
         "prepared method operands lack indexed authority"
     )
-    need(not receiverHandle or node.safeObj and prepared == nil, "method receiver lacks its nil guard")
     local contract
     if site.dynamic then
         contract = graph.dynamicmethodcontract(node, count)
@@ -991,90 +1008,53 @@ export function invokeMethod(
             exprs[#exprs + 1], kinds[#kinds + 1] = argument, "tagged"
         end
     end
-    -- The overload the checker selected has a member of its own.
-    local member = node.trailingCallableMember or node.overloadMember or node.name.text
-    local value: integer = 0
-    local args: any = nil
-    if site.dynamic then
-        -- The method the receiver answers for its name.
-        local receiver = prepared and prepared[1]
-            or receiverHandle and ctx.readHeld(receiverHandle)
-            or ctx.expression(node.obj, "tagged")
-        if receiver == nil then
+    local receiver = receiverHandle
+    local heldReceiver = false
+    if receiver == nil and (site.dynamic or site.metatable) then
+        local first = prepared and prepared[1] or ctx.expression(node.obj, "tagged")
+        if first == nil then
             return nil
         end
-        local heldReceiver = ctx.hold(receiver)
-        local key = ctx.emit(node, "K", {pool(ctx, "str", member)}, "tagged")
-        local callee = ctx.hold(ctx.emit(node, "GetIdx", {ctx.readHeld(heldReceiver), key}, "tagged"))
-        table.remove(exprs, 1)
-        table.remove(kinds, 1)
-        local rest
-        if prepared then
-            rest = {}
-            for index = 2, #prepared do
-                rest[index - 1] = prepared[index]
+        receiver = ctx.hold(first)
+        heldReceiver = true
+    end
+    local callee = calleeHandle
+    if callee == nil then
+        local method = methodCallee(ctx, node, site, receiver and ctx.readHeld(receiver))
+        if method == nil then
+            if heldReceiver then
+                ctx.release(receiver)
             end
-        else
-            rest = ctx.operands(exprs, kinds)
-        end
-        value = ctx.readHeld(callee)
-        ctx.release(callee)
-        local first = ctx.readHeld(heldReceiver)
-        ctx.release(heldReceiver)
-        if rest == nil then
             return nil
         end
-        args = {first}
-        for _, item in ipairs(rest) do
-            args[#args + 1] = item
-        end
-    elseif site.metatable then
-        -- Another module's record: its table is the receiver's metatable.
-        local receiver = receiverHandle and ctx.readHeld(receiverHandle) or ctx.expression(node.obj, "tagged")
-        if receiver == nil then
-            return nil
-        end
-        local heldReceiver = ctx.hold(receiver)
-        local class = ctx.emit(node, "LibCall", {corelibrary.id("GETMETATABLE"), ctx.readHeld(heldReceiver)}, "tagged")
-        local key = ctx.emit(node, "K", {pool(ctx, "str", member)}, "tagged")
-        local callee = ctx.hold(ctx.emit(node, "GetIdx", {class, key}, "tagged"))
+        callee = ctx.hold(method)
+    end
+    if receiver then
         table.remove(exprs, 1)
         table.remove(kinds, 1)
-        local rest = ctx.operands(exprs, kinds)
-        value = ctx.readHeld(callee)
-        ctx.release(callee)
-        local first = ctx.readHeld(heldReceiver)
-        ctx.release(heldReceiver)
-        if rest == nil then
-            return nil
-        end
-        args = {first}
-        for _, item in ipairs(rest) do
-            args[#args + 1] = item
+    end
+    local args: any
+    if site.dynamic and prepared then
+        args = {}
+        for index = 2, #prepared do
+            args[index - 1] = prepared[index]
         end
     else
-        local class = ctx.expression({kind = "name", token = site.classToken, site.classToken}, "tagged")
-        if class == nil then
-            return nil
-        end
-        local heldClass = ctx.hold(class)
-        local key = ctx.emit(node, "K", {pool(ctx, "str", member)}, "tagged")
-        local callee = ctx.hold(ctx.emit(node, "GetIdx", {ctx.readHeld(heldClass), key}, "tagged"))
-        ctx.release(heldClass)
-        if receiverHandle then
-            table.remove(exprs, 1)
-            table.remove(kinds, 1)
-        end
         args = ctx.operands(exprs, kinds)
-        if args and receiverHandle then
-            local first: integer = ctx.readHeld(receiverHandle)
-            table.insert(args, 1, first)
-        end
-        value = ctx.readHeld(callee)
+    end
+    if args and receiver then
+        local first: integer = ctx.readHeld(receiver)
+        table.insert(args, 1, first)
+    end
+    local value = ctx.readHeld(callee)
+    if calleeHandle == nil then
         ctx.release(callee)
-        if args == nil then
-            return nil
-        end
+    end
+    if heldReceiver then
+        ctx.release(receiver)
+    end
+    if args == nil then
+        return nil
     end
     -- All operands have been evaluated in source order. The selected
     -- method receives the callable before the rest of its explicit arguments.
@@ -1198,6 +1178,83 @@ export function safeinvoke(ctx: any, node: any, keep: boolean, count: integer?, 
     for index, slot in ipairs(slots) do
         values[index] = ctx.readHeld(slot)
         ctx.release(slot)
+    end
+
+    return count and values or values[1]
+end
+
+-- Optional methods test the receiver before lookup and the method before
+-- arguments, as requested by the two independent optional markers.
+export function invokeMethod(
+    ctx: any,
+    node: any,
+    keep: boolean,
+    count: integer?,
+    prepared: {integer}?,
+    open: boolean?
+): any
+    if not node.safeObj and not node.safeMethod then
+        return callMethod(ctx, node, keep, count, prepared, open)
+    end
+    need(prepared == nil, "an optional method cannot have prepared operands")
+    local site = need(catalog(ctx).callByNode[node], "method call lacks checked callsite")
+    need(
+        not (node.inferredType and node.inferredType.tag == "affine") and #(node.automaticOwnerMoves or {}) == 0,
+        "an optional method cannot introduce a conditional owner"
+    )
+    local first = ctx.expression(node.obj, "tagged")
+    if first == nil then
+        return nil
+    end
+    local receiver = ctx.hold(first)
+    local results = {}
+    if keep then
+        for index = 1, count or 1 do
+            results[index] = ctx.hold(open and emptyPack(ctx, node, 1) or ctx.emit(node, "Nil", {}, "tagged"))
+        end
+    end
+
+    local function whenPresent(c: any, handle: any, action: any): nil
+        local none = c.emit(node, "Nil", {}, "tagged")
+        local absent = c.emit(node, "Eq", {c.readHeld(handle), none}, "tagged")
+        local present = c.emit(node, "Not", {absent}, "tagged")
+        c.when(node, present, action, true)
+    end
+
+    local function lookup(c: any): nil
+        local method = methodCallee(c, node, site, c.readHeld(receiver))
+        if method == nil then
+            return
+        end
+        local callee = c.hold(method)
+
+        local function call(active: any): nil
+            local returned = callMethod(active, node, keep, count, nil, open, receiver, callee)
+            if keep and returned ~= nil then
+                for index, handle in ipairs(results) do
+                    active.write(handle, count and returned[index] or returned)
+                end
+            end
+        end
+
+        if node.safeMethod then
+            whenPresent(c, callee, call)
+        else
+            call(c)
+        end
+        c.release(callee)
+    end
+
+    if node.safeObj then
+        whenPresent(ctx, receiver, lookup)
+    else
+        lookup(ctx)
+    end
+    ctx.release(receiver)
+    local values: {integer} = {}
+    for index, handle in ipairs(results) do
+        values[index] = ctx.readHeld(handle)
+        ctx.release(handle)
     end
 
     return count and values or values[1]
