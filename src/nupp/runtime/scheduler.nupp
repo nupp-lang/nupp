@@ -493,7 +493,8 @@ local function sleepuntil(deadline: number): nil
     if deadline <= (calls.now() as number) then
         return
     end
-    if current() == nil and suspension.handled() then
+    local record = current()
+    if record == nil and bodyScope(record) == nil and suspension.handled() then
         nativeTimers.sleepuntil(deadline)
         return
     end
@@ -796,6 +797,7 @@ local function open(limit: integer?, timeoutms: number?): any
             limit = limit,
             deadline = deadline,
             owner = owner,
+            bodyActive = true,
             closed = false,
             failed = false,
             suppressed = {},
@@ -926,6 +928,7 @@ ScopeMethods.close = function(scope: any): nil
     if scope.closed then
         return
     end
+    scope.bodyActive = false
     local record = current()
     while scope.live > 0 do
         -- A cancelled owner still waits for its children, which it cancels.
@@ -974,7 +977,6 @@ local function run(...: any): ...any
         limit, timeoutms, body = ...
     end
     local scope = open(limit, timeoutms)
-    scope.bodyActive = true
     local answer = packed(pcall(body, scope))
     scope.bodyActive = false
     scope.bodyWaiter = nil
