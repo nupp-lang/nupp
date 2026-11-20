@@ -33,22 +33,31 @@ end
 -- The module a program that declares none runs as on the core.
 const CORE_PROGRAM_MODULE = "main"
 
+-- A Lua entry can require typed modules, so its compiler uses the project
+-- environment just as a Nupp entry does.
+local function coreCompiler(projectEnv: any): any
+    local carried, compiler = pcall(require, "nupp.compiler.vm.corechunk")
+    if not carried then
+        return nil
+    end
+    (compiler as any).useEnvironment(projectEnv)
+
+    return compiler
+end
+
 -- The program at `path` as the native core runs it, which has no VM image to
 -- load: the compiler it carries (`nupp.compiler.vm.corechunk`) compiles it to
 -- a module instance chunk, and loading that chunk runs the program. Answers a
--- function that does, or nil and why it cannot. It is checked in the
--- project's environment `projectEnv`, as the VM checks what it lowers.
-local function coreProgram(path: string, projectEnv: any): (any, string?)
-    local carried, corechunk = pcall(require, "nupp.compiler.vm.corechunk")
-    if not carried then
+-- function that does, or nil and why it cannot.
+local function coreProgram(path: string, compiler: any): (any, string?)
+    if compiler == nil then
         return nil, "running a .nupp program needs the VM or the native core's chunk compiler"
     end
-    (corechunk as any).useEnvironment(projectEnv)
     local text, readErr = require("nupp.compiler.fs").readFile(path)
     if text == nil then
         return nil, "cannot read " .. path .. ": " .. tostring(readErr)
     end
-    local bytes, problem = (corechunk as any).compileProgram(text, path, "@" .. path, CORE_PROGRAM_MODULE, true)
+    local bytes, problem = compiler.compileProgram(text, path, "@" .. path, CORE_PROGRAM_MODULE, true)
     if bytes == nil then
         return nil, problem
     end
@@ -88,6 +97,7 @@ local function run(options: any): integer
     local compile = require("nupp.tools.cli.compile")
     local projectEnv = require("nupp.compiler.project.env").new(".")
     local loadImage: (function(image: string): (any, string?))? = rawget(_G, "__nupp_load_image")
+    local nativeCompiler = not loadImage and not watching and coreCompiler(projectEnv) or nil
     local chunk, err
     local watch: Session? = nil
     if watching and not loadImage then
@@ -110,7 +120,7 @@ local function run(options: any): integer
         end
         chunk, err = loadImage(image)
     elseif path:find("%.nupp$") then
-        chunk, err = coreProgram(path, projectEnv)
+        chunk, err = coreProgram(path, nativeCompiler)
     else
         chunk, err = loadfile(path)
     end
