@@ -1172,7 +1172,15 @@ end
 
 local methods: any = {
     status = function(thread: any): string
-        return coroutine.status(thread)
+        local record = calls.data(thread)
+        if record == nil then
+            return coroutine.status(thread)
+        end
+        if record.started and not final(record.status) then
+            return "running"
+        end
+
+        return record.status
     end,
     resume = function(thread: any, ...: any): ...any
         return coroutine.resume(thread, ...)
