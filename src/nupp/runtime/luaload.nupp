@@ -37,14 +37,14 @@ const COMPILER = "nupp.compiler.vm.corechunk"
 -- or raised as it loaded, and then why.
 local compiler: any = nil
 local missing: string = ""
+local probingCompiler = false
 
 local function textCompiler(): any
-    if compiler == nil then
-        -- While it loads there is none: a require of a module it does not
-        -- carry compiles nothing (requirevalue).
-        compiler = false
+    if compiler == nil and not probingCompiler then
+        probingCompiler = true
         local loader: function(string): any = require
         local ok, found = pcall(loader, COMPILER)
+        probingCompiler = false
         compiler = ok and found or false
         missing = ok and "" or tostring(found)
     end
@@ -500,8 +500,8 @@ end
 -- instance whose requires go through the program's `require`. Answers what
 -- it settles as, and the file; nil where there is no source.
 local function sourcemodule(name: string): (any, string?)
-    if compiler == false then
-        -- The compiler itself, while it loads, or a program without it.
+    if probingCompiler then
+        -- The compiler and its dependencies load from the running image.
         return nil, nil
     end
     local path, text = sourcefile(name)
