@@ -829,6 +829,24 @@ export function handled(): boolean
     return effective() ~= nil
 end
 
+--- Whether a host's handler is in force here, rather than only drivers with none
+--- beneath them.
+---
+--- A scheduler that runs its tasks in place where nothing hosts the frame asks this
+--- rather than `handled`: its own drivers stand in front of a host, and are no reason
+--- to hand its turn to one.
+export function hosted(): boolean
+    local current = effectiveInstallation()
+    while current ~= nil do
+        if not current._restored and not current.transparent then
+            return true
+        end
+        current = current._previous
+    end
+
+    return false
+end
+
 --- Captures the barrier in force here, for a driver about to displace it.
 ---
 --- A private handler changes where a branch yields; it must not quietly grant

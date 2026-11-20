@@ -321,7 +321,7 @@ local function step(): nil
         if #suspended > 0
             and reactor.pending() == 0
             and not nativeOwnerWork()
-            and not suspension.handled()
+            and not readiness.hosted()
             and not readiness.hasActiveSources()
         then
             suspended[1].refuse()
@@ -447,7 +447,7 @@ end
 
 local function drive(box: any, operation: string): nil
     while not box.done do
-        if not suspension.handled() then
+        if not readiness.hosted() then
             step()
         elseif readyCount == 0 then
             hostPark(operation, box)
@@ -518,7 +518,7 @@ local function sleepuntil(deadline: number): nil
         return
     end
     local record = current()
-    if record == nil and bodyScope(record) == nil and suspension.handled() then
+    if record == nil and bodyScope(record) == nil and readiness.hosted() then
         nativeTimers.sleepuntil(deadline)
         return
     end
@@ -598,20 +598,143 @@ local function packed(...: any): any
     return {n = select("#", ...), ...}
 end
 
--- A task's body, entered under the driver and leaving it however it ends.
-local function entered(body: any): any
-    local canpark = suspensionHost.delegatedCanPark()
-    local driver = suspensionHost.Handler(
-        park = suspendpark,
+-- A raw coroutine made inside a frame inherits the frame's driver
+-- (`suspension.create`), but its wait is not the frame's. Parking the
+-- frame's whole stack on it would hold back the caller that resumed it, so
+-- it yields to that caller instead, and the frame resumes it once the wait
+-- is over: from the frame's own waits, and from the driver's shutdown,
+-- which has cancelled whatever was still outstanding. Its results and
+-- failures belong to whoever resumes it next, so they are dropped here.
+-- A blocking timer or I/O wait parks the stack through the task's own park
+-- and never reaches this.
+local function rawFrame(): any
+    return {owner = running(), continuations = {}, ready = {}, wake = nil}
+end
+
+local function markRaw(frame: any, entry: any): nil
+    if entry.queued then
+        return
+    end
+    entry.queued = true
+    frame.ready[#frame.ready + 1] = entry
+    local wake = frame.wake
+    if wake ~= nil then
+        frame.wake = nil
+        wake()
+    end
+end
+
+local function awaitRaw(frame: any, entry: any): nil
+    local waiting = entry.waiting
+    while not waiting:ready() do
+        waiting:onresume(function(): nil
+            markRaw(frame, entry)
+        end)
+        if not waiting:ready() then
+            coroutine.yield()
+        end
+    end
+end
+
+local function parkRaw(frame: any, waiting: suspensionHost.Waiting): nil
+    local thread = running()
+    local entry: any = {thread = thread, waiting = waiting, queued = false}
+    frame.continuations[thread] = entry
+    local parked, problem = pcall(awaitRaw, frame, entry)
+    frame.continuations[thread] = nil
+    if not parked then
+        error(problem, 0)
+    end
+end
+
+-- Resumes the raw continuations whose waits are over, answering whether
+-- there were any.
+local function serviceRaw(frame: any): boolean
+    local ready = frame.ready
+    if #ready == 0 then
+        return false
+    end
+    frame.ready = {}
+    for index = 1, #ready do
+        local entry = ready[index]
+        entry.queued = false
+        local thread = entry.thread
+        if frame.continuations[thread] == entry
+            and entry.waiting:ready()
+            and coroutine.status(thread) == "suspended"
+        then
+            coroutine.resume(thread)
+        end
+    end
+
+    return true
+end
+
+-- The frame's own wait, handed outward as one that a ready raw
+-- continuation also ends, so the frame can resume it and wait on.
+local function parkFrame(
+    frame: any,
+    handler: suspensionHost.Handler,
+    waiting: suspensionHost.Waiting,
+    cancel: function(): nil,
+    outward: function(suspensionHost.Handler, suspensionHost.Waiting, function(): nil): nil
+): nil
+    if next(frame.continuations) == nil and #frame.ready == 0 then
+        outward(handler, waiting, cancel)
+        return
+    end
+    local combined = suspensionHost.derive(
+        waiting,
+        function(): boolean
+            return #frame.ready > 0
+        end,
+        function(wake: function(): nil): nil
+            frame.wake = wake
+        end
+    )
+    while not waiting:ready() do
+        if not serviceRaw(frame) then
+            local parked, problem = pcall(outward, handler, combined, cancel)
+            frame.wake = nil
+            if not parked then
+                error(problem, 0)
+            end
+        end
+    end
+end
+
+-- The driver a frame installs: its own waits go `outward`, its raw
+-- coroutines' waits are kept to be resumed with it.
+local function frameDriver(
+    frame: any,
+    outward: function(suspensionHost.Handler, suspensionHost.Waiting, function(): nil): nil,
+    canpark: function(): boolean
+): suspensionHost.Handler
+    return suspensionHost.Handler(
+        park = function(handler: suspensionHost.Handler, waiting: suspensionHost.Waiting, cancel: function(): nil): nil
+            if running() ~= frame.owner then
+                parkRaw(frame, waiting)
+                return
+            end
+            parkFrame(frame, handler, waiting, cancel, outward)
+        end,
         canpark = function(_: suspensionHost.Handler): boolean
             return canpark()
         end,
         shutdown = function(_: suspensionHost.Handler): nil
+            -- Closing has cancelled and woken every raw wait still outstanding.
+            while serviceRaw(frame) do
+            end
         end
     )
+end
+
+-- A task's body, entered under the driver and leaving it however it ends.
+local function entered(body: any): any
+    local canpark = suspensionHost.delegatedCanPark()
 
     return function(...: any): ...any
-        local handling = suspensionHost.installDriver(driver)
+        local handling = suspensionHost.installDriver(frameDriver(rawFrame(), suspendpark, canpark))
         local results = packed(pcall(body, ...))
         handling:close()
         if not results[1] then
@@ -1013,7 +1136,18 @@ local function run(...: any): ...any
         limit, timeoutms, body = ...
     end
     local scope = open(limit, timeoutms)
+    -- The body's raw coroutines wait with it, and are cancelled when it leaves.
+    local parkOutward = suspensionHost.delegatedPark()
+    local outward = function(_: suspensionHost.Handler, waiting: suspensionHost.Waiting, cancel: function(): nil): nil
+        parkOutward(waiting, cancel)
+    end
+    local handling = suspensionHost.installDriver(frameDriver(rawFrame(), outward, suspensionHost.delegatedCanPark()))
+    local installation: any = @unsafe own.release(handling)
     local answer = packed(pcall(body, scope))
+    local released, releaseProblem = pcall(installation.close, installation)
+    if answer[1] and not released then
+        answer = packed(false, releaseProblem)
+    end
     scope.bodyActive = false
     scope.bodyWaiter = nil
     if answer[1] then
