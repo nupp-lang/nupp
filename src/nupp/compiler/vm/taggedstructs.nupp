@@ -151,12 +151,12 @@ local function member(declared: any, name: string): any
     need(placed, "a struct field is not declared: " .. name)
     local t = need(bare(declared.byname[name]), "a struct field has no type")
     local reached: any = {offset = placed.offset, size = placed.size}
+    reached.boolean = t.tag == "boolean"
     reached.pointer = pointer(t)
     reached.nullablePointer = t.tag == "union" and t.hasNil and reached.pointer
     if placed.bitWidth ~= nil then
         reached.kind = need(UNSIGNED_KINDS[placed.size], "a bitfield has no storage kind")
         reached.bitWidth, reached.bitOffset = placed.bitWidth, placed.bitOffset
-        reached.bitBoolean = t.tag == "boolean"
         reached.bitSigned = t.tag:sub(1, 3) == "int"
     elseif origin(t) then
         reached.nested = origin(t)
@@ -166,7 +166,8 @@ local function member(declared: any, name: string): any
         reached.element = need(scalarKind(element, width), "a fixed array of structs or arrays is not lowered")
         reached.count = t.count
     else
-        reached.kind = need(scalarKind(t, placed.size), "a struct field kind is not lowered: " .. tostring(t.tag))
+        reached.kind = reached.boolean and UINT8
+            or need(scalarKind(t, placed.size), "a struct field kind is not lowered: " .. tostring(t.tag))
     end
 
     return reached
@@ -228,18 +229,17 @@ local function load(ctx: any, node: any, object: integer, field: any): integer
     local value = ctx.emit(node, "GetIdx", {cell, integerConstant(ctx, node, 0)}, "tagged") as integer
     if field.bitWidth ~= nil then
         local shifted = bits(ctx, node, "SHR", value, integerConstant(ctx, node, field.bitOffset))
-        local value = bits(ctx, node, "BAND", shifted, integerConstant(ctx, node, mask(field.bitWidth) as integer))
-        if field.bitBoolean then
-            local equal = ctx.emit(node, "Eq", {value, integerConstant(ctx, node, 0)}, "tagged")
-            return ctx.emit(node, "Not", {equal}, "tagged") as integer
-        elseif field.bitSigned then
+        value = bits(ctx, node, "BAND", shifted, integerConstant(ctx, node, mask(field.bitWidth) as integer))
+        if field.bitSigned then
             local sign = integerConstant(ctx, node, (1ULL << ((field.bitWidth - 1) as uint64)) as integer)
             local flipped = bits(ctx, node, "BXOR", value, sign)
             return ctx.emit(node, "Sub", {flipped, sign}, "tagged") as integer
         end
-        return value
     end
-    if field.nullablePointer then
+    if field.boolean then
+        local zero = ctx.emit(node, "Eq", {value, integerConstant(ctx, node, 0)}, "tagged")
+        return ctx.emit(node, "Not", {zero}, "tagged") as integer
+    elseif field.nullablePointer then
         local zero = integerConstant(ctx, node, 0)
         local absent = ctx.emit(node, "Eq", {value, zero}, "tagged")
         local none = ctx.emit(node, "Nil", {}, "tagged")
@@ -254,13 +254,13 @@ end
 local function store(ctx: any, node: any, object: integer, field: any, value: integer): nil
     local held = ctx.hold(value)
     local receiver = ctx.hold(object)
+    if field.boolean then
+        local zero = integerConstant(ctx, node, 0)
+        local one = integerConstant(ctx, node, 1)
+        ctx.write(held, ctx.select(node, ctx.readHeld(held), one, zero))
+    end
     if field.bitWidth ~= nil then
         local wordMask = mask(field.bitWidth)
-        if field.bitBoolean then
-            local zero = integerConstant(ctx, node, 0)
-            local one = integerConstant(ctx, node, 1)
-            ctx.write(held, ctx.select(node, ctx.readHeld(held), one, zero))
-        end
         local cell = view(ctx, node, ctx.readHeld(receiver), field.kind, field.offset, 1)
         local index = integerConstant(ctx, node, 0)
         local original = ctx.emit(node, "GetIdx", {cell, index}, "tagged")
