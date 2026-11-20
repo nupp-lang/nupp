@@ -778,6 +778,8 @@ function f32.tobf16bits(value: number): number
     return upper
 end
 
+export const binary32 = f32
+
 --- Two-dimensional vectors, carried as a pair of numbers rather than a table.
 ---
 --- Every operation takes and returns loose components, so a vector never has to

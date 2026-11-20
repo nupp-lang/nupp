@@ -579,11 +579,12 @@ end
 mathmembers.u64.trailingzeros = function(a: uint64): uint32
     return scalarcalls.u64trailingzeros(a)
 end
-mathmembers.f32 = {
+local float32Members: {[string]: any} = {
     narrow = function(value: number): float32
         return scalarcalls.f32narrow(value)
     end
 }
+mathmembers.f32 = float32Members
 
 for library, members in pairs(libraries) do
     functions[library] = members
@@ -611,6 +612,14 @@ globals.arg = hostcalls.arguments()
 -- into, as the VM's globals carry it.
 globals.nupp = {}
 functions._G = globals
+
+-- Reuse the portable implementations for operations without a core call.
+local binary32 = require("nupp.compiler.runtime.math").binary32
+for name, implementation in pairs(binary32) do
+    if float32Members[name] == nil then
+        float32Members[name] = implementation
+    end
+end
 
 -- Each library function as the program started, by its name (`print`,
 -- `io.write`): a chunk Lua's load compiled calls the core directly while

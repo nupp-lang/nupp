@@ -4,6 +4,8 @@ module nupp.compiler.vm.graphcalls
 --- invoke keeps, and which calls are the core's library calls.
 local corelibrary = require("nupp.compiler.vm.corelibrary")
 
+local scalarintrinsics = require("nupp.compiler.scalarintrinsics")
+
 local RAW_COROUTINE_MODULE = "nupp.runtime.rawcoroutine"
 
 local graphsignatures = require("nupp.compiler.vm.graphsignatures")
@@ -338,7 +340,7 @@ local methodsignatures: {[any]: any} = setmetatable({}, {__mode = "k"})
 -- Scalar markers describe checked types, not an immutable public callee.
 -- Implemented families pass through the ordinary function-value contract.
 local function scalarValueCall(call: any, called: any): boolean
-    local operation = corelibrary.scalar(call.scalarIntrinsic)
+    local scalar = call.scalarIntrinsic
     local callee = call.obj
     local identity = callee and callee.scalarIntrinsic
         or callee
@@ -347,16 +349,27 @@ local function scalarValueCall(call: any, called: any): boolean
         and callee.token.definition
         and callee.token.definition.scalarIntrinsic
 
-    return operation ~= nil
-        and identity == call.scalarIntrinsic
-        and call.kind == "call"
-        and not call.cdefCall
-        and not call.affineClosureCall
-        and type(called) == "table"
-        and called.tag == "func"
-        and type(called.params) == "table"
-        and #called.params == operation.min
-        and operation.min == operation.max
+    if type(scalar) ~= "string"
+        or identity ~= scalar
+        or call.kind ~= "call"
+        or call.cdefCall
+        or call.affineClosureCall
+        or type(called) ~= "table"
+        or called.tag ~= "func"
+        or type(called.params) ~= "table"
+    then
+        return false
+    end
+    local operation = corelibrary.scalar(scalar)
+    if operation ~= nil then
+        return #called.params == operation.min and operation.min == operation.max
+    end
+    local supplied = call.args and call.args.exprs
+
+    return scalar:sub(1, 4) == "f32."
+        and scalarintrinsics.forPath("math." .. scalar) == scalar
+        and type(supplied) == "table"
+        and #called.params == #supplied
 end
 
 export function checkcontract(contract: any): nil
