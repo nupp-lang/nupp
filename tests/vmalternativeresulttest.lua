@@ -82,7 +82,7 @@ function M.finiteArmsKeepTheirIdentityAndActualReturnCounts()
 end
 
 function M.methodsAndFallthroughUseTheSameExistingPackTransport()
-    local p = checked(
+    local p, fixture = checked(
         [[
 local record Result
     function values(self, which: integer): (() | (nil) | (integer, string))
@@ -116,7 +116,7 @@ return 0
     for _, g in ipairs(compiled.graphs) do
         for _, block in ipairs(g.blocks) do
             local term = block.term
-            if term.kind == "invoke" and term.contract.call.kind == "methodCall" then
+            if g.module == fixture.scope.name and term.kind == "invoke" and term.contract.call.kind == "methodCall" then
                 if term.contract.call.name.text == "consume" then
                     nested = true
                 else

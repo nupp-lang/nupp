@@ -211,7 +211,10 @@ export record Parent
     record Components
         scheme: string
     end
-    record Erased
+    struct Erased
+        tag: int32
+    end
+    record Branch
         record Deep
             function get(self): integer return 3 end
         end
@@ -239,16 +242,17 @@ end
     for declaration in pairs(p.recordFactories) do
         planned[declaration.name.text] = true
     end
-    assert(planned.Parent and planned.Method and planned.Built and planned.Local)
-    assert(not planned.Components and not planned.Erased and not planned.Deep)
+    assert(planned.Parent and planned.Components and planned.Branch and planned.Deep)
+    assert(planned.Method and planned.Built and planned.Local)
+    assert(not planned.Erased)
     local program = require("nupp.compiler.vm.programgraph")
     local profile = require("nupp.compiler.vm.taggedprofile").forVersion(8)
     assert(require("nupp.compiler.vm.coregraphexecutable").fromChecked(program.compile(p, profile), 8))
     local pieces = require("nupp.compiler.vm.corepiece").compile(p, profile)
     assert(require("nupp.compiler.vm.corelink").link(pieces, name))
-    p.recordFactories[declarations.Components] = p.recordFactories[declarations.Parent]
+    p.recordFactories[declarations.Erased] = p.recordFactories[declarations.Parent]
     assert(not pcall(program.verify, p), "erased declarations cannot acquire forged factory sites")
-    p.recordFactories[declarations.Components] = nil
+    p.recordFactories[declarations.Erased] = nil
     assert(program.verify(p))
 end
 
