@@ -498,7 +498,8 @@ local subjectrows: {Subject} = {
         calls = {
             {name = "STORAGE_ALLOCBYTES", id = 94, call = "storagecalls.allocbytes", min = 1, max = 1},
             {name = "STORAGE_ALLOCATE", id = 95, call = "storagecalls.allocate", min = 2, max = 2},
-            {name = "STORAGE_ALIGNED", id = 204, call = "storagecalls.aligned", min = 3, max = 3}
+            {name = "STORAGE_ALIGNED", id = 204, call = "storagecalls.aligned", min = 3, max = 3},
+            {name = "STORAGE_STORE_POINTER", id = 227}
         }
     },
     {

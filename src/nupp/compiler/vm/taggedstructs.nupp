@@ -151,7 +151,8 @@ local function member(declared: any, name: string): any
     need(placed, "a struct field is not declared: " .. name)
     local t = need(bare(declared.byname[name]), "a struct field has no type")
     local reached: any = {offset = placed.offset, size = placed.size}
-    reached.nullablePointer = t.tag == "union" and t.hasNil and pointer(t)
+    reached.pointer = pointer(t)
+    reached.nullablePointer = t.tag == "union" and t.hasNil and reached.pointer
     if placed.bitWidth ~= nil then
         reached.kind = need(UNSIGNED_KINDS[placed.size], "a bitfield has no storage kind")
         reached.bitWidth, reached.bitOffset = placed.bitWidth, placed.bitOffset
@@ -242,14 +243,6 @@ end
 local function store(ctx: any, node: any, object: integer, field: any, value: integer): nil
     local held = ctx.hold(value)
     local receiver = ctx.hold(object)
-    if field.nullablePointer then
-        -- C stores a null address as zero, while the checked nullable field
-        -- exposes nil. Keep ordinary uint64 fields numeric, including zero.
-        local none = ctx.emit(node, "Nil", {}, "tagged")
-        local absent = ctx.emit(node, "Eq", {ctx.readHeld(held), none}, "tagged")
-        local zero = integerConstant(ctx, node, 0)
-        ctx.write(held, ctx.select(node, absent, zero, ctx.readHeld(held)))
-    end
     if field.bitWidth ~= nil then
         local wordMask = mask(field.bitWidth)
         if field.bitBoolean then
@@ -272,7 +265,11 @@ local function store(ctx: any, node: any, object: integer, field: any, value: in
         ctx.emit(node, "LibCall", {corelibrary.id("STORAGE_COPY"), bytes, ctx.readHeld(held), size}, "tagged")
     else
         local cell = view(ctx, node, ctx.readHeld(receiver), field.kind, field.offset, 1)
-        ctx.emit(node, "SetIdx", {cell, integerConstant(ctx, node, 0), ctx.readHeld(held)}, nil)
+        if field.pointer then
+            ctx.emit(node, "LibCall", {corelibrary.id("STORAGE_STORE_POINTER"), cell, ctx.readHeld(held)}, "tagged")
+        else
+            ctx.emit(node, "SetIdx", {cell, integerConstant(ctx, node, 0), ctx.readHeld(held)}, nil)
+        end
     end
     ctx.release(receiver)
     ctx.release(held)

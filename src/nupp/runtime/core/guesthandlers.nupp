@@ -1819,6 +1819,8 @@ export function LibCall(
         slots.writeValue(frame, regs, dst, gueststorage.aligned(ctx, a, b, c))
     elseif libraryId == storagelibrary.STORAGE_ALLOCATE then
         slots.writeValue(frame, regs, dst, gueststorage.allocate(ctx, a, b))
+    elseif libraryId == storagelibrary.STORAGE_STORE_POINTER then
+        slots.writeValue(frame, regs, dst, gueststorage.storePointer(ctx, a, b))
     elseif libraryId == librarycalls.TABLE_NEWARRAY then
         slots.writeValue(
             frame,

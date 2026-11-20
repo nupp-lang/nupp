@@ -6,3 +6,4 @@ module nupp.runtime.core.storagelibrary
 export const STORAGE_ALLOCBYTES: uint64 = 94ULL
 export const STORAGE_ALLOCATE: uint64 = 95ULL
 export const STORAGE_ALIGNED: uint64 = 204ULL
+export const STORAGE_STORE_POINTER: uint64 = 227ULL

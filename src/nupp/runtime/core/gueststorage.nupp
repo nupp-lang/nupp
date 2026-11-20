@@ -161,6 +161,27 @@ local function storageargument(ctx: voidptr, value: uint64, position: uint64): u
     return value & values.PAYLOAD
 end
 
+-- Stores a C pointer as its address. A checked borrow keeps the backing
+-- storage alive for the foreign code that reads the field.
+export function storePointer(ctx: voidptr, destination: uint64, value: uint64): uint64
+    local cell = storageargument(ctx, destination, 1ULL)
+    local address: uint64 = 0ULL
+    if corestorage.isstorage(value) then
+        local source = value & values.PAYLOAD
+        if not corestorage.readable(source, 0ULL, 0ULL) then
+            error("nupp: stale or closed storage for a C pointer field")
+        end
+        address = corestorage.storagebase(source)
+    elseif value ~= values.NIL then
+        address = native.word(guestvalues.intarg(ctx, value, 0, 2ULL))
+    end
+    if corestorage.elementkind(cell) ~= corestorage.UINT64 or corestorage.writeelement(cell, 0ULL, address) ~= 0ULL then
+        error("nupp: a C pointer field needs a writable address slot")
+    end
+
+    return values.NIL
+end
+
 -- Argument `position`, a count of no more than `limit`.
 local function countargument(ctx: voidptr, value: uint64, position: uint64, limit: uint64): uint64
     if not ints.isInteger(value) or native.index(ints.bitsOf(value)) < 0 or ints.bitsOf(value) > limit then
