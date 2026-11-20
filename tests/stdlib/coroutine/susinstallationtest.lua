@@ -5,14 +5,13 @@ local envMod = require("nupp.compiler.project.env")
 
 local HERE = require("helpers.paths").tests
 local sharedEnv = envMod.new(HERE)
+local moduleName = "nupp.test.suspensioninstallation"
 local M = {}
 
 local function diagnose(source)
     local result = parser.parse(source, "suspension-installation.nupp")
     assert(#result.errors == 0, result.errors[1] and result.errors[1].msg)
-    return check.check(result, "suspension-installation.nupp", sharedEnv, {
-        moduleName = "nupp.test.suspensioninstallation"
-    }), result
+    return check.check(result, "suspension-installation.nupp", sharedEnv, {moduleName = moduleName}), result
 end
 
 local function run(source)
@@ -24,7 +23,7 @@ local function run(source)
         )
     end
 
-    return program.run(result, "suspensioninstallation", "suspension-installation.nupp")
+    return program.run(result, moduleName, "suspension-installation.nupp")
 end
 
 local HANDLER = "local h = {park = function() end, canpark = function() return true end, shutdown = function() end}\n"
