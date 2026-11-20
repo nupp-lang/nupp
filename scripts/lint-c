@@ -177,6 +177,10 @@ flags() {
         native/corebridge/main.c | native/corebridge/guard.c | tests/core/bridgecontracts.c)
             echo "-pthread -DNUPP_CORE_HTTP -isystem $(libcurl)/include"
             ;;
+        native/corebridge/hostposix.h)
+            # This header normally sees main.c's feature-test macros.
+            echo "-pthread -D_DARWIN_C_SOURCE=1 -D_GNU_SOURCE=1"
+            ;;
         native/proofs/bundleheaderproof.c)
             # The proof includes main.c after its own system headers.
             echo "-pthread -D_GNU_SOURCE=1"
