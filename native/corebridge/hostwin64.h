@@ -17,6 +17,7 @@
 #include "winpipe.h"
 #endif
 #include "netbridge.h"
+#include "winposix.h"
 
 /** The packet still carries UTF-8 paths, even when the CRT needs UTF-16. */
 static wchar_t *wide_path (const char *utf8) {
@@ -141,6 +142,10 @@ static int64_t win64_file_read (int64_t descriptor, void *bytes,
 
 /** Closes a live CRT file descriptor, or reports EBADF for an invalid one. */
 static int win64_file_close (int64_t descriptor) {
+  if (nuppwindirectorykey(descriptor)) {
+    return nuppwinclosedirectorykey(descriptor);
+  }
+
 #ifdef NUPP_WIN64_PROCESS
 
   if (nuppwinpipekey(descriptor)) {
@@ -236,6 +241,10 @@ static void *open_library (const char *path, int mode) {
 }
 
 void nupp_core_retain_guest_backing (void);
+int32_t nuppsnprintf1 (char *out, uint64_t room, const char *format,
+                       double value);
+int32_t nuppsnprintf2 (char *out, uint64_t room, const char *format,
+                       int64_t count, double value);
 #ifndef NUPP_CORE_HTTP
 int nupp_http_scope_detach (void *scope);
 #endif
@@ -263,6 +272,8 @@ static void *find_linked_crt (const char *name) {
   return NULL;
 }
 
+static int close_library (void *library);
+
 static void *find_symbol (void *library, const char *name) {
   if (library && library == GetModuleHandleW(NULL)) {
 
@@ -279,8 +290,46 @@ static void *find_symbol (void *library, const char *name) {
       void (*address)(void);
     } self_symbols[] = {
         {"__error", (void (*)(void))_errno},
+        {"chmod", (void (*)(void))nuppwinchmod},
+        {"clock", (void (*)(void))nuppwinclock},
+        {"clock_gettime", (void (*)(void))nuppwinclockgettime},
         {"close", (void (*)(void))win64_file_close},
+        {"closedir", (void (*)(void))nuppwinclosedir},
+        {"dlclose", (void (*)(void))close_library},
         {"dlerror", (void (*)(void))take_loader_error},
+        {"dlopen", (void (*)(void))open_library},
+        {"dlsym", (void (*)(void))find_symbol},
+        {"dup", (void (*)(void))nuppwindup},
+        {"fdopendir", (void (*)(void))nuppwinfdopendir},
+        {"getcwd", (void (*)(void))nuppwingetcwd},
+        {"getentropy", (void (*)(void))nuppwingetentropy},
+        {"getpid", (void (*)(void))nuppwingetpid},
+        {"gmtime_r", (void (*)(void))nuppwingmtime},
+        {"localtime_r", (void (*)(void))nuppwinlocaltime},
+        {"lseek", (void (*)(void))nuppwinlseek},
+        {"mkdir", (void (*)(void))nuppwinmkdir},
+        {"mkstemp", (void (*)(void))nuppwinmkstemp},
+        {"mktime", (void (*)(void))nuppwinmktime},
+        {"nanosleep", (void (*)(void))nuppwinnanosleep},
+        {"nupp_core_executable_path", (void (*)(void))nuppwinexecutablepath},
+        {"nupp_core_next_name", (void (*)(void))nuppwinnextname},
+        {"nupp_core_open_directory", (void (*)(void))nuppwinopendirectory},
+        {"nupp_core_open_file", (void (*)(void))nuppwinopenfile},
+        {"nupp_core_open_modes", (void (*)(void))nuppwinopenmodes},
+        {"nupp_core_stat_descriptor", (void (*)(void))nuppwinstatdescriptor},
+        {"nupp_core_stat_file", (void (*)(void))nuppwinstatfile},
+        {"nupp_core_sync_file", (void (*)(void))nuppwinsyncfile},
+        {"nupp_core_unlink_entry", (void (*)(void))nuppwinunlinkentry},
+        {"pthread_self", (void (*)(void))nuppwinthreadself},
+        {"readlink", (void (*)(void))nuppwinreadlink},
+        {"realpath", (void (*)(void))nuppwinrealpath},
+        {"remove", (void (*)(void))nuppwinremove},
+        {"rename", (void (*)(void))nuppwinrename},
+        {"rewinddir", (void (*)(void))nuppwinrewinddir},
+        {"strdup", (void (*)(void))nuppwinstrdup},
+        {"strftime", (void (*)(void))nuppwinstrftime},
+        {"symlink", (void (*)(void))nuppwinsymlink},
+        {"time", (void (*)(void))nuppwintime},
         {"nupp_core_map_pages", (void (*)(void))win64_map_pages},
         {"nupp_core_monotonic_nanos", (void (*)(void))uv_hrtime},
         {"nupp_core_open_poller", (void (*)(void))win64_open_poller},
@@ -300,6 +349,9 @@ static void *find_symbol (void *library, const char *name) {
         {"nupp_uv_wait_owner", (void (*)(void))nupp_uv_wait_owner},
         {"read", (void (*)(void))win64_file_read},
         {"nuppnetcall", (void (*)(void))nuppnetcall},
+        {"nuppsnprintf1", (void (*)(void))nuppsnprintf1},
+        {"nupptemporarytemplate", (void (*)(void))nupptemporarytemplate},
+        {"nuppsnprintf2", (void (*)(void))nuppsnprintf2},
         {"nuppnetdetach", (void (*)(void))nuppnetdetach},
 #ifdef NUPP_WIN64_PROCESS
         {"write", (void (*)(void))win64_file_write},
@@ -329,8 +381,20 @@ static void *find_symbol (void *library, const char *name) {
 
   FARPROC address = library ? GetProcAddress((HMODULE)library, name) : NULL;
 
+  /* The process's own C library names (sin, strtod and the rest) resolve
+   * in the UCRT the bridge links, which shares its errno and descriptors. */
+  if (!address && library && library == GetModuleHandleW(NULL)) {
+    HMODULE crt = GetModuleHandleW(L"ucrtbase.dll");
+    address = crt ? GetProcAddress(crt, name) : NULL;
+  }
+
   if (!address) {
     loader_error = "Windows loader cannot find the symbol";
+
+    /* A port names what the guest asked for and the host lacks. */
+    if (getenv("NUPP_CORE_TRACE_SYMBOLS")) {
+      fprintf(stderr, "nupp-core: no symbol %s\n", name);
+    }
   }
 
   return (void *)(uintptr_t)address;

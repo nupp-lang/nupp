@@ -144,7 +144,13 @@ static uint64_t failed (int error) {
 }
 
 #ifdef _WIN32
-#ifdef _MSC_VER
+#ifdef __MINGW32__
+
+/* The UCRT exports this, and MinGW's headers do not declare it. */
+_invalid_parameter_handler __cdecl _set_thread_local_invalid_parameter_handler (
+    _invalid_parameter_handler handler);
+#endif
+
 static void __cdecl ignore_invalid_file_parameter (const wchar_t *expression,
                                                    const wchar_t *function,
                                                    const wchar_t *file,
@@ -156,24 +162,19 @@ static void __cdecl ignore_invalid_file_parameter (const wchar_t *expression,
   (void)line;
   (void)reserved;
 }
-#endif
 
 int nupp_uv_valid_file (int64_t descriptor) {
   if (descriptor < 0 || descriptor > INT_MAX) {
     return 0;
   }
 
-  /* MSVC's release CRT can terminate on a recycled fd. Install a
-   * thread-local handler only for the non-owning descriptor lookup. */
-#ifdef _MSC_VER
+  /* The UCRT can terminate on a recycled fd. Install a thread-local
+   * handler only for the non-owning descriptor lookup. */
   _invalid_parameter_handler previous =
       _set_thread_local_invalid_parameter_handler(
           ignore_invalid_file_parameter);
-#endif
   uintptr_t handle = (uintptr_t)uv_get_osfhandle((int)descriptor);
-#ifdef _MSC_VER
   _set_thread_local_invalid_parameter_handler(previous);
-#endif
 
   return handle && handle < UINTPTR_MAX - 1;
 }

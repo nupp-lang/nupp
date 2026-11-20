@@ -10,39 +10,47 @@
 
 #include <assert.h>
 
+/* An entry answering 7 in the host's instructions (only the native machine
+ * ABI is under test): mov eax, 7; ret, or mov w0, #7; ret. */
+#if defined(_M_X64) || defined(__x86_64__)
+static const unsigned char ANSWER_SEVEN[] = {0xb8, 7, 0, 0, 0, 0xc3};
+#else
+static const unsigned char ANSWER_SEVEN[] = {0xe0, 0x00, 0x80, 0x52,
+                                             0xc0, 0x03, 0x5f, 0xd6};
+#endif
+
 static int header_refused (uint64_t architecture) {
   unsigned char header[HEADER_BYTES] = {0};
   memcpy(header, BUNDLE_MAGIC, MAGIC_BYTES);
   storele64(header + headeroffset(BUNDLE_VERSION), BUNDLE_FORMAT);
   storele64(header + headeroffset(BUNDLE_ARCHITECTURE), architecture);
-  storele64(header + headeroffset(BUNDLE_CODE_BYTES), 1);
+  storele64(header + headeroffset(BUNDLE_CODE_BYTES), INSTRUCTION_BYTES);
   FILE *file = tmpfile();
   assert(file);
   assert(fwrite(header, 1, sizeof(header), file) == sizeof(header));
-  assert(fputc(0xc3, file) == 0xc3);
+  assert(fwrite(ANSWER_SEVEN + sizeof(ANSWER_SEVEN) - INSTRUCTION_BYTES, 1,
+                INSTRUCTION_BYTES, file) == INSTRUCTION_BYTES);
   rewind(file);
   struct bundle bundle;
-  int result = readheader(file, HEADER_BYTES + 1, &bundle);
+  int result = readheader(file, HEADER_BYTES + INSTRUCTION_BYTES, &bundle);
   fclose(file);
 
   return result;
 }
 
 static void executable_region (void) {
-
-  /* mov eax, 7; ret (only the native machine ABI is under test). */
-  const unsigned char code[] = {0xb8, 7, 0, 0, 0, 0xc3};
-  unsigned char *region = mapregion(sizeof(code));
+  const unsigned char *code = ANSWER_SEVEN;
+  unsigned char *region = mapregion(sizeof(ANSWER_SEVEN));
   assert(region);
   MEMORY_BASIC_INFORMATION info;
   assert(VirtualQuery(region, &info, sizeof(info)) == sizeof(info));
   assert(info.Protect == PAGE_READWRITE);
-  memcpy(region, code, sizeof(code));
-  assert(!sealcode(region, sizeof(code)));
+  memcpy(region, code, sizeof(ANSWER_SEVEN));
+  assert(!sealcode(region, sizeof(ANSWER_SEVEN)));
   assert(VirtualQuery(region, &info, sizeof(info)) == sizeof(info));
   assert(info.Protect == PAGE_EXECUTE_READ);
   assert(((Entry)region)(NULL, NULL) == 7);
-  unmap_region(region, sizeof(code));
+  unmap_region(region, sizeof(ANSWER_SEVEN));
 }
 
 typedef const char *(*LoaderError)(void);
@@ -291,8 +299,11 @@ static void file_completions (void *self) {
 }
 
 int main (void) {
-  assert(!header_refused(BUNDLE_WIN64));
-  assert(header_refused(BUNDLE_ARM64));
+  /* The host's own instruction set loads, and the other Windows one does
+   * not. */
+  assert(!header_refused(HOST_ARCH));
+  assert(
+      header_refused(HOST_ARCH == BUNDLE_WIN64 ? BUNDLE_ARM64 : BUNDLE_WIN64));
   executable_region();
   void *self = open_library(NULL, 0);
   assert(self && find_symbol(self, "nupp_core_artifact_directory"));

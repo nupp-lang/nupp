@@ -21,7 +21,9 @@
  * functions, compiled under NUPP_CORE_GUARD. */
 #define NUPP_CORE_GUARD 1
 #define main bootstrapmain
+#define wmain bootstrapwmain
 #include "main.c" /* NOLINT(bugprone-suspicious-include) */
+#undef wmain
 #undef main
 
 #ifdef __APPLE__
@@ -209,17 +211,29 @@ static int shorten (const unsigned char *original, size_t size,
 /* Writes bytes to a new temporary file, answering its path. */
 static int writetemporary (const unsigned char *bytes, size_t size,
                            char **path) {
+  static const char name[] = "/nupp-core-guard-XXXXXX";
   const char *directory = getenv("TMPDIR");
+
+#ifdef _WIN32
+
+  if (!directory) {
+    directory = getenv("TEMP");
+  }
+
+#endif
 
   if (!directory) {
     directory = "/tmp";
   }
 
-  if (asprintf(path, "%s/nupp-core-guard-XXXXXX", directory) < 0) {
-    *path = NULL;
+  size_t room = strlen(directory) + sizeof(name);
+  *path = malloc(room);
 
+  if (!*path) {
     return 1;
   }
+
+  snprintf(*path, room, "%s%s", directory, name);
 
   int descriptor = mkstemp(*path);
   FILE *file = descriptor < 0 ? NULL : fdopen(descriptor, "wb");

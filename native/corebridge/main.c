@@ -58,13 +58,16 @@
 /* The number of elements in an array the compiler can see the size of. */
 #define ARRAY_LENGTH(array) (sizeof(array) / sizeof(*(array)))
 
+/* The bundle's instruction set and C ABI. ARM64 code calls C by the base
+ * AAPCS64, makes no variadic call and leaves x18 alone, so one bundle runs on
+ * macOS, Linux and Windows ARM64. x64 code follows the Windows x64 ABI. */
 enum { BUNDLE_ARM64 = 1, BUNDLE_WIN64 = 2 };
 
 #if defined(_WIN32) && (defined(_M_X64) || defined(__x86_64__))
 #define HOST_SUPPORTED 1
 
 enum { HOST_ARCH = BUNDLE_WIN64, INSTRUCTION_BYTES = 1 };
-#elif !defined(_WIN32) && (defined(__aarch64__) || defined(__arm64__))
+#elif defined(__aarch64__) || defined(__arm64__) || defined(_M_ARM64)
 #define HOST_SUPPORTED 1
 
 enum { HOST_ARCH = BUNDLE_ARM64, INSTRUCTION_BYTES = 4 };
@@ -402,6 +405,12 @@ static void unmap_region (void *region, size_t bytes) {
 
 static FILE *open_path (const char *path, const char *mode) {
 #ifdef _WIN32
+
+  /* Launchers pass /dev/null for no input or output, as on POSIX. */
+  if (!strcmp(path, "/dev/null")) {
+    return _wfopen(L"NUL", mode[0] == 'r' ? L"rb" : L"wb");
+  }
+
   wchar_t *wide = wide_path(path);
   FILE *file = wide ? _wfopen(wide, mode[0] == 'r' ? L"rb" : L"wb") : NULL;
   free(wide);
@@ -782,7 +791,8 @@ static int enter (const struct bundle *bundle, const struct regions *regions,
 static int execute (const char *path, const uint64_t *words, size_t count,
                     uint64_t **answer, size_t *length, uint64_t *status) {
   if (!HOST_SUPPORTED) {
-    return error("standalone bridge requires ARM64 macOS/Linux or x64 Windows");
+    return error("standalone bridge requires ARM64 macOS, Linux or Windows, or "
+                 "x64 Windows");
   }
 
   int result = 1;

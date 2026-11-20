@@ -170,8 +170,8 @@ flags() {
                 echo "-D_POSIX_C_SOURCE=200809L"
             fi
             ;;
-        # The Win64 probes compile with the target headers in scripts/core-bridge.
-        native/corebridge/hostwin64.h | native/corebridge/winpipe.c | tests/core/*win64*.c | tests/core/units/win64*.c)
+        # The Windows sources compile with the target headers in scripts/core-bridge.
+        native/corebridge/hostwin64.h | native/corebridge/winpipe.c | native/corebridge/winposix.* | tests/core/*win64*.c | tests/core/units/win64*.c)
             echo skip
             ;;
         native/corebridge/main.c | native/corebridge/guard.c | tests/core/bridgecontracts.c)

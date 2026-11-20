@@ -256,7 +256,11 @@ static void environment (void) {
   assert(nupp_process_envsame("\xc3\x89", 2, "\xc3\xa9", 2));
   assert(!nupp_process_envsame("PATH", 4, "TEMP", 4));
   assert(!strcmp(nupp_process_systemname(0), "windows"));
+#if defined(_M_ARM64) || defined(__aarch64__)
+  assert(!strcmp(nupp_process_systemname(1), "aarch64"));
+#else
   assert(!strcmp(nupp_process_systemname(1), "x86_64"));
+#endif
   assert(nupp_process_cpus() > 0);
 }
 

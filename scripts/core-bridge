@@ -22,7 +22,7 @@ else
     OUT=${NUPP_CORE_BRIDGE_DIR:-"$ROOT/build/c-core-bridge"}
 fi
 die() { printf 'core-bridge: %s\n' "$*" >&2; exit 1; }
-platform="$(uname -s):$(uname -m)"
+platform="$(sh "$ROOT/scripts/host-machine")"
 
 win64_mode=${1:-}
 if [ "$win64_mode" = --win64-contracts ] || [ "$win64_mode" = --win64-http-link ]; then
@@ -81,20 +81,20 @@ if [ "$win64_mode" = --win64-contracts ] || [ "$win64_mode" = --win64-http-link 
         # LINK accepts -DEF, which avoids a slash-prefixed MSYS argument.
         compile_win64 -DNUPP_CORE_HTTP -DNUPP_WIN64_HTTP_SYSTEM_ICU=1 -DNUPP_WIN64_PROCESS -DNUPP_CORE_NET -DNUPP_CORE_TLS \
             -iquote "$common" -I"$curl_headers" -I"$icu_headers" -I"$ssl_native/include" \
-            "$common/main.c" "$common/uv.c" "$http/transport.c" "$http/uriidna.c" \
+            "$common/main.c" "$common/uv.c" "$common/winposix.c" "$http/transport.c" "$http/uriidna.c" \
             "$common/process.c" "$common/winpipe.c" "$common/streamio.c" \
             "$common/netbridge.c" "$common/tcp.c" "$common/udp.c" "$common/tlsbio.c" \
-            "$curl_lib" "$icu_lib" "$ssl_native/lib/libssl.lib" "$ssl_native/lib/libcrypto.lib" -lcrypt32 \
+            "$curl_lib" "$icu_lib" "$ssl_native/lib/libssl.lib" "$ssl_native/lib/libcrypto.lib" -lcrypt32 -lbcrypt \
             -Xlinker "-DEF:$common/http-win64.def" \
             -o "$stage_native/nupp-core.exe"
         printf '%s\n' "$stage"
         exit 0
     fi
     tests="$root_native/tests/core"
-    compile_win64 "$common/main.c" "$common/uv.c" -o "$stage_native/nupp-core.exe"
+    compile_win64 "$common/main.c" "$common/uv.c" "$common/winposix.c" -lbcrypt -o "$stage_native/nupp-core.exe"
     compile_win64 "$tests/socketbrokerwin64.c" -o "$stage_native/socket-broker.exe"
     compile_win64 -DNUPP_WIN64_PROCESS -iquote "$common" \
-        "$tests/bridgeloaderwin64contract.c" "$common/uv.c" \
+        "$tests/bridgeloaderwin64contract.c" "$common/uv.c" "$common/winposix.c" -lbcrypt \
         "$common/process.c" "$common/winpipe.c" "$common/streamio.c" \
         -o "$stage_native/bridge-loader.exe"
     compile_win64 "$tests/bridgeabiwin64contract.c" "$tests/bridge-abi-win64.S" -o "$stage_native/bridge-abi.exe"
@@ -114,6 +114,13 @@ if [ "$win64_mode" = --win64-contracts ] || [ "$win64_mode" = --win64-http-link 
     printf '%s\n' "$stage"
     exit 0
 fi
+
+case "$platform" in
+    MINGW*:aarch64 | MSYS*:aarch64)
+        . "$ROOT/scripts/core-bridge-windows.sh"
+        exit 0
+        ;;
+esac
 
 case "$platform" in
     Darwin:arm64)
@@ -140,7 +147,7 @@ case "$platform" in
         rpath='$ORIGIN/lib'
         export_flag=-rdynamic
         ;;
-    *) die 'ARM64 macOS or Linux is required' ;;
+    *) die 'ARM64 macOS, Linux or Windows is required' ;;
 esac
 
 # The deployment floor and SDK above select normal pinned cache entries.

@@ -1,6 +1,8 @@
 // Test-only AArch64 (AAPCS64) callee-saved register preservation probe,
 // for native/corebridge/guard.c and tests/core/bridgecontracts.c. No guest
-// operations or frame policy.
+// operations or frame policy. On Windows it also holds the entry to x18,
+// the thread environment block, which nothing but the system may change
+// (bit 19); macOS may clear it on a switch, and Linux C may use it.
 .text
 .p2align 2
 .globl _nuppabiprobe
@@ -19,6 +21,7 @@ nuppabiprobe:
     stp d12, d13, [sp, #128]
     stp d14, d15, [sp, #144]
     str x3, [sp, #160]
+    str x18, [sp, #176]
     mov x16, x0
     mov x0, x1
     mov x1, x2
@@ -136,6 +139,12 @@ nuppabiprobe:
     cmp x16, x17
     cset x17, ne
     orr x15, x15, x17, lsl #18
+#ifdef _WIN32
+    ldr x16, [sp, #176]
+    cmp x18, x16
+    cset x17, ne
+    orr x15, x15, x17, lsl #19
+#endif
     ldr x16, [sp, #160]
     ldr x17, [sp, #168]
     stp x17, x15, [x16]
