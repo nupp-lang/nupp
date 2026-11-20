@@ -106,6 +106,7 @@ local subjectrows: {Subject} = {
             {name = "FLOOR_DIVIDE", id = 7, meta = true},
             {name = "POW", id = 56, meta = true},
             {name = "UNM", id = 33, meta = true},
+            {name = "SAR", id = 226},
             -- A numeric for's limit whose type is known only at run time.
             {name = "FOR_LIMIT", id = 113}
         }

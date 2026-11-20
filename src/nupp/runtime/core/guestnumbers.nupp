@@ -703,6 +703,12 @@ export function bitcall(ctx: voidptr, id: uint64, a: uint64, b: uint64): uint64
         result = shiftleft(x, native.index(y))
     elseif id == bitlibrary.SHR then
         result = shiftleft(x, 0 - native.index(y))
+    elseif id == librarycalls.SAR then
+        local count = y & 63ULL
+        result = x >> count
+        if count ~= 0ULL and x & 0x8000000000000000ULL ~= 0ULL then
+            result = result | (0xffffffffffffffffULL << (64ULL - count))
+        end
     else
         result = x ~ 0xffffffffffffffffULL
     end

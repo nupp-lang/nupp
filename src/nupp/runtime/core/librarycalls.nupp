@@ -32,6 +32,7 @@ export const DIVIDE: uint64 = 6ULL
 export const FLOOR_DIVIDE: uint64 = 7ULL
 export const POW: uint64 = 56ULL
 export const UNM: uint64 = 33ULL
+export const SAR: uint64 = 226ULL
 export const FOR_LIMIT: uint64 = 113ULL
 
 -- strings

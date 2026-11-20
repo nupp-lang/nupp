@@ -57,7 +57,8 @@ export function binary(ctx: any, node: any, expected: string?, version: integer)
                 ["|"] = "orBits",
                 ["~"] = "xorBits",
                 ["<<"] = "shiftLeft",
-                [">>"] = "shiftRightLogical"
+                [">>"] = "shiftRightLogical",
+                ["~>>"] = "shiftRightArithmetic"
             })[operation]
             if fixed then
                 local logical = fixed == "shiftRightLogical"
@@ -78,6 +79,7 @@ export function binary(ctx: any, node: any, expected: string?, version: integer)
             ["~"] = corelibrary.id("BXOR"),
             ["<<"] = corelibrary.id("SHL"),
             [">>"] = corelibrary.id("SHR"),
+            ["~>>"] = corelibrary.id("SAR"),
         })[operation]
     if library then
         return libraryCall(ctx, node, library, {node.lhs, node.rhs})
