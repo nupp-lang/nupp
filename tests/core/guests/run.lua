@@ -1699,6 +1699,17 @@ local function main()
             return
         end
     end
+
+    local function setupFor(name)
+        local setup = SETUP[name] or ""
+        if name == "compilercomptime" or name == "compilerderive" then
+            -- The nested build packages the same bridge running this guest.
+            setup = setup .. "export NUPP_CORE_RUNTIME=" .. quote(bridge) .. "; "
+        end
+
+        return setup
+    end
+
     if not EMIT_ONLY then
         for _, case in ipairs(selectedCases) do
             if case[1] == "cataloghttpcurl" then
@@ -1755,8 +1766,8 @@ local function main()
         local arguments = ARGUMENTS[label:match("^(%w+)")]
         defer(
             phase,
-            (
-                SETUP[label:match("^(%w+)")] or ""
+            setupFor(
+                label:match("^(%w+)")
             ) .. (
                 environment or GUEST_ENV
             ) .. (
@@ -1780,8 +1791,8 @@ local function main()
         if QUICK or HEAVY[label:match("^(%w+)")] then
             return
         end
-        local env = (
-            SETUP[label:match("^(%w+)")] or ""
+        local env = setupFor(
+            label:match("^(%w+)")
         ) .. GUEST_ENV .. (
             "CORE_TEST_BUNDLE=%s CORE_TEST_INPUT=%s CORE_TEST_HIGH_WATER=%d "
         ):format(quote(bundle), quote(input), highWater)
@@ -1904,8 +1915,8 @@ local function main()
                     write(output, sentinel)
                     defer(
                         "bridge raise",
-                        (
-                            SETUP[name] or ""
+                        setupFor(
+                            name
                         ) .. GUEST_ENV .. (
                             "%s %s %s %s %s"
                         ):format(quote(bridge), quote(bundle), quote(run[2]), quote(output), raise[1]),
@@ -1937,8 +1948,8 @@ local function main()
                     write(output, sentinel)
                     defer(
                         "bridge exit",
-                        (
-                            SETUP[name] or ""
+                        setupFor(
+                            name
                         ) .. GUEST_ENV .. (
                             "%s %s %s %s"
                         ):format(
