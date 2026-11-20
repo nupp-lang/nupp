@@ -48,14 +48,16 @@ const DEFAULT_SHARDS = 1
 const MODES = {"normal", "spill"}
 -- Owner given to a row nothing has been decided for: --ci fails on it.
 const UNOWNED = "unowned"
--- Hosts a target triple runs on, as uname names them.
+-- Hosts a target triple runs on, as scripts/host-machine names them, with
+-- a Windows shell's MINGW or MSYS name as Windows.
 const TARGETS: {
     [string]: {string}
 } = {
     ["aarch64-apple-darwin"] = {"Darwin", "arm64"},
     ["x86_64-apple-darwin"] = {"Darwin", "x86_64"},
     ["aarch64-unknown-linux-gnu"] = {"Linux", "aarch64"},
-    ["x86_64-unknown-linux-gnu"] = {"Linux", "x86_64"}
+    ["x86_64-unknown-linux-gnu"] = {"Linux", "x86_64"},
+    ["aarch64-pc-windows-gnullvm"] = {"Windows", "aarch64"}
 }
 -- The harnesses' inner-loop shortcuts: each leaves checks out, so none may
 -- reach a run whose result is acceptance.
@@ -236,9 +238,13 @@ if options.target ~= nil then
     if host == nil then
         fail("unknown target " .. triple)
     end
-    local _, system = capture("uname -s")
-    local _, machine = capture("uname -m")
-    system, machine = (system:gsub("%s+$", "")), (machine:gsub("%s+$", ""))
+    -- An emulated Windows shell's uname answers x86_64 on an ARM64 machine.
+    local _, named = capture("sh " .. quote(ROOT .. "/scripts/host-machine"))
+    local system, machine = (named:gsub("%s+$", "")):match("^([^:]*):(.*)$")
+    system, machine = system or "", machine or ""
+    if system:match("^MINGW") or system:match("^MSYS") then
+        system = "Windows"
+    end
     if system ~= host[1] or machine ~= host[2] then
         fail(("target %s does not run on this %s %s host"):format(triple, system, machine))
     end

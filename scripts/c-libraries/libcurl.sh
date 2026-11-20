@@ -9,6 +9,10 @@ case "$SYSTEM" in
     linux) zLibrary="$zlib/lib/libz.so"; sslLibrary="$openssl/lib/libssl.so"; cryptoLibrary="$openssl/lib/libcrypto.so" ;;
     windows) zLibrary="$zlib/lib/libz.lib"; sslLibrary="$openssl/lib/libssl.lib"; cryptoLibrary="$openssl/lib/libcrypto.lib" ;;
 esac
+# LLVM MinGW links each DLL through its .dll.a import library.
+if [ "$TARGET" = aarch64-pc-windows-gnullvm ]; then
+    zLibrary="$zlib/lib/libz.dll.a"; sslLibrary="$openssl/lib/libssl.dll.a"; cryptoLibrary="$openssl/lib/libcrypto.dll.a"
+fi
 for dependency in "$zLibrary" "$sslLibrary" "$cryptoLibrary"; do
     [ -f "$dependency" ] || die "missing exact dependency library: $dependency"
 done
@@ -17,10 +21,11 @@ if [ "$SYSTEM" = darwin ]; then
     apple_sectrust=-DUSE_APPLE_SECTRUST=ON
 fi
 set --
-if [ "$TARGET" = x86_64-pc-windows-msvc ]; then
+case "$TARGET" in
     # The generator defaults to the OS architecture, even under vcvars64.
-    set -- -G "Visual Studio 17 2022" -A x64
-fi
+    x86_64-pc-windows-msvc) set -- -G "Visual Studio 17 2022" -A x64 ;;
+    aarch64-pc-windows-gnullvm) set -- -G Ninja ;;
+esac
 cmake "$@" -S "$source" -B "$staged/build" -DCMAKE_BUILD_TYPE=Release -DCMAKE_C_COMPILER="$CC" \
     -DCMAKE_OSX_ARCHITECTURES="$architecture" \
     -DCMAKE_INSTALL_PREFIX="$install" -DCMAKE_INSTALL_LIBDIR=lib -DCMAKE_INSTALL_NAME_DIR=@rpath \

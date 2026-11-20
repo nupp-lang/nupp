@@ -3,7 +3,7 @@ architecture=''
 case "$TARGET" in aarch64-apple-darwin) architecture=arm64 ;; x86_64-apple-darwin) architecture=x86_64 ;; esac
 set --
 case "$TARGET" in
-    x86_64-pc-windows-gnu) set -- -G Ninja ;;
+    x86_64-pc-windows-gnu | aarch64-pc-windows-gnullvm) set -- -G Ninja ;;
     x86_64-pc-windows-msvc) set -- -G "Visual Studio 17 2022" -A x64 ;;
 esac
 cmake "$@" -S "$source" -B "$staged/build" -DCMAKE_BUILD_TYPE=Release -DCMAKE_C_COMPILER="$CC" \

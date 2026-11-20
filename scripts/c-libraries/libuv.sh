@@ -2,13 +2,16 @@
 architecture=''
 case "$TARGET" in aarch64-apple-darwin) architecture=arm64 ;; x86_64-apple-darwin) architecture=x86_64 ;; esac
 set --
-if [ "$TARGET" = x86_64-pc-windows-msvc ]; then
+if [ "$SYSTEM" = windows ]; then
     # Attach Nupp's owned Job Object at child creation. Assigning it after
     # uv_spawn returns would allow the child to start a detached descendant.
     patch -d "$source" -p1 < "$ROOT/scripts/c-libraries/libuv-win64-job.patch" >&2
-    # The generator defaults to the OS architecture, even under vcvars64.
-    set -- -G "Visual Studio 17 2022" -A x64
 fi
+case "$TARGET" in
+    # The generator defaults to the OS architecture, even under vcvars64.
+    x86_64-pc-windows-msvc) set -- -G "Visual Studio 17 2022" -A x64 ;;
+    aarch64-pc-windows-gnullvm) set -- -G Ninja ;;
+esac
 cmake "$@" -S "$source" -B "$staged/build" -DCMAKE_BUILD_TYPE=Release -DCMAKE_C_COMPILER="$CC" \
     -DCMAKE_OSX_ARCHITECTURES="$architecture" \
     -DCMAKE_INSTALL_PREFIX="$install" -DCMAKE_INSTALL_LIBDIR=lib -DCMAKE_INSTALL_NAME_DIR=@rpath \

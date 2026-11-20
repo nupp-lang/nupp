@@ -18,12 +18,20 @@ case "${NUPP_HOST_OFFLINE:-}" in
     ''|0|false|no|off|FALSE|NO|OFF) OFFLINE=0 ;;
     *) die 'invalid NUPP_HOST_OFFLINE' ;;
 esac
-case "$(uname -s):$(uname -m)" in
+case "$(sh "$ROOT/scripts/host-machine")" in
     Darwin:arm64) TARGET=aarch64-apple-darwin; SYSTEM=darwin ;;
     Darwin:x86_64) TARGET=x86_64-apple-darwin; SYSTEM=darwin ;;
     Linux:x86_64) TARGET=x86_64-unknown-linux-gnu; SYSTEM=linux ;;
     Linux:aarch64|Linux:arm64) TARGET=aarch64-unknown-linux-gnu; SYSTEM=linux ;;
     MINGW*:x86_64|MSYS*:x86_64) TARGET=x86_64-pc-windows-msvc; SYSTEM=windows ;;
+    # An x64 target asked for explicitly on Windows ARM64 builds for emulation.
+    MINGW*:aarch64|MSYS*:aarch64)
+        SYSTEM=windows
+        case "${NUPP_NATIVE_TARGET:-}" in
+            x86_64-pc-windows-*) TARGET=x86_64-pc-windows-msvc ;;
+            *) TARGET=aarch64-pc-windows-gnullvm ;;
+        esac
+        ;;
     *) die 'no supported native C-library target for this host' ;;
 esac
 # A launcher's environment is not a build input. Xcode's python3 exports its
@@ -40,14 +48,31 @@ if [ "$SYSTEM" = darwin ] && [ -n "${SDKROOT:-}" ]; then
     fi
 fi
 CC=${NUPP_CC:-cc}
-if [ "$SYSTEM" = windows ]; then CC=${NUPP_CC:-cl}; fi
+if [ "$TARGET" = x86_64-pc-windows-msvc ]; then CC=${NUPP_CC:-cl}; fi
+# Windows ARM64 builds with an LLVM MinGW toolchain targeting the UCRT, such
+# as MSYS2's clangarm64 environment: native ARM64 clang, cmake and ninja.
+if [ "$TARGET" = aarch64-pc-windows-gnullvm ]; then
+    CC=${NUPP_CC:-clang}
+    case "$("$CC" -dumpmachine 2>/dev/null)" in
+        aarch64-w64-windows-gnu | aarch64-w64-mingw32) ;;
+        *) die 'Windows ARM64 needs an LLVM MinGW clang targeting aarch64-w64-windows-gnu' ;;
+    esac
+fi
+# Autotools and OpenSSL's Configure need a POSIX perl and make, which Git Bash
+# lacks. On Windows ARM64 they run in MSYS2's own shell, in its clangarm64
+# environment, where /c names C: as it does here. NUPP_MSYS2_ROOT names MSYS2.
+msys2() {
+    root=${NUPP_MSYS2_ROOT:-/c/msys64}
+    [ -x "$root/usr/bin/bash.exe" ] || die "MSYS2 is required at $root (NUPP_MSYS2_ROOT)"
+    MSYSTEM=CLANGARM64 CHERE_INVOKING=1 MSYS2_PATH_TYPE=minimal "$root/usr/bin/bash.exe" -lc "$1"
+}
 # The VM's ISA-L and zlib and checkout docs' Markdown can be provisioned with
 # MinGW. The C SDK lane uses MSVC.
 if [ "$SYSTEM" = windows ] && [ "${NUPP_NATIVE_TARGET:-}" = x86_64-pc-windows-gnu ]; then
     CC=${NUPP_CC:-gcc}
     case "$("$CC" -dumpmachine)" in *mingw*) ;; *) die 'Windows GNU needs a MinGW C compiler' ;; esac
 fi
-if [ "$SYSTEM" = windows ] && "$CC" -dumpmachine 2>/dev/null | grep -q mingw; then
+if [ "$TARGET" = x86_64-pc-windows-msvc ] && "$CC" -dumpmachine 2>/dev/null | grep -q mingw; then
     TARGET=x86_64-pc-windows-gnu
     case "$*" in isal|cmark|zlib) ;; *) die 'GNU Windows is supported here only for ISA-L, zlib and Markdown' ;; esac
 fi
@@ -117,11 +142,16 @@ build() (
             version=$LIBFFI_VERSION; sourceHash=$LIBFFI_SHA256; url=$LIBFFI_URL; asset="libffi-$version.tar.gz"; sourceName="libffi-$version"; notice=libffi-core-LICENSE.txt
             dependencies="layout=$(filehash "$ROOT/scripts/c-libraries/libffiprobe.c")"
             ;;
-        openssl) version=$OPENSSL_VERSION; sourceHash=$OPENSSL_SHA256; url=$OPENSSL_URL; asset="openssl-$version.tar.gz"; sourceName="openssl-$version"; notice=OpenSSL-LICENSE.txt ;;
+        openssl)
+            version=$OPENSSL_VERSION; sourceHash=$OPENSSL_SHA256; url=$OPENSSL_URL; asset="openssl-$version.tar.gz"; sourceName="openssl-$version"; notice=OpenSSL-LICENSE.txt
+            if [ "$TARGET" = aarch64-pc-windows-gnullvm ]; then
+                dependencies=$(filehash "$ROOT/scripts/c-libraries/opensslmingwarm64.conf")
+            fi
+            ;;
         libuv)
             version=$LIBUV_VERSION; sourceHash=$LIBUV_SHA256; url=$LIBUV_URL; asset="libuv-v$version.tar.gz"; sourceName="libuv-v$version"; notice=libuv-LICENSE.txt
             dependencies="$(filehash "$ROOT/notices/libuv-LICENSE.txt") $(filehash "$ROOT/notices/libuv-LICENSE-extra.txt")"
-            if [ "$TARGET" = x86_64-pc-windows-msvc ]; then
+            if [ "$SYSTEM" = windows ]; then
                 dependencies="$dependencies $(filehash "$ROOT/scripts/c-libraries/libuv-win64-job.patch")"
             fi
             ;;

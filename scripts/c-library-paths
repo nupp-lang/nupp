@@ -6,15 +6,27 @@ set -eu
 ROOT=$(CDPATH= cd -- "$(dirname "$0")/.." && pwd)
 case "$(uname -s)" in
     MINGW*|MSYS*)
-        # The VM is a GNU Windows program, and its C libraries are too.
-        target=${NUPP_NATIVE_TARGET:-x86_64-pc-windows-gnu}
+        # The VM is an x64 GNU Windows program, and its C libraries are too,
+        # under emulation on ARM64. The native core on Windows ARM64, which
+        # names its runtime to the compilers it starts, loads ARM64 ones.
+        target=x86_64-pc-windows-gnu
+        case "$(sh "$ROOT/scripts/host-machine")" in
+            *:aarch64)
+                if [ -n "${NUPP_CORE_RUNTIME:-}" ] || [ "$(sh "$ROOT/scripts/stage0-runtime")" = core ]; then
+                    target=aarch64-pc-windows-gnullvm
+                fi
+                ;;
+        esac
+        target=${NUPP_NATIVE_TARGET:-$target}
         zlib=$(NUPP_NATIVE_TARGET="$target" "$ROOT/scripts/toolchain" zlib)
         isal=$(NUPP_NATIVE_TARGET="$target" "$ROOT/scripts/toolchain" isal)
         # zlib's CMake names its DLL by toolchain; the artifact holds one.
         set -- "$zlib"/bin/*z*.dll
         [ "$#" -eq 1 ] || { echo "c-library-paths: expected one zlib DLL in $zlib/bin" >&2; exit 1; }
         zlib=$(cygpath -m "$1")
-        crc=$(cygpath -m "$isal/bin/libnupp_crc.dll")
+        set -- "$isal"/bin/*nupp_crc.dll
+        [ "$#" -eq 1 ] || { echo "c-library-paths: expected one CRC DLL in $isal/bin" >&2; exit 1; }
+        crc=$(cygpath -m "$1")
         ;;
     Darwin)
         zlib="$("$ROOT/scripts/toolchain" zlib)/lib/libz.dylib"

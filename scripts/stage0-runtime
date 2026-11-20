@@ -11,9 +11,10 @@
 set -eu
 ROOT=$(CDPATH= cd -- "$(dirname "$0")/.." && pwd)
 
-case "$(uname -s 2>/dev/null):$(uname -m 2>/dev/null)" in
+case "$(sh "$ROOT/scripts/host-machine")" in
     Darwin:arm64) host=aarch64-apple-darwin ;;
     Linux:aarch64 | Linux:arm64) host=aarch64-unknown-linux-gnu ;;
+    MINGW*:aarch64 | MSYS*:aarch64) host=aarch64-pc-windows-gnullvm ;;
     *) host=unsupported ;;
 esac
 if [ "${1:-}" = --host ]; then

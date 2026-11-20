@@ -1,0 +1,30 @@
+#!/bin/sh
+# Prints the host's native `uname -s:uname -m` pair, for the scripts that
+# select a native target by it.
+#
+#   scripts/host-machine     Darwin:arm64, Linux:aarch64, MINGW64_NT-...:aarch64
+#
+# Windows on ARM64 runs Git Bash and MSYS as x64 programs under emulation, and
+# there `uname -m` answers x86_64 and PROCESSOR_ARCHITECTURE answers AMD64.
+# The processor identifier and the system environment's architecture name the
+# machine itself, so a Windows ARM64 host is reported as aarch64 even from an
+# emulated shell. Everywhere else this is `uname` unchanged.
+set -eu
+system=$(uname -s 2>/dev/null || echo unknown)
+machine=$(uname -m 2>/dev/null || echo unknown)
+case "$system" in
+    MINGW* | MSYS* | CYGWIN*)
+        case "${PROCESSOR_IDENTIFIER:-}:${PROCESSOR_ARCHITEW6432:-}:${PROCESSOR_ARCHITECTURE:-}" in
+            ARMv8* | ARM64* | *:ARM64:* | *:ARM64) machine=aarch64 ;;
+            *)
+                key='HKLM\SYSTEM\CurrentControlSet\Control\Session Manager\Environment'
+                if command -v reg > /dev/null 2>&1 \
+                    && MSYS2_ARG_CONV_EXCL='*' reg query "$key" /v PROCESSOR_ARCHITECTURE 2> /dev/null \
+                    | grep -q 'ARM64'; then
+                    machine=aarch64
+                fi
+                ;;
+        esac
+        ;;
+esac
+printf '%s:%s\n' "$system" "$machine"
