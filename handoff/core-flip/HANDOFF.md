@@ -1,5 +1,8 @@
 # Handoff: getting nupp off the Rust VM (core-dev), 2026-11-19
 
+Start with [the November 20 continuation](CONTINUE.md) for the current Git
+branches, exact validation state, and commands for a machine without bigbertha.
+
 Read this first, then the lane files beside it. Repository: nupp-lang/nupp,
 trunk branch `core-dev`. Plans: ~/projects/nupp-planning (Avoozl workspace,
 branch avoozl-plans). Follow AGENTS.md in each repo.
