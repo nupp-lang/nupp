@@ -65,6 +65,23 @@ export function storageget(ctx: voidptr, subject: uint64, key: uint64): uint64
     end
 end
 
+-- A C pointer is stored as its address. The checked borrow keeps its backing
+-- storage alive while the pointer is in use.
+local function pointerbits(ctx: voidptr, value: uint64): uint64
+    if corestorage.isstorage(value) then
+        local source = value & values.PAYLOAD
+        if not corestorage.readable(source, 0ULL, 0ULL) then
+            error("nupp: stale or closed storage for a C pointer field")
+        end
+
+        return corestorage.storagebase(source)
+    elseif value == values.NIL then
+        return 0ULL
+    end
+
+    return native.word(guestvalues.intarg(ctx, value, 0, 2ULL))
+end
+
 -- storage[key] = value for SetIdx: 0, or 1 once an error is raised. A float
 -- stored as an integer kind is truncated toward zero, as C converts one.
 export function storageset(ctx: voidptr, subject: uint64, key: uint64, value: uint64): uint64
@@ -77,6 +94,9 @@ export function storageset(ctx: voidptr, subject: uint64, key: uint64, value: ui
         return 1ULL
     end
     local kind = corestorage.elementkind(object)
+    if kind == corestorage.POINTER then
+        return corestorage.writeelement(object, index, pointerbits(ctx, value))
+    end
     local floating = kind == corestorage.FLOAT32 or kind == corestorage.FLOAT64
     local bits: uint64 = 0ULL
     if ints.isInteger(value) then
@@ -135,7 +155,7 @@ end
 -- New zeroed storage of `n` elements of `kind`, an integer value.
 export function allocate(ctx: voidptr, kind: uint64, n: uint64): uint64
     local code = corestorage.elementwidth(ints.bitsOf(kind))
-    if not ints.isInteger(kind) or code == 0ULL then
+    if not ints.isInteger(kind) or code == 0ULL or ints.bitsOf(kind) == corestorage.POINTER then
         texts.argumentError(ctx, 1ULL, librarytexts.TEXT_NUMBER, 0ULL, kind)
     end
     if not ints.isInteger(n) or native.index(ints.bitsOf(n)) < 0 then
@@ -165,16 +185,7 @@ end
 -- storage alive for the foreign code that reads the field.
 export function storePointer(ctx: voidptr, destination: uint64, value: uint64): uint64
     local cell = storageargument(ctx, destination, 1ULL)
-    local address: uint64 = 0ULL
-    if corestorage.isstorage(value) then
-        local source = value & values.PAYLOAD
-        if not corestorage.readable(source, 0ULL, 0ULL) then
-            error("nupp: stale or closed storage for a C pointer field")
-        end
-        address = corestorage.storagebase(source)
-    elseif value ~= values.NIL then
-        address = native.word(guestvalues.intarg(ctx, value, 0, 2ULL))
-    end
+    local address = pointerbits(ctx, value)
     if corestorage.elementkind(cell) ~= corestorage.UINT64 or corestorage.writeelement(cell, 0ULL, address) ~= 0ULL then
         error("nupp: a C pointer field needs a writable address slot")
     end
@@ -228,7 +239,7 @@ export function storagecall(ctx: voidptr, id: uint64, n: uint64, a: uint64, b: u
                 kind = ints.bitsOf(b)
             end
             local width = corestorage.elementwidth(kind)
-            if width == 0ULL then
+            if width == 0ULL or kind == corestorage.POINTER and id ~= librarycalls.STORAGE_VIEW then
                 texts.argumentError(ctx, 2ULL, librarytexts.TEXT_NUMBER, 0ULL, b)
             end
             local offset: uint64 = 0ULL

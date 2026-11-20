@@ -8,6 +8,8 @@ module nupp.runtime.provider.corederive
 -- factories, each handed the recipe data main renders.
 
 const derive = require("nupp.derive")
+const storage = require("nupp.runtime.storagecalls")
+const heap = require("nupp.runtime.provider.heapstorage")
 
 -- The registry main reaches through `_G.nupp.__derive`, installed on a table
 -- of this module's own so no global is needed.
@@ -75,9 +77,74 @@ export function member(entry: any, spec: any): any
     end
 end
 
+const signedKind: {[integer]: string} = {[4] = "int32", [8] = "int64"}
+const unsignedKind: {[integer]: string} = {[1] = "uint8", [2] = "uint16", [4] = "uint32", [8] = "uint64"}
+-- The core's storage view for C pointers. Assigning to it stores the address
+-- of a borrowed value, or a zero address for nil.
+const POINTER_VIEW = 12
+
+local function structInitializer(layout: any, spec: any): any
+    assert(layout.supported, layout.error)
+    local byName: {[string]: any} = {}
+    for _, field in ipairs(layout.fields) do
+        byName[field.name] = field
+    end
+    local fields: {any} = {}
+    for index, name in ipairs(spec.fields) do
+        local field = assert(byName[name], "derived initializer has no layout for field " .. name)
+        local kind = field.kind
+        local composite = kind == "array" or kind == "struct" or kind == "union" or kind == "vector"
+        local scalar: string
+        if composite or kind == "boolean" then
+            scalar = "uint8"
+        elseif field.bitWidth ~= nil or kind == "pointer" then
+            scalar = assert(unsignedKind[field.size], "unsupported derived struct field width")
+        elseif kind == "integer" then
+            scalar = assert(signedKind[field.size], "unsupported derived struct integer width")
+        else
+            scalar = kind
+        end
+        local storageKind = kind == "pointer" and POINTER_VIEW or heap.scalar(scalar).kind
+        fields[index] = {field = field, storageKind = storageKind, composite = composite}
+    end
+
+    return function(self: any, ...: any): any
+        local given: any = {...}
+        for index, entry in ipairs(fields) do
+            local field = entry.field
+            local value = given[index]
+            if value == nil and spec.defaulted[index] then
+                value = copy(spec.defaults[index])
+            end
+            if field.kind == "boolean" then
+                value = value and 1 or 0
+            end
+            if field.bitWidth ~= nil then
+                local cell = storage.view(self, entry.storageKind, field.offset, 1)
+                local shift = field.bitOffset as uint64
+                local mask = 0xffffffffffffffffULL >> ((64 - field.bitWidth) as uint64)
+                local original = cell[0] as uint64
+                cell[0] = (original & ~(mask << shift)) | (((value as uint64) & mask) << shift)
+            elseif entry.composite then
+                local bytes = storage.view(self, entry.storageKind, field.offset, field.size)
+                storage.copy(bytes, value, field.size)
+            else
+                local cell = storage.view(self, entry.storageKind, field.offset, 1)
+                cell[0] = value
+            end
+        end
+
+        return self
+    end
+end
+
 --- Returns an initializer for existing storage. It fills the fields from
 --- arguments or applies defaults and runs the constructor.
 export function initializer(owner: any, spec: any): any
+    local layout = owner["\0nupp:structLayout"]
+    if layout then
+        return structInitializer(layout, spec)
+    end
     if spec.constructor ~= nil then
         local constructor = assert(owner[spec.constructor], "derived constructor is missing")
         return function(self: any, ...: any): any

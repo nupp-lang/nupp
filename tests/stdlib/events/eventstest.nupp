@@ -57,6 +57,16 @@ local struct Contact
     impulse: float32
 end
 
+local struct PointerTarget
+    value: uint64
+end
+
+@derive(events.event)
+local struct PointerEvent
+    id: int32
+    target: PointerTarget*?
+end
+
 --- An allocator that counts what the bus asks of it, over a pool of its own.
 local record Counting is events.Allocator<Damage>
     inner: Pool<Damage>
@@ -1041,6 +1051,22 @@ function M.structRowsReadAsZeroWhenLeasedAndAreDeliveredAsStructReferences(): ni
     test.eq(rows.seenImpulse[3], 0)
     test.eq(seen[3], "9.0 12.0 0.75")
     test.eq(rows.inner:live(), 0)
+end
+
+function M.structEventsStoreBorrowedAndNullPointers(): nil
+    local bus = newBus()
+    local seen = 0
+    bus:observe(0, PointerEvent, |event| -> do
+        test.eq(event.id, seen + 1)
+        test.eq(event.target ~= nil, seen == 1)
+        seen = seen + 1
+    end)
+    local target = PointerTarget(13)
+    bus:emit(0, PointerEvent, 1, nil)
+    bus:emit(0, PointerEvent, 2, target)
+    bus:emit(0, PointerEvent, 3, nil)
+    test.eq(seen, 3)
+    test.eq(target.value, 13)
 end
 
 function M.defaultArenasRewindWhenTheOutermostDeliveryLeaves(): nil

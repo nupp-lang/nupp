@@ -124,6 +124,7 @@ export const UINT64: uint64 = 7ULL
 export const INT64: uint64 = 8ULL
 export const FLOAT32: uint64 = 9ULL
 export const FLOAT64: uint64 = 10ULL
+export const POINTER: uint64 = 12ULL
 
 -- An element's bytes, or 0 for no kind.
 export function elementwidth(kind: uint64): uint64
@@ -133,7 +134,7 @@ export function elementwidth(kind: uint64): uint64
         return 2ULL
     elseif kind == UINT32 or kind == INT32 or kind == FLOAT32 then
         return 4ULL
-    elseif kind == UINT64 or kind == INT64 or kind == FLOAT64 then
+    elseif kind == UINT64 or kind == INT64 or kind == FLOAT64 or kind == POINTER then
         return 8ULL
     end
 
