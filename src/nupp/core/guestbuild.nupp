@@ -976,8 +976,14 @@ local function portable(root: string, library: string, seen: {[string]: boolean}
     return true
 end
 
+-- Whether `path` names a file from the root of a file system, Windows' drive
+-- letters included.
+local function rooted(path: string): boolean
+    return path:sub(1, 1) == "/" or path:match("^%a:[/\\]") ~= nil
+end
+
 local function modulePath(root: string, name: string): string
-    if name:sub(1, 1) == "/" then
+    if rooted(name) then
         return (name:sub(-4) == ".lua" or name:sub(-5) == ".nupp") and name or name .. ".nupp"
     elseif name:sub(-4) == ".lua" then
         return root .. "/" .. name
@@ -1056,14 +1062,11 @@ local single = false
 -- machine by scripts/toolchain, or nil when it cannot be: the crypto codec
 -- binds it, and finds it here unless NUPP_CRYPTO_LIBRARY names one.
 local function opensslLibraries(root: string): string?
-    local popen: any = io.popen
-    local pipe = popen("sh '" .. root:gsub("'", "'\\''") .. "/scripts/toolchain' openssl 2>/dev/null")
-    if pipe == nil then
-        return nil
-    end
-    local output = tostring(pipe:read("a") or "")
-    local ok = pipe:close()
-    local found = output:match("([^\r\n]+)%s*$")
+    -- Asked without a shell, which on Windows is cmd.
+    local process: any = require("nupp.compiler.process")
+    local status, output = process.capture({"sh", root .. "/scripts/toolchain", "openssl"}, {cwd = root})
+    local ok = status == 0
+    local found = tostring(output or ""):match("([^\r\n]+)%s*$")
     if not ok or found == nil then
         return nil
     end
@@ -1766,7 +1769,8 @@ export function declareProgram(fixture: string): string
     if module ~= nil and fixture ~= canonical and fixture ~= (canonical as string) .. "/init" then
         staged = PROGRAM_STAGE .. "/" .. (module as string):gsub("%.", "/")
         local directory = (root .. "/" .. staged):match("^(.*)/[^/]+$") as string
-        assert(os.execute("mkdir -p '" .. directory:gsub("'", "'\\''") .. "'"), "cannot create " .. directory)
+        local mkdir: any = (os as any).mkdir
+        assert(mkdir(directory), "cannot create " .. directory)
         local file = assert(io.open(root .. "/" .. staged .. NUPP_SUFFIX, "wb"), "cannot stage " .. fixture)
         file:write(source)
         file:close()
@@ -1846,7 +1850,7 @@ export function guest(caseName: string, mode: string, cacheDirectory: string?, a
     local began = os.clock()
     -- Refuse invalid guest source before preparing the native runtime.
     -- Keyed by the entry's text too: a generated case may be rewritten.
-    local fixturePath = (case.fixture as string):sub(1, 1) == "/" and case.fixture .. ".nupp"
+    local fixturePath = rooted(case.fixture as string) and case.fixture .. ".nupp"
         or assert(os.getenv("NUPP_COMPILER_ROOT")) .. "/tests/core/" .. case.fixture .. ".nupp"
     local key = caseName .. "\0" .. read(fixturePath)
     local cached = programs[key]

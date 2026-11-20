@@ -389,11 +389,18 @@ end
 --- and the lowering spells a relative source against `PWD`, which may be the
 --- logical spelling of a directory the filesystem names physically (`/var`
 --- and `/private/var` on macOS), so the project is tried under both.
+-- Whether `path` names a file from the root of a file system, Windows' drive
+-- letters included.
+local function rooted(path: string): boolean
+    return path:sub(1, 1) == "/" or path:match("^%a:[/\\]") ~= nil
+end
+
 local function programPath(root: string, compilerRoot: string, path: string): string
     local bases = {fs.absolute(root)}
     local pwd = os.getenv("PWD")
-    if pwd ~= nil and pwd ~= "" and root:sub(1, 1) ~= "/" then
-        bases[#bases + 1] = fs.absolute(fs.join(pwd, root))
+    if pwd ~= nil and pwd ~= "" and not rooted(root) then
+        -- A Windows shell's PWD spells its drive /c/.
+        bases[#bases + 1] = fs.absolute(fs.join(fs.fromShell(pwd as string), root))
     end
     bases[#bases + 1] = fs.absolute(compilerRoot)
     for _, base in ipairs(bases) do
@@ -461,9 +468,7 @@ function project.program(
         local path = type(record) == "table" and (record as any).sourcePath or nil
         local own = type(path) == "string"
             and (
-                (record as any).rock == true
-                or (path as string):sub(1, #prefix) == prefix
-                or (path as string):sub(1, 1) ~= "/"
+                (record as any).rock == true or (path as string):sub(1, #prefix) == prefix or not rooted(path as string)
             )
         if own and name ~= entry then
             names[#names + 1] = name

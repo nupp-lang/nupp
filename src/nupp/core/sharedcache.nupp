@@ -28,13 +28,18 @@ export function home(): string
     return assert(os.getenv("HOME"), "set HOME or NUPP_CACHE_HOME") .. DEFAULT_HOME
 end
 
+-- The VM sets package.config from its build target; OS is the backstop.
+-- Windows' shell is cmd, so the store asks the shell nothing there.
+local windows = package.config:sub(1, 1) == "\\" or os.getenv("OS") == "Windows_NT"
+
 local made: {[string]: boolean} = {}
 
 -- The directory the store keeps entries of `kind` in, made on first use.
 export function directory(kind: string): string
     local path = home() .. "/" .. kind
     if not made[path] then
-        os.execute("mkdir -p " .. quote(path))
+        local mkdir: any = (os as any).mkdir
+        mkdir(path)
         made[path] = true
     end
 
@@ -62,13 +67,11 @@ local written = 0
 -- checkouts.
 local function unique(): string
     if prefix == nil then
-        local pipe = io.popen(("od -An -N%d -tx1 /dev/urandom 2>/dev/null"):format(UNIQUE_BYTES))
-        local drawn = ""
-        if pipe then
-            drawn = pipe:read("*a") or ""
-            pipe:close()
-        end
-        drawn = drawn:gsub("%s", "")
+        local random: any = (os as any).randombytes
+        local ok, bytes = pcall(random, UNIQUE_BYTES)
+        local drawn = ok and type(bytes) == "string" and (bytes as string):gsub(".", function(c: string): string
+            return ("%02x"):format(c:byte())
+        end) or ""
         prefix = #drawn == UNIQUE_BYTES * 2 and drawn or tostring(os.time()) .. tostring({}):gsub("%W", "")
     end
     written = written + 1
@@ -99,7 +102,9 @@ end
 -- process: reading one does not reliably move its access time, and the sweep
 -- removes the least recently used first.
 export function touch(dir: string, names: {string}): nil
-    if #names == 0 then
+    -- shortcut: Windows' cmd runs nothing in the background, so its store
+    -- keeps no recency and is not swept.
+    if #names == 0 or windows then
         return
     end
     local list = dir .. "/.part-" .. unique()
@@ -119,11 +124,11 @@ end
 -- Starts a sweep of the store in the background when one is due, so it
 -- stays under its size limit without anyone running one.
 export function sweep(root: string): nil
+    if windows then
+        return
+    end
     os.execute(quote(root .. "/scripts/shared-cache") .. " sweep --if-due > /dev/null 2>&1 &")
 end
-
--- The VM sets package.config from its build target; OS is the backstop.
-local windows = package.config:sub(1, 1) == "\\" or os.getenv("OS") == "Windows_NT"
 
 -- Longest argument list handed to one `git hash-object`, well under the
 -- 32767 characters Windows lets a command line reach.

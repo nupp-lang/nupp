@@ -176,7 +176,8 @@ export function select(
     local modules = moduleDigests(paths)
     local codes, keys = {}, {}
     if cacheDirectory then
-        os.execute("mkdir -p '" .. cacheDirectory .. "'")
+        local mkdir: any = (os as any).mkdir
+        mkdir(cacheDirectory)
     end
     local used: {string} = {}
     for name, owner in pairs(byName) do
