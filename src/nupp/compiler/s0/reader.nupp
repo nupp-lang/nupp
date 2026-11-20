@@ -2,6 +2,7 @@ module nupp.compiler.s0.reader
 
 local ir = require("nupp.compiler.s0.ir")
 local literal = require("nupp.compiler.s0.literal")
+local floatparts = require("nupp.compiler.floatparts")
 local reader = {}
 
 local function trim(text: string): string
@@ -94,7 +95,7 @@ local function floatBits(text: string, kind: integer): integer
     if value == 0 then
         return sign
     end
-    local mantissa, exponent = math.frexp(value)
+    local mantissa, exponent = floatparts.frexp(value)
     local encodedExponent: integer = exponent + bias - 1
     local scaled: float64
     if encodedExponent <= 0 then

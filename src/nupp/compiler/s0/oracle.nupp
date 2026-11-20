@@ -1,6 +1,7 @@
 module nupp.compiler.s0.oracle
 
 local ir = require("nupp.compiler.s0.ir")
+local floatparts = require("nupp.compiler.floatparts")
 local oracle = {}
 oracle.OK, oracle.TRAP, oracle.DIVZERO, oracle.OVERFLOW = 0, 1, 2, 3
 oracle.BOUNDS, oracle.FUEL, oracle.UNSUPPORTED, oracle.INVALID = 4, 5, 6, 7
@@ -67,10 +68,9 @@ function oracle.decode(word: integer, kind: integer): float64
     if exponent == bias * 2 + 1 then
         value = fraction == 0 and math.huge or 0.0 / 0.0
     else
-        value = math.ldexp(
-            (fraction + (exponent == 0 and 0 or 1 << bits)) as float64,
-            (exponent == 0 and 1 or exponent) - bias - bits
-        )
+        local significand = fraction + (exponent == 0 and 0 or 1 << bits)
+        local scale = (exponent == 0 and 1 or exponent) - bias - bits
+        value = significand * 2.0 ^ scale
     end
 
     return negative and -value or value
@@ -93,9 +93,10 @@ function oracle.encode(value: float64, kind: integer): integer
     if value == 0 then
         return sign
     end
-    local mantissa, exponent = math.frexp(value)
+    local mantissa, exponent = floatparts.frexp(value)
     local encoded: integer = exponent + bias - 1
-    local scaled: float64 = math.ldexp(mantissa, encoded <= 0 and exponent + bias + bits - 1 or bits + 1)
+    local scale = encoded <= 0 and exponent + bias + bits - 1 or bits + 1
+    local scaled: float64 = mantissa * 2.0 ^ scale
     local whole: int64 = math.floor(scaled) as int64
     local fraction = scaled - whole
     if fraction > 0.5 or fraction == 0.5 and (whole & 1) ~= 0 then
