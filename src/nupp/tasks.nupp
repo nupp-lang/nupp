@@ -2321,6 +2321,10 @@ tasks.race = race
 --- worker tasks holding a slot. `workers` is what the worker scope still keeps,
 --- where one was opened. Not part of the checked surface.
 local function lifecycle(scope: any): {[string]: integer}
+    local native = scope.__lifecycle
+    if native ~= nil then
+        return native(scope)
+    end
     const owner = state(scope)
     local listed: integer = 0
     local child = owner.first as Child?

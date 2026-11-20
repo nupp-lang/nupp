@@ -78,10 +78,11 @@ end
 -- The run queue and the timers
 ----------------------------------------------------------------------------
 
--- The tasks that may run, oldest first, from `head` to `tail`.
-local queue: {any} = {}
-local head: integer = 1
-local tail: integer = 0
+-- The tasks that may run, oldest first. A cancellation can remove a task
+-- that never started without keeping it until the driver next runs.
+local firstReady: any = nil
+local lastReady: any = nil
+local readyCount: integer = 0
 
 -- The deadline heap: entries ordered by `at`, then by `seq`.
 local timers: {any} = {}
@@ -142,8 +143,35 @@ local function enqueue(record: any, value: any): nil
     end
     record.queued = true
     record.wake = value
-    tail = tail + 1
-    queue[tail] = record
+    record.previousReady = lastReady
+    if lastReady == nil then
+        firstReady = record
+    else
+        lastReady.nextReady = record
+    end
+    lastReady = record
+    readyCount = readyCount + 1
+end
+
+local function removeReady(record: any): nil
+    if not record.queued then
+        return
+    end
+    local before, after = record.previousReady, record.nextReady
+    if before == nil then
+        firstReady = after
+    else
+        before.nextReady = after
+    end
+    if after == nil then
+        lastReady = before
+    else
+        after.previousReady = before
+    end
+    record.previousReady = nil
+    record.nextReady = nil
+    record.queued = false
+    readyCount = readyCount - 1
 end
 
 -- A waiter: a parked task's record and the ticket its park holds, or the
@@ -248,12 +276,8 @@ end
 local runone: function(any): nil
 
 local function runReady(): nil
-    local record = queue[head]
-    queue[head] = nil
-    head = head + 1
-    if head > tail then
-        head, tail = 1, 0
-    end
+    local record = firstReady
+    removeReady(record)
     runone(record)
 end
 
@@ -276,10 +300,10 @@ end
 -- due. Raises when nothing could ever wake the caller.
 local function step(): nil
     local poll = ownerWait
-    if head <= tail and poll ~= nil and ownerWork() then
+    if readyCount > 0 and poll ~= nil and ownerWork() then
         ownerTurn(poll, calls.now() as number)
     end
-    if head <= tail then
+    if readyCount > 0 then
         runReady()
         return
     end
@@ -287,7 +311,7 @@ local function step(): nil
     local polling = #suspended > 0 or nativeTimers.hasPending()
     if polling then
         suspension.poll()
-        if head <= tail then
+        if readyCount > 0 then
             return
         end
     end
@@ -407,7 +431,7 @@ local function hostPark(operation: string, box: any): nil
             end
             discardStaleTimers()
             fireDueTimers(calls.now() as number)
-            if box.done or head <= tail then
+            if box.done or readyCount > 0 then
                 signalled = true
                 resume(true)
                 return 1
@@ -425,7 +449,7 @@ local function drive(box: any, operation: string): nil
     while not box.done do
         if not suspension.handled() then
             step()
-        elseif head > tail then
+        elseif readyCount == 0 then
             hostPark(operation, box)
         elseif suspensionHost.turnAvailable() then
             suspensionHost.consumeTurn()
@@ -638,6 +662,8 @@ local function ownfailure(scope: any, problem: any): nil
 end
 
 local function settle(record: any, status: string, value: any): nil
+    removeReady(record)
+    record.wake = nil
     record.status = status
     if status == "done" then
         record.results = value
@@ -683,7 +709,6 @@ local function releaseFamily(branches: {function(): any}): (boolean, any)
 end
 
 runone = function(record: any): nil
-    record.queued = false
     local value = record.wake
     record.wake = nil
     if final(record.status) then
@@ -919,6 +944,17 @@ end
 
 ScopeMethods.cancel = function(scope: any, reason: any): nil
     cancelscope(scope, reason, true)
+end
+
+ScopeMethods.__lifecycle = function(scope: any): {[string]: integer}
+    local ready: integer = 0
+    for _, child in ipairs(scope.children) do
+        if child.queued then
+            ready = ready + 1
+        end
+    end
+
+    return {live = scope.live, listed = #scope.children, queued = ready, ready = ready, forks = 0, workers = 0}
 end
 
 -- Settles the scope: every child has run, been cancelled or unwound when it
@@ -1211,13 +1247,13 @@ local function checkpoint(): nil
         if nativeTimers.hasPending() then
             suspension.poll()
         end
-        local count = tail - head + 1
+        local count = readyCount
         local poll = ownerWait
         if count == 0 and poll ~= nil and ownerWork() then
             ownerTurn(poll, calls.now() as number)
         end
         for _ = 1, count do
-            if head <= tail then
+            if readyCount > 0 then
                 step()
             end
         end
