@@ -27,7 +27,7 @@ work on every backend; struct pools require C storage.
 module nupp.util.internal.pool
 
 -- Struct pages are selected at their call site; record pools need no storage.
-const _DYNAMIC_REQUIRES = "@requires-dynamically nothing"
+const _DYNAMIC_REQUIRES = "@requires-dynamically nupp.util.internal.structpool"
 
 -- Whether a caller's count is a nonnegative integer. The value is read
 -- untyped: integer-typed arithmetic refuses a fractional or non-finite
@@ -56,12 +56,12 @@ export record Pool<T>
             error("nupp: pool size must be a nonnegative integer", 2)
         end
         local backend: any = nil
-        if type(witness) ~= "table" or rawget(witness as any, "__index") ~= witness then
-            if not isstruct(witness) then
-                error("nupp: pool expects a record or struct declaration", 2)
-            end
+        local layout = type(witness) == "table" and rawget(witness as any, "\0nupp:structLayout") or nil
+        if layout ~= nil or isstruct(witness) then
             local implementation = "nupp.util.internal.structpool"
-            backend = _G.require(implementation).new(witness)
+            backend = _G.require(implementation).new(witness, layout)
+        elseif type(witness) ~= "table" or rawget(witness as any, "__index") ~= witness then
+            error("nupp: pool expects a record or struct declaration", 2)
         end
         self.witness = witness
         self.growth = math.max(1, initial)

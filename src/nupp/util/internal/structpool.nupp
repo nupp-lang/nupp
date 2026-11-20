@@ -15,7 +15,34 @@ export interface Backend<T>
     @readonly clear: function(value: T): nil
 end
 
-export function new<T>(witness: Type<T>): Backend<T>
+local function core<T>(width: integer): Backend<T>
+    local calls = require("nupp.runtime.storagecalls")
+
+    return {
+        allocate = function(count: integer): {T}
+            assert(count <= math.floor(2147483647 / math.max(width, 1)), "nupp: struct pool page exceeds storage limit")
+            local page = calls.allocbytes(width * count)
+            local rows: {T} = {}
+            @unsafe do
+                -- Each view retains the page it addresses.
+                for offset = 0, count - 1 do
+                    rows[offset + 1] = calls.view(page, 1, offset * width, width) as T
+                end
+            end
+
+            return rows
+        end,
+        clear = function(value: T): nil
+            storage.fill(value, width, 0)
+        end,
+    }
+end
+
+export function new<T>(witness: Type<T>, layout: any?): Backend<T>
+    if layout ~= nil then
+        assert(layout.supported, layout.error)
+        return core<T>(layout.size)
+    end
     local sample = (witness as any)()
     local element = storage.descriptor(sample)
     local width = storage.sizeOf(element)
