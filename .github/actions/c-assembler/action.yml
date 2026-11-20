@@ -12,7 +12,16 @@ runs:
           Linux) sudo apt-get update && sudo apt-get install -y nasm ;;
           macOS) brew install nasm ;;
           Windows)
-            choco install nasm --no-progress -y
-            echo 'C:\Program Files\NASM' >> "$GITHUB_PATH"
+            nasm_dir='C:\Program Files\NASM'
+            export PATH="$(cygpath -u "$nasm_dir"):$PATH"
+            for attempt in 1 2 3; do
+              if nasm -v 2>/dev/null || { choco install nasm --no-progress -y && nasm -v; }; then
+                printf '%s\n' "$nasm_dir" >> "$GITHUB_PATH"
+                exit 0
+              fi
+              if [ "$attempt" -lt 3 ]; then sleep 5; fi
+            done
+            echo 'NASM is unavailable after three install attempts' >&2
+            exit 1
             ;;
         esac
