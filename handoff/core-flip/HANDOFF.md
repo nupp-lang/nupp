@@ -4,6 +4,28 @@ Read this first, then the lane files beside it. Repository: nupp-lang/nupp,
 trunk branch `core-dev`. Plans: ~/projects/nupp-planning (Avoozl workspace,
 branch avoozl-plans). Follow AGENTS.md in each repo.
 
+## Current status
+
+- macOS ARM64 remains opt-in. [The refreshed seed](https://github.com/nupp-lang/nupp/releases/tag/v0.0.15-core-seed.2)
+  passed a native fixpoint and an offline cold compiler rebuild before
+  publication. `88b088762` pins it. `b1be45bb7` preserves the bitwise
+  library-call IDs older native compilers read during bootstrap.
+- The complete macOS native shared run at `353ef09a5` passed 2,734 of
+  2,885 tests. All eight workers finished. See [core-test-path.md](core-test-path.md)
+  for the open failure groups and active worktrees.
+- Linux ARM64 built and ran the native CLI and a relocated app at
+  `2cf4b2d54`. The Linux native fixpoint at `88b088762` is in progress.
+  A Linux release seed still needs an offline cold rebuild and approval
+  to publish. Hosted compiler CI on Linux ARM64 is running.
+- The other computer owns [Windows ARM64](https://github.com/nupp-lang/nupp/issues/134).
+  The M1 laptop owns checker literal typing and collector/table-key issues.
+  libuv and curl integration landed at `8e12e2f19`.
+- [W1 #136](https://github.com/nupp-lang/nupp/issues/136) is closed.
+  Its six fixes landed in `7843ef6b8` and the exact native package passed
+  all 48 W1 suite tests. The hosted core guest inventory still needs
+  reconciliation. [The first nightly guest leg](https://github.com/nupp-lang/nupp/actions/runs/44567504364/job/135760171466)
+  also reported failures in `processlayer` and `runnerchunks`.
+
 ## November 19 resumption
 
 - Core-dev has the launcher fixture fix at `168e311d5`. The local launcher
@@ -85,11 +107,8 @@ branch avoozl-plans). Follow AGENTS.md in each repo.
   core` passes: stage 2 (the compiler running on the core) rebuilt stage 1 byte
   for byte. compiler.bundle sha256 ae1a10bbf95fb09b39234549c286a1394ccf2eca0fb8625b1eb286b6562e1d06.
   Evidence: /Volumes/bigbertha/workspaces/core-self-emit/build/core-fixpoint-run1.
-- **The core seed is published and pinned.** Release v0.0.15-core-seed.1
-  (prerelease, not latest), built from 579e7f582 (tag points there; keep the
-  `core-self-emit` branch). Pinned in scripts/toolchain.pins at bf2767e67.
-  `STAGE0_CORE_HOSTS` is still EMPTY, so nothing defaults to the core yet;
-  `NUPP_RUNTIME=core` opts a command in.
+- **The macOS ARM64 core seed is published and pinned.** `STAGE0_CORE_HOSTS`
+  is still empty. Set `NUPP_RUNTIME=core` to use the core.
 - **Every everyday command runs on the core** under `NUPP_RUNTIME=core`
   (check, build, fmt, run, test, lsp, explain, reference, init, fixpoint);
   `scripts/core-smoke` exercises them. Core-cli generations are shared across
@@ -98,33 +117,29 @@ branch avoozl-plans). Follow AGENTS.md in each repo.
   compiler change 0.2–0.4 s.
 - **Core-dev CI** was green through 99fbac815 and 4a8f4db15; check the latest
   run before trusting the tip (`gh run list -R nupp-lang/nupp -b core-dev -w compiler.yml`).
-- Off the Rust VM overall: about 60%.
 
 ## The flip (owner decision 2026-11-19)
 
 List `aarch64-apple-darwin` in `STAGE0_CORE_HOSTS` as soon as both hold:
 1. shared core-cli generations (done), and
 2. `nupp test` (including `--lane=shared`) and `nupp run` work on the core.
-The core does not need to beat the VM. Remaining work is in
-core-test-path.md. The prior shared run recorded 2181 of 2690 tests passing
-and two worker exits. The current run includes the worker and module import
-fixes. The owner's bar is "every lane can validate on the core".
+The owner's bar is "every lane can validate on the core". Remaining work is
+in [core-test-path.md](core-test-path.md).
 Per-module rebuilds and streaming emit are in incremental-emit.md.
 
 After macOS ARM64: Linux ARM64 and Windows ARM64 as fast follows; x64 only
-after an x86 encoder (x64 users stay on the last pre-flip release). Deleting
-`native/crates/vm` (82.6k lines) needs CI off the VM (see below) and the other
-machine's Rust (net, tls, http, files, process, runtime) replaced by its
-libuv/curl work.
+after an x86 encoder (x64 users stay on the last pre-flip release). Before
+deleting `native/crates/vm`, move CI, bootstrap, release packaging, and the
+remaining VM-dependent commands to the core.
 
 ## Lanes
 
 | Lane | File | State |
 |---|---|---|
-| Core test path (flip blockers) | core-test-path.md | app and test binaries verified; 506 shared failures |
-| Per-module rebuilds + streaming | incremental-emit.md | landed; verify warm rebuilds through the installed CLI |
-| W1 core inventory and failures | w1.md | retirement, checked fragments, and C bitfields landed; core interop and hosted guest checks remain |
-| CI to ARM64 | below | compiler, runner, and native gates passed; HTTP fixture failed |
+| Core test path | core-test-path.md | App and test binaries verified. Latest full shared run had 151 failures. |
+| Per-module rebuilds and streaming | incremental-emit.md | Landed. Installed launcher reused 570 of 571 pieces after an edit. |
+| W1 | w1.md | Six fixes landed and W1 passed 48/48. Nightly guest checks remain. |
+| Linux ARM64 | below | Native CLI and relocated app passed. Fixpoint, cold seed, and hosted checks remain. |
 
 ## WIP branches and kept worktrees
 
@@ -209,15 +224,12 @@ files beside it, and follow AGENTS.md.
 
 1. Rebuild the native CLI at current `core-dev` and run
    `NUPP_RUNTIME=core ./bin/nupp test --lane=shared --fresh`. Compare it
-   with the complete 2816-test run and work the remaining failures in
-   [issue #136](https://github.com/nupp-lang/nupp/issues/136). Enable
+   with the 2,885-test run in [core-test-path.md](core-test-path.md). Enable
    `aarch64-apple-darwin` in `STAGE0_CORE_HOSTS` once every validation lane
    is usable on the core.
-2. Use the full launcher rebuild times in incremental-emit.md as a local
-   comparison point for later body and interface edits.
-3. Check the six remaining W1 interop and derive failures. Read the
-   macOS core-guest legs of
-   [run 44567504364](https://github.com/nupp-lang/nupp/actions/runs/44567504364)
-   when they report. The first scheduled run failed at Linux C lint.
-4. Confirm the HTTP pump fix on the Linux ARM64 and Windows CI shards.
-   The first completed Linux ARM64 run failed that fixture on both hosts.
+2. Finish the Linux ARM64 native fixpoint. Package the result and verify an
+   offline cold rebuild before seeking Linux seed publication approval.
+3. Reconcile the nightly macOS guest inventory and rerun `processlayer`
+   and `runnerchunks` in normal and spill modes.
+4. Follow `core-dev` CI through completion. Keep the Windows ARM64 port
+   with its separate owner.

@@ -6,6 +6,27 @@ The last blockers before `STAGE0_CORE_HOSTS` in `scripts/toolchain.pins` lists m
 `nupp test` has to work on the core (`NUPP_RUNTIME=core`) for every lane, starting with
 `--lane=shared`, plus binary targets on the core.
 
+## Latest complete native replay
+
+macOS ARM64 at `353ef09a5` passed 2,734 of 2,885 tests. All eight workers
+reported and every case ran. The JSON and log are in
+`/Volumes/bigbertha/workspaces/core-parity-next/build/parity-next/`.
+The normal native CLI has built and run relocated app binaries on macOS
+and Linux ARM64. The macOS seed refresh is published and pinned at `88b088762`.
+
+The largest outstanding suites include SoA (24 failures), automatic
+destruction (10), SIMD across several suites, and method calls (7).
+Reflection, ownership cleanup, native pointer access, and exception
+handler timing still need parity. Leave collector and table-key changes
+to the M1 lane. Run a new full shared replay once the focused fixes land.
+
+Active worktrees under `/Volumes/bigbertha/workspaces` include
+`core-derived-struct-init` (derived struct storage, optional method calls,
+float bytes, and compile-time local bindings), `core-s0-float-scaling`
+(native S0 reader and oracle math), `core-checked-annotations`, and
+`core-optional-owned-fields`. Linux fixpoint output is under
+`core-library-bootstrap-abi/build/bootstrap-abi/linux-fixpoint/`.
+
 ## November 19 resumption
 
 - A lowering callback returned nil through an integer-only signature when
@@ -138,8 +159,8 @@ Verified: the touched suites on the VM (156 tests, 155 passed, 1 skipped as core
 
 1. Rerun the shared lane on a CLI built from current `core-dev`. It will
    include the landed scheduler, ownership, and result-pack fixes.
-2. Follow [issue #136](https://github.com/nupp-lang/nupp/issues/136) for
-   the remaining shared failures. The M1 and libuv owners keep their
-   existing lanes.
+2. Compare to the `353ef09a5` replay and work the remaining shared failures.
+   [Issue #136](https://github.com/nupp-lang/nupp/issues/136) closed after
+   the W1 fixes passed. The M1 laptop keeps the checker and collector lanes.
 3. The configured binary test cache fix landed at `97fa10722`. A native
    replay verified completed artifact reuse with checker entry disabled.
