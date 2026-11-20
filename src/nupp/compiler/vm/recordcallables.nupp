@@ -20,7 +20,10 @@ local function sourceOf(p: any, owner: any): any
 end
 
 export function record(node: any): boolean
-    return type(node) == "table" and node.kind == "recordDecl" and node.declKind == "record"
+    return type(node) == "table"
+        and node.kind == "recordDecl"
+        and node.declKind == "record"
+        and not node.isAnnotationDefinition
 end
 
 export function contains(root: any): boolean

@@ -2316,6 +2316,8 @@ local function compileOwner(fn: any, options: any, profile: any, site: any): any
                 else
                     invoke("exportStatement", stat, nil)
                 end
+            elseif stat.kind == "recordDecl" and stat.isAnnotationDefinition then
+                invoke("erasedStatement", stat, nil)
             elseif stat.kind == "recordDecl"
                 and stat.qualifiers
                 and (stat.declKind ~= "interface" or defaultMethods(stat) or hasNestedRecords(stat))

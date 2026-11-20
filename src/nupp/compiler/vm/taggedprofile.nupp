@@ -460,8 +460,7 @@ export function erasedPattern(ctx: any, stat: any): nil
 end
 
 export function erasedStatement(ctx: any, stat: any, physicalStructs: boolean?): nil
-    -- An interface declares a type only, and has no value.
-    if stat.kind == "recordDecl" and stat.declKind == "interface" then
+    if stat.kind == "recordDecl" and (stat.declKind == "interface" or stat.isAnnotationDefinition) then
         return
     end
     if stat.kind == "recordDecl" then
@@ -631,7 +630,8 @@ export function forVersion(version: integer): any
     -- `@cli`, `@debug` and `@event` configure what a derive generates and
     -- `@syntax` an editor's highlighting: metadata the checker read. Main
     -- emits the statement each annotates as written. `@derive` is admitted on
-    -- a record whose recipe the core makes (derivedmembers).
+    -- a record whose recipe the core makes (derivedmembers). Checked custom
+    -- annotations and their declarations carry metadata without running code.
     local pragmas: {
         [string]: boolean
     } = {
@@ -653,14 +653,24 @@ export function forVersion(version: integer): any
             target = target.stat
         end
         local derived = name == "derive" and target ~= nil and catalog(ctx).derives[target] ~= nil
+        local declared = name == "annotation"
+            and target ~= nil
+            and target.kind == "recordDecl"
+            and node.definesAnnotation ~= nil
+            and node.definesAnnotation == target.annotationDefinition
+            and node.definesAnnotation.declaration == target
+        local custom = definition
+            and not definition.builtin
+            and definition.arguments == "typed"
+            and target ~= nil
+            and node.semanticAnnotationTarget == target
         need(
-            (pragmas[name or ""] == true or derived)
+            (pragmas[name or ""] == true or derived or declared or custom)
             and definition
             and definition.name == name
             and (name ~= "deprecated" or definition.builtin == true),
-            "only a checked @unsafe, @aot, @allow, @nosuspend, @deprecated, @cli, @debug, @event, @syntax or lowered @derive "
-            .. "annotation "
-            .. "is admitted, not @"
+            "only a checked @unsafe, @aot, @allow, @nosuspend, @deprecated, @cli, @debug, @event, @syntax, "
+            .. "lowered @derive, or checked custom annotation is admitted, not @"
             .. tostring(
                 name
             )
