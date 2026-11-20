@@ -60,6 +60,8 @@ export function localOwner(stat: any, index: integer): any
     local token = stat.names[index]
     local exprs = stat.exprs or {}
     local initializer = exprs[index] or exprs[#exprs]
+    -- A later assignment can refine the entry's type. The definition keeps
+    -- the declaration's type and its cleanup contract.
     need(
         owner.stat == stat
         and owner.index == index
@@ -68,7 +70,8 @@ export function localOwner(stat: any, index: integer): any
         and owner.entry
         and owner.entry.definition == token.definition
         and owner.entry.automaticOwner == owner
-        and owner.type == owner.entry.t,
+        and token.definition
+        and owner.type == token.definition.type,
         "local owner does not match its checked binding"
     )
     need(
