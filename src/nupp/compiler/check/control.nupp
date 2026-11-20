@@ -2151,14 +2151,21 @@ export function install(c: state.Checker): state.StatHandlers
                             stat[index] = hidden
                         end
                     end
-                    local value: any = {kind = "name", token = hidden}
-                    value[1] = hidden
+                    -- The catalog walks the synthesized local in source order.
+                    -- Give the read of the hidden name its own token.
+                    local reference: any = {}
+                    for key, value in pairs(hidden) do
+                        reference[key] = value
+                    end
+                    local value: any = {kind = "name", token = reference, reference}
                     local ownerStat: any = {
                         kind = "localStmt",
                         names = {nameTok},
                         types = {},
                         exprs = {value},
                         syntheticLoopOwner = true,
+                        nameTok,
+                        value,
                     }
                     local body: any = stat.body
                     table.insert(body.stats, 1, ownerStat)
