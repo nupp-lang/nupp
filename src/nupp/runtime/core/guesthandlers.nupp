@@ -25,6 +25,7 @@ const modules = require("nupp.runtime.core.modules")
 const loader = require("nupp.runtime.core.guestloader")
 const texts = require("nupp.runtime.core.guesttexts")
 const librarycalls = require("nupp.runtime.core.librarycalls")
+const bitlibrary = require("nupp.runtime.core.bitlibrary")
 const storagelibrary = require("nupp.runtime.core.storagelibrary")
 const loadlibrary = require("nupp.runtime.core.loadlibrary")
 const librarylayouts = require("nupp.runtime.core.librarylayouts")
@@ -1806,7 +1807,7 @@ export function LibCall(
         slots.writeValue(frame, regs, dst, numbers.widthcall(ctx, libraryId, a))
     elseif libraryId >= librarycalls.SCALAR_FIRST and libraryId <= librarycalls.SCALAR_LAST then
         slots.writeValue(frame, regs, dst, numbers.scalarcall(ctx, libraryId, a, b))
-    elseif libraryId >= librarycalls.BITS_FIRST and libraryId <= librarycalls.BITS_LAST then
+    elseif libraryId >= bitlibrary.BITS_FIRST and libraryId <= bitlibrary.BITS_LAST then
         slots.writeValue(frame, regs, dst, numbers.bitcall(ctx, libraryId, a, b))
     elseif libraryId == librarycalls.FOR_LIMIT then
         slots.writeValue(frame, regs, dst, numbers.forlimit(ctx, a))

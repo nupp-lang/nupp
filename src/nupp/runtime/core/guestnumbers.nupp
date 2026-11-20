@@ -19,6 +19,7 @@ const clock = require("nupp.runtime.core.hostclock")
 const numbers = require("nupp.runtime.core.hostnumbers")
 const guestvalues = require("nupp.runtime.core.guestvalues")
 const librarycalls = require("nupp.runtime.core.librarycalls")
+const bitlibrary = require("nupp.runtime.core.bitlibrary")
 const scalarkinds = require("nupp.runtime.core.scalarkinds")
 const corestorage = require("nupp.runtime.core.corestorage")
 
@@ -678,7 +679,7 @@ end
 export function bitcall(ctx: voidptr, id: uint64, a: uint64, b: uint64): uint64
     -- `~a` is Lua's operation on a and a.
     local right = b
-    if id == librarycalls.BNOT then
+    if id == bitlibrary.BNOT then
         right = a
     end
     -- Two numbers fail for want of an integer value; otherwise the first
@@ -692,15 +693,15 @@ export function bitcall(ctx: voidptr, id: uint64, a: uint64, b: uint64): uint64
     local x = bitsof(a)
     local y = bitsof(right)
     local result: uint64 = 0ULL
-    if id == librarycalls.BAND then
+    if id == bitlibrary.BAND then
         result = x & y
-    elseif id == librarycalls.BOR then
+    elseif id == bitlibrary.BOR then
         result = x | y
-    elseif id == librarycalls.BXOR then
+    elseif id == bitlibrary.BXOR then
         result = x ~ y
-    elseif id == librarycalls.SHL then
+    elseif id == bitlibrary.SHL then
         result = shiftleft(x, native.index(y))
-    elseif id == librarycalls.SHR then
+    elseif id == bitlibrary.SHR then
         result = shiftleft(x, 0 - native.index(y))
     else
         result = x ~ 0xffffffffffffffffULL

@@ -336,6 +336,23 @@ export function create(h: heap.Heap*): uint64
     end
 end
 
+-- A fresh general table with optional room in each part.
+export function createSized(h: heap.Heap*, array: uint64, hashed: uint64): uint64
+    local address = create(h)
+    @unsafe do
+        local o = native.pointer(address) as heap.Header*
+        if array ~= 0ULL then
+            arrays.arrayInitialize(arrayOf(o), h, array)
+        end
+        if hashed ~= 0ULL then
+            hashes.tableOwnedInitialize(hashOf(o), h, hashed)
+        end
+        mirror(o)
+    end
+
+    return address
+end
+
 -- A fresh empty table on `h` whose array part is packed as `kind`, with
 -- room for `capacity` elements when backing for them can be had; a kind
 -- that is none of the packed ones makes a general table.

@@ -122,6 +122,9 @@ export const TEXT_FOR_LIMIT: uint64 = 112ULL
 export const TEXT_PROTECTED_TABLE: uint64 = 113ULL
 export const NAME_FREEZE: uint64 = 114ULL
 export const NAME_ISFROZEN: uint64 = 115ULL
+export const NAME_NEW: uint64 = 161ULL
+export const NAME_CLEAR: uint64 = 162ULL
+export const NAME_CLONE: uint64 = 163ULL
 export const TEXT_ALREADY_FROZEN: uint64 = 116ULL
 export const TEXT_INVALID_OPTION: uint64 = 117ULL
 export const NAME_COLLECTGARBAGE: uint64 = 118ULL
@@ -607,6 +610,15 @@ export function append(h: heap.Heap*, borrows b: strings.Builder*, id: uint64): 
     elseif id == 115ULL then
         -- "isfrozen"
         return strings.appendWord(h, b, 0x6e657a6f72667369ULL, 8ULL)
+    elseif id == 161ULL then
+        -- "new"
+        return strings.appendWord(h, b, 0x77656eULL, 3ULL)
+    elseif id == 162ULL then
+        -- "clear"
+        return strings.appendWord(h, b, 0x7261656c63ULL, 5ULL)
+    elseif id == 163ULL then
+        -- "clone"
+        return strings.appendWord(h, b, 0x656e6f6c63ULL, 5ULL)
     elseif id == 116ULL then
         -- "table is already frozen"
         return strings.appendWord(h, b, 0x736920656c626174ULL, 8ULL)
@@ -1174,6 +1186,12 @@ export function matches(s: uint64, id: uint64): boolean
         return strings.length(s) == 6ULL and matchWord(s, 0ULL, 0x657a65657266ULL, 6ULL)
     elseif id == 115ULL then
         return strings.length(s) == 8ULL and matchWord(s, 0ULL, 0x6e657a6f72667369ULL, 8ULL)
+    elseif id == 161ULL then
+        return strings.length(s) == 3ULL and matchWord(s, 0ULL, 0x77656eULL, 3ULL)
+    elseif id == 162ULL then
+        return strings.length(s) == 5ULL and matchWord(s, 0ULL, 0x7261656c63ULL, 5ULL)
+    elseif id == 163ULL then
+        return strings.length(s) == 5ULL and matchWord(s, 0ULL, 0x656e6f6c63ULL, 5ULL)
     elseif id == 116ULL then
         return strings.length(s) == 23ULL
             and matchWord(s, 0ULL, 0x736920656c626174ULL, 8ULL)

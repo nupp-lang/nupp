@@ -383,6 +383,15 @@ export const functions: {[string]: any} = {
             table.insert(t, position as integer, value)
         end
     end,
+    ["table.new"] = function(narray: number, nhash: number): table
+        return table.new(narray, nhash)
+    end,
+    ["table.clear"] = function(t: table)
+        table.clear(t)
+    end,
+    ["table.clone"] = function(t: table): table
+        return table.clone(t)
+    end,
     ["math.random"] = function(...: any): number
         local count = select("#", ...)
         if count == 0 then

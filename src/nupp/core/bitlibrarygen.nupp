@@ -1,0 +1,7 @@
+module nupp.core.bitlibrarygen
+
+local generator = require("nupp.core.librarycallsgen")
+
+export function source(): string
+    return generator.subject("bits")
+end

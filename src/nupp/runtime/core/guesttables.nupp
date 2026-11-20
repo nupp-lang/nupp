@@ -5,6 +5,7 @@ module nupp.runtime.core.guesttables
 -- isfrozen, and which of them run in replay over a table with a metatable.
 const native = require("nupp.runtime.vm.intrinsics")
 const heap = require("nupp.runtime.vm.heap")
+const collector = require("nupp.runtime.vm.collector")
 const values = require("nupp.runtime.vm.values")
 const strings = require("nupp.runtime.core.corestrings")
 const tables = require("nupp.runtime.core.coretables")
@@ -157,6 +158,97 @@ export function tableIsfrozen(ctx: voidptr, list: uint64): uint64
     end
 
     return values.FALSE
+end
+
+const MAX_NEW_CAPACITY: uint64 = 16777216ULL
+const MAX_NEW_FLOAT_BITS: uint64 = 0x4170000000000000ULL
+
+local function capacity(value: uint64): uint64
+    local count: uint64 = 0ULL
+    if ints.isInteger(value) then
+        local bits = ints.bitsOf(value)
+        count = bits
+        if native.index(bits) < 0 then
+            count = 0ULL - bits
+        end
+    elseif value & values.QNAN ~= values.QNAN then
+        local real = native.fromBits(value)
+        if real >= native.fromBits(MAX_NEW_FLOAT_BITS) then
+            return MAX_NEW_CAPACITY
+        elseif real > native.fromBits(0ULL) then
+            count = native.word(native.toInt(real))
+        end
+    end
+
+    if count > MAX_NEW_CAPACITY then
+        return MAX_NEW_CAPACITY
+    end
+
+    return count
+end
+
+export function tableNew(ctx: voidptr, array: uint64, hashed: uint64): uint64
+    @unsafe do
+        local h = guestvalues.guestheap(ctx)
+        local result = tables.createSized(h, capacity(array), capacity(hashed))
+        tables.drain(h)
+
+        return values.TAG_OBJ | result
+    end
+end
+
+export function tableClear(ctx: voidptr, list: uint64, all: boolean): uint64
+    @unsafe do
+        local h = guestvalues.guestheap(ctx)
+        local t = guestvalues.tablearg(ctx, list, 1ULL)
+        writable(ctx, t)
+        local key = tables.nextKey(t, values.NIL)
+        while key ~= values.NIL do
+            local following = tables.nextKey(t, key)
+            if tables.set(h, t, key, values.NIL) ~= tables.OK then
+                error("nupp: table.clear could not remove a key")
+            end
+            key = following
+        end
+        tables.drain(h)
+        if all then
+            return guestvalues.packed(h, guestscope.newTable(ctx), 0ULL, values.NIL)
+        end
+
+        return values.NIL
+    end
+end
+
+export function tableClone(ctx: voidptr, list: uint64): uint64
+    @unsafe do
+        local h = guestvalues.guestheap(ctx)
+        local t = guestvalues.tablearg(ctx, list, 1ULL)
+        local copy = guestscope.newTable(ctx)
+        local result = values.TAG_OBJ | copy
+        local root = collector.scopeOpen(h)
+        collector.scopePush(h, result)
+        local key = tables.nextKey(t, values.NIL)
+        while key ~= values.NIL do
+            local item = collector.scopeOpen(h)
+            collector.scopePush(h, key)
+            local value = tables.lookup(h, t, key)
+            collector.scopePush(h, value)
+            if tables.set(h, copy, key, value) ~= tables.OK then
+                collector.scopeClose(h, root)
+                error("nupp: table.clone could not copy a key")
+            end
+            key = tables.nextKey(t, key)
+            collector.scopeClose(h, item)
+        end
+        local meta = guestmeta.getMetatable(ctx, list)
+        if guestmeta.tableof(meta) ~= 0ULL then
+            guestmeta.setMetatable(ctx, result, meta)
+        end
+        tables.drain(h)
+        collector.scopeClose(h, root)
+
+        return result
+    end
 end
 
 -- table.insert(t, v) appends; table.insert(t, pos, v) moves t[pos..#t] up

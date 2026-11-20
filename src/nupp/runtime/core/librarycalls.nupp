@@ -34,16 +34,6 @@ export const POW: uint64 = 56ULL
 export const UNM: uint64 = 33ULL
 export const FOR_LIMIT: uint64 = 113ULL
 
--- bits
-export const BAND: uint64 = 107ULL
-export const BOR: uint64 = 108ULL
-export const BXOR: uint64 = 109ULL
-export const SHL: uint64 = 110ULL
-export const SHR: uint64 = 111ULL
-export const BNOT: uint64 = 112ULL
-export const BITS_FIRST: uint64 = 107ULL
-export const BITS_LAST: uint64 = 112ULL
-
 -- strings
 export const STRING_FORMAT: uint64 = 2ULL
 export const STRING_FORMAT_PACK: uint64 = 54ULL
@@ -81,6 +71,10 @@ export const TABLE_SORT_BEGIN: uint64 = 48ULL
 export const TABLE_SORT_STEP: uint64 = 49ULL
 export const TABLE_FREEZE: uint64 = 114ULL
 export const TABLE_ISFROZEN: uint64 = 115ULL
+export const TABLE_NEW: uint64 = 222ULL
+export const TABLE_CLEAR: uint64 = 223ULL
+export const TABLE_CLEAR_ALL: uint64 = 224ULL
+export const TABLE_CLONE: uint64 = 225ULL
 export const TABLE_NEWARRAY: uint64 = 116ULL
 export const TABLE_PACKEDKIND: uint64 = 122ULL
 
@@ -399,6 +393,14 @@ export function libraryname(id: uint64): uint64
         return 39ULL
     elseif id == STRING_GMATCH_VALUES then
         return 39ULL
+    elseif id == TABLE_NEW then
+        return 161ULL
+    elseif id == TABLE_CLEAR then
+        return 162ULL
+    elseif id == TABLE_CLEAR_ALL then
+        return 162ULL
+    elseif id == TABLE_CLONE then
+        return 163ULL
     end
 
     return 0ULL

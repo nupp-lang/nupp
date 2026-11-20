@@ -48,6 +48,7 @@ local function fixture()
     for _, short in ipairs({
         "guestcatalog",
         "librarycalls",
+        "bitlibrary",
         "storagelibrary",
         "loadlibrary",
         "debuglibrary",
@@ -132,6 +133,7 @@ end
 function M.generatedSubjectFilesMatchTheCanonicalTable()
     local f = fixture()
     test.eq(f.generator.source(), read(ROOT .. "/src/nupp/runtime/core/librarycalls.nupp"))
+    test.eq(f.generator.subject("bits"), read(ROOT .. "/src/nupp/runtime/core/bitlibrary.nupp"))
     test.eq(f.generator.subject("storage"), read(ROOT .. "/src/nupp/runtime/core/storagelibrary.nupp"))
 end
 
