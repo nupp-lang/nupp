@@ -1793,8 +1793,10 @@ local function compileOwner(fn: any, options: any, profile: any, site: any): any
                             if owner then
                                 -- A call spread over several names was not
                                 -- evaluated as an expression, so no temporary
-                                -- owns its first result to hand over.
-                                if not (spread and index >= #exprs) then
+                                -- owns its first result to hand over. A
+                                -- loop's hidden name was never an owner: the
+                                -- iterator's result passes to the written one.
+                                if not (spread and index >= #exprs) and not stat.syntheticLoopOwner then
                                     transferExpression(exprs[index])
                                 end
                                 registerCleanup(stat, owner, owner.type, value, exprs[index] == nil and not spread)
