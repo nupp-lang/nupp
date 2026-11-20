@@ -318,16 +318,6 @@ local ARTIFACT_PROJECT = {
     ) .. "\n",
 }
 
--- Both kinds are the VM image the file lowers to, which only the VM-hosted
--- compiler produces; a LuaJIT-hosted launcher answers that it cannot.
-local function requireVmCli()
-    local selected = io.open(HERE .. "/../.nupp/vm-cli/current", "rb")
-    if selected then
-        selected:close()
-    end
-    test.suite.requirecapability("vm-hosted-cli", os.getenv("NUPP_VM_CLI_IMAGE") ~= nil or selected ~= nil)
-end
-
 function M.artifactsListsWhatIsAvailableAndNamesTheEnclosingFunction()
     local dir = tempProject(ARTIFACT_PROJECT)
     local decoded = json.decode(captureJson(dir, "lsp artifacts --json sample.nupp 4 9"))
@@ -353,7 +343,6 @@ function M.artifactTakesNoOptimizationLevel()
 end
 
 function M.artifactLaysTheBytecodeOutAgainstTheSource()
-    requireVmCli()
     local dir = tempProject(ARTIFACT_PROJECT)
     local text = captureJson(dir, "lsp artifact --kind bytecode sample.nupp")
     local decoded = json.decode(captureJson(dir, "lsp artifact --kind bytecode --json sample.nupp"))
@@ -381,7 +370,6 @@ function M.artifactLaysTheBytecodeOutAgainstTheSource()
 end
 
 function M.artifactPrintsTheModulesImageWithItsLineTable()
-    requireVmCli()
     local dir = tempProject(ARTIFACT_PROJECT)
     local decoded = json.decode(captureJson(dir, "lsp artifact --kind image --json sample.nupp"))
     os.execute("rm -rf '" .. dir .. "'")
@@ -405,7 +393,6 @@ function M.artifactPrintsTheModulesImageWithItsLineTable()
 end
 
 function M.artifactSaysWhyItCouldNotResolveOne()
-    requireVmCli()
     local dir = tempProject({
         ["nupp.lua"] = 'return {include = {"."}}\n',
         ["broken.nupp"] = "local value: integer = \n",

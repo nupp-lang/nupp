@@ -1,9 +1,8 @@
 --[[
 What a source file compiles to, answered for the buffer rather than the file.
 
-Every `.nupp` file is lowered to a VM image, and the instructions in it are
-reachable from the command line through `nupp bc`, but only for a file that has
-been saved, and only into a terminal that cannot be clicked.
+`nupp bc` lists the VM bytecode for a saved file. The language server can
+produce the same artifact from an unsaved buffer.
 
 Two requests, for the two costs. `nupp/artifacts` asks what is available at a
 position and is answered from the check the session has already done, so a
@@ -17,8 +16,7 @@ the VM loads: every function's header, constants, line table and code. Both
 carry their correspondence to the source as entries, read from the line table
 the lowering records for every instruction.
 
-Only the VM-hosted compiler answers either: the image is what that compiler
-produces, so a LuaJIT-hosted session says so rather than guessing.
+The compiler produces both artifacts on either runtime.
 ]]
 module nupp.tools.lsp.artifacts
 
@@ -110,9 +108,6 @@ function artifacts.install(s: artifacts.Session): artifacts.Api
     --- thing that stays correct when a dependency changed under a session that
     --- has been open for a day.
     local function inspect(kind: string, doc: any, path: string): ({any}?, string?, any?)
-        if not rawget(_G, "__nupp_load_image") then
-            return nil, nil, unavailable(kind, "unsupported-host", "the VM image needs the VM-hosted compiler")
-        end
         local ok, functions, image = pcall(
             require("nupp.tools.vm.project").inspect,
             s.currentRoot or ".",
