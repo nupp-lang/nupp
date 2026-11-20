@@ -1063,10 +1063,11 @@ local function opensslLibraries(root: string): string?
     end
     local output = tostring(pipe:read("a") or "")
     local ok = pipe:close()
-    local prefix = output:match("([^\r\n]+)%s*$")
-    if not ok or prefix == nil then
+    local found = output:match("([^\r\n]+)%s*$")
+    if not ok or found == nil then
         return nil
     end
+    local prefix = require("nupp.compiler.fs").fromShell(found as string)
     -- Windows keeps its DLLs beside the programs.
     if package.config:sub(1, 1) == "\\" then
         return prefix .. "/bin"

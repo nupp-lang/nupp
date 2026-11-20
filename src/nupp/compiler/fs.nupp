@@ -80,6 +80,22 @@ export function basename(path: string): string
     return normalize(path):match("([^/]+)$") or path
 end
 
+--- A path a shell script printed, as this process opens it. A Windows shell
+--- (MSYS) spells a drive's root `/c/`, which Windows reads as a directory
+--- named c on the current drive, so there it is the drive's `C:/`. Any other
+--- path, and every path elsewhere, is unchanged.
+export function fromShell(path: string): string
+    if package.config:sub(1, 1) ~= "\\" then
+        return path
+    end
+    local drive, rest = path:match("^/(%a)/(.*)$")
+    if drive == nil then
+        drive, rest = path:match("^/(%a)$"), ""
+    end
+
+    return drive ~= nil and drive:upper() .. ":/" .. rest or path
+end
+
 --- An absolute, lexically normalized spelling. Unlike `canonical`, this also
 --- answers for a path that does not exist yet, which is required when a watcher
 --- retains a deleted input.

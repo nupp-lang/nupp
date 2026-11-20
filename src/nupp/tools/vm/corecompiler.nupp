@@ -55,7 +55,8 @@ local function stageMarkdown(root: string): nil
     end
     local status, built = process.capture({"sh", fs.join(root, "scripts/toolchain"), "cmark"}, {cwd = root})
     assert(status == 0, "the Markdown library did not build: " .. built)
-    local prefix = assert(built:match("([^\r\n]+)\r?\n?$"), "scripts/toolchain cmark named no library")
+    local named = assert(built:match("([^\r\n]+)\r?\n?$"), "scripts/toolchain cmark named no library")
+    local prefix = fs.fromShell(named)
     local filename = require("nupp.compiler.project.libraries").filename("nupp_markdown")
     local directory = fs.join(root, MARKDOWN_DIRECTORY)
     assert(fs.exists(directory) or fs.mkdir(directory), "cannot create " .. directory)
@@ -93,7 +94,8 @@ end
 local function stageFfi(root: string, output: string): nil
     local status, built = process.capture({"sh", fs.join(root, "scripts/native-libraries"), "libffi"}, {cwd = root})
     assert(status == 0, "libffi did not build: " .. built)
-    local prefix = assert(built:match("([^\r\n]+)\r?\n?$"), "scripts/native-libraries libffi named no library")
+    local named = assert(built:match("([^\r\n]+)\r?\n?$"), "scripts/native-libraries libffi named no library")
+    local prefix = fs.fromShell(named)
     local library = fs.exists(fs.join(prefix, FFI_WINDOWS_LIBRARY)) and FFI_WINDOWS_LIBRARY or FFI_LIBRARY
     stage(output, library, fs.join(prefix, library))
 end
