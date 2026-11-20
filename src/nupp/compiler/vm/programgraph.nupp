@@ -776,6 +776,10 @@ export function describe(modules: {any}, entryModule: string, options: any?): an
             binding(node, owner)
             return
         end
+        -- The checked result supplies this expression at runtime.
+        if node.kind == "comptimeExpr" then
+            return
+        end
         if graph.erased(node) then
             -- What it declares exists only while compiling.
             forget(node)
@@ -1245,7 +1249,7 @@ export function describe(modules: {any}, entryModule: string, options: any?): an
     local materializedRecords = recordValues(p)
     local collect: function(any, any): nil
     collect = function(node: any, owner: any): nil
-        if cst.isToken(node) or typeSyntax[node.kind] or graph.erased(node) then
+        if cst.isToken(node) or typeSyntax[node.kind] or node.kind == "comptimeExpr" or graph.erased(node) then
             return
         end
         -- An annotation's arguments are metadata the checker read; main emits
