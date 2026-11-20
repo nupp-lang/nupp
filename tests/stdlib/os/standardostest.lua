@@ -173,17 +173,18 @@ return describe(facts), monotonic, wall, random, ordered, bytes
     test.eq(#parsed.errors, 0)
     local diagnostics = checker.check(parsed, "system-services.nupp", env)
     test.eq(#diagnostics, 0, diagnostics[1] and diagnostics[1].msg)
-    program.installSourceModules()
-    local image = program.image(parsed, "systemservices")
-    assert(program.names(image, "nupp.runtime.standardos"))
+    if program.onVm() then
+        local image = program.image(parsed, "systemservices")
+        assert(program.names(image, "nupp.runtime.standardos"))
+    end
     assert(
         parsed.effects["runtime.system"]
         and parsed.effects["runtime.clocks"]
         and parsed.effects["runtime.uuid"]
         and parsed.effects["runtime.crypto"]
     )
-    local loadImage = assert(rawget(_G, "__nupp_load_image"))
-    local chunk = assert(loadImage(image))
+    local chunk, problem = program.load(parsed, "systemservices")
+    assert(chunk, problem)
     local platform, monotonic, wall, random, ordered, bytes = chunk()
     test.eq(platform, os.info().platform)
     test.eq(type(monotonic), "number")
