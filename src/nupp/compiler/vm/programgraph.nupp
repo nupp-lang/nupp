@@ -776,12 +776,9 @@ export function describe(modules: {any}, entryModule: string, options: any?): an
             binding(node, owner)
             return
         end
-        -- The checked result supplies this expression at runtime.
-        if node.kind == "comptimeExpr" then
-            return
-        end
-        if graph.erased(node) then
-            -- What it declares exists only while compiling.
+        if node.kind == "comptimeExpr" or graph.erased(node) then
+            -- Compile-time declarations have no runtime bindings. A
+            -- compile-time expression contributes only its checked result.
             forget(node)
             return
         end
