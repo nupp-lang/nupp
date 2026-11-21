@@ -996,6 +996,12 @@ static int run (const char *bundle, const char *input, const char *output) {
 
 #ifdef _WIN32
 int wmain (int argc, wchar_t **argv) {
+  /* The guest writes bytes, as it does on POSIX: no CRT translates its line
+   * endings on the way in or out. */
+  _setmode(0, _O_BINARY);
+  _setmode(1, _O_BINARY);
+  _setmode(2, _O_BINARY);
+
   if (argc < 4) {
     return error("usage: nupp-core BUNDLE INPUT OUTPUT [ARGUMENT...]");
   }
