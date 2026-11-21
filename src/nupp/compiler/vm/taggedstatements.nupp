@@ -20,6 +20,7 @@ local numberType = taggedvalues.numberType
 local numericType = taggedvalues.numericType
 local ordering = taggedvalues.ordering
 local pool = taggedvalues.pool
+local graphimage = require("nupp.compiler.vm.graphimage")
 local scalarType = taggedvalues.scalarType
 local typeKind = taggedvalues.typeKind
 
@@ -244,6 +245,45 @@ export function numericFor(ctx: any, stat: any, version: integer): any
     end
     if stat.step == nil then
         values[3] = ctx.emit(stat, "K", {pool(ctx, "int64", "1")}, "tagged")
+    end
+    -- Lua counts in integers only when the start and step both are integers;
+    -- otherwise the counter starts as a float. A loop whose mode is chosen as
+    -- it runs converts an integer start when its step is not an integer,
+    -- from v8, whose graphs admit the library call that asks.
+    if runtimeMode and numericType(startType) and version >= 8 then
+        local held = {}
+        for index, value in ipairs(values) do
+            held[index] = ctx.hold(value)
+        end
+
+        -- Each value crossing a call's landing or a select's branch is held.
+        local function integral(index: integer): any
+            local kind = taggedvalues.landed(
+                ctx,
+                stat,
+                ctx.emit(stat, "LibCall", {corelibrary.id("MATH_TYPE"), ctx.readHeld(held[index])}, "tagged")
+            )
+            local name = ctx.emit(stat, "K", {pool(ctx, "str", "integer")}, "tagged")
+
+            return ctx.hold(ctx.emit(stat, "Eq", {kind, name}, "tagged"))
+        end
+
+        local startInteger = integral(1)
+        local stepInteger = integral(3)
+        local zero = ctx.emit(stat, "K", {pool(ctx, "num", graphimage.floatBytes(0.0))}, "tagged")
+        local floated = ctx.emit(stat, "Add", {ctx.readHeld(held[1]), zero}, "tagged")
+        local inner = ctx.hold(ctx.select(stat, ctx.readHeld(startInteger), floated, ctx.readHeld(held[1])))
+        local converted = ctx.select(stat, ctx.readHeld(stepInteger), ctx.readHeld(held[1]), ctx.readHeld(inner))
+        local convertedHeld = ctx.hold(converted)
+        ctx.release(inner)
+        ctx.release(stepInteger)
+        ctx.release(startInteger)
+        for index, handle in ipairs(held) do
+            values[index] = ctx.readHeld(handle)
+            ctx.release(handle)
+        end
+        values[1] = ctx.readHeld(convertedHeld)
+        ctx.release(convertedHeld)
     end
     if sign == nil then
         local held = {}
