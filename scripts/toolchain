@@ -561,6 +561,11 @@ core_seed_install() {
     [ -z "$(find "$seed_staged" -mindepth 1 ! -type f ! -path "$seed_staged/lib" ! -path "$seed_staged/notices")" ] \
         || die "the core seed archive holds entries that are not regular files"
     core_seed_verify "$seed_staged" || die "the core seed's files are not the ones its manifest names for this host"
+    # Windows starts a program by its .exe name, which `runtime` then names to
+    # the shell and to CreateProcess alike; the verified bytes are the same.
+    case "$(sh "$ROOT/scripts/host-machine")" in
+        MINGW* | MSYS* | CYGWIN*) cp "$seed_staged/runtime" "$seed_staged/runtime.exe" ;;
+    esac
     core_seed_runs "$seed_staged" || die "the core seed does not run on this host"
     printf 'done\n' > "$seed_staged/.complete"
     if ! mv "$seed_staged" "$seed_out" 2>/dev/null; then
