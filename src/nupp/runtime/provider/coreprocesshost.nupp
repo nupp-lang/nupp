@@ -23,6 +23,17 @@ const MODES: {
     [string]: integer
 } = {inherit = processes.INHERIT, pipe = processes.PIPE, null = processes.NULL, stdout = processes.MERGE}
 
+-- Whether `args` is the shell command a Windows popen names, `cmd /d /s /c
+-- COMMAND` (io.internal.process): cmd parses COMMAND itself, so it crosses
+-- verbatim rather than quoted as one argument (processes.shellCommand).
+local function windowsShell(args: {string}): boolean
+    return package.config:sub(1, 1) == "\\"
+        and #args == 5
+        and args[2]:lower() == "/d"
+        and args[3]:lower() == "/s"
+        and args[4]:lower() == "/c"
+end
+
 local function pending(code: integer): boolean
     return code == -AGAIN_LINUX or code == -AGAIN_BSD or code == -INTERRUPTED
 end
@@ -53,8 +64,17 @@ export function spawn(options: any): (any?, any?, any?, any?, integer, string?, 
             environment[#environment + 1] = name .. "=" .. value
         end
     end
+    local arguments: {string} = options.args
+    local program: string? = nil
+    local shell = windowsShell(arguments)
+    if shell then
+        arguments, program = processes.shellCommand(arguments[5])
+    end
     local child, code = processes.spawn({
-        arguments = options.args,
+        arguments = arguments,
+        program = program,
+        search = not shell,
+        windowsShell = shell,
         directory = directory,
         environment = environment,
         overlay = options.clearEnv ~= true,
