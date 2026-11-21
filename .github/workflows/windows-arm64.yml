@@ -1,0 +1,109 @@
+name: Windows ARM64 native core
+# The native core on Windows 11 ARM64, run on request while Windows CI moves
+# from the x64 Rust VM legs (#134). Nothing here runs the Rust VM on Windows:
+# a Linux ARM64 job lowers the Windows core compiler with its VM, as a host
+# without a pinned core seed builds its first one, and the Windows job builds
+# the C bridge from the pinned libraries, installs the pair and runs it with
+# a tripwire on every Rust tool. Once a Windows core seed is pinned the Windows
+# job builds its compiler from that seed instead, and these legs move into the
+# Compiler matrix (compose-integration-matrix.lua).
+on:
+  workflow_dispatch:
+    inputs:
+      suites:
+        description: Test suites to run on the Windows core
+        type: string
+        default: explaintest referencetest cachestamptest
+permissions:
+  contents: read
+concurrency:
+  group: windows-arm64-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  compiler:
+    name: Lower the Windows ARM64 core compiler / Linux arm64
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v5
+      - name: Build the compiler
+        uses: ./.github/actions/prepare
+      - name: Lower the core compiler for Windows
+        shell: bash
+        run: |
+          # The bundle names its libraries by the files the overrides name;
+          # the Windows job stages the pinned DLLs under those names.
+          names="$PWD/build/windows-library-names"
+          mkdir -p "$names"
+          for file in libnupp_markdown.dll libnupp_crc.dll libz.dll libcrypto-3.dll libssl-3.dll libcurl.dll; do
+            : > "$names/$file"
+          done
+          NUPP_COMPILER_ROOT=$PWD NUPP_RUNTIME=vm \
+          NUPP_MARKDOWN_LIBRARY=$names/libnupp_markdown.dll NUPP_CRC_LIBRARY=$names/libnupp_crc.dll \
+          NUPP_ZLIB_LIBRARY=$names/libz.dll NUPP_CRYPTO_LIBRARY=$names/libcrypto-3.dll \
+          NUPP_SSL_LIBRARY=$names/libssl-3.dll NUPP_CURL_LIBRARY=$names/libcurl.dll \
+            ./bin/nupp __core-compiler "$PWD/build/windows-core"
+          test "$(head -c 8 build/windows-core/compiler.bundle)" = NUPPCORE
+      - uses: actions/upload-artifact@v4
+        with:
+          name: windows-arm64-core-compiler
+          path: build/windows-core/compiler.bundle
+          if-no-files-found: error
+
+  windows:
+    name: Native core / Windows 11 ARM64
+    needs: compiler
+    runs-on: windows-11-arm
+    timeout-minutes: 240
+    steps:
+      - uses: actions/checkout@v5
+      - name: Provision MSYS2's clangarm64 toolchain
+        shell: pwsh
+        run: |
+          $bash = 'C:/msys64/usr/bin/bash.exe'
+          if (!(Test-Path $bash)) { throw 'MSYS2 is required at C:/msys64' }
+          & $bash -lc 'pacman -S --needed --noconfirm mingw-w64-clang-aarch64-toolchain mingw-w64-clang-aarch64-cmake mingw-w64-clang-aarch64-ninja make perl diffutils'
+          if ($LASTEXITCODE) { throw 'clangarm64 provisioning failed' }
+          Add-Content $env:GITHUB_PATH 'C:\msys64\clangarm64\bin'
+      - uses: actions/cache@v4
+        with:
+          path: .nupp-c-library-cache
+          key: c-libraries-aarch64-pc-windows-gnullvm-${{ hashFiles('scripts/toolchain.pins', 'scripts/native-libraries', 'scripts/host-machine', 'scripts/c-libraries/**', 'native/crc/**', 'native/markdown/**', 'notices/*LICENSE*') }}
+      - uses: actions/download-artifact@v4
+        with:
+          name: windows-arm64-core-compiler
+          path: build/windows-core
+      - name: Run the native core without Rust
+        shell: bash
+        env:
+          NUPP_TOOLCHAIN_DIR: ${{ github.workspace }}/.nupp-c-library-cache
+          NUPP_NATIVE_JOBS: '4'
+          SUITES: ${{ inputs.suites }}
+        run: |
+          mkdir -p build/no-rust-tools
+          for tool in cargo rustc rustup cargo-c; do
+            printf '#!/bin/sh\necho "Unexpected Rust tool invocation" >&2\nexit 99\n' > "build/no-rust-tools/$tool"
+            chmod +x "build/no-rust-tools/$tool"
+          done
+          export PATH="$PWD/build/no-rust-tools:$PATH"
+          [ "$(sh scripts/stage0-runtime --host)" = aarch64-pc-windows-gnullvm ]
+          sh scripts/core-bridge --test
+          # The pinned DLLs under the names the bundle was lowered with.
+          lib=build/windows-core/lib
+          mkdir -p "$lib"
+          cp "$(sh scripts/native-libraries cmark)/bin/libnupp_markdown.dll" "$lib/libnupp_markdown.dll"
+          cp "$(sh scripts/native-libraries isal)/bin/libnupp_crc.dll" "$lib/libnupp_crc.dll"
+          cp "$(sh scripts/native-libraries zlib)/bin/libz.dll" "$lib/libz.dll"
+          cp "$(sh scripts/native-libraries libffi)/lib/libnuppffi.dll" "$lib/libnuppffi.dll"
+          sh scripts/core-cli install build/c-core-bridge/nupp-core build/windows-core/compiler.bundle
+          export NUPP_RUNTIME=core NUPP_CORE_AUTO_REBUILD=0
+          export NUPP_LIBCLANG='C:/Program Files/LLVM/bin/libclang.dll'
+          [ -f "$NUPP_LIBCLANG" ] || NUPP_LIBCLANG=C:/msys64/clangarm64/bin/libclang.dll
+          export NUPP_TEST_BASH="$(cygpath -w "$(command -v bash)")"
+          export NUPP_TEST_SH="$(cygpath -w "$(dirname "$(command -v bash)")/sh.exe")"
+          ./bin/nupp --version
+          printf 'print("hello from " .. os.info().platform .. " " .. os.info().arch)\n' > build/hello.nupp
+          ./bin/nupp check build/hello.nupp
+          ./bin/nupp run build/hello.nupp | grep -qx 'hello from windows aarch64'
+          # shellcheck disable=SC2086 # the suites are a list of names
+          ./bin/nupp test --internal-runner --jobs=2 $SUITES
