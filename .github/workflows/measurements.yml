@@ -88,6 +88,9 @@ jobs:
           channel=$(sed -n 's/^channel = "\([^"]*\)"$/\1/p' rust-toolchain.toml)
           rustup toolchain install "${channel}-x86_64-pc-windows-gnu" --profile minimal
 
+      # The benchmark's AOT build provisions ISA-L, whose x86 code needs NASM.
+      - uses: ./.github/actions/c-assembler
+
       - name: Provision the pinned toolchain
         shell: bash
         run: ./scripts/toolchain --all
