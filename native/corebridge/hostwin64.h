@@ -194,12 +194,46 @@ static const char *take_loader_error (void) {
   return message;
 }
 
+/* dlopen's RTLD_GLOBAL as macOS (0x8) and glibc (0x100) number it. A library
+ * opened with it lends its exports to the process's own symbol lookups, as
+ * the global namespace does on POSIX; Windows has none. */
+enum {
+  OPEN_GLOBAL_APPLE = 0x8,
+  OPEN_GLOBAL_GLIBC = 0x100,
+  MAX_GLOBAL_LIBRARIES = 64
+};
+
+static HMODULE global_libraries[MAX_GLOBAL_LIBRARIES];
+static size_t global_library_count;
+static SRWLOCK global_library_lock = SRWLOCK_INIT;
+
+static void remember_global (HMODULE library) {
+  AcquireSRWLockExclusive(&global_library_lock);
+
+  if (global_library_count < MAX_GLOBAL_LIBRARIES) {
+    global_libraries[global_library_count++] = library;
+  }
+
+  ReleaseSRWLockExclusive(&global_library_lock);
+}
+
+static FARPROC find_global (const char *name) {
+  FARPROC address = NULL;
+  AcquireSRWLockShared(&global_library_lock);
+
+  for (size_t i = 0; i < global_library_count && !address; ++i) {
+    address = GetProcAddress(global_libraries[i], name);
+  }
+
+  ReleaseSRWLockShared(&global_library_lock);
+
+  return address;
+}
+
 /** Match the three loader packet signatures, including a borrowed self handle.
  * Resolve transitive DLL imports beside an absolute library or in the default
  * safe search directories. */
 static void *open_library (const char *path, int mode) {
-  (void)mode;
-
   if (!path) {
     HMODULE self = GetModuleHandleW(NULL);
 
@@ -236,6 +270,9 @@ static void *open_library (const char *path, int mode) {
 
   if (!library) {
     loader_error = "Windows loader cannot load the library";
+  }
+  else if (mode & (OPEN_GLOBAL_APPLE | OPEN_GLOBAL_GLIBC)) {
+    remember_global(library);
   }
 
   return library;
@@ -387,6 +424,10 @@ static void *find_symbol (void *library, const char *name) {
   if (!address && library && library == GetModuleHandleW(NULL)) {
     HMODULE crt = GetModuleHandleW(L"ucrtbase.dll");
     address = crt ? GetProcAddress(crt, name) : NULL;
+
+    if (!address) {
+      address = find_global(name);
+    }
   }
 
   if (!address) {
