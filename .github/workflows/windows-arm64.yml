@@ -97,8 +97,8 @@ jobs:
           cp "$(sh scripts/native-libraries libffi)/lib/libnuppffi.dll" "$lib/libnuppffi.dll"
           sh scripts/core-cli install build/c-core-bridge/nupp-core build/windows-core/compiler.bundle
           export NUPP_RUNTIME=core NUPP_CORE_AUTO_REBUILD=0
-          export NUPP_LIBCLANG='C:/Program Files/LLVM/bin/libclang.dll'
-          [ -f "$NUPP_LIBCLANG" ] || NUPP_LIBCLANG=C:/msys64/clangarm64/bin/libclang.dll
+          # The clangarm64 libclang the bridge was built with, whose DLLs sit beside it.
+          export NUPP_LIBCLANG=C:/msys64/clangarm64/bin/libclang.dll
           export NUPP_TEST_BASH="$(cygpath -w "$(command -v bash)")"
           export NUPP_TEST_SH="$(cygpath -w "$(dirname "$(command -v bash)")/sh.exe")"
           ./bin/nupp --version
