@@ -65,8 +65,11 @@ local EXPLICIT = {compilerselfbuild = true, fixpointcompiler = true}
 -- Seconds a case's bridge and guard runs may take, whatever
 -- NUPP_GUEST_JOB_TIMEOUT says: past them the watchdog kills the run and the
 -- case fails. The self-build took 4854 s (4434 s of processor time) on a
--- loaded ARM64 Mac on 2026-11-18; its bound leaves half again.
-local BOUNDS = {compilerselfbuild = 7200}
+-- loaded ARM64 Mac on 2026-11-18; its bound leaves half again. On a loaded
+-- M1 Pro on 2026-11-20 and 21, compilercomptime's bridge run took 1338 s,
+-- compilerderive's 6657 s forcing spills and 11374 s while four other
+-- builds ran.
+local BOUNDS = {compilerselfbuild = 7200, compilercomptime = 7200, compilerderive = 14400}
 -- Cases whose program loads the Markdown provider: the renderer itself, and
 -- the ones carrying the CLI, whose documentation host resolves it.
 local MARKDOWN = {
@@ -423,6 +426,20 @@ OUTPUT.compilercheck = function(printed)
 end
 
 OUTPUT.compilerselfbuild = dofile(ROOT .. "/tests/core/guests/selfbuildoutput.lua").compilerselfbuild
+
+-- A nested binary build reports its progress on stderr, and nothing else.
+local function nestedBuildProgress(printed)
+    for line in printed:gmatch("[^\n]+") do
+        if not line:find("^guest runtime [%a ]+ %d+s$") and not line:find("^guest pieces: [^\n]+ %d+s[^\n]*$") then
+            return false
+        end
+    end
+
+    return printed == "" or printed:sub(-1) == "\n"
+end
+
+OUTPUT.compilerderive = nestedBuildProgress
+OUTPUT.compilercomptime = nestedBuildProgress
 
 OUTPUT.benchworkloads = function(printed)
     local ok, record = pcall(json.decodevalue, printed)
