@@ -2139,6 +2139,8 @@ function M.windowsShellUsesArgumentVectorsForNativePipes()
             {
                 -- The runner's own local, defined above the extracted setup.
                 getinfo = debug.getinfo,
+                -- A copied runner on plain LuaJIT is the one that has `jit`.
+                jit = not native and {} or nil,
                 package = {
                     config = "\\",
                     loaded = {
