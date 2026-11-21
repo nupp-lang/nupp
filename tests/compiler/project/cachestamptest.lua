@@ -96,7 +96,9 @@ function M.aStoreWhoseBodyWasDamagedAnswersNothing()
         local text = file:read("*a")
         file:close()
         local at = assert(text:find(message, 1, true), "the message is stored as written")
-        local flipped = string.char(bit.bxor(text:byte(at + 7), 1))
+        -- Its low bit flipped, without LuaJIT's `bit`, which the core has not.
+        local byte = text:byte(at + 7)
+        local flipped = string.char(byte % 2 == 0 and byte + 1 or byte - 1)
         text = text:sub(1, at + 6) .. flipped .. text:sub(at + 8)
         -- The binary codec still decodes this, which is what the seal is for; the VM's
         -- plain codec checks its own payload and refuses it outright. Either way
