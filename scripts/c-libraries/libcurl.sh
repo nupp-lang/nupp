@@ -20,6 +20,9 @@ apple_sectrust=
 if [ "$SYSTEM" = darwin ]; then
     apple_sectrust=-DUSE_APPLE_SECTRUST=ON
 fi
+# The Windows ARM64 core bridge links libcurl statically (zlib.sh).
+static=OFF
+if [ "$TARGET" = aarch64-pc-windows-gnullvm ]; then static=ON; fi
 set --
 case "$TARGET" in
     # The generator defaults to the OS architecture, even under vcvars64.
@@ -29,7 +32,7 @@ esac
 cmake "$@" -S "$source" -B "$staged/build" -DCMAKE_BUILD_TYPE=Release -DCMAKE_C_COMPILER="$CC" \
     -DCMAKE_OSX_ARCHITECTURES="$architecture" \
     -DCMAKE_INSTALL_PREFIX="$install" -DCMAKE_INSTALL_LIBDIR=lib -DCMAKE_INSTALL_NAME_DIR=@rpath \
-    -DCMAKE_INSTALL_RPATH='@loader_path;$ORIGIN' -DBUILD_SHARED_LIBS=ON -DBUILD_STATIC_LIBS=OFF \
+    -DCMAKE_INSTALL_RPATH='@loader_path;$ORIGIN' -DBUILD_SHARED_LIBS=ON -DBUILD_STATIC_LIBS="$static" \
     -DBUILD_CURL_EXE=OFF -DBUILD_TESTING=OFF -DBUILD_LIBCURL_DOCS=OFF -DBUILD_MISC_DOCS=OFF \
     -DCURL_DISABLE_DICT=ON -DCURL_DISABLE_FILE=ON -DCURL_DISABLE_FTP=ON \
     -DCURL_DISABLE_GOPHER=ON -DCURL_DISABLE_IMAP=ON -DCURL_DISABLE_LDAP=ON -DCURL_DISABLE_IPFS=ON \
