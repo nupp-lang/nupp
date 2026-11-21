@@ -365,7 +365,9 @@ end
 if package.config:sub(1, 1) == "\\" then
     local rawExecute, rawPopen = os.execute, io.popen
     local standardIO = package.loaded["nupp.runtime.standardio"]
-    local nativePopen = standardIO and rawPopen == standardIO.popen
+    -- The VM's and the native core's popen take an argument vector; only a
+    -- copied runner on plain LuaJIT (which has `jit`) has the CRT's string.
+    local nativePopen = (standardIO and rawPopen == standardIO.popen) or rawget(_G, "jit") == nil
     -- Rejected empty as well as absent: an undefined workflow variable reaches a
     -- step as the empty string, which is true in Lua, so a bare `assert` let it
     -- through and every shelled-out command became `""` instead.
