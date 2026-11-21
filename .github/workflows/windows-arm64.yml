@@ -16,6 +16,13 @@ on:
         default: explaintest referencetest cachestamptest
 permissions:
   contents: read
+env:
+  # The guest cases a Windows host runs as Linux emits them: those that are
+  # not POSIX-shell, signal or macOS-library fixtures.
+  WINDOWS_GUESTS: >-
+    callsProtected clockprovider entropy errorsTexts filesystem gcfinalizers gcweak iofiles numberAdd
+    numbersText osfiles ostime outputPrint stringsFormat systeminfo systemprovider tablesSort tasksbasic
+    threadsbasic
 concurrency:
   group: windows-arm64-${{ github.ref }}
   cancel-in-progress: true
@@ -50,9 +57,40 @@ jobs:
           path: build/windows-core/compiler.bundle
           if-no-files-found: error
 
+  guests:
+    name: Emit the core guests / Linux arm64
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v5
+      - name: Build the compiler
+        uses: ./.github/actions/prepare
+      - name: Emit the guests Windows runs
+        shell: bash
+        env:
+          # Emitted, not run, here: the bridge and guard are never started.
+          NUPP_GUEST_EMIT_ONLY: '1'
+          NUPP_GUEST_BRIDGE: /usr/bin/true
+          NUPP_GUEST_GUARD: /usr/bin/true
+          NUPP_GUEST_SHARDS: '1'
+          NUPP_GUEST_MODES: normal
+          NUPP_GUEST_STRESS: '0'
+        run: |
+          cd tests/core/guests
+          # shellcheck disable=SC2086 # the cases are a list of names
+          NUPP_COMPILER_ROOT=$GITHUB_WORKSPACE ../../../bin/nupp run run.lua $WINDOWS_GUESTS
+          cd "$GITHUB_WORKSPACE/build/core-guests"
+          mkdir -p "$GITHUB_WORKSPACE/build/windows-guests"
+          cp ./*-normal.bundle ./*-normal.expected "$GITHUB_WORKSPACE/build/windows-guests/"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: windows-arm64-core-guests
+          path: build/windows-guests
+          if-no-files-found: error
+
   windows:
     name: Native core / Windows 11 ARM64
-    needs: compiler
+    needs: [compiler, guests]
     runs-on: windows-11-arm
     timeout-minutes: 240
     steps:
@@ -73,6 +111,10 @@ jobs:
         with:
           name: windows-arm64-core-compiler
           path: build/windows-core
+      - uses: actions/download-artifact@v4
+        with:
+          name: windows-arm64-core-guests
+          path: build/windows-guests
       - name: Run the native core without Rust
         shell: bash
         env:
@@ -95,6 +137,11 @@ jobs:
           cp "$(sh scripts/native-libraries isal)/bin/libnupp_crc.dll" "$lib/libnupp_crc.dll"
           cp "$(sh scripts/native-libraries zlib)/bin/libz.dll" "$lib/libz.dll"
           cp "$(sh scripts/native-libraries libffi)/lib/libnuppffi.dll" "$lib/libnuppffi.dll"
+          # The guests Linux emitted, through this host's bridge and ABI guard.
+          mkdir -p build/windows-guests/lib
+          cp "$lib/libnuppffi.dll" build/windows-guests/lib/
+          sh tests/core/guests/runbundles.sh build/windows-guests \
+            "$PWD/build/c-core-bridge/nupp-core.exe" "$PWD/build/c-core-bridge/nupp-core-guard.exe"
           sh scripts/core-cli install build/c-core-bridge/nupp-core build/windows-core/compiler.bundle
           export NUPP_RUNTIME=core NUPP_CORE_AUTO_REBUILD=0
           # The clangarm64 libclang the bridge was built with, whose DLLs sit beside it.
