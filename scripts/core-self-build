@@ -26,7 +26,8 @@ SELF_BUILD='__core-compiler'
 # `$1` from the root of the file system.
 absolute() {
     case "$1" in
-        /*) printf '%s\n' "$1" ;;
+        # A Windows path from a drive's root (C:/), as the toolchain prints one.
+        /* | [A-Za-z]:/* | [A-Za-z]:\\*) printf '%s\n' "$1" ;;
         *) printf '%s/%s\n' "$(pwd)" "$1" ;;
     esac
 }
