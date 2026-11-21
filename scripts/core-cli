@@ -221,7 +221,10 @@ failed_unchanged() {
 # these sources.
 install_built() {
     built="$1/runtime"
-    [ -f "$built" ] || built="$(sh "$ROOT/scripts/core-bridge" | tail -n 1)/nupp-core"
+    if [ ! -f "$built" ]; then
+        bridge=$(sh "$ROOT/scripts/core-bridge") || die "the core's C bridge did not build"
+        built="$(printf '%s\n' "$bridge" | tail -n 1)/nupp-core"
+    fi
     previous=$(cat "$CLI/current" 2>/dev/null || true)
     install_pair "$built" "$1/compiler.bundle" "$2" "$3" > /dev/null
     prune "$(cat "$CLI/current")" "$previous"
