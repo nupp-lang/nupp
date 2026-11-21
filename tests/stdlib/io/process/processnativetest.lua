@@ -337,7 +337,14 @@ end
 function M.defaultOutputWritesFlushesAndClosesAProcess()
     local public = ready()
     test.suite.requirecapability("io.output", (pcall(io.output)))
-    local child = assert(public.popen(shell('IFS= read -r line; test "$line" = output42'), "w"))
+    -- Windows' "w" translates text, so the line reaches a POSIX shell with its
+    -- CR: cmd's findstr reads it as Windows text, as in the case above.
+    local windows = package.config:sub(1, 1) == "\\"
+    local child = assert(public.popen(
+        windows and platformCommand("findstr /x output42 > NUL")
+            or shell('IFS= read -r line; test "$line" = output42'),
+        "w"
+    ))
     local previous = io.output()
     local result
     local ok, reason = pcall(function()
