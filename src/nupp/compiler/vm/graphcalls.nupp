@@ -102,6 +102,11 @@ local referenceTags: {
     unknown = true,
 }
 
+-- The value types that pass alike whichever instance of them a type names.
+local scalarTags: {
+    [string]: boolean
+} = {["nil"] = true, boolean = true, string = true, number = true, float64 = true, int64 = true,}
+
 -- Whether a generic callee's declared parameter and the call's instantiated
 -- one pass the same way: a type parameter takes whatever it is instantiated
 -- to, and two reference types are both a tagged value.
@@ -121,20 +126,42 @@ sameValue = function(declared: any, instantiated: any): boolean
     elseif declared == instantiated then
         return true
     end
-    -- A union passes as each of its members does, member for member.
+    -- A union passes as each of its members does, member for member. An
+    -- instantiated union need not keep the declared order (`T | Vector<T, S>`
+    -- with T a number may list the vector first), so each declared member
+    -- takes a distinct instantiated one: the concrete members first, then the
+    -- type parameters, which take anything, from what is left.
     if declared.tag == "union" and instantiated.tag == "union" then
         if #declared.members ~= #instantiated.members then
             return false
         end
-        for index, member in ipairs(declared.members) do
-            if not sameValue(member, instantiated.members[index]) then
-                return false
+        local taken: {[integer]: boolean} = {}
+
+        local function claim(member: any): boolean
+            for index, candidate in ipairs(instantiated.members) do
+                if not taken[index] and sameValue(member, candidate) then
+                    taken[index] = true
+                    return true
+                end
+            end
+
+            return false
+        end
+
+        for pass = 1, 2 do
+            for _, member in ipairs(declared.members) do
+                local parameter = bare(member) ~= nil and bare(member).tag == "typevar"
+                if parameter == (pass == 2) and not claim(member) then
+                    return false
+                end
             end
         end
         return true
     end
 
-    return declared.tag == "typevar" or referenceTags[declared.tag] == true and referenceTags[instantiated.tag] == true
+    return declared.tag == "typevar"
+        or referenceTags[declared.tag] == true and referenceTags[instantiated.tag] == true
+        or declared.tag == instantiated.tag and scalarTags[declared.tag] == true
 end
 
 invokeScalar = function(t: any): nil
