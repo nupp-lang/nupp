@@ -253,6 +253,7 @@ end
 scopes.xmlconformancetest = "integration"
 scopes.tracebacktest = "component"
 scopes.resultliststest = "integration"
+scopes.handlerordertest = "integration"
 scopes.testcachetest = "integration"
 scopes.sharedcachetest = "integration"
 for name in (
