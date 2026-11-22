@@ -1019,7 +1019,7 @@ local function callMethod(
     local site = need(p.callByNode[node], "method call lacks checked callsite")
     need(site.method and site.owner == ctx.fn.id, "method callsite belongs to another owner")
     need(
-        prepared == nil or site.indexed ~= nil and #prepared == #(node.args.exprs or {}) + 1,
+        prepared == nil or (site.indexed ~= nil or site.columnar ~= nil) and #prepared == #(node.args.exprs or {}) + 1,
         "prepared method operands lack indexed authority"
     )
     local contract

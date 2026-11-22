@@ -25,6 +25,11 @@ local function compile(source)
     if #errors > 0 then
         return "", errors, {}, parsed, {}
     end
+    if not program.onVm() then
+        -- The core compiles the checked fragment from its source when it
+        -- runs: there is no VM image or listing to inspect.
+        return nil, errors, {}, parsed, {}, name, path
+    end
     local listing = {}
     local ok, image = pcall(program.image, parsed, name, path, listing)
     if not ok then
@@ -35,9 +40,12 @@ local function compile(source)
 end
 
 local function runs(source)
-    local image, errors, generated, parsed, listing = compile(source)
+    local image, errors, generated, parsed, listing, name, path = compile(source)
     testAssert.eq(#errors, 0, errors[1] and (errors[1].code .. ": " .. errors[1].msg) or "check")
     testAssert.eq(#generated, 0, generated[1] and generated[1].msg or "VM lowering")
+    if not program.onVm() then
+        return program.run(parsed, name, path), image, parsed, listing
+    end
     program.installSourceModules()
     local chunk, why = assert(rawget(_G, "__nupp_load_image"))(image)
     assert(chunk, why)
@@ -55,7 +63,12 @@ local function codes(source)
     return table.concat(out, " ")
 end
 
+-- The runtime operations a VM image calls by name. The core's chunk keeps no
+-- such names, so there is nothing to look for there.
 local function dispatch(image, ...)
+    if not program.onVm() then
+        return
+    end
     for index = 1, select("#", ...) do
         local name = select(index, ...)
         assert(program.names(image, name), "the VM image does not call " .. name)
@@ -779,21 +792,25 @@ return {rows[1].x, rows[3].x, rows[1].y, rows[3].y, rows[3].dx, rows[3].dy}
 ]]
     )
     testAssert.deepeq(value, {7, 9, 10, 14, 3, 4}, "explicit vectors preserve ordered field identities and the tail")
-    local body
-    for _, entry in ipairs(listing) do
-        if entry.name == "advance" then
-            body = entry.image
+    if program.onVm() then
+        -- The VM's listing names its vector instructions; the scalar core
+        -- runs the same kernel lane by lane and keeps no listing.
+        local body
+        for _, entry in ipairs(listing) do
+            if entry.name == "advance" then
+                body = entry.image
+            end
         end
+        assert(
+            body and (body:find("Simd load", 1, true) or body:find("SpanLoad", 1, true)),
+            "column loads retain VM vector operations"
+        )
+        assert(
+            body:find("Simd store", 1, true) or body:find("SpanStore", 1, true),
+            "column stores retain VM vector operations"
+        )
+        assert(body:find("  lines ", 1, true), "vector body retains source lines")
     end
-    assert(
-        body and (body:find("Simd load", 1, true) or body:find("SpanLoad", 1, true)),
-        "column loads retain VM vector operations"
-    )
-    assert(
-        body:find("Simd store", 1, true) or body:find("SpanStore", 1, true),
-        "column stores retain VM vector operations"
-    )
-    assert(body:find("  lines ", 1, true), "vector body retains source lines")
     local fields = {}
     for _, token in ipairs(parsed.tokens) do
         if token.soaColumn then
@@ -899,13 +916,18 @@ end
 ]]
     )
     testAssert.eq(value, 15, "the authored scalar cannot collide with column transport")
-    local body
-    for _, entry in ipairs(listing) do
-        if entry.name == "count" then
-            body = entry.image
+    if program.onVm() then
+        local body
+        for _, entry in ipairs(listing) do
+            if entry.name == "count" then
+                body = entry.image
+            end
         end
+        assert(
+            body and body:match("^function count %d+ 2 "),
+            "the VM keeps the view and scalar as two authored arguments"
+        )
     end
-    assert(body and body:match("^function count %d+ 2 "), "the VM keeps the view and scalar as two authored arguments")
 end
 
 function M.managedAndOwnedArraysShareOneTypeAndSpanBrand()

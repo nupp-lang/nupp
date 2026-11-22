@@ -1,0 +1,215 @@
+module nupp.compiler.vm.columnaraccess
+
+--[[
+Columnar storage on the native core. A struct instance there is its bytes,
+so `ffi.typeof<T>()` of a struct is the descriptor the core's struct provider
+makes from the layout the declaration table holds, and of a scalar the
+storage provider's descriptor; `table.Array.alloc(T, n, "columnar")` and
+`table.Array.layoutof(T)` are the provider's operations given the field
+specification the checker measured. Each is a call through `any` of a
+callsite of its own (`call`).
+
+A columnar view is main's span record, so its rows and fields are its
+methods, called with the receiver, index and field ordinal the checker
+resolved: `rows[i]` is `rows:get(i)` and `rows[i] = row` `rows:set(i, row)`,
+`rows[i].x` is `rows:getField(i, ordinal)` and an assignment to it
+`rows:setField(i, ordinal, value)`, and the projection `rows.x` is
+`rows:fieldBySlot(ordinal)` (`methods`). The row a field access names is
+never made.
+]]
+
+local cst = require("nupp.compiler.syntax.cst")
+local types = require("nupp.compiler.types")
+local need = require("nupp.compiler.vm.taggedvalues").need
+
+export const MODULE = "nupp.runtime.provider.corestructs"
+
+local function bare(t: any): any
+    while t and (t.tag == "const" or t.tag == "affine" or t.tag == "borrowed" or t.tag == "pinned") do
+        t = t.inner
+    end
+
+    return t
+end
+
+-- The storage scalars `ffi.typeof` names a descriptor of, by type tag.
+const SCALARS: {
+    [string]: string
+} = {
+    uint8 = "uint8",
+    int8 = "int8",
+    uint16 = "uint16",
+    int16 = "int16",
+    uint32 = "uint32",
+    int32 = "int32",
+    uint64 = "uint64",
+    int64 = "int64",
+    integer = "int64",
+    float32 = "float32",
+    float64 = "number",
+    number = "number"
+}
+
+local function placeholder(t: any): any
+    return {kind = "nil", inferredType = t}
+end
+
+--- The struct or scalar `ffi.typeof<T>()` call `node` names, or nil: a struct's
+--- declaration (its `struct` or `cdef struct` statement, from `declarations`, by
+--- nominal), or a scalar's storage name.
+export function witness(node: any, declarations: {[any]: any}): any
+    if node.kind ~= "call" or node.ffiIntrinsic ~= "typeof" then
+        return nil
+    end
+    if #(node.args and node.args.exprs or {}) ~= 0 or node.args.str or node.args.table then
+        return nil
+    end
+    local subject = node.inferredType
+    subject = subject and subject.tag == "ctype" and bare(subject.of) or nil
+    if subject == nil then
+        return nil
+    end
+    if subject.tag == "nominal" and subject.declKind == "struct" then
+        local declaration = declarations[subject.origin or subject] or declarations[subject]
+        if declaration == nil or declaration.name == nil or declaration.name.definition == nil then
+            return nil
+        end
+        return {member = "descriptor", declaration = declaration}
+    end
+    local scalar = SCALARS[subject.tag]
+    if scalar ~= nil then
+        return {member = "scalar", scalar = scalar}
+    end
+
+    return nil
+end
+
+local calls: {[any]: any} = setmetatable({}, {__mode = "k"})
+
+--- The callsite of the provider call `node` is, made once, or nil: an
+--- `ffi.typeof` witness (`described`, from `witness`) or a columnar
+--- allocation or layout the checker measured. A struct's class is passed as
+--- `classToken`, a reference to its declaration's binding.
+export function call(node: any, described: any?): any
+    local known = calls[node]
+    if known ~= nil then
+        return known
+    end
+    local made: any = nil
+    if described ~= nil then
+        local exprs: {any} = {placeholder(described.member == "scalar" and types.string or types.any)}
+        made = {kind = "call", args = {kind = "args", exprs = exprs}, columnarCall = described}
+    elseif node.kind == "call" and node.soaLayout and node.soaOperation then
+        local arguments = node.args and node.args.exprs or {}
+        local spec = placeholder(types.any)
+        local exprs: {any}
+        local operation: any
+        if node.soaOperation == "allocate" then
+            need(#arguments >= 2, "a columnar allocation names its element and count")
+            exprs = {arguments[1], arguments[2], spec}
+            operation = {member = "allocate", operands = {arguments[1], arguments[2]}, layout = node.soaLayout}
+        else
+            need(#arguments >= 1, "a columnar layout names its element")
+            exprs = {spec, arguments[1]}
+            operation = {member = "layout", operands = {arguments[1]}, layout = node.soaLayout, specFirst = true}
+        end
+        made = {kind = "call", args = {kind = "args", exprs = exprs}, columnarCall = operation}
+    end
+    if made ~= nil then
+        calls[node] = made
+    end
+
+    return made
+end
+
+-- A method of view `view` called at `node`, its explicit arguments `exprs`,
+-- answering `result`: a checked method call the lowering issues, not part of
+-- the source tree.
+local function method(node: any, view: any, name: string, exprs: {any}, result: any): any
+    local token = need(cst.firstToken(node), "a columnar access lacks a source position")
+    local member: any = {
+        kind = "name",
+        text = name,
+        line = token.line,
+        col = token.col,
+        offset = token.offset,
+        trivia = {}
+    }
+    local args: any = {kind = "args", exprs = exprs}
+    for index, expr in ipairs(exprs) do
+        args[index] = expr
+    end
+
+    return {
+        view,
+        member,
+        args,
+        kind = "methodCall",
+        obj = view,
+        name = member,
+        args = args,
+        inferredType = result,
+        statementOwner = node.statementOwner
+    }
+end
+
+local accesses: {[any]: any} = setmetatable({}, {__mode = "k"})
+
+--- The columnar access node `node` is, made once, or nil: `kind` is `row`
+--- (`rows[i]`), `field` (`rows[i].x`) or `projection` (`rows.x`); `view` and
+--- `index` the expressions it reads; `ordinal` the field's; `read` the
+--- getter call and, where `writing`, `write` the setter call.
+export function methods(node: any, writing: boolean): any
+    local known = accesses[node]
+    if known ~= nil and (not writing or known.write ~= nil) then
+        return known
+    end
+    local access: any = nil
+    local ordinal = placeholder(types.integer)
+    if (node.kind == "dotIndex" or node.kind == "bracketIndex") and node.soaFieldProjection then
+        local projection = node.soaFieldProjection
+        access = {
+            kind = "projection",
+            view = node.obj,
+            index = nil,
+            ordinal = projection.ordinal,
+            read = method(node, node.obj, "fieldBySlot", {ordinal}, node.inferredType),
+            write = nil
+        }
+    elseif node.kind == "dotIndex"
+        and node.soaField
+        and node.obj
+        and node.obj.kind == "bracketIndex"
+        and node.obj.soaRow
+    then
+        local row = node.obj
+        access = {
+            kind = "field",
+            view = row.obj,
+            index = row.expr,
+            ordinal = node.soaField.ordinal,
+            read = method(node, row.obj, "getField", {row.expr, ordinal}, node.inferredType),
+            write = writing
+            and method(node, row.obj, "setField", {row.expr, ordinal, placeholder(node.inferredType)}, types.nil_)
+            or nil
+        }
+    elseif node.kind == "bracketIndex" and node.soaRow then
+        access = {
+            kind = "row",
+            view = node.obj,
+            index = node.expr,
+            ordinal = nil,
+            read = method(node, node.obj, "get", {node.expr}, node.inferredType),
+            write = writing and method(node, node.obj, "set", {node.expr, placeholder(node.inferredType)}, types.nil_)
+            or nil
+        }
+    end
+    if access ~= nil then
+        if known ~= nil and known.read ~= nil then
+            access.read = known.read
+        end
+        accesses[node] = access
+    end
+
+    return access
+end
