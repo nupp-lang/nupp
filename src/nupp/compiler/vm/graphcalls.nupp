@@ -1191,6 +1191,11 @@ end
 -- VM's lowering leaves it out.
 export function erased(node: any): boolean
     local kind = node.kind
+    -- What annotated Lua imports from its comments, declarations and casts,
+    -- is a checker fact only: the Lua runs as it is written (annotatedlua).
+    if node.foreignAnnotation == true then
+        return true
+    end
     if kind == "pragmaStmt" and node.name and node.name.text == "comptime" and node.stat then
         local target = node.stat
         while target.kind == "exportStmt" and target.stat do
