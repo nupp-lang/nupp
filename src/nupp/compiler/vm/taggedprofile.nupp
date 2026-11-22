@@ -970,7 +970,9 @@ export function forVersion(version: integer): any
             if object == nil then
                 return nil as any
             end
-            local key = ctx.emit(node, "K", {pool(ctx, "str", node.name.text)}, "tagged")
+            -- A static overload is stored under the member the checker selected.
+            local member = node.overloadMember or node.name.text
+            local key = ctx.emit(node, "K", {pool(ctx, "str", member)}, "tagged")
 
             return ctx.emit(node, "GetIdx", {object, key}, "tagged") as integer
         end
