@@ -1432,6 +1432,11 @@ export function describe(modules: {any}, entryModule: string, options: any?): an
         -- callsite of its own, and a view's row and field methods.
         local typeWitness = p.scalartypes.witnesses[node] == nil and columnaraccess.witness(node, p.structDeclarations)
             or nil
+        -- A module's scalar witness names its `ffi` import (scalartypeof);
+        -- only a chunk reads an implicit one, as the running program's.
+        if typeWitness and typeWitness.member == "scalar" and not p.chunk then
+            typeWitness = nil
+        end
         local provided = columnaraccess.call(node, typeWitness)
         if provided then
             local item = {id = #p.calls, owner = owner.id, node = provided, columnarCall = node}
