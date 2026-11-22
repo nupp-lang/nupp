@@ -46,6 +46,8 @@ local packedCall: function(any, any, any, integer): integer
 
 local protectedpack: function(any, any): integer?
 
+local selectall: function(any, any): integer?
+
 -- Whether `expr` is pcall or xpcall: a list that takes all of its results
 -- takes true and its function's, or false and the error.
 local function protectedcall(expr: any): boolean
@@ -1298,10 +1300,47 @@ export function openinvoke(ctx: any, node: any): any
         return safeinvoke(ctx, node, true, nil, true)
     elseif protectedcall(node) then
         return protectedpack(ctx, node)
+    elseif graph.selectsValues(node) then
+        return selectall(ctx, node)
     end
     if node.kind == "methodCall" and not graph.packedcall(node) then
         return invokeMethod(ctx, node, true, nil, nil, true)
     end
 
     return invoke(ctx, node, true, true, nil, true)
+end
+
+-- The values select(n, ...) chooses among, as one pack: its `...`, or a
+-- call's results when that call is its only other argument, or the values
+-- packed in order.
+export function selectvalues(ctx: any, node: any): integer?
+    local args = node.args.exprs or {}
+    if #args == 2 and args[2].kind == "vararg" then
+        return ctx.varargPack()
+    elseif #args == 2 and graph.expandsResults(args[2]) then
+        return openinvoke(ctx, args[2])
+    end
+
+    return valuespack(ctx, node, table.move(args, 2, #args, 1, {}))
+end
+
+-- select(n, ...) where a list takes all it gives: every value from index n
+-- on, as one pack (SELECT_ALL).
+selectall = function(ctx: any, node: any): integer?
+    local args = node.args.exprs or {}
+    need(#args >= 1, "select takes an index")
+    local index = ctx.expression(args[1], "tagged")
+    if index == nil then
+        return nil
+    end
+    local held = ctx.hold(index)
+    local pack = selectvalues(ctx, node)
+    if pack == nil or ctx.block == nil then
+        ctx.release(held)
+        return nil
+    end
+    local values = ctx.emit(node, "LibCall", {corelibrary.id("SELECT_ALL"), pack, ctx.readHeld(held)}, "tagged")
+    ctx.release(held)
+
+    return values
 end

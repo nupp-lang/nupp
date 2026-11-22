@@ -66,6 +66,9 @@ local subjectrows: {Subject} = {
             -- tonumber(s, base).
             {name = "TONUMBER_BASE", id = 106, text = "NAME_TONUMBER"},
             {name = "SELECT", id = 20, text = "NAME_SELECT"},
+            -- select(n, ...) where a list takes all it gives: the values from
+            -- index n on, as a fresh pack.
+            {name = "SELECT_ALL", id = 228, text = "NAME_SELECT"},
             {name = "ERROR", id = 22},
             -- After a call in a function that owns affine values: false when
             -- an error landed there.
