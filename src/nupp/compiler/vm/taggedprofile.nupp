@@ -1686,6 +1686,20 @@ export function forVersion(version: integer): any
             elseif t.kind == "tfunc" then
                 answer = "function"
             end
+            -- A struct's instance is its bytes, which carry no type: a test
+            -- the checker could not settle from the value's static type has
+            -- nothing to ask when the program runs.
+            local struct = taggedstructs.origin(target)
+            if answer == nil and struct then
+                error(
+                    "tagged graph: a type test against struct " .. tostring(
+                        struct.name
+                    )
+                    .. " needs the value's static type to settle it: a struct on the core is its bytes, with no"
+                    .. " runtime type to test",
+                    0
+                )
+            end
             if answer == nil then
                 error(
                     "tagged graph: a type test against " .. tostring(
