@@ -33,6 +33,31 @@ export function restore(result: any): nil
     end
 end
 
+-- Removes `item` from the list `list`, by identity.
+local function without(list: any, item: any): nil
+    for index = #list, 1, -1 do
+        if list[index] == item then
+            table.remove(list, index)
+        end
+    end
+end
+
+-- The core compiler copies each interface default a struct takes into the
+-- struct's body (nupp.compiler.vm.structdefaults). Checking the tree again
+-- checks it as written, so the copies leave it first.
+export function withdrawSpecialized(result: any): nil
+    local made = result.coreSpecializedDefaults
+    if not made then
+        return
+    end
+    for _, copy in ipairs(made) do
+        without(copy.declaration.entries or {}, copy.method)
+        without(copy.declaration, copy.method)
+    end
+    result.coreSpecializedDefaults = nil
+    result.coreDefaultsSymbols = nil
+end
+
 export function prepare(result: any): nil
     local saved = result.optimizationSyntax
     if saved then
