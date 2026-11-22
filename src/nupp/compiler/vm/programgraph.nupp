@@ -90,6 +90,30 @@ local typeSyntax = {
     annotationApply = true,
 }
 
+--- Adds to `found` the definition of each `cdef function` checked tree
+--- `root` names anywhere but as the callee of a call: a value the program
+--- holds (taggedforeign.declare), as one with a counted ABI or cleanups is.
+export function foreignValueReferences(root: any, found: {[any]: boolean}): nil
+    local visit: function(any, any): nil
+    visit = function(node: any, callee: any): nil
+        if type(node) ~= "table" or cst.isToken(node) then
+            return
+        end
+        if node.kind == "name" and node ~= callee and node.token then
+            local definition = node.token.definition
+            local identity = definition and definition.cdefIdentity
+            if identity and identity:sub(1, 9) == "function\0" then
+                found[definition] = true
+            end
+        end
+        local calleeChild = node.kind == "call" and node.obj or nil
+        for _, child in ipairs(node) do
+            visit(child, calleeChild)
+        end
+    end
+    visit(root, nil)
+end
+
 local function bindingMode(definition: any, foreignValues: any): string
     -- bindType/bindPack create lexical definitions too. Only bindVar records
     -- a function depth, including a nominal declaration's runtime value.
@@ -1026,7 +1050,10 @@ export function describe(modules: {any}, entryModule: string, options: any?): an
         end
     end
     -- All module and function identities exist before references are resolved.
+    -- A `cdef function` named as a value is known to be one before its
+    -- declaration is discovered, which binds it.
     for _, module in ipairs(p.modules) do
+        foreignValueReferences(module.parsed.root, p.foreignValues)
         discover(module.parsed.root, p.owners[module.chunk + 1])
         for _, definition in ipairs(module.parsed.symbols) do
             need(
@@ -1772,7 +1799,7 @@ export function describe(modules: {any}, entryModule: string, options: any?): an
         if graph.coreLibraryField(node) then
             loopForms[node] = true
         end
-        if p.chunk and (node.cheaderCdef or node.kind == "cdefFunc" and p.foreignValues[node.name.definition]) then
+        if p.chunk and node.cheaderCdef or node.kind == "cdefFunc" and p.foreignValues[node.name.definition] then
             local call = {kind = "call", args = {kind = "args", exprs = {{kind = "nil", inferredType = types.any}}}}
             local site = {id = #p.calls, owner = owner.id, node = call, foreign = node}
             p.calls[#p.calls + 1], p.callByNode[call], p.foreignFactories[node] = site, site, site
@@ -3005,8 +3032,10 @@ export function verify(p: any): boolean
         elseif item.foreign then
             local source = item.foreign
             need(
-                p.chunk
-                and (source.cheaderCdef or source.kind == "cdefFunc" and p.foreignValues[source.name.definition])
+                (
+                    p.chunk and source.cheaderCdef
+                    or source.kind == "cdefFunc" and p.foreignValues[source.name.definition]
+                )
                 and p.foreignFactories[source] == item
                 and p.callByNode[node] == item
                 and item.definition == nil
