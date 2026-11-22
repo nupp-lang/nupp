@@ -70,9 +70,19 @@ local function compile(path, env, name, source)
 end
 
 -- Requires through the project's own modules, each lowered to an image the running
--- VM loads.
+-- VM loads. On the native core a require compiles a module it does not carry from
+-- source, checked in the environment its chunks are checked in: the project's.
 local function installProject(env)
-    local loadImage = assert(rawget(_G, "__nupp_load_image"), "fragments run on the VM")
+    local loadImage = rawget(_G, "__nupp_load_image")
+    if not loadImage then
+        local corechunk = require("nupp.compiler.vm.corechunk")
+        local previous = corechunk.environmentInUse()
+        corechunk.useEnvironment(env)
+
+        return function()
+            corechunk.useEnvironment(previous)
+        end
+    end
 
     return runtime.install(env, compile, nil, nil, function(image)
         return loadImage(image)
