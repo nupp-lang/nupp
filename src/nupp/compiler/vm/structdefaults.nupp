@@ -1,0 +1,225 @@
+module nupp.compiler.vm.structdefaults
+
+-- A struct's instance on the core is its bytes, with no name a field is
+-- found by when the program runs. An interface's default method reads its
+-- receiver's fields through the interface, so the default a struct takes is
+-- compiled again for that struct: a copy of its checked body whose `self`
+-- is the struct, each `self.f` then a field at the struct's own offset.
+--
+-- The copy is one more method in the struct's body, stored in its table
+-- under the member the default has there. Its checked tree is the
+-- interface's, its nodes and the names it declares its own, and everything
+-- else it refers to shared: types, and the declarations outside it.
+--
+-- Only a default of an interface declared in a block the struct is
+-- declared in, or within, is copied: each name its body reads is then one
+-- the struct's body can read too. Any other is still the interface's one
+-- body.
+local cst = require("nupp.compiler.syntax.cst")
+
+-- Every node and token of `root`'s tree, into `into`.
+local function collect(root: any, into: {[any]: boolean}): nil
+    if type(root) ~= "table" or into[root] then
+        return
+    end
+    into[root] = true
+    if cst.isToken(root) then
+        return
+    end
+    for _, child in ipairs(root) do
+        collect(child, into)
+    end
+end
+
+-- Whether `value` is a declaration: what a token's `definition` names,
+-- which names the token that declares it.
+local function declaration(value: any): boolean
+    return not cst.isToken(value) and type(value.token) == "table" and cst.isToken(value.token)
+end
+
+-- Copies of the method `entry` and everything of its own it refers to.
+local function copier(entry: any, moduleNodes: {[any]: boolean}): function(any): any
+    local inside: {[any]: boolean} = {}
+    collect(entry, inside)
+    local copies: {[any]: any} = {}
+    local reaches: {[any]: boolean} = {}
+    -- Whether `value` is the copy's to make anew: a node or token of the
+    -- method, a declaration it makes, or a table of the checker's that
+    -- refers, through others like it, to one of those. A node outside the
+    -- method, a type and a declaration outside it are shared.
+    local reachesInside: function(any): boolean
+    reachesInside = function(value: any): boolean
+        if type(value) ~= "table" then
+            return false
+        elseif inside[value] then
+            return true
+        elseif moduleNodes[value] or cst.isToken(value) or type(value.tag) == "string" then
+            return false
+        elseif declaration(value) then
+            -- A declaration outside is shared, whatever it lists of its
+            -- uses; one inside is made anew.
+            return inside[value.token] == true
+        end
+        local known = reaches[value]
+        if known ~= nil then
+            return known
+        end
+        reaches[value] = false
+        for key, item in pairs(value) do
+            if reachesInside(key) or reachesInside(item) then
+                reaches[value] = true
+                return true
+            end
+        end
+
+        return false
+    end
+    local copy: function(any): any
+    copy = function(value: any): any
+        if type(value) ~= "table" then
+            return value
+        end
+        local known = copies[value]
+        if known ~= nil then
+            return known
+        end
+        if not reachesInside(value) then
+            return value
+        end
+        local made: any = {}
+        copies[value] = made
+        for key, item in pairs(value) do
+            made[copy(key)] = copy(item)
+        end
+        if cst.isToken(value) and value.definition and value.definition.implicitSelf then
+            -- The core's own `self` of the original (programgraph's
+            -- implicitSelf), which the copy is given afresh.
+            made.definition = nil
+        end
+        made.coreSelfParam = nil
+
+        return made
+    end
+
+    return copy
+end
+
+-- Gives each read of `self` in the copied method `method` the struct's type.
+local function receiveAs(method: any, struct: any): nil
+    local body = method.body
+    local first = body and body.params and body.params[1]
+    local explicit = first and first.name and first.name.text == "self" and first.name.definition or nil
+    if explicit then
+        first.name.inferredType = struct
+    end
+    local visit: function(any, boolean): nil
+    visit = function(node: any, top: boolean): nil
+        if type(node) ~= "table" or cst.isToken(node) then
+            return
+        end
+        -- A method of its own inside has a `self` of its own.
+        if not top and (node.kind == "inlineMethod" or node.kind == "funcStmt" and node.name and node.name.method) then
+            return
+        end
+        if node.kind == "name" and node.token and node.token.text == "self" then
+            local definition = node.token.definition
+            if explicit and definition == explicit or not explicit and definition == nil then
+                node.inferredType = struct
+            end
+        end
+        for _, child in ipairs(node) do
+            visit(child, false)
+        end
+    end
+    visit(method, true)
+end
+
+-- The default method each inherited member of struct `stat` is, by the
+-- interface member it comes from: the declaration of the method entry the
+-- checker recorded for it.
+local function defaultsOf(stat: any): {[string]: any}
+    local found: {[string]: any} = {}
+    for member, super in pairs(stat.resolvedType.inheritedDefaults or {}) do
+        local entry = super.defaultEntries and super.defaultEntries[member]
+        local method = entry and entry.entry and entry.entry.declaration
+        if method then
+            found[entry.name .. "\0" .. tostring(entry.member)] = method
+        end
+    end
+
+    return found
+end
+
+-- Puts `method` in `stat`'s body, after its other entries.
+local function insert(stat: any, method: any): nil
+    stat.entries[#stat.entries + 1] = method
+    local last = stat[#stat]
+    if cst.isToken(last) and last.text == "end" then
+        table.insert(stat, #stat, method)
+    else
+        stat[#stat + 1] = method
+    end
+end
+
+-- Each struct declared at the top of `parsed` takes its own copy of each
+-- default it inherits from an interface declared there too. The copies are
+-- recorded on `parsed` (coreSpecializedDefaults), which checking the tree
+-- again withdraws first (nupp.compiler.syntax.checkpoint).
+export function specialize(parsed: any): nil
+    -- Each struct that takes a default, with the methods of the interfaces
+    -- declared in the blocks around it.
+    local structs: {any} = {}
+    local visibleTo: {[any]: any} = {}
+    local walk: function(any, any): nil
+    walk = function(node: any, visible: any): nil
+        if type(node) ~= "table" or cst.isToken(node) then
+            return
+        end
+        if node.stats then
+            local inner: any = setmetatable({}, {__index = visible})
+            for _, stat in ipairs(node.stats) do
+                local declared = stat.kind == "exportStmt" and stat.stat or stat
+                if declared.kind == "recordDecl" and declared.declKind == "interface" then
+                    for _, entry in ipairs(declared.entries or {}) do
+                        inner[entry] = true
+                    end
+                end
+            end
+            visible = inner
+        end
+        if node.kind == "recordDecl"
+            and node.declKind == "struct"
+            and node.resolvedType
+            and #(node.inheritedDefaultNames or {}) > 0
+        then
+            structs[#structs + 1] = node
+            visibleTo[node] = visible
+        end
+        for _, child in ipairs(node) do
+            walk(child, visible)
+        end
+    end
+    walk(parsed.root, {})
+    if #structs == 0 then
+        return
+    end
+    local moduleNodes: {[any]: boolean} = {}
+    collect(parsed.root, moduleNodes)
+    local made: {any} = parsed.coreSpecializedDefaults or {}
+    parsed.coreSpecializedDefaults = made
+    for _, stat in ipairs(structs) do
+        local defaults = defaultsOf(stat)
+        for _, taken in ipairs(stat.inheritedDefaultNames) do
+            local entry = defaults[taken.name .. "\0" .. tostring(taken.fromMember)]
+            if entry and visibleTo[stat][entry] and entry.kind == "inlineMethod" and not entry.inlineStatic then
+                local method = copier(entry, moduleNodes)(entry)
+                method.overloadMember = taken.member
+                method.coreDefaultOf = entry
+                receiveAs(method, stat.resolvedType)
+                insert(stat, method)
+                taken.specialized = method
+                made[#made + 1] = {declaration = stat, method = method, taken = taken}
+            end
+        end
+    end
+end
