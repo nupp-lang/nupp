@@ -3,9 +3,20 @@ local parser = require("nupp.compiler.syntax.parser")
 local checker = require("helpers.fragment")
 local environment = require("nupp.compiler.project.env")
 local lower = require("nupp.compiler.vm.lower")
+local program = require("program")
 local ROOT = require("helpers.paths").root
 local METHODS = 96
 local M = {}
+
+local function verify(kind, value)
+    for index = 1, METHODS do
+        local label, integral, fractional, marker = value["value" .. index](value)
+        test.eq(label, "after")
+        test.eq(integral, 11 + index)
+        test.eq(fractional, 2.5 + index)
+        test.eq(marker, kind .. " environment")
+    end
+end
 
 local function execute(kind)
     local name = "vmdefaultmethodtest." .. kind
@@ -31,6 +42,19 @@ local function execute(kind)
     test.eq(#result.errors, 0, result.errors[1] and result.errors[1].msg)
     local diagnostics = checker.check(result, path, environment.new(ROOT), {moduleName = name, strict = false})
     test.eq(#diagnostics, 0, diagnostics[1] and diagnostics[1].msg)
+    if not program.onVm() then
+        -- The core loads a fragment's chunk in the running program's
+        -- globals, so the marker is one of those while its methods run.
+        local previous = rawget(_G, "marker")
+        rawset(_G, "marker", kind .. " environment")
+        local ok, problem = pcall(function()
+            verify(kind, program.run(result, name, path))
+        end)
+        rawset(_G, "marker", previous)
+        assert(ok, problem)
+        return
+    end
+    -- The VM's image loader takes the environment its globals resolve in.
     result.root.vmModuleExports = result.moduleExports
     local image = lower.emit(
         name,
@@ -45,14 +69,7 @@ local function execute(kind)
     )
     local globals = setmetatable({marker = kind .. " environment"}, {__index = _G})
     globals._G = globals
-    local value = assert(__nupp_load_image(image))({value = globals})
-    for index = 1, METHODS do
-        local label, integral, fractional, marker = value["value" .. index](value)
-        test.eq(label, "after")
-        test.eq(integral, 11 + index)
-        test.eq(fractional, 2.5 + index)
-        test.eq(marker, kind .. " environment")
-    end
+    verify(kind, assert(__nupp_load_image(image))({value = globals}))
 end
 
 function M.environmentAwareInterfaceDefaultsReclaimClosureTemporaries()
