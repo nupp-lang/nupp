@@ -295,12 +295,15 @@ local function compileOwner(fn: any, options: any, profile: any, site: any): any
     local currentEdge: function(any): any
     local expression: function(any, string?): integer?
     local statements: function(any): nil
+    local statementList: function(any, any, boolean): nil
+    -- The statement lists being lowered, innermost last (see forwardLabel).
+    local frames: {any} = {}
     local exitSuffix: function(any, string?): integer?
     local declareRecord: function(any, boolean?): nil
     -- The cells the module's hoisted exports were bound to as it started.
     local hoistedCells: {[any]: integer} = {}
     local unwind: function(integer, any, string, any?): nil
-    local registerCleanup: function(any, any, any, integer, boolean?): nil
+    local registerCleanup: function(any, any, any, integer, boolean?, integer?): nil
     local reinitialize: function(any): nil
 
     -- Whether a function statement names a bare name, not a table's field.
@@ -900,7 +903,9 @@ local function compileOwner(fn: any, options: any, profile: any, site: any): any
         need(block == nil, "missing cleanup binding")
     end
 
-    registerCleanup = function(site: any, owner: any, t: any, value: integer, empty: boolean?): nil
+    -- `live`, when given, is the Boolean value saying whether the owner
+    -- holds a value from the start; otherwise it does unless `empty`.
+    registerCleanup = function(site: any, owner: any, t: any, value: integer, empty: boolean?, live: integer?): nil
         need(cleanupEnabled and block, "cleanup acquisition requires an active cleanup profile")
         need(cleanupOwners[owner] == nil, "cleanup owner registered twice")
         context()
@@ -918,7 +923,7 @@ local function compileOwner(fn: any, options: any, profile: any, site: any): any
             temporary = freshOwner(site)
         }
         ctx.bind(entry.value, value)
-        ctx.bind(entry.live, flag(site, not empty))
+        ctx.bind(entry.live, live or flag(site, not empty))
         cleanups[#cleanups + 1], cleanupOwners[owner] = entry, entry
     end
 
@@ -1806,7 +1811,35 @@ local function compileOwner(fn: any, options: any, profile: any, site: any): any
                                 if not (spread and index >= #exprs) and not stat.syntheticLoopOwner then
                                     transferExpression(exprs[index])
                                 end
-                                registerCleanup(stat, owner, owner.type, value, exprs[index] == nil and not spread)
+                                -- A result of a pack (`pcall`'s) owns a value only on
+                                -- the alternatives whose sibling results say so.
+                                local live = nil
+                                if owner.conditional then
+                                    context()
+                                    local active = heldScope()
+                                    live = need(
+                                        profile.cleanupActivation,
+                                        "conditional owners need an activation test"
+                                    )(
+                                        ctx,
+                                        stat,
+                                        owner.activation,
+                                        function(slot: integer): integer
+                                            return ctx.readHeld(need(values[#exprs + slot - 1], "activation slot"))
+                                        end
+                                    )
+                                    block = ctx.block
+                                    checkHeldScope(active)
+                                    value = ctx.readHeld(values[index])
+                                end
+                                registerCleanup(
+                                    stat,
+                                    owner,
+                                    owner.type,
+                                    value,
+                                    exprs[index] == nil and not spread,
+                                    live
+                                )
                             end
                         end
                         -- A reassigned local never shares a parameter's value: the
