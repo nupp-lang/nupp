@@ -20,6 +20,7 @@ local ownedcallables = require("nupp.compiler.vm.ownedcallables")
 local forwardedexports = require("nupp.compiler.vm.forwardedexports")
 local derivedrecipes = require("nupp.compiler.vm.derivedrecipes")
 local managedcalls = require("nupp.compiler.vm.managedcalls")
+local taggedforeign = require("nupp.compiler.vm.taggedforeign")
 local tagged = require("nupp.compiler.vm.taggedprofile")
 local executable = require("nupp.compiler.vm.coregraphexecutable")
 local corepiece = require("nupp.compiler.vm.corepiece")
@@ -944,6 +945,12 @@ local function requiredmodules(root: any, source: string, follow: boolean): ({st
     walk(root)
     if #scalartypeof.imports(root) > 0 then
         add(scalartypeof.MODULE, false)
+    end
+    -- A `cdef function` held as a value is made by the foreign value factory.
+    local foreignValues: {[any]: boolean} = {}
+    programgraph.foreignValueReferences(root, foreignValues)
+    if next(foreignValues) ~= nil then
+        add(taggedforeign.FACTORY, false)
     end
     if follow then
         for list in source:gmatch("@requires%-dynamically ([%w%._, ]+)") do
