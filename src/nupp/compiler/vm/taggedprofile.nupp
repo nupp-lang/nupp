@@ -21,6 +21,7 @@ local recordcallables = require("nupp.compiler.vm.recordcallables")
 local taggedforeign = require("nupp.compiler.vm.taggedforeign")
 local taggedpredicate = require("nupp.compiler.vm.taggedpredicate")
 local scalarcapabilities = require("nupp.compiler.vm.scalarcapabilities")
+local scalarlanes = require("nupp.compiler.vm.scalarlanes")
 export const booleanKind = "tagged"
 local binding = taggedvalues.binding
 local catalog = taggedvalues.catalog
@@ -63,6 +64,98 @@ local function taggedOperands(ctx: any, nodes: {any}): {any}?
     end
 
     return ctx.operands(nodes, kinds)
+end
+
+-- An operation on a vector or a mask (scalarlanes): its operands in source
+-- order, then `simd.lane[member]` called with the operation's name and
+-- element ahead of them, through `any` at the operation's own callsite.
+local function laneCall(ctx: any, node: any, keepResult: boolean, count: integer?): any
+    local site = need(catalog(ctx).laneCalls[node], "lane operation lacks its checked callsite")
+    local operation = site.node.laneOperation
+    local kinds: {string} = {}
+    for index = 1, #operation.operands do
+        kinds[index] = "tagged"
+    end
+    local values = ctx.operands(operation.operands, kinds)
+    if values == nil then
+        return nil
+    end
+    local held: {any} = {}
+    for index, value in ipairs(values) do
+        held[index] = ctx.hold(value)
+    end
+    local name = ctx.emit(node, "K", {pool(ctx, "str", scalarlanes.MODULE)}, "tagged")
+    local module = ctx.emit(node, "LibCall", {corelibrary.id("MODULE_REQUIRE"), name}, "tagged")
+    local runtimeKey = ctx.emit(node, "K", {pool(ctx, "str", scalarlanes.RUNTIME)}, "tagged")
+    local runtime = ctx.emit(node, "GetIdx", {module, runtimeKey}, "tagged")
+    local memberKey = ctx.emit(node, "K", {pool(ctx, "str", operation.member)}, "tagged")
+    local callee = ctx.hold(ctx.emit(node, "GetIdx", {runtime, memberKey}, "tagged"))
+    local args: {integer} = {}
+    for _, text in ipairs(operation.leads) do
+        args[#args + 1] = ctx.emit(node, "K", {pool(ctx, "str", text)}, "tagged")
+    end
+    for _, handle in ipairs(held) do
+        args[#args + 1] = ctx.readHeld(handle)
+    end
+    local value = ctx.readHeld(callee)
+    ctx.release(callee)
+    for index = #held, 1, -1 do
+        ctx.release(held[index])
+    end
+    if count ~= nil then
+        -- `local a, b = v:interleave(w)` keeps each of the operation's results.
+        local contract = graph.dynamicInvokeContract(site.node, count)
+        return landed(ctx, node, ctx.invokeMany(node, value, args, contract, count))
+    end
+    local answer = ctx.invoke(node, value, args, graph.dynamicInvokeContract(site.node, 1), keepResult)
+    if not keepResult then
+        return answer
+    end
+
+    return landed(ctx, node, answer)
+end
+
+-- The profile's hooks with each lane operation (scalarlanes) lowered as a
+-- call of the lane runtime ahead of what they lower.
+local function laneOperations(profile: any): nil
+    local function routed(hook: string): nil
+        local lower = profile[hook]
+        if lower == nil then
+            return
+        end
+        profile[hook] = function(ctx: any, node: any, expected: string?): integer?
+            if catalog(ctx).laneCalls[node] ~= nil then
+                need(expected == nil or expected == "tagged", "lane operation requires tagged destination")
+                return laneCall(ctx, node, true)
+            end
+
+            return lower(ctx, node, expected)
+        end
+    end
+
+    routed("binary")
+    routed("unary")
+    routed("call")
+    routed("methodCall")
+    local results = profile.callResults
+    if results ~= nil then
+        profile.callResults = function(ctx: any, node: any, count: integer): any
+            if catalog(ctx).laneCalls[node] ~= nil then
+                return laneCall(ctx, node, true, count)
+            end
+            return results(ctx, node, count)
+        end
+    end
+    local statement = profile.statementCall
+    if statement ~= nil then
+        profile.statementCall = function(ctx: any, node: any): nil
+            if catalog(ctx).laneCalls[node] ~= nil then
+                laneCall(ctx, node, false)
+                return
+            end
+            statement(ctx, node)
+        end
+    end
 end
 
 local function scalarwitness(ctx: any, node: any): any
@@ -2424,6 +2517,7 @@ export function forVersion(version: integer): any
 
             return withCleanup
         end
+        laneOperations(profile)
     end
 
     return profile
