@@ -1036,13 +1036,14 @@ export function forVersion(version: integer): any
     -- emits the statement each annotates as written. `@derive` is admitted on
     -- a record whose recipe the core makes (derivedmembers). Checked custom
     -- annotations and their declarations carry metadata without running code.
-    local pragmas: {
-        [string]: boolean
-    } = {
+    local pragmas: {[string]: boolean} = {
         unsafe = true,
         aot = true,
         allow = true,
         nosuspend = true,
+        -- Effect regions the checker holds the body to; nothing runs for them.
+        noalloc = true,
+        noraise = true,
         deprecated = true,
         cli = true,
         debug = true,
@@ -1073,7 +1074,8 @@ export function forVersion(version: integer): any
             and definition
             and definition.name == name
             and (name ~= "deprecated" or definition.builtin == true),
-            "only a checked @unsafe, @aot, @allow, @nosuspend, @deprecated, @cli, @debug, @event, @syntax, "
+            "only a checked @unsafe, @aot, @allow, @nosuspend, @noalloc, @noraise, @deprecated, @cli, @debug, @event, "
+            .. "@syntax, "
             .. "lowered @derive, or checked custom annotation is admitted, not @"
             .. tostring(
                 name
