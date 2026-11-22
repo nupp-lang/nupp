@@ -1,0 +1,168 @@
+-- An xpcall's message handler runs where the error was raised, before the
+-- frames on its way destroy the affine values they own, as Lua calls it
+-- before the stack unwinds; the frames then destroy them, and the protected
+-- call answers what the handler made of the error.
+local test = require("assert")
+local M = {}
+
+local events: {string} = {}
+
+local record Owned
+    name: string
+
+    constructor(self, name: string): affine(Owned, Owned.destroy)
+        self.name = name
+    end
+
+    function destroy(takes self): nil
+        events[#events + 1] = "destroy " .. self.name
+    end
+end
+
+local record Breaking
+    constructor(self): affine(Breaking, Breaking.destroy)
+    end
+
+    function destroy(takes self): nil
+        events[#events + 1] = "destroy breaking"
+        error("cleanup failed", 0)
+    end
+end
+
+local function fails(): nil
+    error("boom", 0)
+end
+
+local function owning(): nil
+    local held = Owned("inner")
+    fails()
+    events[#events + 1] = "kept " .. held.name
+end
+
+local function owningTwice(): nil
+    local held = Owned("outer")
+    owning()
+    events[#events + 1] = "kept " .. held.name
+end
+
+local function raisingItself(): nil
+    local held = Owned("self")
+    if held.name == "self" then
+        error("raised here", 0)
+    end
+    events[#events + 1] = "kept " .. held.name
+end
+
+local function handler(message: any): any
+    events[#events + 1] = "handler " .. tostring(message)
+    return "handled: " .. tostring(message)
+end
+
+function M.theHandlerRunsBeforeTheOwnersAreDestroyed(): nil
+    events = {}
+    local ok, answer = xpcall(owning, handler)
+    test.eq(ok, false)
+    test.eq(answer, "handled: boom")
+    test.eq(#events, 2)
+    test.eq(events[1], "handler boom")
+    test.eq(events[2], "destroy inner")
+end
+
+function M.everyOwnerOnTheWayIsDestroyedAfterTheHandlerOnce(): nil
+    events = {}
+    local ok, answer = xpcall(owningTwice, handler)
+    test.eq(ok, false)
+    test.eq(answer, "handled: boom")
+    test.eq(#events, 3)
+    test.eq(events[1], "handler boom")
+    test.eq(events[2], "destroy inner")
+    test.eq(events[3], "destroy outer")
+end
+
+function M.anErrorAnOwnerRaisesItselfMeetsTheHandlerFirst(): nil
+    events = {}
+    local ok, answer = xpcall(raisingItself, handler)
+    test.eq(ok, false)
+    test.eq(answer, "handled: raised here")
+    test.eq(#events, 2)
+    test.eq(events[1], "handler raised here")
+    test.eq(events[2], "destroy self")
+end
+
+function M.theHandlerSeesTheFailingFrame(): nil
+    events = {}
+    local failing = debug.getinfo(fails, "S")
+    local seen = false
+    local ok = xpcall(owning, function(message: any): any
+        for level = 2, 6 do
+            local info = debug.getinfo(level, "Sl")
+            if info ~= nil and info.short_src == failing.short_src and info.currentline == failing.linedefined + 1 then
+                seen = true
+            end
+        end
+
+        return message
+    end)
+    test.eq(ok, false)
+    test.eq(seen, true)
+    test.eq(#events, 1)
+    test.eq(events[1], "destroy inner")
+end
+
+function M.aHandlerThatRaisesStillLetsTheOwnersBeDestroyed(): nil
+    events = {}
+    local ok, answer = xpcall(owning, function(message: any): any
+        error("again", 0)
+    end)
+    test.eq(ok, false)
+    test.eq(answer, "error in error handling")
+    test.eq(#events, 1)
+    test.eq(events[1], "destroy inner")
+end
+
+-- A body failure that is no string keeps its identity through a cleanup's
+-- failure on the core, which drops the cleanup's (the Lua differences
+-- page); the VM wraps both, the body's as `primary`.
+function M.aNonStringFailureSurvivesACleanupFailure(): nil
+    events = {}
+    local body = {}
+    local ok, problem = pcall(function(): nil
+        local held = Breaking()
+        error(body)
+        events[#events + 1] = tostring(held)
+    end)
+    test.eq(ok, false)
+    test.eq(events[1], "destroy breaking")
+    local kept = rawequal(problem, body) or type(problem) == "table" and rawequal((problem as any).primary, body)
+    test.eq(kept, true)
+end
+
+function M.aCleanupFailureMeetsNoSecondHandler(): nil
+    events = {}
+    local ok, answer = xpcall(
+        function(): nil
+            local held = Breaking()
+            fails()
+            events[#events + 1] = tostring(held)
+        end,
+        handler
+    )
+    test.eq(ok, false)
+    test.eq(events[1], "handler boom")
+    test.eq(events[2], "destroy breaking")
+    test.eq(#events, 2)
+    local text = tostring(answer)
+    test.eq(text:sub(1, #"handled: boom"), "handled: boom")
+end
+
+function M.pcallSeesTheErrorAfterTheOwnersAreDestroyed(): nil
+    events = {}
+    local ok, problem = pcall(owningTwice)
+    test.eq(ok, false)
+    test.eq(problem, "boom")
+    test.eq(#events, 2)
+    test.eq(events[1], "destroy inner")
+    test.eq(events[2], "destroy outer")
+end
+
+return M

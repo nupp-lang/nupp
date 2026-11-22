@@ -9,6 +9,31 @@ Nupp runs Lua 5.5 source, and its native runtime keeps Lua's behavior
 wherever it can. This page lists the places where a program can still tell
 the difference, each with an example and the reason it stays.
 
+## Error handling
+
+### A cleanup's failure under a body failure that is no string
+
+When a function that owns affine values fails, its owners are destroyed on
+the way out. If a destructor raises too, the native runtime keeps the body's
+failure. A string failure carries the cleanup's after it, on a line of its
+own; a failure of any other kind keeps its identity, and the cleanup's
+failure is dropped:
+
+```nupp:fragment
+local ok, problem = pcall(function(): nil
+    local log = Log()          -- Log.destroy raises "flush failed"
+    error({code = 7})
+end)
+-- problem is the {code = 7} table itself
+```
+
+Lua 5.5 does the opposite: an error raised by a `__close` method replaces the
+error that was unwinding. The Rust VM wraps both in a table,
+`{primary = ..., suppressed = {...}}`, that prints as the string form does.
+The native runtime cannot make the function that table would print through
+when it lands the error, so it keeps the failure the program raised, which
+is the one it is most likely to test for.
+
 ## The debug library
 
 The native runtime provides `debug.getinfo` and `debug.traceback`. The rest of
