@@ -167,10 +167,18 @@ end
 
 invokeScalar = function(t: any): nil
     -- An owned value passes as the value it owns; its cleanup is the
-    -- graph's, not the call's.
+    -- graph's, not the call's. A refined value is its base type's value:
+    -- the refinement was proven or admitted where it was made.
     while t
-        and (t.tag == "literal" or t.tag == "const" or t.tag == "affine" or t.tag == "borrowed" or t.tag == "pinned") do
-        t = t.tag == "literal" and t.base or t.inner
+        and (
+            t.tag == "literal"
+            or t.tag == "constrained"
+            or t.tag == "const"
+            or t.tag == "affine"
+            or t.tag == "borrowed"
+            or t.tag == "pinned"
+        ) do
+        t = (t.tag == "literal" or t.tag == "constrained") and t.base or t.inner
     end
     -- A union of admitted types (integer | number, say) passes as a value.
     if t and t.tag == "union" and #t.members > 0 then
