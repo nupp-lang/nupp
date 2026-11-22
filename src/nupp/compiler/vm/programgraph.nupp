@@ -342,6 +342,10 @@ end
 -- The hexadecimal digits of a 64-bit integer.
 const HEX_DIGITS = 16
 
+-- The members of a materialization IR node that hold IR, in the order its
+-- calls are numbered (nupp.compiler.comptime.materialize.ir).
+const MATERIALIZED_CHILDREN = {"callee", "object", "value", "args", "array", "fields", "body"}
+
 -- Values are kept beside their source and exact bytes. Integers never pass
 -- through tonumber; float NaNs use the graph image's canonical quiet NaN.
 local function literal(node: any): any
@@ -665,6 +669,10 @@ export function describe(modules: {any}, entryModule: string, options: any?): an
         recordDecls = {},
         -- Runtime class references issued for checked nominal record tests.
         recordTests = {},
+        -- By materialized comptime expression, the synthetic reference each of
+        -- its type-object paths starts from (by first name) and the synthetic
+        -- callsite of each call its IR makes (by IR node).
+        materializations = {},
         -- The owners (by id) with any such site.
         cleanupOwners = {},
         -- The definition of the record each method or constructor written in
@@ -1283,9 +1291,70 @@ export function describe(modules: {any}, entryModule: string, options: any?): an
         p.calls[#p.calls + 1], p.callByNode[indexed.call] = item, item
     end
 
+    -- A materialized comptime value is code the checker chose, as IR: the
+    -- bindings its type objects name are read where it stands, and each call
+    -- it makes is a call through `any` from there.
+    local function materialization(node: any, owner: any): nil
+        local made = {tokens = {}, calls = {}}
+        local anchor = need(cst.firstToken(node), "a materialization lacks its source position")
+        -- In name order, so the program's references do not follow a hash.
+        local roots: {string} = {}
+        for root in pairs(node.materializedTypeObjects or {}) do
+            roots[#roots + 1] = root
+        end
+        table.sort(roots)
+        for _, root in ipairs(roots) do
+            local definition = node.materializedTypeObjects[root]
+            local token: any = {
+                kind = "name",
+                text = root,
+                line = anchor.line,
+                col = anchor.col,
+                offset = anchor.offset,
+                trivia = {},
+                definition = definition
+            }
+            reference(token, owner)
+            made.tokens[root] = token
+        end
+
+        local function walk(item: any): nil
+            if type(item) ~= "table" then
+                return
+            end
+            if item.tag == "call" then
+                local exprs = {}
+                for index = 1, #(item.args or {}) do
+                    exprs[index] = {kind = "nil", token = anchor, inferredType = {tag = "any"}, anchor}
+                end
+                local call = {kind = "call", args = {kind = "args", exprs = exprs}, anchor}
+                local site = {id = #p.calls, owner = owner.id, node = call, dynamic = true, materialized = node}
+                p.calls[#p.calls + 1], p.callByNode[call] = site, site
+                made.calls[item] = call
+            end
+            for _, key in ipairs(MATERIALIZED_CHILDREN) do
+                local child = item[key]
+                if type(child) == "table" and child.tag ~= nil then
+                    walk(child)
+                elseif type(child) == "table" then
+                    for _, entry in ipairs(child) do
+                        walk(entry)
+                    end
+                end
+            end
+        end
+
+        walk(node.materializedIR)
+        p.materializations[node] = made
+    end
+
     local materializedRecords = recordValues(p)
     local collect: function(any, any): nil
     collect = function(node: any, owner: any): nil
+        if node.kind == "comptimeExpr" and node.materializedIR ~= nil then
+            materialization(node, owner)
+            return
+        end
         if cst.isToken(node) or typeSyntax[node.kind] or node.kind == "comptimeExpr" or graph.erased(node) then
             return
         end
@@ -2703,6 +2772,15 @@ export function verify(p: any): boolean
                 "indexed span callsite identity mismatch"
             )
             indexedaccess.verify(access, access.node, item.owner)
+        elseif item.materialized then
+            need(
+                node.kind == "call"
+                and p.callByNode[node] == item
+                and item.dynamic
+                and item.definition == nil
+                and p.materializations[item.materialized] ~= nil,
+                "materialized callsite identity mismatch"
+            )
         elseif item.foreign then
             local source = item.foreign
             need(

@@ -45,51 +45,56 @@ local function claim(namespace: any, name: string, fresh: any): any
     return fresh
 end
 
---- Installs the keyed field codec.
+--- The keyed field codec.
 ---
 --- A materialized codec calls this with the field names the compiler settled on and
 --- the fingerprint it checked them under. Encoding and decoding copy the named fields
 --- and nothing else, and decoding restores the record's metatable. A field that is
 --- absent stays absent rather than becoming an explicit nil, which is what makes the
---- result round-trip.
+--- result round-trip. The VM's programs reach it through `installFieldCodec`; the
+--- native core's call it here.
+--- @export
+export function keyedFieldCodec(fields: {string}, fingerprint: string, recordType: any): any
+    local Codec: any = {}
+    Codec.__index = Codec
+    function Codec:encode(value: any): any
+        if type(value) ~= "table" then
+            error("nupp: keyed codec value must be a table", 2)
+        end
+        local out: any = {}
+        for _, name in ipairs(fields) do
+            local field = rawget(value, name)
+            if field ~= nil then
+                out[name] = field
+            end
+        end
+
+        return out
+    end
+
+    function Codec:decode(value: any): (any, string?)
+        if type(value) ~= "table" then
+            return nil, "$: expected keyed table"
+        end
+        local out: any = {}
+        for _, name in ipairs(fields) do
+            local field = rawget(value, name)
+            if field ~= nil then
+                out[name] = field
+            end
+        end
+
+        return setmetatable(out, recordType), nil
+    end
+
+    return setmetatable({fingerprint = fingerprint}, Codec)
+end
+
+--- Installs the keyed field codec under `namespace.fieldcodec.keyed`.
 --- @export
 export function installFieldCodec(namespace: any): nil
     local fieldcodec = claim(namespace, "fieldcodec", {})
-    fieldcodec.keyed = function(fields: {string}, fingerprint: string, recordType: any): any
-        local Codec: any = {}
-        Codec.__index = Codec
-        function Codec:encode(value: any): any
-            if type(value) ~= "table" then
-                error("nupp: keyed codec value must be a table", 2)
-            end
-            local out: any = {}
-            for _, name in ipairs(fields) do
-                local field = rawget(value, name)
-                if field ~= nil then
-                    out[name] = field
-                end
-            end
-
-            return out
-        end
-
-        function Codec:decode(value: any): (any, string?)
-            if type(value) ~= "table" then
-                return nil, "$: expected keyed table"
-            end
-            local out: any = {}
-            for _, name in ipairs(fields) do
-                local field = rawget(value, name)
-                if field ~= nil then
-                    out[name] = field
-                end
-            end
-
-            return setmetatable(out, recordType), nil
-        end
-
-        return setmetatable({fingerprint = fingerprint}, Codec)
-    end
+    fieldcodec.keyed = keyedFieldCodec
 end
 
 --- Installs the reflection registry and the descriptor protocol.
