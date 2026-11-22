@@ -805,7 +805,9 @@ export function describe(modules: {any}, entryModule: string, options: any?): an
             binding(node, owner)
             return
         end
-        if node.kind == "comptimeExpr" or graph.erased(node) then
+        -- A `satisfies` clause is not a function the program holds: the checker
+        -- reads it into the predicate each `is` against its interface lowers.
+        if node.kind == "comptimeExpr" or node.kind == "satisfiesDecl" or graph.erased(node) then
             -- Compile-time declarations have no runtime bindings. A
             -- compile-time expression contributes only its checked result.
             forget(node)
