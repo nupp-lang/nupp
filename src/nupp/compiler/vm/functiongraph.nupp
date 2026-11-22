@@ -2056,8 +2056,10 @@ local function compileOwner(fn: any, options: any, profile: any, site: any): any
                 end)
             elseif stat.kind == "assignStmt" then
                 local spread, spreadValues = spreadCall(stat.exprs, #stat.targets), nil
+                -- As in Lua, targets past the values get nil and values past the
+                -- targets are evaluated and dropped.
                 need(
-                    #stat.targets == #stat.exprs or spread ~= nil,
+                    #stat.targets == #stat.exprs or spread ~= nil or profile.missingLocal ~= nil,
                     "parallel local assignment requires one value per target"
                 )
                 local values, targets = {}, {}
@@ -2094,6 +2096,8 @@ local function compileOwner(fn: any, options: any, profile: any, site: any): any
                             spreadValues = profile.callResults(ctx, stat.exprs[index], spread)
                         end
                         value = spreadValues and spreadValues[index - #stat.exprs + 1]
+                    elseif index > #stat.exprs then
+                        value = invoke("missingLocal", stat, target.kind)
                     elseif stat.compound and target.heldReceiver then
                         local original = stat.exprs[index].lhs
                         context()
@@ -2119,6 +2123,21 @@ local function compileOwner(fn: any, options: any, profile: any, site: any): any
                         return
                     end
                     values[index] = ctx.hold(value)
+                end
+                for index = #targets + 1, #stat.exprs do
+                    if block then
+                        expression(stat.exprs[index], nil)
+                    end
+                end
+                if not block then
+                    for previous = #values, 1, -1 do
+                        ctx.release(values[previous])
+                    end
+                    for _, old in ipairs(targets) do
+                        releaseTarget(old)
+                    end
+                    finishTemporaries(statementDepth, stat)
+                    return
                 end
                 -- Lua stores right to left: a repeated destination retains
                 -- its leftmost assignment. All RHS values are already held.
