@@ -508,11 +508,32 @@ local function sourcefile(name: string): (string?, string?)
     return nil, nil
 end
 
+-- The modules sourcemodule is loading now: a require of one of them again
+-- before it settles is a cycle, which would start it again without end.
+local loadingSources: {[string]: boolean} = {}
+
+local sourcemoduleOnce: function(string): (any, string?)
+
 -- Module `name` from its source (sourcefile), which the image does not
 -- carry: its kept chunk, else compiled on the core, Nupp source as a module
 -- instance whose requires go through the program's `require`. Answers what
--- it settles as, and the file; nil where there is no source.
+-- it settles as, and the file; nil where there is no source. A require
+-- cycle through such modules raises, as Lua's require does.
 local function sourcemodule(name: string): (any, string?)
+    if loadingSources[name] then
+        error("loop or previous error loading module '" .. name .. "'", 0)
+    end
+    loadingSources[name] = true
+    local ok, value, path = pcall(sourcemoduleOnce, name)
+    loadingSources[name] = nil
+    if not ok then
+        error(value, 0)
+    end
+
+    return value, path
+end
+
+sourcemoduleOnce = function(name: string): (any, string?)
     if probingCompiler then
         -- The compiler and its dependencies load from the running image.
         return nil, nil
