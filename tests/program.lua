@@ -174,7 +174,18 @@ local function coreLoad(result, name, path)
     -- decides the modules it may import, as the VM's lowering of that
     -- checked tree does.
     local module = result.moduleName or name or "main"
+    -- A fragment checked for a declared layout target is checked again for
+    -- it, in the environment that names it, as comptime layout queries need.
+    local env = result.fragmentEnv
+    local previous = corechunk.environmentInUse()
+    local switched = env ~= nil and env.layoutTarget ~= nil and env ~= previous
+    if switched then
+        corechunk.useEnvironment(env)
+    end
     local compiled, bytes, problem = pcall(corechunk.compileProgram, source, display, "@" .. display, module)
+    if switched then
+        corechunk.useEnvironment(previous)
+    end
     if not compiled then
         return nil, tostring(bytes)
     elseif not bytes then
