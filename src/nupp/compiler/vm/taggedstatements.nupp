@@ -168,14 +168,18 @@ export function checkStatement(ctx: any, stat: any, version: integer): nil
     need(not stat.comptimeFunction and not stat.comptimeTok, "compile-time declarations are unsupported")
 end
 
-local function stepSign(ctx: any, stat: any, version: integer): integer?
+local function stepSign(ctx: any, stat: any, version: integer, unsigned: boolean): integer?
     if stat.step == nil then
         return 1
     end
     local constant = catalog(ctx).byNode[stat.step]
+    if constant ~= nil and constant.kind == "uint64" then
+        -- An unsigned step is never negative; a zero one raises as it runs.
+        return tonumber(constant.text) ~= 0 and 1 or nil
+    end
     if constant == nil or constant.kind ~= "int64" and constant.kind ~= "num" then
         need(version >= 8, "numeric for step must be a numeric literal")
-        need(numericType(stat.step.inferredType), "numeric for step must be a number")
+        need(unsigned or numericType(stat.step.inferredType), "numeric for step must be a number")
         return nil
     end
     local value = need(tonumber(constant.text), "numeric for step literal")
@@ -196,9 +200,18 @@ end
 -- integer controls runs once rather than not at all, and an integer start with
 -- a float step yields the integer first.
 export function numericFor(ctx: any, stat: any, version: integer): any
-    local sign = stepSign(ctx, stat, version)
     local startType = stat.start.inferredType
-    local integerMode = integerType(startType) and (stat.step == nil or integerType(stat.step.inferredType))
+    -- A uint64 control makes the loop unsigned: its 64 bits, which the core
+    -- holds as an integer, count and compare in their unsigned order, and
+    -- the step is never negative.
+    local unsigned = typeKind(startType) == "uint64"
+        or typeKind(stat.stop.inferredType) == "uint64"
+        or stat.step ~= nil and typeKind(stat.step.inferredType) == "uint64"
+    local sign = stepSign(ctx, stat, version, unsigned)
+    if unsigned and sign ~= nil then
+        sign = 1
+    end
+    local integerMode = unsigned or integerType(startType) and (stat.step == nil or integerType(stat.step.inferredType))
     local runtimeMode = not integerMode and (numericType(startType) or typeKind(startType) == "any")
     need(
         integerMode or runtimeMode or numberType(startType) and typeKind(startType) == "float64",
@@ -206,7 +219,7 @@ export function numericFor(ctx: any, stat: any, version: integer): any
     )
     -- A limit of no static number type is checked as the loop starts.
     local dynamicLimit = typeKind(stat.stop.inferredType) == "any"
-    need(dynamicLimit or numericType(stat.stop.inferredType), "numeric for limit must be a number")
+    need(unsigned or dynamicLimit or numericType(stat.stop.inferredType), "numeric for limit must be a number")
     local nodes = {stat.start, stat.stop}
     if stat.step then
         nodes[3] = stat.step
@@ -218,6 +231,54 @@ export function numericFor(ctx: any, stat: any, version: integer): any
     local values = ctx.operands(nodes, kinds)
     if values == nil then
         return nil
+    end
+    if unsigned then
+        -- An exact float control of an unsigned loop is its integer.
+        for index, control in ipairs(nodes) do
+            local kind = typeKind(control.inferredType)
+            if kind ~= "uint64" and not integerType(control.inferredType) then
+                local held = {}
+                for at, value in ipairs(values) do
+                    held[at] = ctx.hold(value)
+                end
+                local converted = ctx.hold(
+                    taggedvalues.landed(
+                        ctx,
+                        stat,
+                        ctx.emit(stat, "LibCall", {corelibrary.id("MATH_TOINTEGER"), values[index]}, "tagged")
+                    )
+                )
+                local none = ctx.emit(stat, "Nil", {}, "tagged")
+                local inexact = ctx.emit(stat, "Eq", {ctx.readHeld(converted), none}, "tagged")
+                ctx.when(stat, inexact, function(c: any, node: any): nil
+                    local message = c.emit(
+                        node,
+                        "K",
+                        {pool(c, "str", "'for' value has no integer representation")},
+                        "tagged"
+                    )
+                    taggedvalues.landed(c, node, c.emit(node, "LibCall", {corelibrary.id("ERROR"), message}, "tagged"))
+                end)
+                for at, handle in ipairs(held) do
+                    values[at] = ctx.readHeld(handle)
+                    ctx.release(handle)
+                end
+                values[index] = ctx.readHeld(converted)
+                ctx.release(converted)
+            end
+        end
+    end
+
+    -- `left op right` for Lt and Le, an unsigned loop's in unsigned order:
+    -- each operand's sign bit flipped, then compared as signed.
+    local function order(c: any, node: any, op: string, left: integer, right: integer): integer
+        if unsigned then
+            local bias = c.emit(node, "K", {pool(c, "int64", "-9223372036854775808")}, "tagged")
+            left = c.emit(node, "LibCall", {corelibrary.id("BXOR"), left, bias}, "tagged")
+            right = c.emit(node, "LibCall", {corelibrary.id("BXOR"), right, bias}, "tagged")
+        end
+
+        return c.emit(node, op, {left, right}, "tagged") as integer
     end
 
     local function checkedLimit(): nil
@@ -320,7 +381,8 @@ export function numericFor(ctx: any, stat: any, version: integer): any
             ctx.release(handle)
         end
         local zero = ctx.emit(stat, "K", {pool(ctx, "int64", "0")}, "tagged")
-        values[DIRECTION] = ctx.emit(stat, "Lt", {zero, values[3]}, "tagged")
+        values[DIRECTION] = unsigned and ctx.emit(stat, "K", {pool(ctx, "true", "")}, "tagged")
+            or ctx.emit(stat, "Lt", {zero, values[3]}, "tagged")
     end
     if integerMode then
         checkedLimit()
@@ -335,12 +397,12 @@ export function numericFor(ctx: any, stat: any, version: integer): any
     -- loop's guard is "not past the limit", so NaN controls run it once.
     local function compare(c: any, node: any, counter: integer, limit: integer, ascending: integer?): (integer, boolean)
         if sign == nil then
-            local up = c.emit(node, "Le", {counter, limit}, "tagged")
-            local down = integerMode and c.emit(node, "Not", {c.emit(node, "Lt", {counter, limit}, "tagged")}, "tagged")
+            local up = order(c, node, "Le", counter, limit)
+            local down = integerMode and c.emit(node, "Not", {order(c, node, "Lt", counter, limit)}, "tagged")
                 or c.emit(node, "Le", {limit, counter}, "tagged")
             return c.select(node, ascending, up, down), false
         elseif sign > 0 then
-            return c.emit(node, "Le", {counter, limit}, "tagged"), false
+            return order(c, node, "Le", counter, limit), false
         elseif integerMode then
             return c.emit(node, "Lt", {counter, limit}, "tagged"), true
         end
@@ -373,14 +435,15 @@ export function numericFor(ctx: any, stat: any, version: integer): any
             -- Integer counters wrap at 64 bits; a wrapped sum ends the loop.
             if sign == nil then
                 local held = c.hold(advanced)
-                local up = c.emit(node, "Lt", {advanced, v[1]}, "tagged")
+                local up = order(c, node, "Lt", advanced, v[1])
                 local down = c.emit(node, "Lt", {v[1], advanced}, "tagged")
                 local wrapped = c.select(node, v[DIRECTION], up, down)
                 advanced = c.readHeld(held)
                 c.release(held)
                 return advanced, wrapped
             end
-            local wrapped = c.emit(node, "Lt", sign > 0 and {advanced, v[1]} or {v[1], advanced}, "tagged")
+            local wrapped = sign > 0 and order(c, node, "Lt", advanced, v[1])
+            or c.emit(node, "Lt", {v[1], advanced}, "tagged")
 
             return advanced, wrapped
         end
