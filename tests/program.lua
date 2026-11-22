@@ -105,7 +105,11 @@ local function coreLoad(result, name, path)
         -- a function so the caller receives every result, including nils.
         source = "return function(...: any): ...any " .. source .. "\nend\n"
     end
-    local compiled, bytes, problem = pcall(corechunk.compileProgram, source, display, "@" .. display, name or "main")
+    -- Checked as the module the fragment was checked as, which is what
+    -- decides the modules it may import, as the VM's lowering of that
+    -- checked tree does.
+    local module = result.moduleName or name or "main"
+    local compiled, bytes, problem = pcall(corechunk.compileProgram, source, display, "@" .. display, module)
     if not compiled then
         return nil, tostring(bytes)
     elseif not bytes then
