@@ -392,6 +392,29 @@ function expr.install(c: state.Checker): nil
             end
             node.materializedIR = lowered
             node.materializationEnvelope = envelope
+            -- The native core lowers the IR itself rather than its rendering, so
+            -- the binding each type-object path starts from is resolved here,
+            -- where its name is in scope.
+            local typeObjects: {[string]: any} = {}
+
+            local function bindTypeObjects(item: any): nil
+                if type(item) ~= "table" then
+                    return
+                end
+                if item.tag == "typeobject" and type(item.path) == "string" then
+                    local root = item.path:match("^[^.]+")
+                    local entry = root and c.lookupEntry(root)
+                    if entry and entry.definition then
+                        typeObjects[root] = entry.definition
+                    end
+                end
+                for _, child in pairs(item) do
+                    bindTypeObjects(child)
+                end
+            end
+
+            bindTypeObjects(lowered)
+            node.materializedTypeObjects = typeObjects
             lowering = lowering or {}
             node.materializationObservation = {
                 provider = envelope.provider,
