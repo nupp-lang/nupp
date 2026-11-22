@@ -339,6 +339,9 @@ local function kind(t: any): string
     return t and t.tag or "missing"
 end
 
+-- The hexadecimal digits of a 64-bit integer.
+const HEX_DIGITS = 16
+
 -- Values are kept beside their source and exact bytes. Integers never pass
 -- through tonumber; float NaNs use the graph image's canonical quiet NaN.
 local function literal(node: any): any
@@ -352,6 +355,12 @@ local function literal(node: any): any
         local ty = kind(value.inferredType)
         local integer = ty == "integer" or ty == "int64" or ty == "uint64"
         text = text:gsub("[Uu]?[Ll][Ll]$", "")
+        -- A hexadecimal integer wraps around to 64 bits, as Lua reads one:
+        -- only its last sixteen digits count.
+        local hex = text:match("^0[xX](%x+)$")
+        if hex and #hex > HEX_DIGITS then
+            text = "0x" .. hex:sub(-HEX_DIGITS)
+        end
         text = (negative and "-" or "") .. text
         if integer then
             return {kind = ty == "uint64" and "uint64" or "int64", text = text, bytes = graphimage.wideTextBytes(text)}
