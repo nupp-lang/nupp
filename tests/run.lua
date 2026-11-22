@@ -282,12 +282,10 @@ do
         end
         processSalt = tostring(processId) .. "-" .. stateSalt
     else
-        -- The VM has no FFI but names its own process, and on POSIX a shell
-        -- answers whether another one is still running.
-        local named, hostpid = false, nil
-        if rawget(_G, "__nupp_load_image") then
-            named, hostpid = pcall(require, "nupp.compiler.hostpid")
-        end
+        -- The VM and the native core have no FFI but name their own process,
+        -- and on POSIX a shell answers whether another one is still running.
+        local named, hostpid = pcall(require, "nupp.compiler.hostpid")
+        named = named and type(hostpid) == "table" and hostpid.get() ~= nil
         if named then
             processId = tonumber(hostpid.get())
             if package.config:sub(1, 1) ~= "\\" then
@@ -1219,6 +1217,36 @@ do
             if clocked then
                 pauseBriefly = function()
                     clock.sleep(20)
+                end
+            end
+        elseif not rawget(_G, "__nupp_load_image") then
+            -- The native core opens files through its own system calls, and
+            -- their exclusive create is O_EXCL on every host it runs on.
+            local bound, calls = pcall(require, "nupp.runtime.filecalls")
+            if bound and type(calls) == "table" and type(calls.open) == "function" then
+                -- Write (2), exclusive (32) and private (64), filecalls' flags.
+                local EXCLUSIVE_PRIVATE_WRITE = 2 + 32 + 64
+                exclusiveCreate = function(path)
+                    local fd = calls.open(path, EXCLUSIVE_PRIVATE_WRITE)
+                    if fd < 0 then
+                        return false
+                    end
+                    local stamp = tostring(os.time()) .. (processId and " " .. processId or "") .. "\n"
+                    local first = 1
+                    while first <= #stamp do
+                        local written = calls.write(fd, stamp, first)
+                        if written <= 0 then
+                            break
+                        end
+                        first = first + written
+                    end
+                    calls.close(fd)
+                    if first <= #stamp then
+                        os.remove(path)
+                        error("cannot timestamp exclusive lock " .. path, 0)
+                    end
+
+                    return true
                 end
             end
         end
