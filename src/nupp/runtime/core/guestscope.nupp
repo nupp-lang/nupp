@@ -60,6 +60,10 @@ export struct Services
     -- of its function (`reraise`): the frame making that call waits on it,
     -- as on any call, and takes it first when it owns affine values.
     rethrown: uint64
+    -- 1 while an xpcall's message handler has answered for the error that
+    -- unwound to it, before the stack unwound: its XPHandle takes that
+    -- answer rather than calling the handler again.
+    handled: uint64
     -- math.random's xoshiro256** state, all zero until the first draw or
     -- math.randomseed seeds it.
     random0: uint64
@@ -345,6 +349,7 @@ local function initializeHeap(
         native.store64(services, native.fieldOffset<Services>("metaCallee"), 0ULL)
         native.store64(services, native.fieldOffset<Services>("landed"), 0ULL)
         native.store64(services, native.fieldOffset<Services>("rethrown"), 0ULL)
+        native.store64(services, native.fieldOffset<Services>("handled"), 0ULL)
         native.store64(services, native.fieldOffset<Services>("random0"), 0ULL)
         native.store64(services, native.fieldOffset<Services>("random1"), 0ULL)
         native.store64(services, native.fieldOffset<Services>("random2"), 0ULL)
