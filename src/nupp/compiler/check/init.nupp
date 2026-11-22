@@ -1077,6 +1077,7 @@ function checkMod.check(
 ): {checkMod.Diagnostic}, Type?, state.ModuleExports
     local checkedState: any = result
     checkpoint.restore(checkedState)
+    checkpoint.withdrawSpecialized(checkedState)
     checkedState.optimizationSyntax = nil
     opts = opts or {} as state.Options
     if filename and filename:match("%.lua$") then
