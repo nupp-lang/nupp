@@ -841,6 +841,15 @@ export function describe(modules: {any}, entryModule: string, options: any?): an
             forget(node)
             return
         end
+        -- A block's imported annotated-Lua statements stand beside its ordered
+        -- syntax rather than in it, and declare nothing the program holds.
+        if node.kind == "block" then
+            for _, stat in ipairs(node.stats or {}) do
+                if stat.foreignAnnotation == true then
+                    forget(stat)
+                end
+            end
+        end
         if scalarcapabilities.absentBinding(node) then
             p.absentBindings[
                 node
