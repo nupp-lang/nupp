@@ -35,8 +35,11 @@ function M.tableStructsPreserveValueOperations()
     verify("structvalue", "nupp.runtime.provider.tablestruct")
 end
 
+-- The native storage family is the FFI provider on the VM and the guest-heap
+-- provider on the core, which answers `nupp.vm.storagebinding` with it.
 function M.nativeStorageMatchesTheByteContract()
-    verify("cstorage", "nupp.runtime.provider.nativestorage")
+    local provider = program.onVm() and "nupp.runtime.provider.nativestorage" or "nupp.runtime.provider.heapstorage"
+    verify("cstorage", provider)
 end
 
 function M.suspensionPreservesOwnershipAndHandlerIdentity()
