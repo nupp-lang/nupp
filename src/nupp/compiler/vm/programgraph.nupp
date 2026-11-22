@@ -8,6 +8,7 @@ local construction = require("nupp.compiler.vm.construction")
 local functioncleanup = require("nupp.compiler.vm.functioncleanup")
 local builtinextensions = require("nupp.compiler.builtinextensions")
 local taggedvalues = require("nupp.compiler.vm.taggedvalues")
+local taggedstructs = require("nupp.compiler.vm.taggedstructs")
 local opcodes = require("nupp.compiler.vm.opcodes")
 local graphimage = require("nupp.compiler.vm.graphimage")
 local graphemit = require("nupp.compiler.vm.graphemit")
@@ -395,19 +396,18 @@ end
 -- A `:` method's receiver is implicit: the checker binds `self` without a
 -- declaring token, so its references carry no definition. The core gives it
 -- one, as a synthetic first parameter, and points every `self` in the body
--- at it, except inside nested methods, which have their own receiver.
+-- at it, except inside nested methods, which have their own receiver. A
+-- struct's inline method that declares no `self` has the same implicit one.
 local function implicitSelf(node: any, body: any): any
-    if body.coreSelfParam ~= nil or not (node.kind == "funcStmt" and node.name.method) then
+    local first = body.params and body.params[1]
+    local inline = node.kind == "inlineMethod"
+        and not node.inlineStatic
+        and not (first and first.name and first.name.text == "self")
+    if body.coreSelfParam ~= nil or not (node.kind == "funcStmt" and node.name.method or inline) then
         return body.coreSelfParam
     end
-    local token: any = {
-        kind = "name",
-        text = "self",
-        line = node.name.method.line,
-        col = node.name.method.col,
-        offset = node.name.method.offset,
-        trivia = {}
-    }
+    local at = inline and node.name or node.name.method
+    local token: any = {kind = "name", text = "self", line = at.line, col = at.col, offset = at.offset, trivia = {}}
     local definition: any = {lexical = true, token = token, functionDepth = 0, constant = true, implicitSelf = true}
     token.definition = definition
     local mark: function(any): nil
@@ -1795,7 +1795,12 @@ export function describe(modules: {any}, entryModule: string, options: any?): an
             and declaration.coreDefinition
             and inlineRecords[declaration]
             and inlineRecords[declaration].name.definition.filename ~= owner.scope.path
-        if foreignRecord then
+        -- `record t.R` is stored in the table `t` names, where `t.R(...)` finds it.
+        local qualifiedRecord = declaration
+            and declaration.coreDefinition
+            and inlineRecords[declaration]
+            and #(inlineRecords[declaration].qualifiers or {}) > 0
+        if foreignRecord or qualifiedRecord then
             -- A record another module declares is that module's export:
             -- `m.R(...)` reads R's table through m's, which the caller
             -- references as it does any value.
@@ -1997,7 +2002,59 @@ export function describe(modules: {any}, entryModule: string, options: any?): an
                 nested = nested or cst.isToken(part) and part.kind == "."
             end
         end
-        if base and (nested or base.definition.filename ~= owner.scope.path) then
+        -- A struct's instance is its bytes, with no metatable to read: a
+        -- method of a struct this module declares, its own or an interface
+        -- default it takes, is read from the struct's table, through the
+        -- table `struct t.S` is stored in.
+        local structPath: {string}? = nil
+        local structBase: any = nil
+        local declared = node.kind == "methodCall"
+            and node.name
+            and graph.coreLibraryCall(node) == nil
+            and p.callByNode[node] == nil
+            and taggedstructs.origin(node.obj.inferredType)
+        local structDeclaration = declared and declared.deriveDeclaration
+        if structDeclaration and structDeclaration.name then
+            local qualifiers = structDeclaration.qualifiers or {}
+            structBase = qualifiers[1] or structDeclaration.name
+            structPath = {}
+            for index = 2, #qualifiers do
+                structPath[#structPath + 1] = qualifiers[index].text
+            end
+            if #qualifiers > 0 then
+                structPath[#structPath + 1] = structDeclaration.name.text
+            end
+            if not (structBase.definition and structBase.definition.filename == owner.scope.path) then
+                structPath = nil
+            end
+        end
+        if structPath then
+            local classToken: any = {
+                kind = "name",
+                text = structBase.text,
+                line = node.name.line,
+                col = node.name.col,
+                offset = node.name.offset,
+                trivia = {},
+                definition = structBase.definition
+            }
+            reference(classToken, owner)
+            -- A method whose body the program holds is called by its
+            -- contract; an interface default, or one it has no body for, is
+            -- read from the table and called as through `any`.
+            local known = target ~= nil and target.node.kind ~= "constructorDecl"
+            local item = {
+                id = #p.calls,
+                owner = owner.id,
+                node = node,
+                definition = known and method or nil,
+                method = true,
+                dynamic = not known or nil,
+                classToken = classToken,
+                classPath = structPath
+            }
+            p.calls[#p.calls + 1], p.callByNode[node] = item, item
+        elseif base and (nested or base.definition.filename ~= owner.scope.path) then
             -- Another module's record: its table is the receiver's metatable.
             local item = {
                 id = #p.calls,
