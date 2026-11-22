@@ -72,12 +72,14 @@ STAGE0_CORE_HOSTS=
 # --runtime core --package-seed` packages, as the release that publishes it
 # names the archive. The digest is of the archive; `scripts/toolchain
 # core-seed` verifies it before unpacking, and the manifest inside it before
-# running anything. macOS ARM64's is v0.0.15-core-seed.2 and Linux ARM64's
-# is v0.0.15-core-seed.3.
+# running anything. macOS ARM64's is v0.0.15-core-seed.2, Linux ARM64's
+# v0.0.15-core-seed.3 and Windows ARM64's v0.0.15-core-seed.4.
 STAGE0_CORE_URL_AARCH64_APPLE_DARWIN=https://github.com/nupp-lang/nupp/releases/download/v0.0.15-core-seed.2/nupp-core-seed-aarch64-apple-darwin-2cf4b2d54da1acdf82233ebfad309a9a99e0504f.tar.gz
 STAGE0_CORE_SHA256_AARCH64_APPLE_DARWIN=a6de0caae3ade1b533fa6a0d56cc2c4f34e253276c8b0d6ef5238ce4f27ae2a5
 STAGE0_CORE_URL_AARCH64_UNKNOWN_LINUX_GNU=https://github.com/nupp-lang/nupp/releases/download/v0.0.15-core-seed.3/nupp-core-seed-aarch64-unknown-linux-gnu-88b0887624e37fc9234203fe8ecd5431e50be42d.tar.gz
 STAGE0_CORE_SHA256_AARCH64_UNKNOWN_LINUX_GNU=f5948521d8c114c88b79def5211323536f35d4ea6769d2dfab8307b71a276a3f
+STAGE0_CORE_URL_AARCH64_PC_WINDOWS_GNULLVM=https://github.com/nupp-lang/nupp/releases/download/v0.0.15-core-seed.4/nupp-core-seed-aarch64-pc-windows-gnullvm-18d8fce25851b70452134a66c4164c86eb4f7b56.tar.gz
+STAGE0_CORE_SHA256_AARCH64_PC_WINDOWS_GNULLVM=9221663e722836a6c7ad636ff32656f3578d32b2787ee0caaa6346c7f14419d2
 
 # Shared C libraries used directly by Nupp's checked FFI. Keep one artifact
 # for each dependency across the codec, HTTP, TLS and crypto providers.
