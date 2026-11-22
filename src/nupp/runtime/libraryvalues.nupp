@@ -114,6 +114,130 @@ local function getinfo(...: any): any
     return info
 end
 
+-- The levels luaL_traceback lists before and after the ones it skips, when
+-- there are more than both together.
+const TRACEBACK_HEAD = 10
+const TRACEBACK_TAIL = 11
+
+-- Lua's pushglobalfuncname: the name a library table in package.loaded
+-- holds function `fn` under, `_G`'s without a prefix, or nil.
+local function globalname(fn: any): string?
+    if fn == nil then
+        return nil
+    end
+    for module, members in pairs(ambient.loaded) do
+        if type(members) == "table" then
+            for name, value in pairs(members as {[any]: any}) do
+                if type(name) == "string" and rawequal(value, fn) then
+                    if module == "_G" then
+                        return name as string
+                    end
+                    return tostring(module) .. "." .. (name as string)
+                end
+            end
+        end
+    end
+
+    return nil
+end
+
+-- How a traceback line names the function a level runs, as Lua 5.5's
+-- does: the name its call gives it, the main chunk, a Lua function by
+-- where it is defined, a C function by its global name, or "?".
+local function functionname(info: {[string]: any}): string
+    local namewhat = info.namewhat
+    if type(namewhat) == "string" and namewhat ~= "" then
+        return namewhat .. " '" .. tostring(info.name) .. "'"
+    elseif info.what == "main" then
+        return "main chunk"
+    elseif info.what ~= "C" then
+        return "function <" .. tostring(info.short_src) .. ":" .. tostring(info.linedefined) .. ">"
+    end
+    local name = globalname(info.func)
+    if name ~= nil then
+        return "function '" .. name .. "'"
+    end
+
+    return "?"
+end
+
+-- Lua's debug.traceback([thread,] [message [, level]]): `message` and a
+-- "stack traceback:" listing a line for each level from `level` (1, the
+-- caller, by default) outward, skipping the middle of a deep stack as Lua
+-- does. A message that is neither a string nor a number nor nil is
+-- answered as it is. Another thread's levels are not available on the
+-- core: its listing is empty. getinfo counts this function as its first
+-- level, Lua's level 0, so Lua's level `n` is getinfo's `n + 1`.
+local function traceback(...: any): any
+    local first: any = ...
+    local message: any, level: any = ...
+    local current = true
+    local position = 2
+    if type(first) == "thread" then
+        local _: any, threadMessage: any, threadLevel: any = ...
+        message, level = threadMessage, threadLevel
+        current = rawequal(first, (coroutine.running()))
+        position = 3
+    end
+    if message ~= nil and type(message) ~= "string" and type(message) ~= "number" then
+        return message
+    end
+    local start: integer = current and 1 or 0
+    if level ~= nil then
+        local number = (type(level) == "number" or type(level) == "string") and tonumber(level) or nil
+        local exact = number ~= nil and math.tointeger(number) or nil
+        if exact == nil then
+            error(
+                "bad argument #" .. tostring(
+                    position
+                ) .. " to 'traceback' (number expected, got " .. type(level) .. ")",
+                2
+            )
+        end
+        start = exact as integer
+    end
+    local parts: {string} = {}
+    if message ~= nil then
+        parts[1] = tostring(message) .. "\n"
+    end
+    parts[#parts + 1] = "stack traceback:"
+    if current and start >= 0 then
+        local last = start - 1
+        while getinfo(last + 2, "S") ~= nil do
+            last = last + 1
+        end
+        local limit = last - start > TRACEBACK_HEAD + TRACEBACK_TAIL and TRACEBACK_HEAD or -1
+        local at = start
+        while true do
+            local info = getinfo(at + 1, "Slntf")
+            if info == nil then
+                break
+            end
+            at = at + 1
+            local shown = limit
+            limit = limit - 1
+            if shown == 0 then
+                local skipped = last - at - TRACEBACK_TAIL + 1
+                parts[#parts + 1] = "\n\t...\t(skipping " .. tostring(skipped) .. " levels)"
+                at = at + skipped
+            else
+                local line = info.currentline
+                if type(line) == "number" and line > 0 then
+                    parts[#parts + 1] = "\n\t" .. tostring(info.short_src) .. ":" .. tostring(line) .. ": in "
+                else
+                    parts[#parts + 1] = "\n\t" .. tostring(info.short_src) .. ": in "
+                end
+                parts[#parts + 1] = functionname(info)
+                if info.istailcall == true then
+                    parts[#parts + 1] = "\n\t(...tail calls...)"
+                end
+            end
+        end
+    end
+
+    return table.concat(parts)
+end
+
 -- Lua's luaL_checkany: library function `name` was passed `count` values,
 -- fewer than reach its argument `index`. Lua refuses a missing argument where
 -- it takes a nil one, `tonumber()` where `tonumber(nil)` answers nil.
@@ -256,6 +380,7 @@ export const functions: {[string]: any} = {
         return coroutine.close(co)
     end,
     ["debug.getinfo"] = getinfo,
+    ["debug.traceback"] = traceback,
     ["os.getenv"] = function(name: string): string?
         return os.getenv(name)
     end,

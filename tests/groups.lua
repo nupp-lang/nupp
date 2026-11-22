@@ -251,6 +251,7 @@ for name in (
     scopes[name] = "component"
 end
 scopes.xmlconformancetest = "integration"
+scopes.tracebacktest = "component"
 scopes.resultliststest = "integration"
 scopes.testcachetest = "integration"
 scopes.sharedcachetest = "integration"
