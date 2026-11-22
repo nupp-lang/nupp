@@ -12,47 +12,51 @@ A failed write never fails the GPU work it describes. It is kept and reported by
 ]]
 module nupp.runtime.provider.gpucosts
 
-local native = require("nupp.vm.foreign")
-local platform = package.config:sub(1, 1) == "\\"
-cdef struct GpuClock
-    seconds: int64
-    nanoseconds: int64
+const WINDOWS = package.config:sub(1, 1) == "\\"
+
+cdef struct GpuCount
+    value: int64
 end
+
+cdef function QueryPerformanceCounter(borrows count: voidptr): int32
+cdef function QueryPerformanceFrequency(borrows frequency: voidptr): int32
+cdef function GetCurrentProcessId(): uint32
+cdef function getpid(): int32
+-- The C bridge's monotonic clock in nanoseconds, and the calling thread's
+-- errno (native/corebridge/main.c).
+cdef function nupp_core_monotonic_nanos(): uint64
+cdef function nupp_core_errno(): int32
+cdef function fopen(path: string, mode: string): voidptr?
+cdef function fwrite(borrows data: voidptr, size: uint64, count: uint64, borrows stream: voidptr): uint64
+cdef function fflush(borrows stream: voidptr): int32
+cdef function fclose(borrows stream: voidptr): int32
+cdef function strerror(code: int32): cstring?
+
+const NANOSECONDS_PER_MILLISECOND = 1000000
+
+-- Milliseconds on a monotonic clock.
 local now: function(): number = do
-    if platform then
-        local count = carray(GpuClock, 1)
-        local frequency = carray(GpuClock, 1)
-        local clock = native.bind(nil, "QueryPerformanceCounter", {params = {"pointer"}, result = "int32"})
-        native.bind(nil, "QueryPerformanceFrequency", {params = {"pointer"}, result = "int32"})(frequency)
+    if WINDOWS then
+        local count = GpuCount()
+        local frequency = GpuCount()
+        QueryPerformanceFrequency(frequency)
+        local ticks = tonumber(frequency.value) as number
         yield function(): number
-            clock(count)
-            return (tonumber(count[0].seconds) as number) * 1000 / (tonumber(frequency[0].seconds) as number)
+            QueryPerformanceCounter(count)
+            return (tonumber(count.value) as number) * 1000 / ticks
         end
     end
-    local time = GpuClock()
-    local clock = native.bind(nil, "clock_gettime", {params = {"int32", "pointer"}, result = "int32"})
-    local darwin = pcall(native.bind, nil, "mach_absolute_time", {params = {}, result = "uint64"})
-    local kind = darwin and 6 or 1
     yield function(): number
-        clock(kind, time)
-        return (tonumber(time.seconds) as number) * 1000 + (tonumber(time.nanoseconds) as number) / 1000000
+        return (tonumber(nupp_core_monotonic_nanos()) as number) / NANOSECONDS_PER_MILLISECOND
     end
 end
-const processId: integer = native.bind(nil, platform and "GetCurrentProcessId" or "getpid", {
-    params = {},
-    result = "uint32"
-})()
+const processId: integer = WINDOWS and GetCurrentProcessId() as integer or getpid() as integer
 export const NULL: any = require("nupp.codec.json.provider").NULL
 
-local C: {[string]: any} = {}
-for name, signature in pairs({
-    fopen = {params = {{kind = "pointer", readonly = true}, {kind = "pointer", readonly = true}}, result = "pointer"},
-    fwrite = {params = {{kind = "pointer", readonly = true}, "uint64", "uint64", "pointer"}, result = "uint64"},
-    fflush = {params = {"pointer"}, result = "int32"},
-    fclose = {params = {"pointer"}, result = "int32"},
-    strerror = {params = {"int32"}, result = "pointer"},
-}) do
-    C[name] = native.bind(nil, name, signature)
+-- What the C library says the calling thread's last failure was.
+local function lastError(): string
+    local text: any = strerror(nupp_core_errno())
+    return tostring(text)
 end
 
 -- The output. `configured` says whether `active` is settled; until something
@@ -70,15 +74,15 @@ local environmentOpened = false
 
 local function close(): nil
     if file ~= nil then
-        C.fclose(file)
+        fclose(file)
         file = nil
     end
 end
 
 local function open(path: string, truncate: boolean): (any, string?)
-    local opened = C.fopen(path, truncate and "wb" or "ab")
+    local opened = fopen(path, truncate and "wb" or "ab")
     if opened == nil then
-        return nil, ("GPU cost output %s: %s"):format(path, native.string(C.strerror(native.errno())))
+        return nil, ("GPU cost output %s: %s"):format(path, lastError())
     end
 
     return opened, nil
@@ -186,8 +190,9 @@ export function record(context: integer, operation: string, values: {[string]: a
     sequence = (sequence + 1) as integer
     local line = encode(context, operation, values, sequence)
     if file ~= nil then
-        if C.fwrite(line, 1, #line, file) ~= #line or C.fflush(file) ~= 0 then
-            failure = "GPU cost output: " .. native.string(C.strerror(native.errno()))
+        local bytes: any = line
+        if fwrite(bytes, 1, #line, file) ~= #line or fflush(file) ~= 0 then
+            failure = "GPU cost output: " .. lastError()
         end
     end
 end
