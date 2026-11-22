@@ -1292,6 +1292,18 @@ export function describe(modules: {any}, entryModule: string, options: any?): an
             p.calls[#p.calls + 1], p.callByNode[witness.call] = item, item
             return
         end
+        -- `case is T` tests the selector as `selector is T` does; the core
+        -- lowers each such arm through this checked test.
+        if node.kind == "switchExpr" then
+            for _, arm in ipairs(node.cases or {}) do
+                if arm.patternKind == "type" and arm.type then
+                    local test = {kind = "isExpr", type = arm.type, typeTestTarget = arm.switchType, arm.type}
+                    arm.coreTypeTest = test
+                    collect(test, owner)
+                    test.expr = node.selector
+                end
+            end
+        end
         if node.kind == "isExpr"
             and not node.provenStatically
             and not node.refutedStatically

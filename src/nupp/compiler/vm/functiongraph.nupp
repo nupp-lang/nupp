@@ -333,6 +333,8 @@ local function compileOwner(fn: any, options: any, profile: any, site: any): any
     end
 
     local transfer: function(any, any): nil
+    local transferExpression: function(any): nil
+    local finishTemporaries: function(integer, any): nil
     -- Reuse a receiver already evaluated by a guarded read or assignment.
     local heldExpressions: {[any]: any} = {}
     local expressionBody: function(any, string?): integer?
@@ -448,30 +450,28 @@ local function compileOwner(fn: any, options: any, profile: any, site: any): any
                     and {kind = "doExpr", body = arm.body, inferredType = node.inferredType, arm},
                     "numeric switch arm needs an expression"
                 )
-                -- A `do` arm is a do expression, whose body may be any statements;
-                -- a function owning values keeps the call-only form below.
-                if value.kind ~= "doExpr" or not cleanupEnabled then
-                    return expression(value, resultKind)
-                end
-                local stats = need(value.body and value.body.stats, "numeric switch do body required")
-                need(#stats > 0 and stats[#stats].kind == "yieldStmt", "numeric switch do arm must yield")
-                for index = 1, #stats - 1 do
-                    need(stats[index].kind == "callStmt", "numeric switch do arm only admits calls before yield")
-                    invoke("statementCall", stats[index].expr, nil)
-                    if not block then
-                        return nil
-                    end
-                end
+                -- A `do` arm is a do expression, whose body may be any statements.
 
-                return expression(need(stats[#stats].value, "numeric switch yield needs a value"), resultKind)
+                return expression(value, resultKind)
             end
 
             -- In a function that owns values, an arm leaves the owners it
             -- found: its own temporaries are settled before it joins.
             local cleanupDepth = #cleanups
 
+            -- A switch whose value owns takes the owner its arm gives: a
+            -- moved local, or the fresh result the arm made.
+            local owning = cleanupEnabled and node.inferredType ~= nil and node.inferredType.tag == "affine"
+
             local function complete(arm: any): nil
                 local value = armValue(arm)
+                if owning and block and arm.expr and value ~= nil then
+                    local held = ctx.hold(value)
+                    transferExpression(arm.expr)
+                    finishTemporaries(cleanupDepth, arm)
+                    value = ctx.readHeld(held)
+                    ctx.release(held)
+                end
                 need(
                     not cleanupEnabled or #cleanups == cleanupDepth,
                     "a switch arm in a function owning values changes its cleanups"
@@ -484,16 +484,50 @@ local function compileOwner(fn: any, options: any, profile: any, site: any): any
                 end
             end
 
+            -- `case is T as v {f, g as h}`: the selector tested as `is T` would
+            -- test it, v naming it and each field read from it by name.
+            local function bindPattern(arm: any): nil
+                if arm.binding then
+                    local key = arm.binding.definition or arm.binding
+                    ctx.bind(key, initializeBinding(arm, key, ctx.readHeld(handle)))
+                end
+                for _, field in ipairs(arm.fields or {}) do
+                    local token = need(field.alias or field.name, "switch field binding lacks its name")
+                    local read = {
+                        kind = "dotIndex",
+                        obj = {kind = "heldPluckSource", handle = handle, inferredType = arm.switchType},
+                        name = field.name,
+                        field.name
+                    }
+                    local value = expression(read, profile.localKind(token, fn))
+                    if not block then
+                        return
+                    end
+                    local key = token.definition or token
+                    ctx.bind(key, initializeBinding(field, key, value as integer))
+                end
+            end
+
             for _, arm in ipairs(node.cases) do
+                local typed = arm.patternKind == "type"
                 need(
-                    arm.patternKind == "static" and (profile.switchGuards or not arm.guard) and #arm.values >= 1,
+                    typed and profile.switchGuards and profile.typeTest and arm.coreTypeTest
+                    or arm.patternKind == "static" and (profile.switchGuards or not arm.guard) and #arm.values >= 1,
                     profile.switchGuards and "unsupported switch pattern"
                     or "numeric switch admits unguarded static values"
                 )
                 context()
-                local matched = profile.switchCase(ctx, arm.values[1], ctx.readHeld(handle), selectorKind)
+                local matched: any = nil
+                if typed then
+                    local previous = heldExpressions[node.selector]
+                    heldExpressions[node.selector] = handle
+                    matched = invoke("typeTest", arm.coreTypeTest, nil)
+                    heldExpressions[node.selector] = previous
+                else
+                    matched = profile.switchCase(ctx, arm.values[1], ctx.readHeld(handle), selectorKind)
+                end
                 -- `case a, b ->` matches when any of its values does.
-                for index = 2, #arm.values do
+                for index = 2, typed and 0 or #arm.values do
                     local held = ctx.hold(matched)
                     local also = profile.switchCase(ctx, arm.values[index], ctx.readHeld(handle), selectorKind)
                     local first = ctx.readHeld(held)
@@ -505,7 +539,10 @@ local function compileOwner(fn: any, options: any, profile: any, site: any): any
                 local yes, no = branch(), branch()
                 parent.term = {kind = "branch", value = matched, edges = {yes.edge, no.edge}, pos = position(arm)}
                 resume(yes)
-                if arm.guard then
+                if typed then
+                    bindPattern(arm)
+                end
+                if arm.guard and block then
                     local condition = expression(arm.guard.expr, profile.booleanKind)
                     if block then
                         local body = branch()
@@ -532,12 +569,20 @@ local function compileOwner(fn: any, options: any, profile: any, site: any): any
         elseif node.kind == "doExpr" and node.body then
             -- `do ... yield v ... end`: its statements run, and the `yield`
             -- that runs gives the value.
-            need(not cleanupEnabled, "a do expression in a function owning values is not yet supported")
             local resultKind = expected or profile.kind(node.inferredType)
             local done = branch(resultKind)
-            yields[#yields + 1] = {done = done, kind = resultKind}
+            -- Owners its body declares close before a `yield` leaves it.
+            local depth = #cleanups
+            local owning = node.inferredType ~= nil and node.inferredType.tag == "affine"
+            yields[#yields + 1] = {done = done, kind = resultKind, cleanupDepth = depth, owning = owning}
+            frames[#frames + 1] = {boundary = true}
             statements(node.body.stats)
+            frames[#frames] = nil
             yields[#yields] = nil
+            -- Every way out of the body has settled the owners it declared.
+            for index = #cleanups, depth + 1, -1 do
+                cleanupOwners[cleanups[index].owner], cleanups[index] = nil, nil
+            end
             -- A body that ends in a call that never returns (`error(...)`)
             -- yields nothing: the block ends there, unreachably.
             local final = neverReturns(node.body.stats)
@@ -961,7 +1006,7 @@ local function compileOwner(fn: any, options: any, profile: any, site: any): any
         return nil
     end
 
-    local function transferExpression(node: any): nil
+    transferExpression = function(node: any): nil
         local owner = expressionOwner(node)
         if owner then
             transfer(node, owner)
@@ -1141,7 +1186,7 @@ local function compileOwner(fn: any, options: any, profile: any, site: any): any
         context()
     end
 
-    local function finishTemporaries(depth: integer, node: any): nil
+    finishTemporaries = function(depth: integer, node: any): nil
         local hadTemporary = false
         for index = #cleanups, depth + 1, -1 do
             local entry = cleanups[index]
@@ -2417,6 +2462,25 @@ local function compileOwner(fn: any, options: any, profile: any, site: any): any
             elseif stat.kind == "yieldStmt" and #yields > 0 then
                 local target = yields[#yields]
                 local value = expression(need(stat.value, "a do expression's yield needs a value"), target.kind)
+                -- An owner yielded passes to the do expression's value, which
+                -- whatever receives it takes.
+                local owner = block and cleanupEnabled and expressionOwner(stat.value) or nil
+                if owner ~= nil and (cleanupOwners[owner] or owner.owner and cleanupOwners[owner.owner]) then
+                    need(target.owning, "a do expression yields an owner its type does not hold")
+                    transfer(stat, owner)
+                end
+                if block and cleanupEnabled and #cleanups > target.cleanupDepth then
+                    -- The owners the do expression's body declared close first.
+                    local held = ctx.hold(value as integer)
+                    finishTemporaries(statementDepth, stat)
+                    if block then
+                        unwind(target.cleanupDepth, stat, "yield")
+                        local success = profile.cleanupStatus(ctx, stat)
+                        ctx.afterCall(stat, nil, success)
+                    end
+                    value = ctx.readHeld(held)
+                    ctx.release(held)
+                end
                 if block then
                     local edge = currentEdge(target.done)
                     table.insert(edge.args, 1, need(value, "a yield loses its value"))
