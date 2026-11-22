@@ -5,6 +5,7 @@ module nupp.compiler.vm.graphcalls
 local corelibrary = require("nupp.compiler.vm.corelibrary")
 
 local scalarintrinsics = require("nupp.compiler.scalarintrinsics")
+local lexer = require("nupp.compiler.syntax.lexer")
 
 local RAW_COROUTINE_MODULE = "nupp.runtime.rawcoroutine"
 
@@ -1610,11 +1611,28 @@ export function dynamicInvokeContract(call: any, count: integer?): any
     return contract
 end
 
+-- Whether `expr` is select(n, ...) with an index rather than "#": it
+-- gives every value from the index on.
+export function selectsValues(expr: any): boolean
+    if expr == nil or expr.kind ~= "call" or coreLibraryCall(expr) ~= "select" then
+        return false
+    end
+    local first = expr.args and expr.args.exprs and expr.args.exprs[1]
+
+    return first ~= nil and not (first.kind == "string" and lexer.stringValue(first.token.text) == "#")
+end
+
 -- Whether a call last in a list gives other than exactly one result, a fixed
 -- count or an open one: then the list takes them all, as a pack.
 export function expandsResults(expr: any): boolean
     -- A skipped call answers one nil, whatever its present callee answers.
     if expr and expr.kind == "safeCall" then
+        return true
+    end
+    -- pcall and xpcall give their status and then every result of the
+    -- function they call, and select every value from its index on.
+    local library = expr ~= nil and expr.kind == "call" and coreLibraryCall(expr) or nil
+    if library == "pcall" or library == "xpcall" or selectsValues(expr) then
         return true
     end
     -- A library call with several results gives them all, as Lua's do.
