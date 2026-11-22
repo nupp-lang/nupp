@@ -27,6 +27,7 @@ local aliasdowncast = require("nupp.compiler.vm.aliasdowncast")
 local stubmodules = require("nupp.compiler.vm.stubmodules")
 local scalarcapabilities = require("nupp.compiler.vm.scalarcapabilities")
 local scalarlanes = require("nupp.compiler.vm.scalarlanes")
+local structdefaults = require("nupp.compiler.vm.structdefaults")
 local columnaraccess = require("nupp.compiler.vm.columnaraccess")
 
 -- Lua's `f "s"` and `f {...}` as the calls of one argument they are, which
@@ -726,6 +727,12 @@ export function describe(modules: {any}, entryModule: string, options: any?): an
         end
         local parsed = need(input.parsed, "checked parse required")
         need(parsed.root and parsed.symbols and parsed.moduleName == input.name, "checked module identity required")
+        -- Once per check of a tree, as below: each default a struct takes,
+        -- copied into the struct (structdefaults).
+        if input.stub ~= true and parsed.coreDefaultsSymbols ~= parsed.symbols then
+            parsed.coreDefaultsSymbols = parsed.symbols
+            structdefaults.specialize(parsed)
+        end
         -- A record passed where a `Type<T>` is taken (`serde.binding(Show)`)
         -- carries its reflection blueprint, in a module as in a chunk.
         for _, witness in ipairs(typewitness.collect(parsed.root, parsed.moduleExports).ordered) do

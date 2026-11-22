@@ -1753,8 +1753,12 @@ export function forVersion(version: integer): any
                 taggedstructs.attachLayout(ctx, stat, held)
             end
             -- A default it takes from an interface is read from that
-            -- interface's table, under the member it has here.
+            -- interface's table, under the member it has here, unless it is
+            -- a struct's own copy of it (structdefaults), an entry below.
             for _, taken in ipairs(stat.inheritedDefaultNames or {}) do
+                if taken.specialized then
+                    continue
+                end
                 local tokens = catalog(ctx).inheritTokens[stat] or {}
                 local token = need(
                     tokens[taken] or tokens[taken.from],
