@@ -4,10 +4,10 @@
 The versioned payload shared by the cold-check coordinator and its workers.
 
 Both ends are the same compiler on the same runtime, so a payload is that
-runtime's own plain-data encoding: the VM's `__nupp_plain_codec`, or LuaJIT's
-binary codec. A host with neither has no parallel checker: the coordinator plans
-a serial check rather than carrying a second encoding nothing would run.
-Framing belongs to the worker channel.
+runtime's own plain-data encoding: the VM's `__nupp_plain_codec`, LuaJIT's
+binary codec, or on the native core the plain codec written in Nupp, which
+speaks the VM's format, as the compiler's store chooses. Framing belongs to the
+worker channel.
 ]]
 module nupp.tools.build.parallelcheckprotocol
 
@@ -15,6 +15,9 @@ local codec: any = rawget(_G, "__nupp_plain_codec")
 local hasCodec = codec ~= nil
 if not hasCodec then
     hasCodec, codec = pcall(require, "nupp.serde.internal.binarycodec")
+end
+if not hasCodec then
+    hasCodec, codec = pcall(require, "nupp.compiler.project.plaincodec")
 end
 
 --- Whether this host can encode a payload at all.
