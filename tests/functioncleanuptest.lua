@@ -593,7 +593,7 @@ end
 function M.partialMoveAndChangedOwnerMetadataRefuse()
     refuses(
         function()
-            cleanup.move({owner = {}, field = "part"})
+            cleanup.move({field = "part"})
         end,
         "partial-field"
     )
