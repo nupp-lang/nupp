@@ -15,6 +15,12 @@ local stdlib = require("nupp.compiler.stdlib")
 
 local M = {}
 
+-- The host's own provider, as `io.URI` reaches it: the VM's `url` crate, or
+-- on the native core the portable parser with the host's IDNA mapping.
+local function hostProvider()
+    return require("nupp.io.uri.provider")
+end
+
 local uri, previous, root
 local installedBootstrap = false
 local unavailable
@@ -569,7 +575,7 @@ end
 
 function M.standardRowsAgreeOnEveryProvider()
     ready()
-    local native = require("nupp.runtime.provider.nativeuri")
+    local native = hostProvider()
     local portable = require("nupp.io.uri.whatwg")
     for _, row in ipairs(STANDARD_ROWS) do
         local parts, reason = native.parse(row[1])
@@ -583,7 +589,7 @@ end
 -- the forms the standard reads: fewer than four parts, hexadecimal, octal.
 function M.ipv4NumberFormsAreAddresses()
     ready()
-    local native = require("nupp.runtime.provider.nativeuri")
+    local native = hostProvider()
     local portable = require("nupp.io.uri.whatwg")
     for text, host in pairs({
         ["http://0x7f.1/"] = "127.0.0.1",
@@ -610,7 +616,7 @@ end
 -- not a domain is only percent-encoded, as the standard says.
 function M.portableParserRefusesInternationalHosts()
     ready()
-    local native = require("nupp.runtime.provider.nativeuri")
+    local native = hostProvider()
     local portable = require("nupp.io.uri.whatwg")
     for _, text in ipairs({
         "https://caf\195\169.example/",
@@ -889,6 +895,17 @@ local FROZEN_PROVIDER_CASES = {
     },
 }
 
+-- What the host provider answers for a frozen case: the `url` crate's own
+-- reading on the VM, the standard's on the core, whose provider is the
+-- portable parser.
+local function frozenNative(case)
+    if rawget(_G, "__nupp_load_image") ~= nil then
+        return case.native
+    end
+
+    return case.portable
+end
+
 local function frozenProviderCase(kind, input, base)
     for _, case in ipairs(FROZEN_PROVIDER_CASES) do
         if case.kind == kind and case.input == input and case.base == base then
@@ -901,7 +918,7 @@ end
 
 function M.seededCorpusAgreesAcrossProviders()
     ready()
-    local native = require("nupp.runtime.provider.nativeuri")
+    local native = hostProvider()
     local portable = require("nupp.io.uri.whatwg")
     local texts = corpus(20260929, 3000)
     local hrefs = hostHrefs(texts)
@@ -914,7 +931,7 @@ function M.seededCorpusAgreesAcrossProviders()
         local unavailable = found == nil and reason == "internationalized host needs a host URL parser"
         if frozen then
             frozenCount = frozenCount + 1
-            test.eq(expected and expected.text or false, frozen.native, ("%q frozen native"):format(text))
+            test.eq(expected and expected.text or false, frozenNative(frozen), ("%q frozen native"):format(text))
             test.eq(found and found.text or false, frozen.portable, ("%q frozen portable"):format(text))
         elseif unavailable then
             refusedInternational = refusedInternational + 1
@@ -974,7 +991,7 @@ function M.seededReferencesResolveAsTheHostDoes()
         local portableUnavailable = parts == nil and resolved ~= nil and text:find("[\128-\255]")
         if frozen then
             frozenCount = frozenCount + 1
-            test.eq(resolved and resolved:tostring() or false, frozen.native, label .. " frozen native")
+            test.eq(resolved and resolved:tostring() or false, frozenNative(frozen), label .. " frozen native")
             test.eq(parts and parts.text or false, frozen.portable, label .. " frozen portable")
         elseif not portableUnavailable then
             test.eq(parts and parts.text, resolved and resolved:tostring(), label .. " portable")
