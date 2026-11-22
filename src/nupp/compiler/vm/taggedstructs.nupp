@@ -2,10 +2,11 @@ module nupp.compiler.vm.taggedstructs
 
 -- A guest program's structs in the tagged profile. An instance is core
 -- storage of its bytes in C layout (the storage library's allocbytes), so a
--- struct handed to C is the memory C reads. A field is read and written
--- through a view of its bytes at its offset (STORAGE_VIEW), as an element of
--- the field's storage kind; a nested struct or fixed array is that view
--- itself, a reference into its parent's bytes, as the language states.
+-- struct handed to C is the memory C reads. A scalar field is read and
+-- written in place as the element of its storage kind at its offset
+-- (STORAGE_LOAD and STORAGE_STORE), with no object made for it. A nested
+-- struct or fixed array is a view of its bytes (STORAGE_VIEW), a reference
+-- into its parent's, as the language states.
 --
 -- The layout is the host project's C ABI, which libffi also uses for calls.
 const taggedvalues = require("nupp.compiler.vm.taggedvalues")
@@ -13,6 +14,8 @@ const corelibrary = require("nupp.compiler.vm.corelibrary")
 const layouts = require("nupp.compiler.targetlayout")
 const metadata = require("nupp.compiler.vm.metadata")
 const derivedmembers = require("nupp.compiler.vm.derivedmembers")
+const scalarlanes = require("nupp.compiler.vm.scalarlanes")
+const graphcalls = require("nupp.compiler.vm.graphcalls")
 const need = taggedvalues.need
 const pool = taggedvalues.pool
 
@@ -34,13 +37,29 @@ const KINDS: {
     float64 = 10,
     number = 10
 }
--- A pointer field holds an address, which the core keeps as an integer.
+-- A pointer field holds an address, which the core keeps as an integer,
+-- and stores the address of what it is given (corestorage's POINTER kind).
 const POINTER_KIND = 7
+const STORED_POINTER_KIND = 12
 -- `integer` takes the width the layout gives it.
 const INTEGER_KINDS: {[integer]: integer} = {[4] = 6, [8] = 8}
 const UNSIGNED_KINDS: {[integer]: integer} = {[1] = 1, [2] = 3, [4] = 5, [8] = 7}
 -- The active core has natural C layouts up to eight-byte alignment.
 const MAX_ALIGNMENT = 8
+-- A struct's bytes are one element of a block kind (corestorage.BLOCK plus
+-- the struct's size), which an array of them holds side by side: indexing
+-- one is a view of an element's bytes, and storing into one copies them.
+const BLOCK = 0x40000000
+
+-- The storage kind a whole struct of `size` bytes is an element of; an
+-- empty struct is bytes, there being no block of none.
+local function blockKind(size: integer): integer
+    if size == 0 then
+        return UINT8
+    end
+
+    return BLOCK + size
+end
 
 -- The type behind ownership and constant wrappers.
 local function bare(t: any): any
@@ -137,6 +156,21 @@ local function scalarKind(t: any, size: integer): integer?
     return KINDS[t.tag]
 end
 
+-- A stored fixed-width vector, `simd.Vector<E, simd.Fixed<N>>`: what the
+-- lane runtime calls its element, the storage kind of E, and N. A field of
+-- one holds N elements of E, as the C array it lowers to.
+local function fixedVector(t: any): any
+    local element, count = layouts.storageVector(t)
+    if element == nil or count == nil then
+        return nil
+    end
+    local _, laneElement = scalarlanes.family(t)
+    local kind = element == "integer" and INTEGER_KINDS[8] or KINDS[element as string]
+    need(kind ~= nil and laneElement ~= nil, "a fixed vector field's element is not lowered: " .. tostring(element))
+
+    return {element = laneElement, kind = kind, count = count}
+end
+
 -- How field `name` of a struct is reached: its offset and bytes, and the
 -- storage kind of a scalar one, or the element kind and count of a fixed
 -- array of scalars, or the struct a nested one is.
@@ -160,6 +194,8 @@ local function member(declared: any, name: string): any
         reached.bitSigned = t.tag:sub(1, 3) == "int"
     elseif origin(t) then
         reached.nested = origin(t)
+    elseif fixedVector(t) then
+        reached.vector = fixedVector(t)
     elseif t.tag == "carray" then
         local element = need(bare(t.elem), "a fixed array has no element type")
         local width = (placed.size as integer) // (t.count as integer)
@@ -195,6 +231,23 @@ local function view(ctx: any, node: any, object: integer, kind: integer, offset:
     return ctx.emit(node, "LibCall", {id, object, k, at, n}, "tagged") as integer
 end
 
+-- The element of `kind` at byte `offset` of `object`, read in place.
+local function fetch(ctx: any, node: any, object: integer, kind: integer, offset: integer): integer
+    local id = corelibrary.id("STORAGE_LOAD")
+    local k = integerConstant(ctx, node, kind)
+    local at = integerConstant(ctx, node, offset)
+
+    return ctx.emit(node, "LibCall", {id, object, k, at}, "tagged") as integer
+end
+
+-- Writes `value` as the element of `kind` at byte `offset` of `object`.
+local function put(ctx: any, node: any, object: integer, kind: integer, offset: integer, value: integer): nil
+    local id = corelibrary.id("STORAGE_STORE")
+    local k = integerConstant(ctx, node, kind)
+    local at = integerConstant(ctx, node, offset)
+    ctx.emit(node, "LibCall", {id, object, k, at, value}, "tagged")
+end
+
 local function present(t: any, optional: boolean): any
     local subject = bare(t)
     if optional and subject and subject.tag == "union" and subject.hasNil and #subject.members == 2 then
@@ -216,17 +269,82 @@ export function access(node: any): any
     return member(declared, node.name.text)
 end
 
--- Reads field `field` of `object`: a scalar's value, or the view a nested
--- struct or fixed array is.
+-- The lane runtime's `simd.lane[member]` called with a fixed vector field's
+-- element and lane count ahead of `extra`, at the callsite programgraph
+-- issued for it at `node` under `key` (vectorSites).
+local function laneStorage(ctx: any, node: any, key: string, member: string, vector: any, extra: {integer}): integer?
+    local sites = taggedvalues.catalog(ctx).laneStorage[node]
+    local site = need(sites and sites[key], "a fixed vector field lacks its lane runtime callsite")
+    need(site.owner == ctx.fn.id, "a fixed vector field's callsite belongs to another owner")
+    local held: {any} = {}
+    for index, value in ipairs(extra) do
+        held[index] = ctx.hold(value)
+    end
+    local name = ctx.emit(node, "K", {pool(ctx, "str", scalarlanes.MODULE)}, "tagged")
+    local module = ctx.emit(node, "LibCall", {corelibrary.id("MODULE_REQUIRE"), name}, "tagged")
+    local runtimeKey = ctx.emit(node, "K", {pool(ctx, "str", scalarlanes.RUNTIME)}, "tagged")
+    local runtime = ctx.emit(node, "GetIdx", {module, runtimeKey}, "tagged")
+    local memberKey = ctx.emit(node, "K", {pool(ctx, "str", member)}, "tagged")
+    local callee = ctx.hold(ctx.emit(node, "GetIdx", {runtime, memberKey}, "tagged"))
+    local args: {
+        integer
+    } = {
+        ctx.emit(node, "K", {pool(ctx, "str", vector.element)}, "tagged") as integer,
+        integerConstant(ctx, node, vector.count)
+    }
+    for _, handle in ipairs(held) do
+        args[#args + 1] = ctx.readHeld(handle)
+    end
+    local value = ctx.readHeld(callee)
+    ctx.release(callee)
+    for index = #held, 1, -1 do
+        ctx.release(held[index])
+    end
+    local keep = member == "fromstorage"
+    local answer = ctx.invoke(node, value, args, graphcalls.dynamicInvokeContract(site.node, 1), keep)
+    if not keep then
+        return answer
+    end
+
+    return taggedvalues.landed(ctx, node, answer)
+end
+
+-- The lane runtime callsites a struct field access or construction `node`
+-- needs, by key, each with its argument count: a fixed vector field read
+-- ("read") and written ("write"), and each fixed vector field a
+-- construction may write ("write:" and the field's name).
+export function vectorSites(node: any): {[string]: integer}?
+    local found: {[string]: integer} = {}
+    local needed = false
+    local field = (node.kind == "dotIndex" or node.kind == "safeIndex") and access(node)
+    if field and field.vector then
+        found.read, found.write, needed = 3, 4, true
+    end
+    local declared = node.kind == "newExpr" and origin(node.inferredType)
+    if declared then
+        for _, name in ipairs(declared.fieldOrder or {}) do
+            if fixedVector(bare(declared.byname[name])) then
+                found["write:" .. name], needed = 4, true
+            end
+        end
+    end
+
+    return needed and found or nil
+end
+
+-- Reads field `field` of `object`: a scalar's value, the view a nested
+-- struct or fixed array is, or the lanes a fixed vector holds.
 local function load(ctx: any, node: any, object: integer, field: any): integer
-    if field.nested then
-        return view(ctx, node, object, UINT8, field.offset, field.size)
+    if field.vector then
+        local cells = view(ctx, node, object, field.vector.kind, field.offset, field.vector.count)
+        return laneStorage(ctx, node, "read", "fromstorage", field.vector, {cells}) as integer
+    elseif field.nested then
+        local count = field.size == 0 and 0 or 1
+        return view(ctx, node, object, blockKind(field.size), field.offset, count)
     elseif field.element then
         return view(ctx, node, object, field.element, field.offset, field.count)
     end
-    local cell = view(ctx, node, object, field.kind, field.offset, 1)
-
-    local value = ctx.emit(node, "GetIdx", {cell, integerConstant(ctx, node, 0)}, "tagged") as integer
+    local value = fetch(ctx, node, object, field.kind, field.offset)
     if field.bitWidth ~= nil then
         local shifted = bits(ctx, node, "SHR", value, integerConstant(ctx, node, field.bitOffset))
         value = bits(ctx, node, "BAND", shifted, integerConstant(ctx, node, mask(field.bitWidth) as integer))
@@ -251,7 +369,7 @@ end
 
 -- Writes `value` to field `field` of `object`: a scalar converted as C
 -- converts it, a nested struct's or fixed array's bytes copied.
-local function store(ctx: any, node: any, object: integer, field: any, value: integer): nil
+local function store(ctx: any, node: any, object: integer, field: any, value: integer, key: string): nil
     local held = ctx.hold(value)
     local receiver = ctx.hold(object)
     if field.boolean then
@@ -261,26 +379,24 @@ local function store(ctx: any, node: any, object: integer, field: any, value: in
     end
     if field.bitWidth ~= nil then
         local wordMask = mask(field.bitWidth)
-        local cell = view(ctx, node, ctx.readHeld(receiver), field.kind, field.offset, 1)
-        local index = integerConstant(ctx, node, 0)
-        local original = ctx.emit(node, "GetIdx", {cell, index}, "tagged")
+        local original = fetch(ctx, node, ctx.readHeld(receiver), field.kind, field.offset)
         local clear = integerConstant(ctx, node, (~(wordMask << (field.bitOffset as uint64))) as integer)
         local unchanged = bits(ctx, node, "BAND", original, clear)
         local value = bits(ctx, node, "BAND", ctx.readHeld(held), integerConstant(ctx, node, wordMask as integer))
         local shifted = bits(ctx, node, "SHL", value, integerConstant(ctx, node, field.bitOffset))
         local merged = bits(ctx, node, "BOR", unchanged, shifted)
-        ctx.emit(node, "SetIdx", {cell, index, merged}, nil)
+        put(ctx, node, ctx.readHeld(receiver), field.kind, field.offset, merged)
+    elseif field.vector then
+        local vector = field.vector
+        local cells = view(ctx, node, ctx.readHeld(receiver), vector.kind, field.offset, vector.count)
+        laneStorage(ctx, node, key, "intostorage", vector, {cells, ctx.readHeld(held)})
     elseif field.nested or field.element then
         local bytes = view(ctx, node, ctx.readHeld(receiver), UINT8, field.offset, field.size)
         local size = integerConstant(ctx, node, field.size)
         ctx.emit(node, "LibCall", {corelibrary.id("STORAGE_COPY"), bytes, ctx.readHeld(held), size}, "tagged")
     else
-        local cell = view(ctx, node, ctx.readHeld(receiver), field.kind, field.offset, 1)
-        if field.pointer then
-            ctx.emit(node, "LibCall", {corelibrary.id("STORAGE_STORE_POINTER"), cell, ctx.readHeld(held)}, "tagged")
-        else
-            ctx.emit(node, "SetIdx", {cell, integerConstant(ctx, node, 0), ctx.readHeld(held)}, nil)
-        end
+        local kind = field.pointer and STORED_POINTER_KIND or field.kind
+        put(ctx, node, ctx.readHeld(receiver), kind, field.offset, ctx.readHeld(held))
     end
     ctx.release(receiver)
     ctx.release(held)
@@ -299,7 +415,18 @@ end
 -- Writes `value` to the struct field an assignment target names: the
 -- receiver is the struct, `given.structField` the field.
 export function assign(ctx: any, node: any, given: any, receiver: integer, value: integer): nil
-    store(ctx, node, receiver, given.structField, value)
+    store(ctx, node, receiver, given.structField, value, "write")
+end
+
+-- The zeroed storage of `count` structs of `size` bytes, each an element.
+local function allocation(ctx: any, node: any, size: integer, count: integer): integer
+    if size == 0 then
+        local none = integerConstant(ctx, node, 0)
+        return ctx.emit(node, "LibCall", {corelibrary.id("STORAGE_ALLOCBYTES"), none}, "tagged") as integer
+    end
+    local kind = integerConstant(ctx, node, blockKind(size))
+
+    return ctx.emit(node, "LibCall", {corelibrary.id("STORAGE_ALLOCATE"), kind, count}, "tagged") as integer
 end
 
 -- A struct's construction: its zeroed bytes, then each field written, in
@@ -311,11 +438,10 @@ export function construct(ctx: any, node: any, declared: any, names: {string}, v
     for index, value in ipairs(values) do
         held[index] = ctx.hold(value)
     end
-    local size = integerConstant(ctx, node, measured.size)
-    local made = ctx.emit(node, "LibCall", {corelibrary.id("STORAGE_ALLOCBYTES"), size}, "tagged")
+    local made = allocation(ctx, node, measured.size, integerConstant(ctx, node, 1))
     local instance = ctx.hold(made)
     for index, name in ipairs(names) do
-        store(ctx, node, ctx.readHeld(instance), member(declared, name), ctx.readHeld(held[index]))
+        store(ctx, node, ctx.readHeld(instance), member(declared, name), ctx.readHeld(held[index]), "write:" .. name)
         ctx.release(held[index])
     end
     local result = ctx.readHeld(instance)
@@ -349,10 +475,7 @@ end
 -- `carray(T, n)`: the zeroed bytes of `count` of struct `declared`, back to
 -- back as C lays out an array of them.
 export function allocate(ctx: any, node: any, declared: any, count: integer): integer
-    local size = integerConstant(ctx, node, layout(declared).size)
-    local bytes = ctx.emit(node, "Mul", {count, size}, "tagged")
-
-    return ctx.emit(node, "LibCall", {corelibrary.id("STORAGE_ALLOCBYTES"), bytes}, "tagged") as integer
+    return allocation(ctx, node, layout(declared).size, count)
 end
 
 -- Element `index` of an array of struct `declared`: a view of its bytes, a
@@ -362,8 +485,8 @@ export function elementAt(ctx: any, node: any, declared: any, array: integer, in
     local receiver = ctx.hold(array)
     local size = layout(declared).size
     local offset = ctx.emit(node, "Mul", {index, integerConstant(ctx, node, size)}, "tagged")
-    local kind = integerConstant(ctx, node, UINT8)
-    local n = integerConstant(ctx, node, size)
+    local kind = integerConstant(ctx, node, blockKind(size))
+    local n = integerConstant(ctx, node, size == 0 and 0 or 1)
     local value = ctx.emit(
         node,
         "LibCall",

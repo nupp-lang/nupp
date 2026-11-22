@@ -647,6 +647,10 @@ export function describe(modules: {any}, entryModule: string, options: any?): an
         -- By checked operation, the callsite of its lane runtime call
         -- (scalarlanes).
         laneCalls = {},
+        -- By struct field access or construction, the lane runtime callsites
+        -- a stored fixed vector field is read and written by, by key
+        -- (taggedstructs.vectorSites).
+        laneStorage = {},
         classCells = {},
         -- Executable references the checker resolved to no declaration.
         unresolved = {},
@@ -1427,6 +1431,38 @@ export function describe(modules: {any}, entryModule: string, options: any?): an
         if lane then
             local item = {id = #p.calls, owner = owner.id, node = lane, lane = node}
             p.calls[#p.calls + 1], p.callByNode[lane], p.laneCalls[node] = item, item, item
+        end
+        -- A stored fixed vector field is read and written by the lane
+        -- runtime, each call at a callsite of its own.
+        local stored = (node.kind == "dotIndex" or node.kind == "safeIndex" or node.kind == "call")
+            and (construction.of(node) or node)
+        local vectorSites = stored and p.laneStorage[stored] == nil and taggedstructs.vectorSites(stored)
+        if vectorSites then
+            local anchor = need(cst.firstToken(node), "a fixed vector field needs a source position")
+            local keys: {string} = {}
+            for key in pairs(vectorSites) do
+                keys[#keys + 1] = key
+            end
+            table.sort(keys)
+            local sites = {}
+            for _, key in ipairs(keys) do
+                local exprs = {}
+                for index = 1, vectorSites[key] do
+                    exprs[index] = {kind = "nil", token = anchor, inferredType = {tag = "any"}, anchor}
+                end
+                local call = {kind = "call", args = {kind = "args", exprs = exprs}, anchor}
+                local item = {
+                    id = #p.calls,
+                    owner = owner.id,
+                    node = call,
+                    dynamic = true,
+                    laneStorage = stored,
+                    key = key
+                }
+                p.calls[#p.calls + 1], p.callByNode[call] = item, item
+                sites[key] = item
+            end
+            p.laneStorage[stored] = sites
         end
         -- Columnar storage (columnaraccess): a struct provider call, at a
         -- callsite of its own, and a view's row and field methods.
@@ -2899,6 +2935,16 @@ export function verify(p: any): boolean
                 and node.kind == "call"
                 and item.definition == nil,
                 "struct provider callsite identity mismatch"
+            )
+        elseif item.laneStorage then
+            local sites = p.laneStorage[item.laneStorage]
+            need(
+                sites ~= nil
+                and sites[item.key] == item
+                and p.callByNode[node] == item
+                and node.kind == "call"
+                and item.definition == nil,
+                "fixed vector field callsite identity mismatch"
             )
         elseif item.lane then
             local source = item.lane
