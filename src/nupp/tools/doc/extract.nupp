@@ -1339,7 +1339,7 @@ end
 local function buildMembers(
     entries: {any}?,
     basePath: string,
-    includePrivate: boolean,
+    includePrivate: boolean?,
     fieldTextOverrides: {[string]: string}?,
     receiver: string?,
     implicitReceiver: boolean?
