@@ -19,6 +19,7 @@ local exportforwarders = require("nupp.compiler.vm.exportforwarders")
 local derivedmembers = require("nupp.compiler.vm.derivedmembers")
 local recordcallables = require("nupp.compiler.vm.recordcallables")
 local taggedforeign = require("nupp.compiler.vm.taggedforeign")
+local taggedpredicate = require("nupp.compiler.vm.taggedpredicate")
 local scalarcapabilities = require("nupp.compiler.vm.scalarcapabilities")
 export const booleanKind = "tagged"
 local binding = taggedvalues.binding
@@ -1223,6 +1224,11 @@ export function forVersion(version: integer): any
                     return ctx.emit(node, "Not", {absent}, "tagged") as integer
                 end
                 return absent as integer
+            end
+            -- A refinement is the declaration's own answer, and the only one an
+            -- interface has.
+            if t.wherePredicate then
+                return taggedpredicate.test(ctx, node, t.wherePredicate) as integer
             end
             local record = catalog(ctx).recordTests[node]
             if record then

@@ -1,0 +1,196 @@
+module nupp.compiler.vm.taggedpredicate
+
+-- `x is T` in the tagged profile when T's test is a refinement: a `where`
+-- or `satisfies` clause, or the literal fields a tagged interface declares.
+-- The checker hands over the test as a predicate tree
+-- (nupp.compiler.types.predicate), and it is lowered here as
+-- `predicate.test` renders it to Lua, against the subject evaluated once:
+-- the table check first unless the predicate decides the subject's type
+-- itself, each step past a field's first nil-guarded as `?.` is, and `and`
+-- and `or` short-circuiting with Lua's values.
+const predicate = require("nupp.compiler.types.predicate")
+const corelibrary = require("nupp.compiler.vm.corelibrary")
+const taggedvalues = require("nupp.compiler.vm.taggedvalues")
+const taggedcalls = require("nupp.compiler.vm.taggedcalls")
+const need = taggedvalues.need
+const pool = taggedvalues.pool
+
+const TYPE = corelibrary.id("TYPE")
+-- Ordered comparisons are Lt and Le, `>` and `>=` with operands swapped.
+const ORDERED: {[string]: string} = {["<"] = "Lt", ["<="] = "Le", [">"] = "Lt", [">="] = "Le"}
+
+local function text(ctx: any, node: any, value: string): integer
+    return ctx.emit(node, "K", {pool(ctx, "str", value)}, "tagged") as integer
+end
+
+-- Whether `type(value)` is `name`.
+local function typeIs(ctx: any, node: any, value: integer, name: string): integer
+    local found = ctx.emit(node, "LibCall", {TYPE, value}, "tagged")
+
+    return ctx.emit(node, "Eq", {found, text(ctx, node, name)}, "tagged") as integer
+end
+
+-- `first and rest()` or `first or rest()`, with Lua's value: `rest` runs
+-- only when `first` does not already decide it.
+local function logical(ctx: any, node: any, conjunction: boolean, first: integer, rest: any): integer?
+    local decides = first
+    if not conjunction then
+        decides = ctx.emit(node, "Not", {first}, "tagged") as integer
+    end
+    -- A function's parameter is passed through a branch as itself, so a
+    -- handle holding one is not rewritten there: it starts as a fresh value
+    -- and takes `first` on the arm that keeps it.
+    local parameter = first <= ctx.g.nparams
+    local held = ctx.hold(first)
+    local condition = ctx.hold(decides)
+    local result = ctx.hold(parameter and ctx.emit(node, "Nil", {}, "tagged") or first)
+    if parameter then
+        local keeps = ctx.emit(node, "Not", {decides}, "tagged")
+        ctx.when(node, keeps, function(c: any, site: any): nil
+            c.write(result, c.readHeld(held))
+        end)
+    end
+    if ctx.block ~= nil then
+        ctx.when(node, ctx.readHeld(condition), function(c: any, site: any): nil
+            local value = rest(c)
+            if value ~= nil and c.block then
+                c.write(result, value)
+            end
+        end)
+    end
+    ctx.release(condition)
+    ctx.release(held)
+    if ctx.block == nil then
+        ctx.release(result)
+        return nil
+    end
+    local value = ctx.readHeld(result)
+    ctx.release(result)
+
+    return value
+end
+
+-- The value `path` reaches from the held subject: its first field read as
+-- `.`, each later one as `?.`.
+local function access(ctx: any, node: any, subject: any, path: {string}): integer
+    if #path == 0 then
+        return ctx.readHeld(subject)
+    end
+    local reached = ctx.hold(ctx.emit(node, "GetIdx", {ctx.readHeld(subject), text(ctx, node, path[1])}, "tagged"))
+    for index = 2, #path do
+        local none = ctx.emit(node, "Nil", {}, "tagged")
+        local absent = ctx.emit(node, "Eq", {ctx.readHeld(reached), none}, "tagged")
+        local present = ctx.emit(node, "Not", {absent}, "tagged")
+        ctx.when(node, present, function(c: any, site: any): nil
+            local key = text(c, node, path[index])
+            c.write(reached, c.emit(node, "GetIdx", {c.readHeld(reached), key}, "tagged"))
+        end)
+    end
+    local value = ctx.readHeld(reached)
+    ctx.release(reached)
+
+    return value
+end
+
+local lower: function(any, any, any, any): integer?
+
+-- `value cmp literal`, an ordered one only once `value` is of the
+-- literal's Lua type.
+local function compare(ctx: any, node: any, value: integer, test: any): integer?
+    local cmp = test.cmp or "=="
+    local held = ctx.hold(value)
+
+    local function comparison(c: any): integer
+        local literal = taggedcalls.defaultConstant(c, node, test.constant)
+        if cmp == "==" or cmp == "~=" then
+            local equal = c.emit(node, "Eq", {c.readHeld(held), literal}, "tagged")
+            return cmp == "==" and equal or c.emit(node, "Not", {equal}, "tagged")
+        end
+        local operation = need(ORDERED[cmp], "a refinement comparison is unknown: " .. tostring(cmp))
+        local operands = {c.readHeld(held), literal}
+        if cmp == ">" or cmp == ">=" then
+            operands = {literal, c.readHeld(held)}
+        end
+
+        return c.emit(node, operation, operands, "tagged") as integer
+    end
+
+    local answer: integer? = nil
+    if cmp == "==" or cmp == "~=" then
+        answer = comparison(ctx)
+    else
+        answer = logical(ctx, node, true, typeIs(ctx, node, ctx.readHeld(held), type(test.constant)), comparison)
+    end
+    ctx.release(held)
+
+    return answer
+end
+
+-- `test` against the held subject, as predicate.render renders it.
+lower = function(ctx: any, node: any, subject: any, test: any): integer?
+    if test == nil then
+        return taggedcalls.defaultConstant(ctx, node, true)
+    end
+    local op = test.op
+    if op == "const" then
+        return taggedcalls.defaultConstant(ctx, node, test.value == true)
+    elseif op == "not" then
+        local operand = lower(ctx, node, subject, test.a)
+        return operand and ctx.emit(node, "Not", {operand}, "tagged")
+    elseif op == "and" or op == "or" then
+        local first = lower(ctx, node, subject, test.a)
+        if first == nil then
+            return nil
+        end
+        return logical(ctx, node, op == "and", first, function(c: any): integer?
+            return lower(c, node, subject, test.b)
+        end)
+    end
+    local value = access(ctx, node, subject, test.path or {})
+    if op == "len" then
+        -- The length is read only from a string, which is then the subject
+        -- of the comparison the accessor carries.
+        local target = ctx.hold(value)
+        local answer = logical(ctx, node, true, typeIs(ctx, node, value, "string"), function(c: any): integer?
+            local length = c.hold(c.emit(node, "Len", {c.readHeld(target)}, "tagged"))
+            local inner = lower(c, node, length, test.a)
+            c.release(length)
+            return inner
+        end)
+        ctx.release(target)
+        return answer
+    elseif op == "cmp" then
+        return compare(ctx, node, value, test)
+    elseif op == "integral" then
+        local one = taggedcalls.defaultConstant(ctx, node, 1)
+        local remainder = ctx.emit(node, "Mod", {value, one}, "tagged")
+        local zero = taggedcalls.defaultConstant(ctx, node, 0)
+        return ctx.emit(node, "Eq", {remainder, zero}, "tagged")
+    elseif op == "typeis" then
+        return typeIs(ctx, node, value, test.luaType or "nil")
+    end
+
+    -- A bare field is a truthiness test, which the value itself answers.
+
+    return value
+end
+
+-- `node.expr is T` for a T whose test is the refinement `test`.
+export function test(ctx: any, node: any, refinement: any): integer?
+    local value = ctx.expression(need(node.expr, "a type test lacks its value"), "tagged")
+    if value == nil then
+        return nil
+    end
+    local subject = ctx.hold(value)
+    local answer: integer? = nil
+    if predicate.constant(refinement) ~= nil or predicate.guardsType(refinement) then
+        answer = lower(ctx, node, subject, refinement)
+    else
+        answer = logical(ctx, node, true, typeIs(ctx, node, ctx.readHeld(subject), "table"), function(c: any): integer?
+            return lower(c, node, subject, refinement)
+        end)
+    end
+    ctx.release(subject)
+
+    return answer
+end
