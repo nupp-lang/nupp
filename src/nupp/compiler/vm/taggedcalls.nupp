@@ -12,6 +12,7 @@ local lexer = require("nupp.compiler.syntax.lexer")
 local taggedvalues = require("nupp.compiler.vm.taggedvalues")
 local taggedforeign = require("nupp.compiler.vm.taggedforeign")
 local managedcells = require("nupp.compiler.vm.managedcells")
+local scalarlanes = require("nupp.compiler.vm.scalarlanes")
 local catalog = taggedvalues.catalog
 local cleanupGraphs = taggedvalues.cleanupGraphs
 local landed = taggedvalues.landed
@@ -991,6 +992,12 @@ local function methodCallee(ctx: any, node: any, site: any, receiver: integer?):
         return nil
     end
     local member = node.trailingCallableMember or node.overloadMember or node.name.text
+    if site.dynamic and scalarlanes.species(node) then
+        -- A species' memory methods are overloads the checker resolved to a
+        -- member of its own; the library's ordinary body answers to the
+        -- written name.
+        member = node.name.text
+    end
     local key = ctx.emit(node, "K", {pool(ctx, "str", member)}, "tagged")
 
     return ctx.emit(node, "GetIdx", {owner, key}, "tagged")
