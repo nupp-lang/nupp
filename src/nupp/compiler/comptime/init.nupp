@@ -838,6 +838,10 @@ end
 local function arith(op, left, right, node)
     if ARITHMETIC[op] then
         operandsAre(numberLike, op, left, right, node, "numbers")
+        -- A numeric string converts as Lua converts an arithmetic operand,
+        -- here rather than by the host, which may not coerce (the core).
+        left = type(left) == "string" and tonumber(left) or left
+        right = type(right) == "string" and tonumber(right) or right
     elseif op == ".." then
         operandsAre(concatenable, op, left, right, node, "strings or numbers")
     end
