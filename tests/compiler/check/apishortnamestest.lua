@@ -4,7 +4,8 @@ local checker = require("helpers.fragment")
 local envMod = require("nupp.compiler.project.env")
 local program = require("program")
 local compile = require("nupp.tools.cli.compile")
-local loadImage = assert(rawget(_G, "__nupp_load_image"))
+-- Only the retained-implementation case loads a VM image of its own.
+local loadImage = rawget(_G, "__nupp_load_image")
 local mathRuntime = require("nupp.compiler.runtime.math")
 local HERE = require("helpers.paths").tests
 local ROOT = HERE .. "/.."
@@ -124,7 +125,7 @@ function M.lowercaseBuilderFunctionsAndLenKeepRuntimeValues()
                     )
                 )
                 package.loaded["serde.valuebuilder"] = nil
-                package.preload["serde.valuebuilder"] = assert(loadImage(image))
+                package.preload["serde.valuebuilder"] = assert(assert(loadImage, "a VM image loader")(image))
             end
 
             return program.run(parsed, "short-names", "short-names.nupp")
