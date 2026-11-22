@@ -105,21 +105,28 @@ return rows[1], rows[5]
         test.eq(#parsed.errors, 0)
         local diagnostics = checker.check(parsed, "simd-identity.nupp", env, {moduleName = "nupp.identity"})
         test.eq(#diagnostics, 0, diagnostics[1] and diagnostics[1].msg)
-        local listing = {}
-        local image = program.image(parsed, "simd-identity", "simd-identity.nupp", listing)
-        local after
-        for _, entry in ipairs(listing) do
-            if entry.image:match("^function scale ") then
-                after = entry.image
+        local execute
+        if program.onVm() then
+            -- The VM keeps a listing of the vector loop each spelling
+            -- compiles to; the scalar core runs it lane by lane and keeps none.
+            local listing = {}
+            local image = program.image(parsed, "simd-identity", "simd-identity.nupp", listing)
+            local after
+            for _, entry in ipairs(listing) do
+                if entry.image:match("^function scale ") then
+                    after = entry.image
+                end
             end
+            assert(after, "the checked scale loop must have a native VM body")
+            if before then
+                test.eq(after, before)
+            end
+            before = after
+            program.installSourceModules()
+            execute = assert(assert(rawget(_G, "__nupp_load_image"))(image))
+        else
+            execute = assert(program.load(parsed, "simd-identity", "simd-identity.nupp"))
         end
-        assert(after, "the checked scale loop must have a native VM body")
-        if before then
-            test.eq(after, before)
-        end
-        before = after
-        program.installSourceModules()
-        local execute = assert(assert(rawget(_G, "__nupp_load_image"))(image))
         local first, last = execute()
         test.eq(first, 2)
         test.eq(last, 10)
@@ -265,24 +272,31 @@ function M.lowercaseSimdDeclarationsKeepVerifiedOperations()
     do
         local parsed, diagnostics = checkedSimd(CASE_KERNEL .. "\nreturn fold(), horizontal()", simdEnvironment())
         test.eq(#diagnostics, 0, diagnostics[1] and diagnostics[1].msg)
-        local listing = {}
-        local image = program.image(parsed, "simd-case", "simd-case.nupp", listing)
-        local horizontal, fold
-        for _, entry in ipairs(listing) do
-            if entry.image:match("^function horizontal ") then
-                horizontal = entry.image
+        local execute
+        if program.onVm() then
+            -- The VM's listing names the vector operations each kernel
+            -- compiles to; the scalar core keeps no listing.
+            local listing = {}
+            local image = program.image(parsed, "simd-case", "simd-case.nupp", listing)
+            local horizontal, fold
+            for _, entry in ipairs(listing) do
+                if entry.image:match("^function horizontal ") then
+                    horizontal = entry.image
+                end
+                if entry.image:match("^function fold ") then
+                    fold = entry.image
+                end
             end
-            if entry.image:match("^function fold ") then
-                fold = entry.image
-            end
+            assert(horizontal and fold, "both checked kernels must have native VM bodies")
+            test.matches(fold, "orderedsum")
+            test.matches(fold, "wrappingsum")
+            test.matches(horizontal, "Simd wrappingSum int32")
+            test.matches(horizontal, "Simd horizontal%.propagatingArgMax float64")
+            program.installSourceModules()
+            execute = assert(assert(rawget(_G, "__nupp_load_image"))(image))
+        else
+            execute = assert(program.load(parsed, "simd-case", "simd-case.nupp"))
         end
-        assert(horizontal and fold, "both checked kernels must have native VM bodies")
-        test.matches(fold, "orderedsum")
-        test.matches(fold, "wrappingsum")
-        test.matches(horizontal, "Simd wrappingSum int32")
-        test.matches(horizontal, "Simd horizontal%.propagatingArgMax float64")
-        program.installSourceModules()
-        local execute = assert(assert(rawget(_G, "__nupp_load_image"))(image))
         local reduced, total, at = execute()
         local runtime = require("simd")
         test.eq(runtime.reducer.orderedSum, nil)
@@ -310,9 +324,12 @@ end
         test.eq(#diagnostics, 1)
         test.eq(diagnostics[1].code, "NUPP2006")
     end
-    -- The frozen host has no scalar lane namespace. The native vector storage
-    -- contract is checked above; this test executes only its existing operations.
-    test.eq(require("nupp.simd").lane, nil)
+    -- The VM's frozen host has no scalar lane namespace. The native vector
+    -- storage contract is checked above; this test executes only its existing
+    -- operations. The core has no such host module: its `simd` is the library.
+    if program.onVm() then
+        test.eq(require("nupp.simd").lane, nil)
+    end
     local _, diagnostics = checkedSimd(
         [[
 local simd = {horizontal = {wrappingsum = function(value: number): number return value + 1 end}}
