@@ -2,10 +2,27 @@
 # Print the pinned C libraries the standard library binds by logical name
 # (`nupp.compiler.project.libraries`), as the variables that name them.
 # Provisions each once per change to its pins through scripts/toolchain.
+#
+#   scripts/c-library-paths                      every variable
+#   scripts/c-library-paths NUPP_ZLIB_LIBRARY    only the libraries named
+#
+# Only what is named is built, so binding zlib never compiles another
+# library's sources.
 set -eu
 ROOT=$(CDPATH= cd -- "$(dirname "$0")/.." && pwd)
+VARIABLES='NUPP_ZLIB_LIBRARY NUPP_CRC_LIBRARY'
+die() {
+    printf 'c-library-paths: %s\n' "$*" >&2
+    exit 1
+}
+# shellcheck disable=SC2086 # the variables are a list of names
+[ "$#" -gt 0 ] || set -- $VARIABLES
+
+windows=0
+suffix=so
 case "$(uname -s)" in
     MINGW*|MSYS*)
+        windows=1
         # The VM is an x64 GNU Windows program, and its C libraries are too,
         # under emulation on ARM64. The native core on Windows ARM64, which
         # names its runtime to the compilers it starts, loads ARM64 ones.
@@ -18,25 +35,33 @@ case "$(uname -s)" in
                 ;;
         esac
         target=${NUPP_NATIVE_TARGET:-$target}
-        zlib=$(NUPP_NATIVE_TARGET="$target" "$ROOT/scripts/toolchain" zlib)
-        isal=$(NUPP_NATIVE_TARGET="$target" "$ROOT/scripts/toolchain" isal)
-        # zlib's CMake names its DLL by toolchain; the artifact holds one.
-        set -- "$zlib"/bin/*z*.dll
-        [ "$#" -eq 1 ] || { echo "c-library-paths: expected one zlib DLL in $zlib/bin" >&2; exit 1; }
-        zlib=$(cygpath -m "$1")
-        set -- "$isal"/bin/*nupp_crc.dll
-        [ "$#" -eq 1 ] || { echo "c-library-paths: expected one CRC DLL in $isal/bin" >&2; exit 1; }
-        crc=$(cygpath -m "$1")
         ;;
-    Darwin)
-        zlib="$("$ROOT/scripts/toolchain" zlib)/lib/libz.dylib"
-        crc="$("$ROOT/scripts/toolchain" isal)/lib/libnupp_crc.dylib"
-        ;;
-    *)
-        zlib="$("$ROOT/scripts/toolchain" zlib)/lib/libz.so"
-        crc="$("$ROOT/scripts/toolchain" isal)/lib/libnupp_crc.so"
-        ;;
+    Darwin) suffix=dylib ;;
 esac
-test -f "$zlib"
-test -f "$crc"
-printf 'NUPP_ZLIB_LIBRARY=%s\nNUPP_CRC_LIBRARY=%s\n' "$zlib" "$crc"
+
+# The library one component built: its one DLL under bin on Windows, which
+# CMake names by toolchain, or lib/libBASE.SUFFIX elsewhere.
+library() {
+    component=$1 base=$2 dll=$3
+    if [ "$windows" = 1 ]; then
+        prefix=$(NUPP_NATIVE_TARGET="$target" "$ROOT/scripts/toolchain" "$component")
+        # shellcheck disable=SC2086 # the DLL is a pattern
+        set -- "$prefix"/bin/$dll
+        [ "$#" -eq 1 ] && [ -f "$1" ] || die "expected one $component DLL in $prefix/bin"
+        cygpath -m "$1"
+    else
+        prefix=$("$ROOT/scripts/toolchain" "$component")
+        file="$prefix/lib/lib$base.$suffix"
+        [ -f "$file" ] || die "$component built no $file"
+        printf '%s\n' "$file"
+    fi
+}
+
+for variable in "$@"; do
+    case "$variable" in
+        NUPP_ZLIB_LIBRARY) path=$(library zlib z '*z*.dll') ;;
+        NUPP_CRC_LIBRARY) path=$(library isal nupp_crc '*nupp_crc.dll') ;;
+        *) die "no pinned library is named $variable; known: $VARIABLES" ;;
+    esac
+    printf '%s=%s\n' "$variable" "$path"
+done

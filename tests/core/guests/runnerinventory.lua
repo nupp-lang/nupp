@@ -180,7 +180,7 @@ end
 -- CRC library), as scripts/c-library-paths names them.
 local libraries = ""
 do
-    local status, output = shell("sh " .. quote(ROOT .. "/scripts/c-library-paths"))
+    local status, output = shell("sh " .. quote(ROOT .. "/scripts/c-library-paths") .. " NUPP_ZLIB_LIBRARY NUPP_CRC_LIBRARY")
     assert(status == 0, "could not provision the pinned C libraries:\n" .. output)
     for key, value in output:gmatch("(NUPP_[%u_]+_LIBRARY)=([^\r\n]+)") do
         libraries = libraries .. key .. "=" .. quote(value) .. " "

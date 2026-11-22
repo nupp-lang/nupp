@@ -12,7 +12,7 @@ export NUPP_VM_BINARY="$PAIR/runtime" NUPP_VM_CLI_IMAGE="$PAIR/compiler.image"
 # The pinned C libraries the standard library binds by logical name, named as
 # bin/nupp names them: a guest carrying the compiler resolves them as it is
 # selected. A variable already set wins.
-LIBRARIES=$(sh "$ROOT/scripts/c-library-paths" 2>/dev/null || true)
+LIBRARIES=$(sh "$ROOT/scripts/c-library-paths" NUPP_ZLIB_LIBRARY NUPP_CRC_LIBRARY 2>/dev/null || true)
 for key in NUPP_ZLIB_LIBRARY NUPP_CRC_LIBRARY; do
     value=$(printf '%s\n' "$LIBRARIES" | sed -n "s/^$key=//p")
     if [ -n "$value" ] && [ -z "$(eval "printf '%s' \"\${$key:-}\"")" ]; then

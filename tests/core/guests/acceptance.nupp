@@ -497,7 +497,9 @@ local function standardLibraries(): string
     if os.getenv("NUPP_ZLIB_LIBRARY") ~= nil or os.getenv("NUPP_CRC_LIBRARY") ~= nil then
         return ""
     end
-    local status, output = capture("sh " .. quote(ROOT .. "/scripts/c-library-paths"))
+    local status, output = capture(
+        "sh " .. quote(ROOT .. "/scripts/c-library-paths") .. " NUPP_ZLIB_LIBRARY NUPP_CRC_LIBRARY"
+    )
     if status ~= 0 then
         return ""
     end

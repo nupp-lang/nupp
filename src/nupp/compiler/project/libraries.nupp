@@ -10,7 +10,8 @@ export type Binding = {
     path: string?,
     error: string?,
     dependencies: {string},
-    override: string?
+    override: string?,
+    notices: {string}?
 }
 
 export type Plan = {bindings: {[string]: Binding}}
@@ -41,14 +42,34 @@ end
 --- builds neither. A project's own `libraries` entry for one of these names
 --- replaces it, and the compiler's own image (`_standardLibraries = false`)
 --- binds none, so no building machine's path is part of it.
+---
+--- `pins` are the `scripts/toolchain.pins` prefixes a provisioned one is built
+--- from, and `notices` the license files its artifact carries under
+--- `notices/`, which a package stages beside the library and nowhere else.
 export const STANDARD: {[string]: {
     name: string,
-    env: string
-}} = {nuppzlib = {name = "z", env = "NUPP_ZLIB_LIBRARY"}, nuppcrc = {name = "nupp_crc", env = "NUPP_CRC_LIBRARY"},}
+    env: string,
+    pins: {string},
+    notices: {string}
+}} = {
+    nuppzlib = {name = "z", env = "NUPP_ZLIB_LIBRARY", pins = {"ZLIB_"}, notices = {"zlib-LICENSE.txt"}},
+    nuppcrc = {
+        name = "nupp_crc",
+        env = "NUPP_CRC_LIBRARY",
+        pins = {"ISAL_"},
+        notices = {"ISA-L-LICENSE.txt", "ISA-L-CRC-LICENSE.txt"}
+    },
+}
 
--- The paths `scripts/c-library-paths` printed, by variable, once per process.
-local provisioned: {[string]: string}? = nil
-local provisionProblem: string? = nil
+-- The path `scripts/c-library-paths` printed for a variable, or why it named
+-- none, by script and variable, once per process. Each variable is asked for
+-- alone, so building one library never builds another, and one that fails
+-- leaves the others to be asked for.
+local type Provisioned = {
+    path: string?,
+    problem: string?
+}
+local provisioned: {[string]: Provisioned} = {}
 
 local function checkoutScript(): string?
     local envMod: any = require("nupp.compiler.project.env")
@@ -61,30 +82,60 @@ local function checkoutScript(): string?
     return files.stat(script) == "file" and script or nil
 end
 
--- Builds the checkout's pinned C libraries, or finds them built, and answers
--- the path for one variable, or why there is none.
-local function provision(variable: string): (string?, string?)
-    if provisioned == nil and provisionProblem == nil then
-        local script = assert(checkoutScript())
-        local process: any = require("nupp.compiler.process")
-        local windows = package.config:sub(1, 1) == "\\"
-        local code, text = process.capture({windows and "sh.exe" or "sh", script})
-        local found: {[string]: string} = {}
-        for key, value in text:gmatch("(NUPP_[%w_]+_LIBRARY)=([^\r\n]+)") do
-            found[key] = value
-        end
-        if code ~= 0 then
-            provisionProblem = "cannot build the pinned C libraries:\n" .. text
-        else
-            provisioned = found
+-- Builds one of the checkout's pinned C libraries, or finds it built, and
+-- answers its path, or why there is none.
+local function provision(script: string, variable: string): (string?, string?)
+    local key = script .. "\0" .. variable
+    local known = provisioned[key]
+    if known ~= nil then
+        return known.path, known.problem
+    end
+    local process: any = require("nupp.compiler.process")
+    local windows = package.config:sub(1, 1) == "\\"
+    local code, text = process.capture({windows and "sh.exe" or "sh", script, variable})
+    local path: string? = nil
+    for name, value in text:gmatch("(NUPP_[%w_]+_LIBRARY)=([^\r\n]+)") do
+        if name == variable then
+            path = value
         end
     end
-    local path = provisioned and provisioned[variable] or nil
-    if path == nil then
-        return nil, provisionProblem or ("scripts/c-library-paths named no " .. variable)
+    local problem: string? = nil
+    if code ~= 0 then
+        path, problem = nil, "cannot build the pinned C library " .. variable .. ":\n" .. text
+    elseif path == nil then
+        problem = "scripts/c-library-paths named no " .. variable
+    end
+    provisioned[key] = {path = path, problem = problem}
+
+    return path, problem
+end
+
+-- The notice files of a standard library at `path`: those its artifact keeps
+-- beside `lib` or `bin`, else the checkout's copies. A notice found in
+-- neither is left out.
+local function standardNotices(name: string, path: string): {string}
+    local found: {string} = {}
+    local library = STANDARD[name]
+    if library == nil then
+        return found
+    end
+    local artifact = fs.dirname(fs.dirname(path))
+    local envMod: any = require("nupp.compiler.project.env")
+    local checkout = envMod.compilerRoot()
+    for _, notice in ipairs(library.notices) do
+        local candidates = {fs.join(artifact, "notices/" .. notice)}
+        if checkout ~= nil then
+            candidates[#candidates + 1] = fs.join(checkout as string, "notices/" .. notice)
+        end
+        for _, candidate in ipairs(candidates) do
+            if files.stat(candidate) == "file" then
+                found[#found + 1] = candidate
+                break
+            end
+        end
     end
 
-    return path, nil
+    return found
 end
 
 -- Bindings resolved on first use, by the bindings table they belong to, with
@@ -166,6 +217,7 @@ export function resolve(root: string, config: any, options: any?): Plan
             tried[#tried + 1] = library.env .. "=" .. path
             if regularFile(path) then
                 binding.path, binding.reference = path, reference(path)
+                binding.notices = standardNotices(name, path)
             end
         else
             for _, directory in ipairs(library.search or {}) do
@@ -283,14 +335,25 @@ export function resolve(root: string, config: any, options: any?): Plan
     for name in pairs(config.libraries or {}) do
         deferred[name] = nil
     end
-    if next(deferred) ~= nil and checkoutScript() ~= nil then
-        local pins = fs.readFile(fs.join(assert(checkoutScript()):match("^(.*)[/\\][^/\\]+$"), "toolchain.pins")) or ""
-        local inputs: {string} = {}
-        for line in pins:gmatch("[^\r\n]+") do
-            if line:match("^ZLIB_") or line:match("^ISAL_") then
-                inputs[#inputs + 1] = line
+    local script = options.script or checkoutScript()
+    if next(deferred) ~= nil and script ~= nil then
+        local pins = fs.readFile(fs.join(fs.dirname(script as string), "toolchain.pins")) or ""
+        local prefixes: {string} = {}
+        for name in pairs(deferred) do
+            for _, prefix in ipairs(assert(STANDARD[name]).pins) do
+                prefixes[#prefixes + 1] = prefix
             end
         end
+        local inputs: {string} = {}
+        for line in pins:gmatch("[^\r\n]+") do
+            for _, prefix in ipairs(prefixes) do
+                if line:sub(1, #prefix) == prefix then
+                    inputs[#inputs + 1] = line
+                    break
+                end
+            end
+        end
+        table.sort(inputs)
         LAZY[bindings] = table.concat(inputs, "\0")
         setmetatable(bindings as any, {
             __index = function(table: any, name: string): Binding?
@@ -299,9 +362,10 @@ export function resolve(root: string, config: any, options: any?): Plan
                 end
                 deferred[name] = nil
                 local binding: Binding = {name = name, reference = name, dependencies = {}}
-                local path, problem = provision(assert(STANDARD[name]).env)
+                local path, problem = provision(script as string, assert(STANDARD[name]).env)
                 if path ~= nil and regularFile(path) then
                     binding.path, binding.reference = path, reference(path)
+                    binding.notices = standardNotices(name, path)
                 else
                     binding.error = (
                         "cannot resolve native library %q: %s"
