@@ -189,6 +189,18 @@ local function rowValue<T>(element: ctype<T>, layout: Layout, columns: {any}, in
     return read(element, layout, columns, index)
 end
 
+-- Field `name` of row `value`: by name, or through the element descriptor's
+-- `readfield` where an instance has no fields by name (the native core's
+-- structs are their bytes).
+local function rowField(element: any, value: any, name: string): any
+    local read = type(element) == "table" and rawget(element as table, "readfield") or nil
+    if read ~= nil then
+        return (read as any)(element, value, name)
+    end
+
+    return (value as any)[name]
+end
+
 local function copyElements(borrows destination: any, borrows source: any, count: integer): nil
     local copy: function(
         borrows destination: any,
@@ -976,7 +988,7 @@ local record ColumnWriteSpanImpl<T> is span.WriteSpan<T, "columnar">
     function set(exclusive self, index: integer, value: T): nil
         local physical = self:checkedIndex(index)
         for ordinal, field in ipairs(self.layout.fields) do
-            (self.columns[ordinal] as {[integer]: any})[physical] = (value as any)[field.name]
+            (self.columns[ordinal] as {[integer]: any})[physical] = rowField(self.element, value, field.name)
         end
     end
 
@@ -1033,8 +1045,10 @@ local record ColumnWriteSpanImpl<T> is span.WriteSpan<T, "columnar">
         end
         local other = source as any
         for ordinal, field in ipairs(self.layout.fields) do
-            local destination = (self.columns[ordinal] as any) + self.offset + targetfirst - 1
-            local input = (other.columns[ordinal] as any) + other.offset + sourcefirst - 1
+            -- One element offset each: a column is storage, which only adds
+            -- an offset to make a view of it.
+            local destination = (self.columns[ordinal] as any) + (self.offset + targetfirst - 1)
+            local input = (other.columns[ordinal] as any) + (other.offset + sourcefirst - 1)
             copyElements(destination, input, count)
         end
     end

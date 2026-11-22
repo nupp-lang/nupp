@@ -14,10 +14,17 @@ local function countOf(count)
     return count
 end
 
+-- A struct instance with no fields by name (the native core's bytes) is
+-- written through its descriptor's `writefield`.
 function M.row(element, layout, columns, index)
     local value = element()
+    local write = type(element) == "table" and rawget(element, "writefield") or nil
     for ordinal, field in ipairs(layout.fields) do
-        value[field.name] = columns[ordinal][index]
+        if write then
+            write(element, value, field.name, columns[ordinal][index])
+        else
+            value[field.name] = columns[ordinal][index]
+        end
     end
 
     return value

@@ -27,6 +27,7 @@ local aliasdowncast = require("nupp.compiler.vm.aliasdowncast")
 local stubmodules = require("nupp.compiler.vm.stubmodules")
 local scalarcapabilities = require("nupp.compiler.vm.scalarcapabilities")
 local scalarlanes = require("nupp.compiler.vm.scalarlanes")
+local columnaraccess = require("nupp.compiler.vm.columnaraccess")
 
 -- Lua's `f "s"` and `f {...}` as the calls of one argument they are, which
 -- is the only form the core lowers: every call reads its argument list.
@@ -661,6 +662,12 @@ export function describe(modules: {any}, entryModule: string, options: any?): an
         callByNode = {},
         absentBindings = {},
         indexedByNode = {},
+        -- By checked node, a struct provider call (columnaraccess.call) and
+        -- a columnar view access (columnaraccess.methods), and by nominal,
+        -- the statement that declares each struct.
+        columnarCalls = {},
+        columnarByNode = {},
+        structDeclarations = {},
         -- Per cleanup site (a local's statement), the record
         -- declaration whose destructor it runs, mapped to a synthetic
         -- reference to that record's name.
@@ -1352,6 +1359,29 @@ export function describe(modules: {any}, entryModule: string, options: any?): an
         p.materializations[node] = made
     end
 
+    -- A columnar view access (columnaraccess.methods) at `node`, its getter
+    -- and, for an assignment target, its setter each a callsite of its own.
+    local function registercolumnar(node: any, owner: any, writing: boolean): nil
+        local access = columnaraccess.methods(node, writing)
+        if access == nil then
+            return
+        end
+        p.columnarByNode[node] = access
+        for _, made in ipairs({access.read, access.write}) do
+            if p.callByNode[made] == nil then
+                local item = {
+                    id = #p.calls,
+                    owner = owner.id,
+                    node = made,
+                    method = true,
+                    dynamic = true,
+                    columnar = access
+                }
+                p.calls[#p.calls + 1], p.callByNode[made] = item, item
+            end
+        end
+    end
+
     local materializedRecords = recordValues(p)
     local collect: function(any, any): nil
     collect = function(node: any, owner: any): nil
@@ -1397,6 +1427,41 @@ export function describe(modules: {any}, entryModule: string, options: any?): an
         if lane then
             local item = {id = #p.calls, owner = owner.id, node = lane, lane = node}
             p.calls[#p.calls + 1], p.callByNode[lane], p.laneCalls[node] = item, item, item
+        end
+        -- Columnar storage (columnaraccess): a struct provider call, at a
+        -- callsite of its own, and a view's row and field methods.
+        local typeWitness = p.scalartypes.witnesses[node] == nil and columnaraccess.witness(node, p.structDeclarations)
+            or nil
+        local provided = columnaraccess.call(node, typeWitness)
+        if provided then
+            local item = {id = #p.calls, owner = owner.id, node = provided, columnarCall = node}
+            p.calls[#p.calls + 1], p.callByNode[provided], p.columnarCalls[node] = item, item, item
+            if typeWitness and typeWitness.declaration then
+                local name = typeWitness.declaration.name
+                local classToken: any = {
+                    kind = "name",
+                    text = name.text,
+                    line = name.line,
+                    col = name.col,
+                    offset = name.offset,
+                    trivia = {},
+                    definition = name.definition
+                }
+                reference(classToken, owner)
+                item.classToken = classToken
+            end
+            if typeWitness then
+                -- `ffi` itself is never read.
+                return
+            end
+        end
+        registercolumnar(node, owner, false)
+        if node.kind == "assignStmt" then
+            for _, target in ipairs(node.targets) do
+                registercolumnar(target, owner, true)
+            end
+        elseif node.kind == "compoundAssign" and node.target then
+            registercolumnar(node.target, owner, true)
         end
         local witness = p.scalartypes.witnesses[node]
         if witness then
@@ -2221,6 +2286,26 @@ export function describe(modules: {any}, entryModule: string, options: any?): an
             end
         end
     end
+
+    -- The struct each `ffi.typeof<T>()` names is found by its nominal,
+    -- wherever its declaration sits.
+    local function declarations(node: any): nil
+        if cst.isToken(node) then
+            return
+        end
+        if (node.kind == "cdefStruct" or node.kind == "recordDecl" and node.declKind == "struct")
+            and node.resolvedType
+        then
+            p.structDeclarations[node.resolvedType] = node
+        end
+        for _, child in ipairs(node) do
+            declarations(child)
+        end
+    end
+
+    for _, module in ipairs(p.modules) do
+        declarations(module.parsed.root)
+    end
     local stringbase = moduleNames[graph.libraryModule("string")]
     for _, module in ipairs(p.modules) do
         currentChunk = p.owners[module.chunk + 1]
@@ -2792,6 +2877,23 @@ export function verify(p: any): boolean
                 and item.definition == nil
                 and p.materializations[item.materialized] ~= nil,
                 "materialized callsite identity mismatch"
+            )
+        elseif item.columnar then
+            need(
+                p.callByNode[node] == item
+                and node.kind == "methodCall"
+                and (item.columnar.read == node or item.columnar.write == node)
+                and item.definition == nil,
+                "columnar view callsite identity mismatch"
+            )
+        elseif item.columnarCall then
+            local source = item.columnarCall
+            need(
+                p.columnarCalls[source] == item
+                and p.callByNode[node] == item
+                and node.kind == "call"
+                and item.definition == nil,
+                "struct provider callsite identity mismatch"
             )
         elseif item.lane then
             local source = item.lane
