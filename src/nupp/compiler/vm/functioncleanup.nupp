@@ -77,11 +77,17 @@ export function localOwner(stat: any, index: integer): any
         and owner.entry.definition == token.definition
         and owner.entry.automaticOwner == owner
         and token.definition
-        and owner.type == token.definition.type,
+        -- A result of a correlated pack is declared as the pack's union;
+        -- the owner is the alternative that holds the value.
+        and (owner.type == token.definition.type or owner.conditional and owner.correlation ~= nil),
         "local owner does not match its checked binding"
     )
+    -- A conditional owner is one a correlated pack gives on some of its
+    -- alternatives, told apart by literal sibling results.
     need(
-        not owner.conditional and not owner.correlated and not owner.guards,
+        (not owner.conditional or owner.lowerable and owner.activation and #owner.activation > 0)
+        and not owner.correlated
+        and not owner.guards,
         "conditional local owner cleanup is unsupported"
     )
     local t = need(affine(owner.type), "local owner requires an affine type")
