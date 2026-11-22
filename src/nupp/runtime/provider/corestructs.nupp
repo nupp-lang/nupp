@@ -1,0 +1,192 @@
+@!internal
+module nupp.runtime.provider.corestructs
+
+--[[
+Structs as the storage library sees them on the native core, where a struct
+instance is its bytes in C layout and has no metatable to find a field by
+name. `ffi.typeof<T>()` of a struct is the descriptor `descriptor` makes from
+the layout the struct's declaration table holds: callable for a zeroed
+instance, its scalar fields each with the storage descriptor of its kind, and
+`readfield`/`writefield`, which reach a field of an instance by name through
+a view of its bytes, as the generated code does by offset. A columnar
+allocation and its layout are main's `table.Array` operations given that
+descriptor, the field specification the checker measured from it.
+]]
+
+const storage = require("nupp.runtime.storagecalls")
+const heap = require("nupp.runtime.provider.heapstorage")
+
+const _ARRAY_REQUIRES = "@requires-dynamically nupp.array"
+
+const LAYOUT_KEY = "\0nupp:structLayout"
+-- The widest field alignment the columnar layout accepts.
+const MAX_FIELD_ALIGNMENT = 8
+const signedKind: {[integer]: string} = {[4] = "int32", [8] = "int64"}
+
+-- The storage scalar a field of `layout` is read and written as, or nil for
+-- a field the columnar storage cannot hold as one element.
+local function scalarName(field: any): string?
+    local kind = field.kind
+    if kind == "boolean" then
+        return "uint8"
+    elseif kind == "integer" then
+        return signedKind[field.size]
+    elseif field.bitWidth ~= nil or kind == "pointer" or kind == "array" or kind == "struct" or kind == "union" then
+        return nil
+    elseif kind == "vector" then
+        return nil
+    end
+
+    return kind
+end
+
+local descriptors: {[any]: any} = setmetatable({}, {__mode = "k"})
+
+local DESCRIPTOR: any = {
+    __call = function(self: any): any
+        return storage.allocbytes(self.size)
+    end
+}
+
+--- The storage descriptor of the struct whose declaration table is `class`.
+export function descriptor(class: any): any
+    local known = descriptors[class]
+    if known ~= nil then
+        return known
+    end
+    local layout = class[LAYOUT_KEY]
+    if layout == nil or not layout.supported then
+        error(layout and layout.error or "nupp: this struct has no storage layout on the core", 2)
+    end
+    local fields: {any} = {}
+    local byName: {[string]: any} = {}
+    for index, field in ipairs(layout.fields) do
+        local scalar = scalarName(field)
+        local entry: any = {
+            name = field.name,
+            offset = field.offset,
+            boolean = field.kind == "boolean",
+            type = scalar and heap.scalar(scalar as string) or {size = field.size, alignment = field.alignment}
+        }
+        fields[index], byName[field.name] = entry, entry
+    end
+    known = setmetatable(
+        {
+            kind = "struct",
+            name = layout.name,
+            size = layout.size,
+            alignment = layout.alignment,
+            fields = fields,
+            byname = byName,
+            class = class,
+            readfield = readfield,
+            writefield = writefield
+        },
+        DESCRIPTOR
+    )
+    descriptors[class] = known
+
+    return known
+end
+
+--- The storage descriptor of scalar `name`, as `ffi.typeof` of one is.
+export function scalar(name: string): any
+    return heap.scalar(name)
+end
+
+local function fieldOf(element: any, name: string): any
+    local field = element.byname and element.byname[name]
+    if field == nil or field.type.kind == nil then
+        error("nupp: " .. tostring(element.name) .. " has no stored scalar field " .. tostring(name), 3)
+    end
+
+    return field
+end
+
+--- Field `name` of struct instance `value`, which `element` describes.
+export function readfield(element: any, value: any, name: string): any
+    local field = fieldOf(element, name)
+    local cell = storage.view(value, field.type.kind, field.offset, 1)
+    if field.boolean then
+        return cell[0] ~= 0
+    end
+
+    return cell[0]
+end
+
+--- Writes field `name` of struct instance `value`, which `element` describes.
+export function writefield(element: any, value: any, name: string, given: any): nil
+    local field = fieldOf(element, name)
+    local cell = storage.view(value, field.type.kind, field.offset, 1)
+    if field.boolean then
+        cell[0] = given and 1 or 0
+        return
+    end
+    cell[0] = given
+end
+
+-- main's layout facts for the checker's field specification `raw` of the
+-- struct `element` describes (nupp.vm.arraylayout on the VM).
+local function facts(raw: any, element: any): any
+    if type(element) ~= "table" or element.kind ~= "struct" then
+        error("nupp: SoA storage needs a struct with a supported storage layout", 3)
+    end
+    assert(
+        type(raw) == "table" and type(raw.name) == "string" and type(raw.spec) == "string",
+        "nupp: invalid array layout specification"
+    )
+    local members = element.fields
+    local fields: {any} = {}
+    local ordinal: integer = 0
+    local consumed: integer = 0
+    for fieldName, ctype in (raw.spec as string):gmatch("([^:,]+):([^,]+)") do
+        ordinal = ordinal + 1
+        local member = members[ordinal]
+        if member == nil or member.name ~= fieldName then
+            error("nupp: SoA layout of " .. raw.name .. " does not match its storage descriptor", 3)
+        end
+        local alignment = member.type.alignment
+        local size = member.type.size
+        if type(alignment) ~= "number" or alignment < 1 or alignment % 1 ~= 0 then
+            error("nupp: SoA field " .. fieldName .. " has invalid storage alignment", 3)
+        end
+        if alignment > MAX_FIELD_ALIGNMENT then
+            error("nupp: SoA field " .. fieldName .. " needs more than " .. MAX_FIELD_ALIGNMENT .. "-byte alignment", 3)
+        end
+        if type(size) ~= "number" or size <= 0 or size % 1 ~= 0 then
+            error("nupp: SoA field " .. fieldName .. " has invalid storage width", 3)
+        end
+        fields[
+            ordinal
+        ] = {
+            name = fieldName,
+            ctype = ctype:sub(1, 1) == "$" and ctype:sub(2) or ctype,
+            size = size,
+            alignment = alignment,
+            pointerType = member.type
+        }
+        consumed = consumed + #fieldName + 1 + #ctype + (ordinal > 1 and 1 or 0)
+    end
+    if ordinal ~= #members or consumed ~= #(raw.spec as string) then
+        error("nupp: SoA layout of " .. raw.name .. " does not match its storage descriptor", 3)
+    end
+
+    return {name = raw.name, fields = fields}
+end
+
+local function arrays(): any
+    local loader: function(string): any = require
+    return loader("nupp.array")
+end
+
+--- `table.Array.alloc(element, count, "columnar")`, with the checker's field
+--- specification `raw`.
+export function allocate(element: any, count: any, raw: any): any
+    return arrays()._allocateColumns(element, count, facts(raw, element))
+end
+
+--- `table.Array.layoutof(element)`, with the checker's field specification
+--- `raw`.
+export function layout(raw: any, element: any): any
+    return arrays()._layout(facts(raw, element))
+end

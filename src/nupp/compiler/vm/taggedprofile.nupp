@@ -22,6 +22,7 @@ local taggedforeign = require("nupp.compiler.vm.taggedforeign")
 local taggedpredicate = require("nupp.compiler.vm.taggedpredicate")
 local scalarcapabilities = require("nupp.compiler.vm.scalarcapabilities")
 local scalarlanes = require("nupp.compiler.vm.scalarlanes")
+local columnaraccess = require("nupp.compiler.vm.columnaraccess")
 export const booleanKind = "tagged"
 local binding = taggedvalues.binding
 local catalog = taggedvalues.catalog
@@ -155,6 +156,188 @@ local function laneOperations(profile: any): nil
             end
             statement(ctx, node)
         end
+    end
+end
+
+-- Function `member` of the core's struct provider (columnaraccess), called
+-- through `any` at `site` with `values`, each already evaluated.
+local function providerInvoke(ctx: any, node: any, site: any, member: string, values: {integer}): integer?
+    local held: {any} = {}
+    for index, value in ipairs(values) do
+        held[index] = ctx.hold(value)
+    end
+    local name = ctx.emit(node, "K", {pool(ctx, "str", columnaraccess.MODULE)}, "tagged")
+    local module = ctx.emit(node, "LibCall", {corelibrary.id("MODULE_REQUIRE"), name}, "tagged")
+    local key = ctx.emit(node, "K", {pool(ctx, "str", member)}, "tagged")
+    local callee = ctx.hold(ctx.emit(node, "GetIdx", {module, key}, "tagged"))
+    local args: {integer} = {}
+    for index, handle in ipairs(held) do
+        args[index] = ctx.readHeld(handle)
+    end
+    local value = ctx.readHeld(callee)
+    ctx.release(callee)
+    for index = #held, 1, -1 do
+        ctx.release(held[index])
+    end
+
+    return landed(ctx, node, ctx.invoke(node, value, args, graph.dynamicInvokeContract(site.node, 1), true))
+end
+
+-- The struct provider call `node` is (columnaraccess.call): `ffi.typeof<T>()`
+-- of a struct, its declaration's table given, or of a scalar, its name; a
+-- columnar allocation or layout, given the checker's field specification.
+local function providerCall(ctx: any, node: any): integer?
+    local site = need(catalog(ctx).columnarCalls[node], "struct provider call lacks its checked callsite")
+    local described = site.node.columnarCall
+    if described.member == "descriptor" then
+        local token = need(site.classToken, "struct descriptor lacks its declaration")
+        local class = ctx.expression({kind = "name", token = token, token}, "tagged")
+        if class == nil then
+            return nil
+        end
+        return providerInvoke(ctx, node, site, "descriptor", {class})
+    elseif described.member == "scalar" then
+        local scalar = ctx.emit(node, "K", {pool(ctx, "str", described.scalar)}, "tagged")
+        return providerInvoke(ctx, node, site, "scalar", {scalar})
+    end
+    local kinds: {string} = {}
+    for index = 1, #described.operands do
+        kinds[index] = "tagged"
+    end
+    local operands = ctx.operands(described.operands, kinds)
+    if operands == nil then
+        return nil
+    end
+    local held: {any} = {}
+    for index, value in ipairs(operands) do
+        held[index] = ctx.hold(value)
+    end
+    local layout = described.layout
+    local spec = derivedmembers.plainData(ctx, node, {name = layout.name, spec = layout.spec, printed = layout.printed})
+    local values: {integer} = {}
+    if described.specFirst then
+        values[1] = spec
+    end
+    for _, handle in ipairs(held) do
+        values[#values + 1] = ctx.readHeld(handle)
+    end
+    if not described.specFirst then
+        values[#values + 1] = spec
+    end
+    for index = #held, 1, -1 do
+        ctx.release(held[index])
+    end
+
+    return providerInvoke(ctx, node, site, described.member, values)
+end
+
+-- The ordinal a columnar field method takes.
+local function ordinalValue(ctx: any, node: any, access: any): integer
+    return ctx.emit(node, "K", {pool(ctx, "int64", tostring(access.ordinal))}, "tagged") as integer
+end
+
+-- A read of a columnar view (columnaraccess.methods): its getter called with
+-- the view, the row's index and the field's ordinal it names.
+local function columnarRead(ctx: any, node: any, access: any): integer?
+    local nodes = access.index ~= nil and {access.view, access.index} or {access.view}
+    local kinds = access.index ~= nil and {"tagged", "tagged"} or {"tagged"}
+    local prepared = ctx.operands(nodes, kinds)
+    if prepared == nil then
+        return nil
+    end
+    if access.ordinal ~= nil then
+        local held: {any} = {}
+        for index, value in ipairs(prepared) do
+            held[index] = ctx.hold(value)
+        end
+        local ordinal = ordinalValue(ctx, node, access)
+        for index, handle in ipairs(held) do
+            prepared[index] = ctx.readHeld(handle)
+        end
+        for index = #held, 1, -1 do
+            ctx.release(held[index])
+        end
+        prepared[#prepared + 1] = ordinal
+    end
+
+    return invokeMethod(ctx, access.read, true, nil, prepared)
+end
+
+-- The profile's hooks with the struct provider's calls and columnar views'
+-- rows and fields (columnaraccess) lowered ahead of what they lower.
+local function columnarOperations(profile: any): nil
+    local call = profile.call
+    profile.call = function(ctx: any, node: any, expected: string?): integer?
+        if catalog(ctx).columnarCalls[node] ~= nil then
+            need(expected == nil or expected == "tagged", "struct provider call requires tagged destination")
+            return providerCall(ctx, node)
+        end
+
+        return call(ctx, node, expected)
+    end
+    local statementCall = profile.statementCall
+    profile.statementCall = function(ctx: any, node: any): nil
+        if catalog(ctx).columnarCalls[node] ~= nil then
+            providerCall(ctx, node)
+            return
+        end
+        statementCall(ctx, node)
+    end
+    for _, hook in ipairs({"fieldRead", "indexRead"}) do
+        local lower = profile[hook]
+        profile[hook] = function(ctx: any, node: any, expected: string?): integer?
+            local access = catalog(ctx).columnarByNode[node]
+            if access ~= nil then
+                need(expected == nil or expected == "tagged", "columnar view read requires tagged destination")
+                return columnarRead(ctx, node, access) as integer
+            end
+
+            return lower(ctx, node, expected)
+        end
+    end
+    local assignmentTarget = profile.assignmentTarget
+    profile.assignmentTarget = function(ctx: any, node: any, rhs: any): any
+        local access = catalog(ctx).columnarByNode[node]
+        if access ~= nil and access.write ~= nil then
+            -- The view and the row's index, once, whatever the assignment
+            -- reads and writes.
+            local operands = ctx.operands({access.view, access.index}, {"tagged", "tagged"})
+            if operands == nil then
+                return {receiver = 0, kind = "tagged"}
+            end
+            return {receiver = operands[1], index = operands[2], kind = "tagged", columnar = access}
+        end
+
+        return assignmentTarget(ctx, node, rhs)
+    end
+    local readAssignment = profile.readAssignment
+    profile.readAssignment = function(ctx: any, node: any, target: any): integer
+        local access = target.columnar
+        if access ~= nil then
+            need(access.kind == "field", "a compound assignment to a whole columnar row is not admitted")
+            local receiver, index = ctx.readHeld(target.heldReceiver), ctx.readHeld(target.heldIndex)
+            local ordinal = ordinalValue(ctx, node, access)
+            return invokeMethod(ctx, access.read, true, nil, {receiver, index, ordinal}) as integer
+        end
+
+        return readAssignment(ctx, node, target)
+    end
+    local assignTarget = profile.assignTarget
+    profile.assignTarget = function(ctx: any, node: any, target: any, receiver: integer, value: integer): nil
+        local access = target.columnar
+        if access == nil then
+            assignTarget(ctx, node, target, receiver, value)
+            return
+        end
+        local index = ctx.readHeld(target.heldIndex)
+        if access.kind == "field" then
+            local held = ctx.hold(value)
+            local ordinal = ordinalValue(ctx, node, access)
+            invokeMethod(ctx, access.write, false, nil, {receiver, index, ordinal, ctx.readHeld(held)})
+            ctx.release(held)
+            return
+        end
+        invokeMethod(ctx, access.write, false, nil, {receiver, index, value})
     end
 end
 
@@ -2518,6 +2701,7 @@ export function forVersion(version: integer): any
             return withCleanup
         end
         laneOperations(profile)
+        columnarOperations(profile)
     end
 
     return profile

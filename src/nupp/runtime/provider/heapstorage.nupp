@@ -16,6 +16,9 @@ alive. Structs are the portable [](nupp.runtime.provider.tablestruct)'s, so
 ]]
 
 local calls = require("nupp.runtime.storagecalls")
+-- `ffi.typeof<T>()` of a struct, and a columnar allocation, call the struct
+-- provider by name (nupp.compiler.vm.columnaraccess).
+const _STRUCTS_REQUIRES = "@requires-dynamically nupp.runtime.provider.corestructs"
 
 export const representation = "native"
 
@@ -81,7 +84,14 @@ end
 
 export function allocarray(element: any, count: integer): any
     local scalarelement = element as Descriptor
+    if type(element) == "table" and (element as any).kind == "struct" then
+        -- A struct's array is its elements' bytes back to back, as C lays
+        -- one out (nupp.runtime.provider.corestructs).
+        assert(count >= 0, "nupp: storage element count must be a whole, finite count")
+        return calls.allocbytes(count * ((element as any).size as integer))
+    end
     assert(type(element) == "table" and kinds[scalarelement.name] ~= nil, "nupp: storage arrays hold scalars")
+
     return calls.allocate(scalarelement.kind, count)
 end
 
