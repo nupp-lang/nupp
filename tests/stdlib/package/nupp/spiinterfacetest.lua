@@ -186,11 +186,27 @@ return reader:read({} as any as Left) .. reader:read({} as any as Right)
         )
     )
     local ok, problem = pcall(function()
-        local checked = incremental.new(dir).checkFile(main)
+        local graph = incremental.new(dir)
+        local checked = graph.checkFile(main)
         for _, diagnostic in ipairs(checked.diags) do
             assert(diagnostic.severity ~= "error", diagnostic.code .. ": " .. diagnostic.msg)
         end
-        local answer = require("program").run(checked.result, "main", main)
+        local program = require("program")
+        local answer
+        if program.onVm() then
+            answer = program.run(checked.result, "main", main)
+        else
+            -- The core compiles a fragment it runs from its source, so it is
+            -- checked, and its requires found, in this project's environment,
+            -- as the VM's loader finds them.
+            local corechunk = require("nupp.compiler.vm.corechunk")
+            local previous = corechunk.environmentInUse()
+            corechunk.useEnvironment(graph.env)
+            local ran, value = pcall(program.run, checked.result, "main", main)
+            corechunk.useEnvironment(previous)
+            assert(ran, value)
+            answer = value
+        end
         assert(answer == "leftright", "same-named declaration nominals keep distinct methods: " .. tostring(answer))
     end)
     os.remove(dir, true)

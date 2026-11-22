@@ -155,6 +155,12 @@ export function useEnvironment(env: any): nil
     held.source = env
 end
 
+--- The environment module instance chunks are checked in, nil before
+--- useEnvironment named one or a chunk made its own.
+export function environmentInUse(): any
+    return held.source
+end
+
 --- The directories a module's source is looked for in, beside the checkout's
 --- src: the include roots of the project whose environment checks module
 --- instances (useEnvironment), its own root among them; none before one does.
