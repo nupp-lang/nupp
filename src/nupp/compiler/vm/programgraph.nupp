@@ -2909,7 +2909,9 @@ export function verifyOwner(p: any, owner: any, g: any): nil
                 -- One whose arity differs from its declaration's goes through
                 -- the declared function's value (taggedcalls.invoke).
                 need(
-                    p.functionsByDefinition[site.definition] == nil or differsInArity(contract.call),
+                    p.functionsByDefinition[site.definition] == nil
+                    or site.definition.reassigned
+                    or differsInArity(contract.call),
                     "dynamic invoke names a declaration"
                 )
             else
