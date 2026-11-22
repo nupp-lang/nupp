@@ -17,13 +17,34 @@ const librarylayouts = require("nupp.runtime.core.librarylayouts")
 const guestscope = require("nupp.runtime.core.guestscope")
 const guesterrors = require("nupp.runtime.core.guesterrors")
 const strings = require("nupp.runtime.core.corestrings")
+const opcodes = require("nupp.runtime.core.chunkopcodes")
 
+-- What recoverEntry answers when the error's xpcall message handler is to
+-- run first, on the failing stack (`guestuncaught` starts it): no pc,
+-- which is instruction aligned.
+export const HANDLING: uint64 = 1ULL
+
+-- How an error meets an xpcall's message handler: not at all, by
+-- starting it, or raised by the handler itself.
+const NOT_HANDLING: uint64 = 0ULL
+const HANDLER_STARTING: uint64 = 1ULL
+const HANDLER_FAILED: uint64 = 2ULL
+
+-- The byte of an XPHandle instruction naming its handler's slot.
+const HANDLER_SLOT_BYTE: uint64 = 2ULL
 -- "\ncleanup" and ": " as little-endian byte words: what goes between a
 -- failure and the cleanup failure kept under it, as the VM prints them.
 const CLEANUP_WORD: uint64 = 0x70756e61656c630aULL
 const CLEANUP_WORD_BYTES: uint64 = 8ULL
 const SEPARATOR_WORD: uint64 = 0x203aULL
 const SEPARATOR_WORD_BYTES: uint64 = 2ULL
+-- "error in error handling" as little-endian byte words, Lua's answer for
+-- a message handler that raises.
+const HANDLING_WORD1: uint64 = 0x6e6920726f727265ULL
+const HANDLING_WORD2: uint64 = 0x6820726f72726520ULL
+const HANDLING_WORD3: uint64 = 0x676e696c646e61ULL
+const HANDLING_WORD_BYTES: uint64 = 8ULL
+const HANDLING_LAST_BYTES: uint64 = 7ULL
 
 -- 1 when the function a frame runs owns affine values (its catalog record
 -- lands errors).
@@ -102,14 +123,15 @@ end
 
 -- The frame an error lands at: one that owns affine values and waits on the
 -- call the error came from, if there is one before the nearest protected
--- call; 0 otherwise.
+-- call or message handler; 0 otherwise. A handler's frame is no call of
+-- the frame beneath it, which never resumes.
 local function landingFrame(ctx: voidptr, state: voidptr): uint64
     @unsafe do
         local services = native.loadPointer(ctx, context.SERVICE_SCOPE)
         local closing = native.load64(services, native.fieldOffset<guestscope.Services>("closing")) == 1ULL
         local at = native.load64(state, native.fieldOffset<frames.State>("active"))
         while at ~= 0ULL do
-            if frames.isprotected(native.pointer(at)) and not closing then
+            if (frames.isprotected(native.pointer(at)) or frames.ishandler(native.pointer(at))) and not closing then
                 return 0ULL
             end
             local parent = native.load64(native.pointer(at), native.fieldOffset<frames.Frame>("previous"))
@@ -235,6 +257,70 @@ local function beneath(frame: uint64): uint64
     @unsafe do
         return native.load64(native.pointer(frame), native.fieldOffset<frames.Frame>("previous"))
     end
+end
+
+-- The nearest frame that bounds where an error goes on its own: a
+-- protected call's or a message handler's, or 0 when there is none.
+local function boundaryFrame(state: voidptr): uint64
+    @unsafe do
+        local at = native.load64(state, native.fieldOffset<frames.State>("active"))
+        while at ~= 0ULL do
+            if frames.isprotected(native.pointer(at)) or frames.ishandler(native.pointer(at)) then
+                return at
+            end
+            at = native.load64(native.pointer(at), native.fieldOffset<frames.Frame>("previous"))
+        end
+        return 0ULL
+    end
+end
+
+-- The message handler of the protected frame `target` when it is an
+-- xpcall's, which its caller calls next (XPHandle) and which is a function
+-- the core can call itself; 0 otherwise.
+local function messageHandler(target: uint64): uint64
+    if target == 0ULL then
+        return 0ULL
+    end
+    @unsafe do
+        local caller = beneath(target)
+        if caller == 0ULL then
+            return 0ULL
+        end
+        local frame = native.pointer(caller)
+        local resume = native.load64(frame, native.fieldOffset<frames.Frame>("resumePC"))
+        if resume >= native.load64(frame, native.fieldOffset<frames.Frame>("instructionCount")) then
+            return 0ULL
+        end
+        local at = native.pointer(
+            native.load64(frame, native.fieldOffset<frames.Frame>("code")) + resume * librarylayouts.INSTRUCTION_BYTES
+        )
+        if native.word(native.load8(at, 0)) ~= opcodes.XP_HANDLE then
+            return 0ULL
+        end
+        local slot = native.word(native.load8(at, native.index(HANDLER_SLOT_BYTE)))
+        if slot >= native.load64(frame, native.fieldOffset<frames.Frame>("valueCount")) then
+            return 0ULL
+        end
+        local handler = native.load64(
+            native.pointer(native.load64(frame, native.fieldOffset<frames.Frame>("values"))),
+            native.index(slot * 8ULL)
+        )
+        if handler & values.TAG_MASK ~= values.TAG_OBJ
+            or handler & values.PAYLOAD == 0ULL
+            or native.word(
+                native.load8(native.pointer(handler & values.PAYLOAD), native.fieldOffset<heap.Header>("kind"))
+            ) ~= heap.KIND_CLOSURE
+        then
+            return 0ULL
+        end
+        return handler
+    end
+end
+
+-- The message handler of the xpcall the error failing the entry unwinds
+-- to, when recoverEntry answered HANDLING.
+export function messagehandler(ctx: voidptr): uint64
+    return messageHandler(protectedFrame(native.loadPointer(ctx, context.STATE)))
 end
 
 -- A frame's key in Services.pending.
@@ -377,6 +463,76 @@ export function takepending(ctx: voidptr, frame: uint64): uint64
     end
 end
 
+-- Lua's answer for a message handler that raises, as a string.
+local function errorInHandling(ctx: voidptr): uint64
+    local state0 = strings.Builder(0ULL, 0ULL)
+    @unsafe do
+        local h = native.pointer(guestscope.guestHeap(ctx)) as heap.Heap*
+        local builderLifetime = strings.open(h, state0 as strings.Builder*)
+        local builder = state0 as strings.Builder*
+        if strings.appendWord(h, builder, HANDLING_WORD1, HANDLING_WORD_BYTES)
+            | strings.appendWord(h, builder, HANDLING_WORD2, HANDLING_WORD_BYTES)
+            | strings.appendWord(h, builder, HANDLING_WORD3, HANDLING_LAST_BYTES) ~= 0ULL
+        then
+            strings.release(builder)
+            error("not enough memory")
+        end
+        local result = strings.finish(h, builder)
+        tables.drain(h)
+        return values.TAG_OBJ | result
+    end
+end
+
+-- The stack unwinds to the nearest protected call, which answers false and
+-- `answer`: what its message handler answered for the error, run on the
+-- failing stack (`answered`, its caller's XPHandle then taking it as it
+-- is), or the error itself, the handler not run yet. Answers the pc its
+-- caller resumes at, or 0 when the frames are not as expected.
+export function handled(ctx: voidptr, answer: uint64, answered: boolean): uint64
+    @unsafe do
+        local services = native.loadPointer(ctx, context.SERVICE_SCOPE)
+        local state = native.loadPointer(ctx, context.STATE)
+        -- The answer stays rooted while its pack is made.
+        native.store64(services, native.fieldOffset<guestscope.Services>("lastError"), answer)
+        local destination = protectedFrame(state)
+        if destination == 0ULL then
+            return 0ULL
+        end
+        forgetModules(ctx, state, destination)
+        forgetPending(ctx, state, beneath(destination))
+        local result = answer
+        if native.load64(
+            native.pointer(destination),
+            native.fieldOffset<frames.Frame>("resultKind")
+        ) == frames.PROTECTED_PACK_DESTINATION then
+            result = guestscope.failedvalues(ctx, answer)
+        end
+        local parent = frames.recover(state, result)
+        if parent == 0ULL then
+            return 0ULL
+        end
+        if answered then
+            native.store64(services, native.fieldOffset<guestscope.Services>("handled"), 1ULL)
+        end
+        native.store64(services, native.fieldOffset<guestscope.Services>("lastError"), 0ULL)
+        access.refresh(state, native.pointer(parent), ctx)
+        return access.pc(state, native.pointer(parent))
+    end
+end
+
+-- At an xpcall's XPHandle: true once, when its message handler has already
+-- answered for the error on the failing stack.
+export function takehandled(ctx: voidptr): boolean
+    @unsafe do
+        local services = native.loadPointer(ctx, context.SERVICE_SCOPE)
+        if native.load64(services, native.fieldOffset<guestscope.Services>("handled")) == 1ULL then
+            native.store64(services, native.fieldOffset<guestscope.Services>("handled"), 0ULL)
+            return true
+        end
+        return false
+    end
+end
+
 -- After a guest error stops the handlers: unwinds it to the nearest protected
 -- call (frames.recover) and answers the pc to resume at, or 0 when the stop
 -- was not a guest error (a refusal, budget or cancellation is not one) or no
@@ -492,12 +648,26 @@ export function recoverEntry(ctx: voidptr): uint64
         if own == 0ULL then
             landing = landingFrame(ctx, state)
         end
+        -- An xpcall's message handler runs on the failing stack, before it
+        -- unwinds, when the error goes to its protected call with no frame
+        -- taking it first; an error the handler raises itself is Lua's
+        -- "error in error handling".
+        local handling = NOT_HANDLING
+        if own == 0ULL and landing == 0ULL and not closing then
+            local boundary = boundaryFrame(state)
+            if boundary ~= 0ULL and frames.ishandler(native.pointer(boundary)) then
+                handling = HANDLER_FAILED
+            elseif messageHandler(boundary) ~= 0ULL then
+                handling = HANDLER_STARTING
+            end
+        end
         -- The frames the error unwinds: those above the landing frame, or up
-        -- to the protected call (all of them when none takes it).
+        -- to the protected call (all of them when none takes it). The stack
+        -- a message handler runs on unwinds once it answers (`handled`).
         if own == 0ULL and landing ~= 0ULL then
             forgetModules(ctx, state, landing)
             forgetPending(ctx, state, landing)
-        elseif own == 0ULL and not closing then
+        elseif own == 0ULL and not closing and handling == NOT_HANDLING then
             local destination = protectedFrame(state)
             forgetModules(ctx, state, destination)
             forgetPending(ctx, state, beneath(destination))
@@ -515,6 +685,36 @@ export function recoverEntry(ctx: voidptr): uint64
                 native.store64(services, native.fieldOffset<guestscope.Services>("landed"), 1ULL)
                 remember(ctx, parent, value)
             end
+        elseif handling ~= NOT_HANDLING then
+            native.store64(ctx, context.STATUS, 0ULL)
+            native.store64(scope, native.fieldOffset<servicescope.ServiceScope>("error"), 0ULL)
+            native.store64(scope, native.fieldOffset<servicescope.ServiceScope>("errorOwner"), 0ULL)
+            native.store64(scope, native.fieldOffset<servicescope.ServiceScope>("errorSite"), 0ULL)
+            native.store64(services, native.fieldOffset<guestscope.Services>("raised"), 0ULL)
+            native.store64(services, native.fieldOffset<guestscope.Services>("raisedLevel"), 0ULL)
+            native.store64(services, native.fieldOffset<guestscope.Services>("fault"), 0ULL)
+            if handling == HANDLER_FAILED then
+                local at = handled(ctx, errorInHandling(ctx), true)
+                if at == 0ULL then
+                    native.store64(ctx, context.STATUS, context.GUEST_ERROR_STATUS)
+                end
+                return at
+            end
+            -- The failing frame waits at the instruction that failed, which
+            -- the handler's tracebacks name; lastError holds the error until
+            -- the handler's frame does.
+            local active = native.load64(state, native.fieldOffset<frames.State>("active"))
+            if located
+                and active ~= 0ULL
+                and native.load64(native.pointer(active), native.fieldOffset<frames.Frame>("functionId")) == failedOwner
+                and failedIndex + 1ULL < native.load64(
+                    native.pointer(active),
+                    native.fieldOffset<frames.Frame>("instructionCount")
+                )
+            then
+                native.store64(native.pointer(active), native.fieldOffset<frames.Frame>("resumePC"), failedIndex + 1ULL)
+            end
+            return HANDLING
         elseif native.load64(services, native.fieldOffset<guestscope.Services>("closing")) == 0ULL then
             local destination = protectedFrame(state)
             local result = value
