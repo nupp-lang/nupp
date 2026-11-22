@@ -1,100 +1,137 @@
 @!internal
 module nupp.runtime.provider.wgpu
 
--- The pinned wgpu-native compute ABI through Nupp's checked native-call layer.
-local native = require("nupp.vm.foreign")
-local memory = require("nupp.runtime.provider.wgpumemory")
-local SIGNATURES: {
-    [string]: any
-} = {
-    wgpuBufferGetConstMappedRange = {params = {"pointer", "uint64", "uint64"}, result = "pointer"},
-    wgpuGetVersion = {params = {}, result = "uint32"},
-    wgpuCreateInstance = {params = {"pointer"}, result = "pointer"},
-    wgpuInstanceRelease = {params = {"pointer"}, result = "void"},
-    wgpuInstanceProcessEvents = {params = {"pointer"}, result = "void"},
-    wgpuInstanceRequestAdapter = {
-        params = {"pointer", "pointer", memory.descriptor("WGPUCallbackInfo")},
-        result = memory.descriptor("WGPUFuture")
-    },
-    wgpuAdapterGetInfo = {params = {"pointer", "pointer"}, result = "uint32"},
-    wgpuAdapterInfoFreeMembers = {params = {memory.descriptor("WGPUAdapterInfo")}, result = "void"},
-    wgpuAdapterGetLimits = {params = {"pointer", "pointer"}, result = "uint32"},
-    wgpuAdapterHasFeature = {params = {"pointer", "uint32"}, result = "uint32"},
-    wgpuAdapterRequestDevice = {
-        params = {"pointer", "pointer", memory.descriptor("WGPUCallbackInfo")},
-        result = memory.descriptor("WGPUFuture")
-    },
-    wgpuAdapterAddRef = {params = {"pointer"}, result = "void"},
-    wgpuDeviceAddRef = {params = {"pointer"}, result = "void"},
-    wgpuAdapterRelease = {params = {"pointer"}, result = "void"},
-    wgpuDeviceGetQueue = {params = {"pointer"}, result = "pointer"},
-    wgpuDeviceGetLimits = {params = {"pointer", "pointer"}, result = "uint32"},
-    wgpuDeviceCreateBuffer = {params = {"pointer", "pointer"}, result = "pointer"},
-    wgpuDeviceCreateBindGroupLayout = {params = {"pointer", "pointer"}, result = "pointer"},
-    wgpuDeviceCreatePipelineLayout = {params = {"pointer", "pointer"}, result = "pointer"},
-    wgpuDeviceCreateShaderModule = {params = {"pointer", "pointer"}, result = "pointer"},
-    wgpuDeviceCreateComputePipeline = {params = {"pointer", "pointer"}, result = "pointer"},
-    wgpuDeviceCreateBindGroup = {params = {"pointer", "pointer"}, result = "pointer"},
-    wgpuDeviceCreateCommandEncoder = {params = {"pointer", "pointer"}, result = "pointer"},
-    wgpuDeviceCreateQuerySet = {params = {"pointer", "pointer"}, result = "pointer"},
-    wgpuDevicePushErrorScope = {params = {"pointer", "uint32"}, result = "void"},
-    wgpuDevicePopErrorScope = {
-        params = {"pointer", memory.descriptor("WGPUCallbackInfo")},
-        result = memory.descriptor("WGPUFuture")
-    },
-    wgpuDevicePoll = {params = {"pointer", "uint32", "pointer"}, result = "uint32"},
-    wgpuDeviceDestroy = {params = {"pointer"}, result = "void"},
-    wgpuDeviceRelease = {params = {"pointer"}, result = "void"},
-    wgpuQueueWriteBuffer = {
-        params = {"pointer", "pointer", "uint64", {kind = "pointer", readonly = true}, "uint64"},
-        result = "void"
-    },
-    wgpuQueueSubmit = {params = {"pointer", "uint64", "pointer"}, result = "void"},
-    wgpuQueueGetTimestampPeriod = {params = {"pointer"}, result = "float"},
-    wgpuQueueRelease = {params = {"pointer"}, result = "void"},
-    wgpuBufferMapAsync = {
-        params = {"pointer", "uint64", "uint64", "uint64", memory.descriptor("WGPUCallbackInfo")},
-        result = memory.descriptor("WGPUFuture")
-    },
-    wgpuBufferUnmap = {params = {"pointer"}, result = "void"},
-    wgpuBufferDestroy = {params = {"pointer"}, result = "void"},
-    wgpuBufferRelease = {params = {"pointer"}, result = "void"},
-    wgpuCommandEncoderBeginComputePass = {params = {"pointer", "pointer"}, result = "pointer"},
-    wgpuCommandEncoderCopyBufferToBuffer = {
-        params = {"pointer", "pointer", "uint64", "pointer", "uint64", "uint64"},
-        result = "void"
-    },
-    wgpuCommandEncoderResolveQuerySet = {
-        params = {"pointer", "pointer", "uint32", "uint32", "pointer", "uint64"},
-        result = "void"
-    },
-    wgpuCommandEncoderFinish = {params = {"pointer", "pointer"}, result = "pointer"},
-    wgpuCommandEncoderRelease = {params = {"pointer"}, result = "void"},
-    wgpuCommandBufferRelease = {params = {"pointer"}, result = "void"},
-    wgpuComputePassEncoderSetPipeline = {params = {"pointer", "pointer"}, result = "void"},
-    wgpuComputePassEncoderSetBindGroup = {
-        params = {"pointer", "uint32", "pointer", "uint64", "pointer"},
-        result = "void"
-    },
-    wgpuComputePassEncoderDispatchWorkgroups = {params = {"pointer", "uint32", "uint32", "uint32"}, result = "void"},
-    wgpuComputePassEncoderEnd = {params = {"pointer"}, result = "void"},
-    wgpuComputePassEncoderRelease = {params = {"pointer"}, result = "void"},
-    wgpuComputePipelineGetBindGroupLayout = {params = {"pointer", "uint32"}, result = "pointer"},
-    wgpuComputePipelineRelease = {params = {"pointer"}, result = "void"},
-    wgpuBindGroupRelease = {params = {"pointer"}, result = "void"},
-    wgpuBindGroupLayoutRelease = {params = {"pointer"}, result = "void"},
-    wgpuPipelineLayoutRelease = {params = {"pointer"}, result = "void"},
-    wgpuShaderModuleRelease = {params = {"pointer"}, result = "void"},
-    wgpuQuerySetDestroy = {params = {"pointer"}, result = "void"},
-    wgpuQuerySetRelease = {params = {"pointer"}, result = "void"},
-}
+--[[
+The pinned wgpu-native compute ABI through Nupp's checked native calls.
 
--- Every wgpu-native callback takes its message as a `WGPUStringView` by value,
--- such a sixteen-byte struct goes, though: Windows x64 passes a pointer to a
--- copy, and SysV x64 and AArch64 pass its two fields in the next two integer
--- registers. So each callback is declared the way its ABI receives it, and
--- `message` below reads either spelling.
-const MESSAGE_BY_POINTER = package.config:sub(1, 1) == "\\" and os.getenv("PROCESSOR_ARCHITECTURE") ~= "ARM64"
+The library is the one `NUPP_WGPU_LIBRARY` names, opened the first time
+[](library) is asked for it and never before, so a program that does not use the
+GPU needs none. It is opened into the global namespace, where the declarations
+below, which name no library, find it.
+
+wgpu-native reports through callbacks, which C cannot enter Nupp through. Each
+callback is one of the C bridge's keepers (`nupp_core_keep_pair_text` and
+`nupp_core_keep_text` in native/corebridge/main.c): it copies the call into the
+record its first userdata names, which this module reads once the call that
+settled the request has returned.
+]]
+
+local memory = require("nupp.runtime.provider.wgpumemory")
+local storage = require("nupp.vm.storagebinding")
+
+const WINDOWS = package.config:sub(1, 1) == "\\"
+
+cdef function dlopen(path: voidptr?, mode: int32): voidptr?
+cdef function dlsym(borrows library: voidptr?, name: string): voidptr?
+cdef function dlerror(): cstring?
+cdef function LoadLibraryA(path: string): voidptr?
+cdef function GetModuleHandleA(name: voidptr?): voidptr?
+cdef function GetProcAddress(borrows library: voidptr?, name: string): voidptr?
+cdef function usleep(microseconds: uint32): int32
+cdef function Sleep(milliseconds: uint32)
+
+cdef function wgpuGetVersion(): uint32
+cdef function wgpuCreateInstance(borrows descriptor: voidptr?): voidptr?
+cdef function wgpuInstanceRelease(borrows instance: voidptr)
+cdef function wgpuInstanceProcessEvents(borrows instance: voidptr)
+cdef function wgpuInstanceRequestAdapter(
+    borrows instance: voidptr,
+    borrows options: voidptr?,
+    callback: memory.CallbackInfo
+): memory.Future
+cdef function wgpuAdapterGetInfo(borrows adapter: voidptr, borrows info: voidptr): uint32
+cdef function wgpuAdapterInfoFreeMembers(info: memory.AdapterInfo)
+cdef function wgpuAdapterGetLimits(borrows adapter: voidptr, borrows limits: voidptr): uint32
+cdef function wgpuAdapterHasFeature(borrows adapter: voidptr, feature: uint32): uint32
+cdef function wgpuAdapterRequestDevice(
+    borrows adapter: voidptr,
+    borrows descriptor: voidptr?,
+    callback: memory.CallbackInfo
+): memory.Future
+cdef function wgpuAdapterRelease(borrows adapter: voidptr)
+cdef function wgpuDeviceGetQueue(borrows device: voidptr): voidptr?
+cdef function wgpuDeviceGetLimits(borrows device: voidptr, borrows limits: voidptr): uint32
+cdef function wgpuDeviceCreateBuffer(borrows device: voidptr, borrows descriptor: voidptr): voidptr?
+cdef function wgpuDeviceCreateBindGroupLayout(borrows device: voidptr, borrows descriptor: voidptr): voidptr?
+cdef function wgpuDeviceCreatePipelineLayout(borrows device: voidptr, borrows descriptor: voidptr): voidptr?
+cdef function wgpuDeviceCreateShaderModule(borrows device: voidptr, borrows descriptor: voidptr): voidptr?
+cdef function wgpuDeviceCreateComputePipeline(borrows device: voidptr, borrows descriptor: voidptr): voidptr?
+cdef function wgpuDeviceCreateBindGroup(borrows device: voidptr, borrows descriptor: voidptr): voidptr?
+cdef function wgpuDeviceCreateCommandEncoder(borrows device: voidptr, borrows descriptor: voidptr?): voidptr?
+cdef function wgpuDeviceCreateQuerySet(borrows device: voidptr, borrows descriptor: voidptr): voidptr?
+cdef function wgpuDevicePushErrorScope(borrows device: voidptr, filter: uint32)
+cdef function wgpuDevicePopErrorScope(borrows device: voidptr, callback: memory.CallbackInfo): memory.Future
+cdef function wgpuDevicePoll(borrows device: voidptr, wait: uint32, borrows submission: voidptr?): uint32
+cdef function wgpuDeviceDestroy(borrows device: voidptr)
+cdef function wgpuDeviceRelease(borrows device: voidptr)
+cdef function wgpuQueueWriteBuffer(
+    borrows queue: voidptr,
+    borrows buffer: voidptr,
+    offset: uint64,
+    borrows data: voidptr,
+    size: uint64
+)
+cdef function wgpuQueueSubmit(borrows queue: voidptr, count: uint64, borrows commands: voidptr)
+cdef function wgpuQueueGetTimestampPeriod(borrows queue: voidptr): float
+cdef function wgpuQueueRelease(borrows queue: voidptr)
+cdef function wgpuBufferMapAsync(
+    borrows buffer: voidptr,
+    mode: uint64,
+    offset: uint64,
+    size: uint64,
+    callback: memory.CallbackInfo
+): memory.Future
+cdef function wgpuBufferGetConstMappedRange(borrows buffer: voidptr, offset: uint64, size: uint64): voidptr?
+cdef function wgpuBufferUnmap(borrows buffer: voidptr)
+cdef function wgpuBufferDestroy(borrows buffer: voidptr)
+cdef function wgpuBufferRelease(borrows buffer: voidptr)
+cdef function wgpuCommandEncoderBeginComputePass(borrows encoder: voidptr, borrows descriptor: voidptr?): voidptr?
+cdef function wgpuCommandEncoderCopyBufferToBuffer(
+    borrows encoder: voidptr,
+    borrows source: voidptr,
+    sourceOffset: uint64,
+    borrows destination: voidptr,
+    destinationOffset: uint64,
+    size: uint64
+)
+cdef function wgpuCommandEncoderResolveQuerySet(
+    borrows encoder: voidptr,
+    borrows querySet: voidptr,
+    first: uint32,
+    count: uint32,
+    borrows destination: voidptr,
+    offset: uint64
+)
+cdef function wgpuCommandEncoderFinish(borrows encoder: voidptr, borrows descriptor: voidptr?): voidptr?
+cdef function wgpuCommandEncoderRelease(borrows encoder: voidptr)
+cdef function wgpuCommandBufferRelease(borrows commands: voidptr)
+cdef function wgpuComputePassEncoderSetPipeline(borrows pass: voidptr, borrows pipeline: voidptr)
+cdef function wgpuComputePassEncoderSetBindGroup(
+    borrows pass: voidptr,
+    index: uint32,
+    borrows group: voidptr?,
+    offsetCount: uint64,
+    borrows offsets: voidptr?
+)
+cdef function wgpuComputePassEncoderDispatchWorkgroups(borrows pass: voidptr, x: uint32, y: uint32, z: uint32)
+cdef function wgpuComputePassEncoderEnd(borrows pass: voidptr)
+cdef function wgpuComputePassEncoderRelease(borrows pass: voidptr)
+cdef function wgpuComputePipelineGetBindGroupLayout(borrows pipeline: voidptr, index: uint32): voidptr?
+cdef function wgpuComputePipelineRelease(borrows pipeline: voidptr)
+cdef function wgpuBindGroupRelease(borrows group: voidptr)
+cdef function wgpuBindGroupLayoutRelease(borrows layout: voidptr)
+cdef function wgpuPipelineLayoutRelease(borrows layout: voidptr)
+cdef function wgpuShaderModuleRelease(borrows module: voidptr)
+cdef function wgpuQuerySetDestroy(borrows querySet: voidptr)
+cdef function wgpuQuerySetRelease(borrows querySet: voidptr)
+
+-- The headers' API version, which the library must answer.
+const VERSION = 0x1d000101
+
+-- dlopen's RTLD_NOW, and RTLD_NOW | RTLD_GLOBAL on Darwin and on Linux.
+const OPEN_NOW: int32 = 2
+const OPEN_GLOBAL_DARWIN: int32 = 0xa
+const OPEN_GLOBAL_LINUX: int32 = 0x102
 
 --- `WGPUCallbackMode_AllowSpontaneous`: wgpu-native calls back from inside the
 --- call that settles the operation, on the calling thread.
@@ -121,9 +158,6 @@ export const ERROR_TYPE_NO_ERROR: integer = 1
 export const STYPE_SHADER_SOURCE_SPIRV: integer = 0x1
 export const STYPE_SHADER_SOURCE_WGSL: integer = 0x2
 export const STYPE_INSTANCE_EXTRAS: integer = 0x00030004
-
---- `WGPU_WHOLE_SIZE` as the `size_t` wgpuBufferMapAsync takes.
-export const WHOLE_MAP_SIZE: any = memory.maxsize()
 
 -- `WGPUInstanceBackend` bits, for the WGPU_BACKEND names wgpu reads.
 const BACKENDS: {[string]: integer} = {vulkan = 1, gl = 2, gles = 2, metal = 4, dx12 = 8, d3d12 = 8}
@@ -157,8 +191,27 @@ export function requestedbackends(): integer
     return bits as integer
 end
 
-local loaded: any = nil
-export function library(): any
+-- Opens `path` where declarations that name no library find it.
+local function openGlobal(path: string): nil
+    if WINDOWS then
+        assert(LoadLibraryA(path) ~= nil, "cannot load the wgpu-native library " .. path)
+        return
+    end
+    -- The modes differ, and Darwin's means RTLD_DEEPBIND to glibc, so the
+    -- host is told by a symbol only Darwin's C library has.
+    local darwin = dlsym(dlopen(nil, OPEN_NOW), "mach_absolute_time") ~= nil
+    local name: any = path
+    if dlopen(name, darwin and OPEN_GLOBAL_DARWIN or OPEN_GLOBAL_LINUX) == nil then
+        local why: any = dlerror()
+        error("cannot load the wgpu-native library " .. path .. ": " .. tostring(why), 0)
+    end
+end
+
+local loaded: {[string]: any}? = nil
+
+--- The library's functions by name, opening it the first time.
+--- @raises string when the library is not named, does not load or is another version
+export function library(): {[string]: any}
     if loaded ~= nil then
         return loaded
     end
@@ -166,116 +219,286 @@ export function library(): any
         os.getenv("NUPP_WGPU_LIBRARY"),
         "NUPP_WGPU_LIBRARY must name the digest-verified wgpu-native library"
     )
-    local handle = native.load(path)
-    local result: {[string]: any} = {}
-    for name, signature in pairs(SIGNATURES) do
-        local call = native.bind(handle, name, signature)
-        result[name] = call
-    end
-    assert(result.wgpuGetVersion() == 0x1d000101, "wgpu-native version does not match the pinned headers")
+    openGlobal(path)
+    assert(wgpuGetVersion() == VERSION, "wgpu-native version does not match the pinned headers")
+    -- A declaration is called, not held: each is reached through a function.
+    local result: {[string]: any} = {
+        wgpuBufferGetConstMappedRange = function(buffer: any, offset: any, size: any): any
+            return wgpuBufferGetConstMappedRange(buffer, offset, size)
+        end,
+        wgpuGetVersion = function(): any
+            return wgpuGetVersion()
+        end,
+        wgpuCreateInstance = function(descriptor: any): any
+            return wgpuCreateInstance(descriptor)
+        end,
+        wgpuInstanceRelease = function(instance: any): nil
+            wgpuInstanceRelease(instance)
+        end,
+        wgpuInstanceProcessEvents = function(instance: any): nil
+            wgpuInstanceProcessEvents(instance)
+        end,
+        wgpuInstanceRequestAdapter = function(instance: any, options: any, callback: any): any
+            return wgpuInstanceRequestAdapter(instance, options, callback)
+        end,
+        wgpuAdapterGetInfo = function(adapter: any, info: any): any
+            return wgpuAdapterGetInfo(adapter, info)
+        end,
+        wgpuAdapterInfoFreeMembers = function(info: any): nil
+            wgpuAdapterInfoFreeMembers(info)
+        end,
+        wgpuAdapterGetLimits = function(adapter: any, limits: any): any
+            return wgpuAdapterGetLimits(adapter, limits)
+        end,
+        wgpuAdapterHasFeature = function(adapter: any, feature: any): any
+            return wgpuAdapterHasFeature(adapter, feature)
+        end,
+        wgpuAdapterRequestDevice = function(adapter: any, descriptor: any, callback: any): any
+            return wgpuAdapterRequestDevice(adapter, descriptor, callback)
+        end,
+        wgpuAdapterRelease = function(adapter: any): nil
+            wgpuAdapterRelease(adapter)
+        end,
+        wgpuDeviceGetQueue = function(device: any): any
+            return wgpuDeviceGetQueue(device)
+        end,
+        wgpuDeviceGetLimits = function(device: any, limits: any): any
+            return wgpuDeviceGetLimits(device, limits)
+        end,
+        wgpuDeviceCreateBuffer = function(device: any, descriptor: any): any
+            return wgpuDeviceCreateBuffer(device, descriptor)
+        end,
+        wgpuDeviceCreateBindGroupLayout = function(device: any, descriptor: any): any
+            return wgpuDeviceCreateBindGroupLayout(device, descriptor)
+        end,
+        wgpuDeviceCreatePipelineLayout = function(device: any, descriptor: any): any
+            return wgpuDeviceCreatePipelineLayout(device, descriptor)
+        end,
+        wgpuDeviceCreateShaderModule = function(device: any, descriptor: any): any
+            return wgpuDeviceCreateShaderModule(device, descriptor)
+        end,
+        wgpuDeviceCreateComputePipeline = function(device: any, descriptor: any): any
+            return wgpuDeviceCreateComputePipeline(device, descriptor)
+        end,
+        wgpuDeviceCreateBindGroup = function(device: any, descriptor: any): any
+            return wgpuDeviceCreateBindGroup(device, descriptor)
+        end,
+        wgpuDeviceCreateCommandEncoder = function(device: any, descriptor: any): any
+            return wgpuDeviceCreateCommandEncoder(device, descriptor)
+        end,
+        wgpuDeviceCreateQuerySet = function(device: any, descriptor: any): any
+            return wgpuDeviceCreateQuerySet(device, descriptor)
+        end,
+        wgpuDevicePushErrorScope = function(device: any, filter: any): nil
+            wgpuDevicePushErrorScope(device, filter)
+        end,
+        wgpuDevicePopErrorScope = function(device: any, callback: any): any
+            return wgpuDevicePopErrorScope(device, callback)
+        end,
+        wgpuDevicePoll = function(device: any, wait: any, submission: any): any
+            return wgpuDevicePoll(device, wait, submission)
+        end,
+        wgpuDeviceDestroy = function(device: any): nil
+            wgpuDeviceDestroy(device)
+        end,
+        wgpuDeviceRelease = function(device: any): nil
+            wgpuDeviceRelease(device)
+        end,
+        wgpuQueueWriteBuffer = function(queue: any, buffer: any, offset: any, data: any, size: any): nil
+            wgpuQueueWriteBuffer(queue, buffer, offset, data, size)
+        end,
+        wgpuQueueSubmit = function(queue: any, count: any, commands: any): nil
+            wgpuQueueSubmit(queue, count, commands)
+        end,
+        wgpuQueueGetTimestampPeriod = function(queue: any): any
+            return wgpuQueueGetTimestampPeriod(queue)
+        end,
+        wgpuQueueRelease = function(queue: any): nil
+            wgpuQueueRelease(queue)
+        end,
+        wgpuBufferMapAsync = function(buffer: any, mode: any, offset: any, size: any, callback: any): any
+            return wgpuBufferMapAsync(buffer, mode, offset, size, callback)
+        end,
+        wgpuBufferUnmap = function(buffer: any): nil
+            wgpuBufferUnmap(buffer)
+        end,
+        wgpuBufferDestroy = function(buffer: any): nil
+            wgpuBufferDestroy(buffer)
+        end,
+        wgpuBufferRelease = function(buffer: any): nil
+            wgpuBufferRelease(buffer)
+        end,
+        wgpuCommandEncoderBeginComputePass = function(encoder: any, descriptor: any): any
+            return wgpuCommandEncoderBeginComputePass(encoder, descriptor)
+        end,
+        wgpuCommandEncoderCopyBufferToBuffer = function(
+            encoder: any,
+            source: any,
+            sourceOffset: any,
+            destination: any,
+            destinationOffset: any,
+            size: any
+        ): nil
+            wgpuCommandEncoderCopyBufferToBuffer(encoder, source, sourceOffset, destination, destinationOffset, size)
+        end,
+        wgpuCommandEncoderResolveQuerySet = function(
+            encoder: any,
+            querySet: any,
+            first: any,
+            count: any,
+            destination: any,
+            offset: any
+        ): nil
+            wgpuCommandEncoderResolveQuerySet(encoder, querySet, first, count, destination, offset)
+        end,
+        wgpuCommandEncoderFinish = function(encoder: any, descriptor: any): any
+            return wgpuCommandEncoderFinish(encoder, descriptor)
+        end,
+        wgpuCommandEncoderRelease = function(encoder: any): nil
+            wgpuCommandEncoderRelease(encoder)
+        end,
+        wgpuCommandBufferRelease = function(commands: any): nil
+            wgpuCommandBufferRelease(commands)
+        end,
+        wgpuComputePassEncoderSetPipeline = function(pass: any, pipeline: any): nil
+            wgpuComputePassEncoderSetPipeline(pass, pipeline)
+        end,
+        wgpuComputePassEncoderSetBindGroup = function(
+            pass: any,
+            index: any,
+            group: any,
+            offsetCount: any,
+            offsets: any
+        ): nil
+            wgpuComputePassEncoderSetBindGroup(pass, index, group, offsetCount, offsets)
+        end,
+        wgpuComputePassEncoderDispatchWorkgroups = function(pass: any, x: any, y: any, z: any): nil
+            wgpuComputePassEncoderDispatchWorkgroups(pass, x, y, z)
+        end,
+        wgpuComputePassEncoderEnd = function(pass: any): nil
+            wgpuComputePassEncoderEnd(pass)
+        end,
+        wgpuComputePassEncoderRelease = function(pass: any): nil
+            wgpuComputePassEncoderRelease(pass)
+        end,
+        wgpuComputePipelineGetBindGroupLayout = function(pipeline: any, index: any): any
+            return wgpuComputePipelineGetBindGroupLayout(pipeline, index)
+        end,
+        wgpuComputePipelineRelease = function(pipeline: any): nil
+            wgpuComputePipelineRelease(pipeline)
+        end,
+        wgpuBindGroupRelease = function(group: any): nil
+            wgpuBindGroupRelease(group)
+        end,
+        wgpuBindGroupLayoutRelease = function(layout: any): nil
+            wgpuBindGroupLayoutRelease(layout)
+        end,
+        wgpuPipelineLayoutRelease = function(layout: any): nil
+            wgpuPipelineLayoutRelease(layout)
+        end,
+        wgpuShaderModuleRelease = function(module: any): nil
+            wgpuShaderModuleRelease(module)
+        end,
+        wgpuQuerySetDestroy = function(querySet: any): nil
+            wgpuQuerySetDestroy(querySet)
+        end,
+        wgpuQuerySetRelease = function(querySet: any): nil
+            wgpuQuerySetRelease(querySet)
+        end,
+    }
     loaded = result
 
     return result
 end
 
---- A callback's message, from whichever spelling its ABI delivered.
-export function message(first: any, second: any): string
-    if MESSAGE_BY_POINTER then
-        if first == nil then
-            return ""
-        end
-        local cell: any = memory.new("WGPUStringView")
-        memory.copy(cell, first, 16)
-        if cell.data == nil then
-            return ""
-        end
-        return memory.readstring(cell.data, cell.length)
-    end
-    if first == nil then
-        return ""
-    end
+-- A record's words (`KEPT_*` in native/corebridge/main.c): the calls it was
+-- offered, the entry bytes it keeps, how many fit, and the calls that found
+-- no room. Each entry is three words -- the call's two leading arguments and
+-- its text's length -- and the text, padded to a word.
+const RECORD_HEADER_WORDS = 4
+const ENTRY_WORDS = 3
+const WORD = 8
+const LOW32 = 0xffffffff
+-- Room for a request's message, and for the faults a device reports
+-- between two drains.
+const REQUEST_BYTES = 4096
+const FAULT_BYTES = 16384
 
-    return memory.readstring(first, second)
+-- A new record with room for `bytes` of entries.
+local function newRecord(bytes: integer): any
+    local record: any = storage.allocarray(storage.scalar("uint64"), RECORD_HEADER_WORDS + bytes // WORD)
+    record[2] = bytes
+
+    return record
 end
 
--- Callback results are keyed by the integer each request carries. Reuse the
--- retained callbacks instead of consuming a native callback slot per request.
+-- The calls `record` kept, each `{first, second, message}`, and how many found
+-- no room; the record is emptied.
+local function drain(record: any): ({{[string]: any}}, integer)
+    local used = tonumber(record[1]) as integer
+    local dropped = tonumber(record[3]) as integer
+    local kept: {{[string]: any}} = {}
+    if used > 0 then
+        local bytes = storage.string(record, RECORD_HEADER_WORDS * WORD + used)
+        local at: integer = RECORD_HEADER_WORDS * WORD
+        local last = at + used
+        while at < last do
+            local word = at // WORD
+            local length = tonumber(record[word + 2]) as integer
+            local text = bytes:sub(at + ENTRY_WORDS * WORD + 1, at + ENTRY_WORDS * WORD + length)
+            kept[#kept + 1] = {first = record[word], second = record[word + 1], message = text}
+            at = (at + ENTRY_WORDS * WORD + (length + WORD - 1) // WORD * WORD) as integer
+        end
+    end
+    record[0], record[1], record[3] = 0, 0, 0
+
+    return kept, dropped
+end
+
+-- Each request's record by the key it is taken with, until it is taken, and
+-- each device's fault records by its key.
 local settled: {[integer]: any} = {}
-local cells: {[integer]: any} = {}
+local faults: {[integer]: {any}} = {}
 local nextToken: integer = 0
 
---- A fresh token a request carries in its first userdata, and its result slot.
+--- A fresh request's first userdata and the key its result is taken with.
 export function token(): (any, integer)
     nextToken = (nextToken + 1) as integer
-    settled[nextToken] = false
+    local record = newRecord(REQUEST_BYTES)
+    settled[nextToken] = record
 
-    local cell = memory.token(nextToken)
-    cells[nextToken] = cell
-
-    return cell, nextToken
+    return record, nextToken
 end
 
---- Takes what the callback for `key` delivered, or false if it has not run.
+--- What the callback for `key` delivered -- its `status`, `value` (the
+--- object it passed, or nil), `kind` and `message` -- or false if it has not run.
 export function take(key: integer): any
-    local value = settled[key]
+    local record = settled[key]
     settled[key] = nil
-    cells[key] = nil
-    if type(value) == "table" and value.owned ~= nil then
-        value.value = value.owned.value
-        value.owned = nil
+    if record == nil or tonumber(record[0]) == 0 then
+        return false
     end
+    local kept = drain(record)
+    local call = kept[1] or {first = 0, second = 0, message = ""}
+    local status = (call.first as integer) & LOW32
+    local second = call.second as integer
 
-    return value
+    return {
+        status = status,
+        value = second ~= 0 and second or nil,
+        kind = second & LOW32,
+        message = call.message or "",
+    }
 end
 
-local function keyOf(userdata: any): integer
-    return memory.tokenvalue(userdata)
-end
-
-local function deliver(userdata: any, value: any): nil
-    local key = keyOf(userdata)
-    if settled[key] ~= nil then
-        settled[key] = value
-    end
-end
-
--- Device faults by device key: uncaptured errors and loss, both reported
--- whenever wgpu-native notices them, drained by the context that owns them.
-local faults: {[integer]: {string}} = {}
-
---- Starts collecting faults for one device and returns its userdata.
-export function faultsink(): (any, integer)
+--- Starts collecting faults for one device: the first userdata of its lost
+--- callback, that of its uncaptured-error callback, and its key.
+export function faultsink(): (any, any, integer)
     nextToken = (nextToken + 1) as integer
-    faults[nextToken] = {}
+    local lost, uncaptured = newRecord(FAULT_BYTES), newRecord(FAULT_BYTES)
+    faults[nextToken] = {lost, uncaptured}
 
-    local cell = memory.token(nextToken)
-    cells[nextToken] = cell
-
-    return cell, nextToken
-end
-
---- Takes every fault recorded for a device since the last call.
-export function takefaults(key: integer): {string}
-    local recorded = faults[key]
-    if recorded == nil then
-        return {}
-    end
-    faults[key] = {}
-
-    return recorded
-end
-
---- Stops collecting faults for a device.
-export function dropfaults(key: integer): nil
-    faults[key] = nil
-    cells[key] = nil
-end
-
-local function record(userdata: any, text: string): nil
-    local recorded = faults[keyOf(userdata)]
-    if recorded ~= nil then
-        recorded[#recorded + 1] = text
-    end
+    return lost, uncaptured, nextToken
 end
 
 const LOST_REASONS: {
@@ -291,94 +514,70 @@ export function errortype(value: integer): string
     return ERROR_TYPES[value] or ("error type " .. tostring(value))
 end
 
-local adapterCallback: any = nil
-local deviceCallback: any = nil
-local mapCallback: any = nil
-local scopeCallback: any = nil
-local lostCallback: any = nil
-local errorCallback: any = nil
-
--- Adapter and device callbacks transfer an owned reference. Move it through
--- native storage so it survives the VM's callback-scoped pointer loan.
-local function onAdapter(status: integer, adapter: any, first: any, second: any, third: any, fourth: any): nil
-    local userdata = MESSAGE_BY_POINTER and second or third
-    local owned: any = nil
-    if adapter ~= nil then
-        library().wgpuAdapterAddRef(adapter)
-        owned = memory.ownedslot(adapter)
-        library().wgpuAdapterRelease(adapter)
+--- Takes every fault recorded for a device since the last call.
+export function takefaults(key: integer): {string}
+    local records = faults[key]
+    if records == nil then
+        return {}
     end
-    deliver(userdata, {status = status, owned = owned, message = message(first, second)})
-end
-
-local function onDevice(status: integer, device: any, first: any, second: any, third: any, fourth: any): nil
-    local userdata = MESSAGE_BY_POINTER and second or third
-    local owned: any = nil
-    if device ~= nil then
-        library().wgpuDeviceAddRef(device)
-        owned = memory.ownedslot(device)
-        library().wgpuDeviceRelease(device)
+    local recorded: {string} = {}
+    local missed = 0
+    local errors, errorsMissed = drain(records[2])
+    for _, call in ipairs(errors) do
+        local text = call.message as string
+        recorded[#recorded + 1] = text ~= "" and text or errortype((call.second as integer) & LOW32)
     end
-    deliver(userdata, {status = status, owned = owned, message = message(first, second)})
+    local lost, lostMissed = drain(records[1])
+    for _, call in ipairs(lost) do
+        local reason = (call.second as integer) & LOW32
+        recorded[
+            #recorded + 1
+        ] = ("device lost (%s): %s"):format(LOST_REASONS[reason] or tostring(reason), call.message)
+    end
+    missed = errorsMissed + lostMissed
+    if missed > 0 then
+        recorded[#recorded + 1] = ("%d more GPU faults were not kept"):format(missed)
+    end
+
+    return recorded
 end
 
-local function onMap(status: integer, first: any, second: any, third: any, fourth: any): nil
-    local userdata = MESSAGE_BY_POINTER and second or third
-    deliver(userdata, {status = status, message = message(first, second)})
+--- Stops collecting faults for a device.
+export function dropfaults(key: integer): nil
+    faults[key] = nil
 end
 
-local function onScope(status: integer, kind: integer, first: any, second: any, third: any, fourth: any): nil
-    local userdata = MESSAGE_BY_POINTER and second or third
-    deliver(userdata, {status = status, kind = kind, message = message(first, second)})
+local keepers: {[string]: any}? = nil
+
+-- The address of the bridge's keeper `name`.
+local function keeper(name: string): any
+    local found: any = nil
+    if WINDOWS then
+        found = GetProcAddress(GetModuleHandleA(nil), name)
+    else
+        found = dlsym(dlopen(nil, OPEN_NOW), name)
+    end
+
+    assert(found ~= nil, "the core's C bridge has no GPU callback " .. name)
+
+    return found
 end
 
-local function onLost(device: any, reason: integer, first: any, second: any, third: any, fourth: any): nil
-    local userdata = MESSAGE_BY_POINTER and second or third
-    record(userdata, ("device lost (%s): %s"):format(LOST_REASONS[reason] or tostring(reason), message(first, second)))
-end
-
-local function onError(device: any, kind: integer, first: any, second: any, third: any, fourth: any): nil
-    local userdata = MESSAGE_BY_POINTER and second or third
-    local text = message(first, second)
-    record(userdata, text ~= "" and text or errortype(kind))
-end
-
---- Retained callbacks carry an explicit scalar C signature. WGPUStringView is
---- lowered as its two integer registers, or a pointer to its copy on Win64.
+--- The callback each request and device fault is reported through.
 export function callbacks(): {[string]: any}
-    if adapterCallback == nil then
-        local messageParts = MESSAGE_BY_POINTER and {"pointer"} or {"pointer", "uint64"}
-
-        local function callback(prefix: {string}, body: any): any
-            local args: {string} = {}
-            for _, value in ipairs(prefix) do
-                args[#args + 1] = value
-            end
-            for _, value in ipairs(messageParts) do
-                args[#args + 1] = value
-            end
-            args[#args + 1] = "pointer";
-            args[#args + 1] = "pointer"
-
-            return native.callback({params = args, result = "void"}, body)
-        end
-
-        adapterCallback = callback({"uint32", "pointer"}, onAdapter)
-        deviceCallback = callback({"uint32", "pointer"}, onDevice)
-        mapCallback = callback({"uint32"}, onMap)
-        scopeCallback = callback({"uint32", "uint32"}, onScope)
-        lostCallback = callback({"pointer", "uint32"}, onLost)
-        errorCallback = callback({"pointer", "uint32"}, onError)
+    if keepers == nil then
+        local pair = keeper("nupp_core_keep_pair_text")
+        keepers = {
+            adapter = pair,
+            device = pair,
+            map = keeper("nupp_core_keep_text"),
+            scope = pair,
+            lost = pair,
+            error = pair
+        }
     end
 
-    return {
-        adapter = adapterCallback,
-        device = deviceCallback,
-        map = mapCallback,
-        scope = scopeCallback,
-        lost = lostCallback,
-        error = errorCallback
-    }
+    return keepers as {[string]: any}
 end
 
 export function view(text: string?): any
@@ -389,9 +588,9 @@ export function pause(milliseconds: integer): nil
     if milliseconds <= 0 then
         return
     end
-    local call = native.bind(nil, package.config:sub(1, 1) == "\\" and "Sleep" or "usleep", {
-        params = {"uint32"},
-        result = "void"
-    })
-    call(package.config:sub(1, 1) == "\\" and milliseconds or milliseconds * 1000)
+    if WINDOWS then
+        Sleep(milliseconds as uint32)
+    else
+        usleep((milliseconds * 1000) as uint32)
+    end
 end
