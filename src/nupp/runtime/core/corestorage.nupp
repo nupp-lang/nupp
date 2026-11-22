@@ -125,10 +125,22 @@ export const INT64: uint64 = 8ULL
 export const FLOAT32: uint64 = 9ULL
 export const FLOAT64: uint64 = 10ULL
 export const POINTER: uint64 = 12ULL
+-- A block kind is BLOCK plus a width below BLOCK: an element of that many
+-- bytes, read as a view of them and written by copying them, as a struct in
+-- C layout is. A struct's instance is one, and an array of structs holds
+-- them; the width is all its storage knows of the struct.
+export const BLOCK: uint64 = 0x40000000ULL
+
+-- Whether `kind` is a block kind.
+export function isblock(kind: uint64): boolean
+    return kind > BLOCK and kind < BLOCK + BLOCK
+end
 
 -- An element's bytes, or 0 for no kind.
 export function elementwidth(kind: uint64): uint64
-    if kind == UINT8 or kind == INT8 then
+    if isblock(kind) then
+        return kind - BLOCK
+    elseif kind == UINT8 or kind == INT8 then
         return 1ULL
     elseif kind == UINT16 or kind == INT16 then
         return 2ULL

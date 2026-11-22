@@ -42,9 +42,13 @@ end
 
 local descriptors: {[any]: any} = setmetatable({}, {__mode = "k"})
 
+-- A zeroed instance: one block of the struct's bytes (heapstorage.block).
 local DESCRIPTOR: any = {
     __call = function(self: any): any
-        return storage.allocbytes(self.size)
+        if self.size == 0 then
+            return storage.allocbytes(0)
+        end
+        return storage.allocate(heap.block(self.size), 1)
     end
 }
 
