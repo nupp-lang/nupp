@@ -29,6 +29,17 @@ export const HANDLING: uint64 = 1ULL
 const NOT_HANDLING: uint64 = 0ULL
 const HANDLER_STARTING: uint64 = 1ULL
 const HANDLER_FAILED: uint64 = 2ULL
+-- The error is what the handler already answered for it (Services.answered),
+-- which the protected call takes as it is.
+const HANDLER_ANSWERED: uint64 = 3ULL
+
+-- Services.pending keeps more than a frame's failure, under keys beside its
+-- address, which is word aligned: whether that failure is what an xpcall's
+-- message handler answered (ANSWERED_KEY), and for a protected frame whose
+-- handler runs before an error lands, the frame it lands at then
+-- (LANDING_KEY).
+const ANSWERED_KEY: uint64 = 1ULL
+const LANDING_KEY: uint64 = 2ULL
 
 -- The byte of an XPHandle instruction naming its handler's slot.
 const HANDLER_SLOT_BYTE: uint64 = 2ULL
@@ -364,8 +375,12 @@ local function forgetPending(ctx: voidptr, state: voidptr, stop: uint64): nil
         local at = native.load64(state, native.fieldOffset<frames.State>("active"))
         while at ~= 0ULL and at ~= stop do
             -- Clearing a present key allocates nothing.
-            if tables.get(pending & values.PAYLOAD, pendingKey(at)) ~= values.NIL then
-                tables.set(h, pending & values.PAYLOAD, pendingKey(at), values.NIL)
+            local offset: uint64 = 0ULL
+            while offset <= LANDING_KEY do
+                if tables.get(pending & values.PAYLOAD, pendingKey(at + offset)) ~= values.NIL then
+                    tables.set(h, pending & values.PAYLOAD, pendingKey(at + offset), values.NIL)
+                end
+                offset = offset + 1ULL
             end
             at = native.load64(native.pointer(at), native.fieldOffset<frames.Frame>("previous"))
         end
@@ -406,22 +421,47 @@ local function suppressing(ctx: voidptr, primary: uint64, more: uint64): uint64
     end
 end
 
--- The error `value` landed at `frame`: it is that frame's pending failure,
--- raised again once its owners are destroyed (`takepending`), or kept
--- under the failure already pending there when a cleanup on its way out
--- raised it. Each landing frame keeps its own, so a protected call made
--- meanwhile, or another frame's landing, loses none. `value` is rooted
--- (Services.lastError) by the caller; lastError ends up holding the
--- failure now pending.
-local function remember(ctx: voidptr, frame: uint64, value: uint64): nil
+-- Services.pending, made on first use.
+local function pendingTable(ctx: voidptr): uint64
     @unsafe do
         local services = native.loadPointer(ctx, context.SERVICE_SCOPE)
-        local h = native.pointer(guestscope.guestHeap(ctx)) as heap.Heap*
         local pending = native.load64(services, native.fieldOffset<guestscope.Services>("pending"))
         if pending == 0ULL then
             pending = values.TAG_OBJ | guestscope.newTable(ctx)
             native.store64(services, native.fieldOffset<guestscope.Services>("pending"), pending)
         end
+        return pending
+    end
+end
+
+-- Keeps `value` in Services.pending under `key`, or forgets it for nil.
+local function keep(ctx: voidptr, key: uint64, value: uint64): nil
+    @unsafe do
+        local h = native.pointer(guestscope.guestHeap(ctx)) as heap.Heap*
+        local pending = pendingTable(ctx)
+        if value == values.NIL and tables.get(pending & values.PAYLOAD, key) == values.NIL then
+            return
+        end
+        if tables.set(h, pending & values.PAYLOAD, key, value) == tables.NO_MEMORY then
+            error("not enough memory")
+        end
+        tables.drain(h)
+    end
+end
+
+-- The error `value` landed at `frame`: it is that frame's pending failure,
+-- raised again once its owners are destroyed (`takepending`), or kept
+-- under the failure already pending there when a cleanup on its way out
+-- raised it. Each landing frame keeps its own, so a protected call made
+-- meanwhile, or another frame's landing, loses none. A failure that is
+-- what an xpcall's message handler `answered` stays so when it is raised
+-- again; one kept under it stays as the first was. `value` is rooted
+-- (Services.lastError) by the caller; lastError ends up holding the
+-- failure now pending.
+local function remember(ctx: voidptr, frame: uint64, value: uint64, answered: boolean): nil
+    @unsafe do
+        local services = native.loadPointer(ctx, context.SERVICE_SCOPE)
+        local pending = pendingTable(ctx)
         local failure = value
         local before = kept(services, frame)
         if before ~= values.NIL then
@@ -432,10 +472,28 @@ local function remember(ctx: voidptr, frame: uint64, value: uint64): nil
         if stored == values.NIL then
             stored = pending
         end
-        if tables.set(h, pending & values.PAYLOAD, pendingKey(frame), stored) == tables.NO_MEMORY then
-            error("not enough memory")
+        keep(ctx, pendingKey(frame), stored)
+        if before == values.NIL then
+            local mark = values.NIL
+            if answered then
+                mark = values.TRUE
+            end
+            keep(ctx, pendingKey(frame + ANSWERED_KEY), mark)
         end
-        tables.drain(h)
+    end
+end
+
+-- The frame an error lands at once the message handler of protected frame
+-- `protected` answers for it (`deferLanding`), now forgotten, or 0.
+local function takeLanding(ctx: voidptr, protected: uint64): uint64
+    @unsafe do
+        local services = native.loadPointer(ctx, context.SERVICE_SCOPE)
+        local entry = kept(services, protected + LANDING_KEY)
+        if entry == values.NIL then
+            return 0ULL
+        end
+        keep(ctx, pendingKey(protected + LANDING_KEY), values.NIL)
+        return entry & values.PAYLOAD
     end
 end
 
@@ -450,14 +508,14 @@ export function takepending(ctx: voidptr, frame: uint64): uint64
         end
         local value = unkept(services, entry)
         local h = native.pointer(guestscope.guestHeap(ctx)) as heap.Heap*
+        local pending = native.load64(services, native.fieldOffset<guestscope.Services>("pending")) & values.PAYLOAD
         -- Clearing a present key allocates nothing; the caller raises the
         -- value, which roots it, before anything allocates.
-        tables.set(
-            h,
-            native.load64(services, native.fieldOffset<guestscope.Services>("pending")) & values.PAYLOAD,
-            pendingKey(frame),
-            values.NIL
-        )
+        tables.set(h, pending, pendingKey(frame), values.NIL)
+        if tables.get(pending, pendingKey(frame + ANSWERED_KEY)) == values.TRUE then
+            tables.set(h, pending, pendingKey(frame + ANSWERED_KEY), values.NIL)
+            native.store64(services, native.fieldOffset<guestscope.Services>("answered"), 1ULL)
+        end
         tables.drain(h)
         return value
     end
@@ -497,6 +555,25 @@ export function handled(ctx: voidptr, answer: uint64, answered: boolean): uint64
         local destination = protectedFrame(state)
         if destination == 0ULL then
             return 0ULL
+        end
+        -- An error that met its handler on the way to a frame owning affine
+        -- values lands there now, the handler's answer in its place, and
+        -- goes on once that frame's owners are destroyed.
+        local target = takeLanding(ctx, destination)
+        if target ~= 0ULL then
+            forgetModules(ctx, state, target)
+            forgetPending(ctx, state, target)
+            local landed = target
+            if native.load64(state, native.fieldOffset<frames.State>("active")) ~= target then
+                landed = frames.land(state, target)
+            end
+            if landed == 0ULL then
+                return 0ULL
+            end
+            native.store64(services, native.fieldOffset<guestscope.Services>("landed"), 1ULL)
+            remember(ctx, landed, answer, answered)
+            access.refresh(state, native.pointer(landed), ctx)
+            return access.pc(state, native.pointer(landed))
         end
         forgetModules(ctx, state, destination)
         forgetPending(ctx, state, beneath(destination))
@@ -558,6 +635,10 @@ export function recoverEntry(ctx: voidptr): uint64
         native.store64(scope, native.fieldOffset<servicescope.ServiceScope>("errorSite"), 0ULL)
         local value = native.load64(services, native.fieldOffset<guestscope.Services>("raised"))
         local level = native.load64(services, native.fieldOffset<guestscope.Services>("raisedLevel"))
+        -- Raised again with the message handler's answer already in its
+        -- place (takepending).
+        local answered = native.load64(services, native.fieldOffset<guestscope.Services>("answered")) == 1ULL
+        native.store64(services, native.fieldOffset<guestscope.Services>("answered"), 0ULL)
         -- Where the error was raised: a failing handler's pc, or a library
         -- call's when the library raised it.
         local failedOwner = native.load64(ctx, context.ERROR_OWNER)
@@ -649,22 +730,37 @@ export function recoverEntry(ctx: voidptr): uint64
             landing = landingFrame(ctx, state)
         end
         -- An xpcall's message handler runs on the failing stack, before it
-        -- unwinds, when the error goes to its protected call with no frame
-        -- taking it first; an error the handler raises itself is Lua's
-        -- "error in error handling".
+        -- unwinds, as Lua's does; an error the handler raises itself is
+        -- Lua's "error in error handling". One landing at a frame that owns
+        -- affine values meets the handler first too, before that frame's
+        -- cleanups run, and lands there with its answer (`deferred`), which
+        -- the protected call then takes as it is; a cleanup's failure that
+        -- lands where one is already pending is kept under it instead.
         local handling = NOT_HANDLING
-        if own == 0ULL and landing == 0ULL and not closing then
+        local deferred: uint64 = 0ULL
+        if not closing then
             local boundary = boundaryFrame(state)
-            if boundary ~= 0ULL and frames.ishandler(native.pointer(boundary)) then
-                handling = HANDLER_FAILED
-            elseif messageHandler(boundary) ~= 0ULL then
+            local target = own
+            if target == 0ULL then
+                target = landing
+            end
+            if target == 0ULL then
+                if answered and messageHandler(boundary) ~= 0ULL then
+                    handling = HANDLER_ANSWERED
+                elseif boundary ~= 0ULL and frames.ishandler(native.pointer(boundary)) then
+                    handling = HANDLER_FAILED
+                elseif messageHandler(boundary) ~= 0ULL then
+                    handling = HANDLER_STARTING
+                end
+            elseif not answered and kept(services, target) == values.NIL and messageHandler(boundary) ~= 0ULL then
                 handling = HANDLER_STARTING
+                deferred = target
             end
         end
         -- The frames the error unwinds: those above the landing frame, or up
         -- to the protected call (all of them when none takes it). The stack
         -- a message handler runs on unwinds once it answers (`handled`).
-        if own == 0ULL and landing ~= 0ULL then
+        if own == 0ULL and landing ~= 0ULL and deferred == 0ULL then
             forgetModules(ctx, state, landing)
             forgetPending(ctx, state, landing)
         elseif own == 0ULL and not closing and handling == NOT_HANDLING then
@@ -675,15 +771,18 @@ export function recoverEntry(ctx: voidptr): uint64
             forgetPending(ctx, state, 0ULL)
         end
         local parent: uint64 = 0ULL
-        if own ~= 0ULL then
+        if deferred ~= 0ULL then
+            keep(ctx, pendingKey(protectedFrame(state) + LANDING_KEY), values.TAG_INTEGER | deferred)
+        end
+        if own ~= 0ULL and deferred == 0ULL then
             parent = own
             native.store64(services, native.fieldOffset<guestscope.Services>("landed"), 1ULL)
-            remember(ctx, own, value)
-        elseif landing ~= 0ULL then
+            remember(ctx, own, value, answered)
+        elseif landing ~= 0ULL and deferred == 0ULL then
             parent = frames.land(state, landing)
             if parent ~= 0ULL then
                 native.store64(services, native.fieldOffset<guestscope.Services>("landed"), 1ULL)
-                remember(ctx, parent, value)
+                remember(ctx, parent, value, answered)
             end
         elseif handling ~= NOT_HANDLING then
             native.store64(ctx, context.STATUS, 0ULL)
@@ -693,8 +792,12 @@ export function recoverEntry(ctx: voidptr): uint64
             native.store64(services, native.fieldOffset<guestscope.Services>("raised"), 0ULL)
             native.store64(services, native.fieldOffset<guestscope.Services>("raisedLevel"), 0ULL)
             native.store64(services, native.fieldOffset<guestscope.Services>("fault"), 0ULL)
-            if handling == HANDLER_FAILED then
-                local at = handled(ctx, errorInHandling(ctx), true)
+            if handling == HANDLER_FAILED or handling == HANDLER_ANSWERED then
+                local answer = value
+                if handling == HANDLER_FAILED then
+                    answer = errorInHandling(ctx)
+                end
+                local at = handled(ctx, answer, true)
                 if at == 0ULL then
                     native.store64(ctx, context.STATUS, context.GUEST_ERROR_STATUS)
                 end
@@ -791,6 +894,7 @@ export function recovered(ctx: voidptr): nil
         native.store64(services, native.fieldOffset<guestscope.Services>("fault"), 0ULL)
         native.store64(services, native.fieldOffset<guestscope.Services>("libraryRaised"), 0ULL)
         native.store64(services, native.fieldOffset<guestscope.Services>("libraryActive"), 0ULL)
+        native.store64(services, native.fieldOffset<guestscope.Services>("answered"), 0ULL)
     end
 end
 
