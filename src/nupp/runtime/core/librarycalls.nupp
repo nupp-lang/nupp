@@ -8,6 +8,7 @@ export const TOSTRING: uint64 = 1ULL
 export const TONUMBER: uint64 = 9ULL
 export const TONUMBER_BASE: uint64 = 106ULL
 export const SELECT: uint64 = 20ULL
+export const SELECT_ALL: uint64 = 228ULL
 export const ERROR: uint64 = 22ULL
 export const LANDED: uint64 = 45ULL
 export const RERAISE: uint64 = 46ULL
@@ -406,6 +407,8 @@ export function libraryname(id: uint64): uint64
         return 162ULL
     elseif id == 225ULL then
         return 163ULL
+    elseif id == SELECT_ALL then
+        return 52ULL
     end
 
     return 0ULL
