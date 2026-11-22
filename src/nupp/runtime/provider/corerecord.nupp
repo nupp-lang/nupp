@@ -130,6 +130,25 @@ export function create(owner: any, spec: any): any
         return instance
     end
 
+    -- Each constructor is also the declaration's member `__nuppCtor<i>`: a
+    -- function of that constructor's own arguments answering a fresh
+    -- instance, as the VM's declarations carry, which construction driven by
+    -- reflection (serde's declaration access) calls by its index.
+    for index in ipairs(spec.constructors) do
+        local initialize = "\0new" .. tostring(index)
+        owner["__nuppCtor" .. tostring(index)] = function(...: any): any
+            local instance: any = setmetatable({}, owner)
+            for position, field in ipairs(spec.fields) do
+                if spec.defaulted[position] then
+                    instance[field] = copy(spec.defaults[position])
+                end
+            end
+            owner[initialize](instance, ...)
+
+            return instance
+        end
+    end
+
     setmetatable(owner, {__call = construct, __metatable = false})
 
     return owner
