@@ -208,10 +208,17 @@ function bundled.source(relative: string): string?
     if embedded then
         return embeddedFile(embedded, relative)
     end
-    local carried = readFile(moduleDir() .. relative)
-    if carried ~= nil then
-        noteStale(relative, carried)
-        return carried
+    -- A compiler running out of `src`, as the native core's does, carries
+    -- nothing beside its modules: they sit among the checkout's own sources,
+    -- where a carried path names one of those instead (`/types/init.nupp`
+    -- beside `nupp.compiler.bundled` is `nupp.compiler.types`).
+    local dir = moduleDir()
+    if not dir:gsub("\\", "/"):match("/src/nupp/compiler$") then
+        local carried = readFile(dir .. relative)
+        if carried ~= nil then
+            noteStale(relative, carried)
+            return carried
+        end
     end
     local checkout = sourceCheckout()
 
