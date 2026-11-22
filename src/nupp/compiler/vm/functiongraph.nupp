@@ -1642,7 +1642,9 @@ local function compileOwner(fn: any, options: any, profile: any, site: any): any
         g.compositions = g.compositions or {}
         g.compositions[#g.compositions + 1] = declaration
         inlining[target] = true
+        frames[#frames + 1] = {boundary = true}
         statements(target.body.body.stats)
+        frames[#frames] = nil
         inlining[target] = nil
         need(returns and block == nil or not returns and block ~= nil, "composed helper continuation is incomplete")
         if not returns then
@@ -1759,7 +1761,97 @@ local function compileOwner(fn: any, options: any, profile: any, site: any): any
         ctx.release(held)
     end
 
+    -- Where a goto naming a label later in an enclosing statement list
+    -- lands: that list's frame, while it is lowering the statement holding
+    -- the goto. A do expression's or composed helper's body is a boundary,
+    -- and so is a loop between the goto and the label.
+    local function forwardLabel(node: any): any
+        local name = node.name and node.name.text
+        for index = #frames, 1, -1 do
+            local frame = frames[index]
+            if frame.boundary or frame.loops ~= #loops then
+                return nil
+            end
+            local at = name and frame.labels[name]
+            if at and at > frame.index then
+                return frame
+            end
+        end
+
+        return nil
+    end
+
+    -- `goto name`: the owners declared inside the statement holding it
+    -- close, and its bindings arrive at the label with those the label's
+    -- list had when that statement began.
+    local function forwardGoto(node: any, frame: any): nil
+        if cleanupEnabled and #cleanups > frame.depth then
+            unwind(frame.depth, node, "gotoStmt")
+            local success = profile.cleanupStatus(ctx, node)
+            ctx.afterCall(node, nil, success)
+        end
+        if not block then
+            return
+        end
+        local carried, order = {}, {}
+        for _, key in ipairs(bindingOrder) do
+            if frame.scope[key] then
+                carried[key], order[#order + 1] = bindings[key], key
+            end
+        end
+        local name = node.name.text
+        local arrivals = frame.pending[name] or {}
+        frame.pending[name] = arrivals
+        arrivals[#arrivals + 1] = {block = block, bindings = carried, order = order, node = node, kept = frame.depth}
+        block = nil
+    end
+
+    -- A label gotos reach: every arrival, the fallthrough last, jumps to one
+    -- block carrying the bindings they all have.
+    local function joinLabel(arrivals: any): nil
+        for _, arrival in ipairs(arrivals) do
+            need(arrival.kept == #cleanups, "a goto skips an owner's declaration")
+        end
+        local first = arrivals[#arrivals]
+        local common, order = {}, {}
+        for _, key in ipairs(first.order) do
+            local value = handles[key] ~= false and first.bindings[key] or nil
+            for _, arrival in ipairs(arrivals) do
+                if arrival.bindings[key] == nil then
+                    value = nil
+                    break
+                end
+            end
+            if value ~= nil then
+                common[key], order[#order + 1] = value, key
+            end
+        end
+        bindings, bindingOrder = common, order
+        local target = branch()
+        for _, arrival in ipairs(arrivals) do
+            resume(arrival)
+            jump(target, arrival.node)
+        end
+        resume(target)
+        context()
+    end
+
     statements = function(stats: any): nil
+        local frame = {labels = {}, pending = {}, loops = #loops, depth = #cleanups, index = 0, scope = {}}
+        local labelled = false
+        for index, stat in ipairs(stats) do
+            if stat.kind == "labelStmt" and stat.name then
+                frame.labels[stat.name.text], labelled = index, true
+            end
+        end
+        frames[#frames + 1] = frame
+        statementList(stats, frame, labelled)
+        need(frames[#frames] == frame, "statement frames must nest")
+        frames[#frames] = nil
+        need(next(frame.pending) == nil, "a goto's label is never reached")
+    end
+
+    statementList = function(stats: any, frame: any, labelled: boolean): nil
         if block and profile.recordBindings then
             invoke("recordBindings", stats, nil)
         end
@@ -1767,11 +1859,32 @@ local function compileOwner(fn: any, options: any, profile: any, site: any): any
         if repeating and repeating.bodyStats ~= stats then
             repeating = nil
         end
-        for _, stat in ipairs(stats) do
+        for index, stat in ipairs(stats) do
             local statementDepth = #cleanups
             if repeating then
                 -- Owners declared before this statement are the repeat body's own.
                 repeating.bodyDepth = statementDepth
+            end
+            frame.index, frame.depth = index, statementDepth
+            local arrivals = stat.kind == "labelStmt" and stat.name and frame.pending[stat.name.text]
+            if arrivals then
+                frame.pending[stat.name.text] = nil
+                if block then
+                    arrivals[
+                        #arrivals + 1
+                    ] = {block = block, bindings = bindings, order = bindingOrder, node = stat, kept = #cleanups}
+                end
+                joinLabel(arrivals)
+            elseif not block and next(frame.pending) ~= nil then
+                -- Nothing reaches this statement but a goto past it.
+                continue
+            end
+            if labelled and block then
+                local scope = {}
+                for _, key in ipairs(bindingOrder) do
+                    scope[key] = true
+                end
+                frame.scope = scope
             end
             if cleanupEnabled and not block then
                 return
@@ -2490,6 +2603,11 @@ local function compileOwner(fn: any, options: any, profile: any, site: any): any
             elseif stat.kind == "labelStmt" then
                 -- A label marks a place; only a goto moves control, and only
                 -- to a label ending its loop's body (see gotoStmt).
+            elseif stat.kind == "gotoStmt"
+                and not (loops[#loops] and stat.name and loops[#loops].label == stat.name.text)
+                and forwardLabel(stat)
+            then
+                forwardGoto(stat, forwardLabel(stat))
             elseif stat.kind == "breakStmt" or stat.kind == "continueStmt" or stat.kind == "gotoStmt" then
                 loopTransfer(stat, stat.kind)
             elseif stat.kind == "doStmt" then
