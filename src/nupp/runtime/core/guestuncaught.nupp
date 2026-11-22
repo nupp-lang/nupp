@@ -90,6 +90,61 @@ local function convert(ctx: voidptr, value: uint64): uint64
     end
 end
 
+-- The message handler of the xpcall an error unwinds to (recoverEntry
+-- answered guestlanding.HANDLING), started on the failing stack as a
+-- frame the active one calls (frames.HANDLER_DESTINATION), the error its
+-- argument, as Lua calls it before the stack unwinds: answers the pc it
+-- starts at. A handler the core cannot call so, a wrapped coroutine's
+-- function or one with no room to start, runs as before: the stack
+-- unwinds to the xpcall first, which calls it (XPHandle).
+local function handle(ctx: voidptr): uint64
+    local value = guestscope.lastError(ctx)
+    local callee = guestlanding.messagehandler(ctx)
+    @unsafe do
+        local s = native.loadPointer(ctx, context.STATE)
+        local active = access.active(s)
+        if callee ~= 0ULL and threads.wrapped(callee) == 0ULL and active ~= 0ULL then
+            local frame = native.pointer(active)
+            local count = native.load64(frame, native.fieldOffset<frames.Frame>("valueCount"))
+            -- A call the failing instruction prepared and never published.
+            local pending = native.load64(frame, native.fieldOffset<frames.Frame>("child"))
+            local clear = pending == 0ULL
+                or native.load64(native.pointer(pending), native.fieldOffset<frames.Frame>("phase")) ~= frames.PREPARED
+                or frames.abortPrepared(s, frame, native.pointer(pending)) == 1ULL
+            if count > CALL_WINDOW and clear then
+                local base = count - CALL_WINDOW
+                local window = native.pointer(access.values(s, frame))
+                native.store64(window, native.index(base * VALUE_BYTES), callee)
+                native.store64(window, native.index((base + 1ULL) * VALUE_BYTES), value)
+                local pc = native.pointer(access.code(s, frame))
+                local child = guestops.metaPrepare(ctx, frame, pc, base, ARGUMENTS, base)
+                if child ~= 0ULL then
+                    if frames.handlerresult(s, native.pointer(child)) == 1ULL
+                        and frames.publish(
+                            s,
+                            frame,
+                            native.pointer(child),
+                            native.load64(frame, native.fieldOffset<frames.Frame>("resumePC"))
+                        ) == 1ULL
+                    then
+                        access.refresh(s, native.pointer(child), ctx)
+                        return access.pc(s, native.pointer(child))
+                    end
+                    frames.abortPrepared(s, frame, native.pointer(child))
+                end
+            end
+        end
+    end
+    -- A start that failed recorded why; the error unwinds as it is.
+    guestlanding.recovered(ctx)
+    local at = guestlanding.handled(ctx, value, false)
+    if at == 0ULL then
+        guestops.failure(ctx, guestops.INVALID)
+    end
+
+    return at
+end
+
 -- The __tostring the report waits on returned `answer`: its frame ends
 -- the entry (the return handlers), and recover reports it.
 export function answered(ctx: voidptr, answer: uint64): nil
@@ -118,6 +173,9 @@ end
 -- entry ends.
 export function recover(ctx: voidptr): uint64
     local at = threads.recover(ctx)
+    if at == guestlanding.HANDLING then
+        return handle(ctx)
+    end
     if at ~= 0ULL then
         return at
     end
