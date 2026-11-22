@@ -64,6 +64,10 @@ export struct Services
     -- unwound to it, before the stack unwound: its XPHandle takes that
     -- answer rather than calling the handler again.
     handled: uint64
+    -- 1 while the error raised again (RERAISE) is what an xpcall's message
+    -- handler already answered for it, before the frames owning affine
+    -- values on its way destroyed them: the handler does not run again.
+    answered: uint64
     -- math.random's xoshiro256** state, all zero until the first draw or
     -- math.randomseed seeds it.
     random0: uint64
@@ -350,6 +354,7 @@ local function initializeHeap(
         native.store64(services, native.fieldOffset<Services>("landed"), 0ULL)
         native.store64(services, native.fieldOffset<Services>("rethrown"), 0ULL)
         native.store64(services, native.fieldOffset<Services>("handled"), 0ULL)
+        native.store64(services, native.fieldOffset<Services>("answered"), 0ULL)
         native.store64(services, native.fieldOffset<Services>("random0"), 0ULL)
         native.store64(services, native.fieldOffset<Services>("random1"), 0ULL)
         native.store64(services, native.fieldOffset<Services>("random2"), 0ULL)
