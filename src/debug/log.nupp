@@ -491,6 +491,20 @@ local function render(message: string, ...: any): string
     return string.format(message, unpack(values, 1, count))
 end
 
+--- Emits a lowered site's line, its message rendered from its literal format
+--- and arguments as a severity call renders them. The native core's lowering
+--- calls it behind the site's level test, so a filtered site evaluates none of
+--- its arguments.
+---
+--- @param module the module name the line carries
+--- @param severity the site's severity index
+--- @param line the site's line
+--- @param message the site's literal format
+--- @internal
+export function emitat(module: string, severity: integer, line: integer, message: string, ...: any): any
+    return emit(severity, module, line, render(message, ...))
+end
+
 local NO_OP = function(): nil
 end
 
