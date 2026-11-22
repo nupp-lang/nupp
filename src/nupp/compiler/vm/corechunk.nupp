@@ -399,6 +399,16 @@ local function requiresThroughEnvironment(root: any, path: string): nil
                 return
             end
         end
+        -- So is a module's bare root read as a value (`local lanes = simd`),
+        -- where its name binds nothing of this instance's.
+        if node.kind == "name" and node.qualifiedModule ~= nil then
+            local definition = node.token and node.token.definition
+            if not definition or definition.filename ~= path or definition.kind == "module" then
+                node.environmentRequire = true
+                node.requiredModule = nil
+                return
+            end
+        end
         node.qualifiedModule = nil
         node.requiredModule = nil
         for _, child in ipairs(node) do
