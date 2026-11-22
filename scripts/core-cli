@@ -44,6 +44,10 @@ scripts/c-libraries/libuv.sh scripts/c-libraries/libcurl.sh scripts/c-libraries/
 scripts/c-libraries/libcurl-early-response.patch scripts/c-libraries/zlib.sh scripts/toolchain.pins notices/libuv-LICENSE.txt
 notices/libuv-LICENSE-extra.txt notices/libcurl-LICENSE.txt
 notices/OpenSSL-LICENSE.txt notices/zlib-LICENSE.txt'
+# What decides how a module lowers, the compiler's lowering of the image's own
+# modules included: a builder whose sources differ here lowers the image
+# differently from the compiler it builds.
+LOWERING='src/nupp/compiler src/nupp/core'
 # The shared store: beside the repository's other machine caches, or where
 # NUPP_CORE_CLI_STORE names. `GENERATION/` is a generation as a checkout keeps
 # it, and `sources/DIGEST` names the one built from the sources DIGEST names.
@@ -87,6 +91,15 @@ source_fingerprint() {
         | tr '\n' '\0' | digest_files 2>&1) | digest_stdin
 }
 
+# The digest of the sources under LOWERING as they are now, as
+# source_fingerprint digests SOURCES.
+lowering_fingerprint() {
+    git -C "$ROOT" rev-parse --git-dir > /dev/null 2>&1 || return 0
+    # shellcheck disable=SC2086 # the sources are a list of paths
+    (cd "$ROOT" && git ls-files --cached --others --exclude-standard -- $LOWERING | LC_ALL=C sort -u \
+        | tr '\n' '\0' | digest_files 2>&1) | digest_stdin
+}
+
 # The generation `current` selects; fails when there is none.
 selected() {
     [ -f "$CLI/current" ] || return 1
@@ -102,7 +115,7 @@ selected() {
 # libraries the compiler loads relative to itself (`lib` beside it). SOURCE and
 # BUILDER say what it was built from; a pair installed by hand says neither.
 install_pair() {
-    runtime=$1 compiler=$2 source=${3:-} builder=${4:-}
+    runtime=$1 compiler=$2 source=${3:-} builder=${4:-} lowering=${5:-}
     libraries=$(dirname "$compiler")/lib
     runtime_dir=$(dirname "$runtime")
     # A Windows bridge is an .exe whose DLLs sit beside it; it is installed
@@ -152,6 +165,7 @@ install_pair() {
             || die "$runtime could not load from its installed location"
         printf '%s\n' "$source" > "$staged/source"
         printf '%s\n' "$builder" > "$staged/builder"
+        printf '%s\n' "$lowering" > "$staged/lowering"
         printf '%s\n' "$FORMAT" > "$staged/format"
         mv "$staged" "$destination" 2>/dev/null || rm -rf "$staged"
     fi
@@ -226,7 +240,7 @@ install_built() {
         built="$(printf '%s\n' "$bridge" | tail -n 1)/nupp-core"
     fi
     previous=$(cat "$CLI/current" 2>/dev/null || true)
-    install_pair "$built" "$1/compiler.bundle" "$2" "$3" > /dev/null
+    install_pair "$built" "$1/compiler.bundle" "$2" "$3" "${4:-}" > /dev/null
     prune "$(cat "$CLI/current")" "$previous"
     publish
 }
@@ -314,13 +328,14 @@ build_with() {
     rm -rf "$output"
     : > "$CLI/.started.$$"
     source=$(source_fingerprint)
+    lowering=$(lowering_fingerprint)
     builder="core $(cat "$runtime" "$compiler" | digest_stdin)"
     if ! sh "$ROOT/scripts/core-self-build" core "$runtime" "$compiler" "$output" > "$CLI/build.log" 2>&1; then
         mv -f "$CLI/.started.$$" "$CLI/failed"
         rm -rf "$output"
         return 1
     fi
-    install_built "$output" "$source" "$builder"
+    install_built "$output" "$source" "$builder" "$lowering"
     mv -f "$CLI/.started.$$" "$CLI/stamp"
     rm -f "$CLI/failed"
     rm -rf "$output"
@@ -368,8 +383,43 @@ remember_builder() {
     mv -f "$CLI/.builder.$$" "$CLI/builder"
 }
 
+# Whether a build lowers the modules bundled into the image with the compiler
+# it builds: NUPP_CORE_SECOND_STAGE=1 asks for it, =0 refuses it, and CI,
+# where the image's correctness matters more than the build's time, has it.
+second_stage() {
+    case "${NUPP_CORE_SECOND_STAGE:-}" in
+        1) return 0 ;;
+        0) return 1 ;;
+    esac
+    [ -n "${CI:-}" ] && [ "$CI" != false ] && [ "$CI" != 0 ]
+}
+
+# Builds with the builder ANCHOR, which pin PIN keeps. The builder lowers all
+# the image carries, and so the modules bundled into it that programs run
+# (`simd` among them) are lowered as the builder lowers. Where the sources
+# under LOWERING changed since it was built, a second stage (second_stage)
+# makes the generation it built the builder and builds once more, which costs
+# a full build; edits that change no lowering source then reuse that
+# builder's pieces. Without one, the build says its bundled modules may be
+# stale. The compiler's own code is correct either way.
+anchored_build() {
+    anchor=$1 pin=$2
+    build_with "$anchor/runtime" "$anchor/compiler.bundle" || return 1
+    [ "$(cat "$anchor/lowering" 2>/dev/null)" != "$(lowering_fingerprint)" ] || return 0
+    if ! second_stage; then
+        note "modules bundled into this core compiler were lowered by an older builder;" \
+            "NUPP_CORE_SECOND_STAGE=1 sh scripts/core-cli build lowers them with this one"
+        return 0
+    fi
+    stage=$(selected)
+    remember_builder "$pin" "$stage"
+    note "the compiler's lowering changed since its builder was built; building it again with itself"
+    build_with "$stage/runtime" "$stage/compiler.bundle"
+}
+
 # Keep an immutable builder so the code that owns a piece key stays the same
-# over multiple edits. A new seed pin bootstraps a new builder on its first edit.
+# over multiple edits. A new seed pin bootstraps a new builder on its first edit,
+# and a lowering change a new one (anchored_build).
 rebuild() {
     if ! anchor_pin=$(seed_pin); then
         if flipped; then
@@ -388,6 +438,7 @@ rebuild() {
         anchor_seed=$(sh "$ROOT/scripts/toolchain" core-seed) || return 1
         build_with "$anchor_seed/runtime" "$anchor_seed/compiler.bundle" || return 1
         remember_builder "$anchor_pin" "$(selected)"
+        anchored_build "$(selected)" "$anchor_pin"
         return
     fi
     case "$anchor_generation" in "" | *[!0-9a-f]*) anchor_generation= ;; esac
@@ -398,7 +449,7 @@ rebuild() {
         anchor_package=$1
         remember_builder "$anchor_pin" "$anchor_package"
     fi
-    build_with "$anchor_package/runtime" "$anchor_package/compiler.bundle"
+    anchored_build "$anchor_package" "$anchor_pin"
 }
 
 # One build at a time per checkout, under a lock directory its builder claims
