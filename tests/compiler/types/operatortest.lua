@@ -70,7 +70,9 @@ function M.integralRemainderAndFloorQuotientStayIntegral()
     for _, operator in ipairs({"%", "//"}) do
         local ok, problem = pcall(run, "local a: integer = 7\nlocal z: integer = 0\nreturn a " .. operator .. " z")
         testAssert.eq(ok, false, "integer zero divisor " .. operator)
-        assert(tostring(problem):find("integer division by zero", 1, true), tostring(problem))
+        -- The core raises Lua's own message; the VM words it its own way.
+        local message = program.onVm() and "integer division by zero" or "attempt to perform 'n" .. operator .. "0'"
+        assert(tostring(problem):find(message, 1, true), tostring(problem))
     end
     testAssert.eq(run("local m = 7.0 % 0.0\nreturn m ~= m"), true)
     testAssert.eq(run("return -7 % 2"), 1)
