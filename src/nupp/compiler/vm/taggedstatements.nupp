@@ -488,6 +488,52 @@ export function cleanupProfile(base: any): any
         return {token = token, methods = methods}
     end
     profile.cleanupAllowed = always
+    -- Whether a correlated pack's result owns a value: any alternative whose
+    -- literal sibling results all match, each read by `slot`.
+    profile.cleanupActivation = function(
+        ctx: any,
+        node: any,
+        activation: any,
+        slot: function(integer): integer
+    ): integer
+        local function constant(value: any): integer
+            if value == true or value == false then
+                return ctx.emit(node, "K", {pool(ctx, value and "true" or "false", "")}, "tagged") as integer
+            elseif type(value) == "string" then
+                return ctx.emit(node, "K", {pool(ctx, "str", value)}, "tagged") as integer
+            end
+            need(type(value) == "number" and value % 1 == 0, "an activation test compares a boolean, string or integer")
+
+            return ctx.emit(node, "K", {pool(ctx, "int64", string.format("%d", value))}, "tagged") as integer
+        end
+
+        local any: any = nil
+        for _, tests in ipairs(activation) do
+            local all: any = nil
+            for _, test in ipairs(tests) do
+                local matched = ctx.emit(node, "Eq", {slot(test.index), constant(test.constant)}, "tagged") as integer
+                if all ~= nil then
+                    local previous = ctx.readHeld(all)
+                    ctx.release(all)
+                    matched = ctx.select(node, previous, matched, previous)
+                end
+                all = ctx.hold(matched)
+            end
+            need(all ~= nil, "an activation alternative has no test")
+            if any ~= nil then
+                local previous, current = ctx.readHeld(any), ctx.readHeld(all)
+                ctx.release(all)
+                ctx.release(any)
+                all = ctx.hold(ctx.select(node, previous, previous, current))
+            end
+            any = all
+        end
+        need(any ~= nil, "an activation has no alternative")
+        local answer = ctx.readHeld(any)
+        ctx.release(any)
+
+        return answer
+    end
     -- After owners are destroyed: false once when a destructor raised, its
     -- error landed here, which the failure path then raises, as Lua raises an
     -- error a __close raises on the way out.
