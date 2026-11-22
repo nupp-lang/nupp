@@ -29,11 +29,16 @@ if [ ! -s "$paths" ]; then
     echo "No changed paths; no checks selected."
     exit 0
 fi
-# The classifier is plain Lua. Use the verified native seed without rebuilding
-# the checkout or fetching another language runtime to select its checks.
-pair=$(./scripts/toolchain stage0-seed | tr -d '\r')
-python3 scripts/bootstrap-seed run "$pair" exec "$pair/compiler.image" \
-    nupp.tools.vm.root run scripts/test-selection.lua "$paths" > "$selection"
+# The classifier is plain Lua. On the core the installed compiler runs it; a
+# VM host uses the verified native seed without rebuilding the checkout or
+# fetching another language runtime to select its checks.
+if [ "$(sh scripts/stage0-runtime)" = core ] || [ "${NUPP_RUNTIME:-}" = core ]; then
+    ./bin/nupp run scripts/test-selection.lua "$paths" > "$selection"
+else
+    pair=$(./scripts/toolchain stage0-seed | tr -d '\r')
+    python3 scripts/bootstrap-seed run "$pair" exec "$pair/compiler.image" \
+        nupp.tools.vm.root run scripts/test-selection.lua "$paths" > "$selection"
+fi
 set --
 fixpoint=no
 while IFS= read -r obligation; do
