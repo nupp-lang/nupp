@@ -26,6 +26,34 @@ local aliasdowncast = require("nupp.compiler.vm.aliasdowncast")
 local stubmodules = require("nupp.compiler.vm.stubmodules")
 local scalarcapabilities = require("nupp.compiler.vm.scalarcapabilities")
 
+-- Lua's `f "s"` and `f {...}` as the calls of one argument they are, which
+-- is the only form the core lowers: every call reads its argument list.
+local function positionalArguments(node: any): nil
+    if type(node) ~= "table" or cst.isToken(node) then
+        return
+    end
+    if node.kind == "args" and node.exprs == nil then
+        if node.str ~= nil then
+            local token = node.str
+            local literal: any = cst.StringLit(kind = "string")
+            literal.token = cst.add(literal, token)
+            local value = lexer.stringValue(token.text)
+            literal.inferredType = value and types.literal(value, types.string) or types.string
+            for index, child in ipairs(node) do
+                if child == token then
+                    node[index] = literal
+                end
+            end
+            node.exprs, node.str = {literal}, nil
+        elseif node.table ~= nil then
+            node.exprs, node.table = {node.table}, nil
+        end
+    end
+    for _, child in ipairs(node) do
+        positionalArguments(child)
+    end
+end
+
 local typeSyntax = {
     tconst = true,
     tkeyof = true,
@@ -671,6 +699,7 @@ export function describe(modules: {any}, entryModule: string, options: any?): an
         for _, witness in ipairs(typewitness.collect(parsed.root, parsed.moduleExports).ordered) do
             p.reflected[witness.node] = true
         end
+        positionalArguments(parsed.root)
         -- Once per check of a tree: a project shares its trees across
         -- programs, and checking one again declares its names anew.
         if parsed.forwardSymbols ~= parsed.symbols then
