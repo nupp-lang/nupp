@@ -38,6 +38,7 @@ const coreuserdata = require("nupp.runtime.core.coreuserdata")
 const guestreplay = require("nupp.runtime.core.guestreplay")
 const guestarith = require("nupp.runtime.core.guestarith")
 const uncaught = require("nupp.runtime.core.guestuncaught")
+const landing = require("nupp.runtime.core.guestlanding")
 const finalizers = require("nupp.runtime.core.guestfinalizers")
 const guestgc = require("nupp.runtime.core.guestgc")
 
@@ -1519,7 +1520,7 @@ export function LibCall(
     -- error(value [, level]) fails the entry here, so the failure records
     -- the pc the message's position names.
     if libraryId == librarycalls.RERAISE then
-        guestscope.raise(ctx, guestscope.lastError(ctx), 0ULL)
+        guestscope.raise(ctx, landing.takepending(ctx, native.address(frame)), 0ULL)
         ops.fail(ctx, frame, pc, context.GUEST_ERROR_STATUS)
         return native.fail()
     end

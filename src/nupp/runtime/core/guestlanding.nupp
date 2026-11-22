@@ -16,6 +16,14 @@ const librarycalls = require("nupp.runtime.core.librarycalls")
 const librarylayouts = require("nupp.runtime.core.librarylayouts")
 const guestscope = require("nupp.runtime.core.guestscope")
 const guesterrors = require("nupp.runtime.core.guesterrors")
+const strings = require("nupp.runtime.core.corestrings")
+
+-- "\ncleanup" and ": " as little-endian byte words: what goes between a
+-- failure and the cleanup failure kept under it, as the VM prints them.
+const CLEANUP_WORD: uint64 = 0x70756e61656c630aULL
+const CLEANUP_WORD_BYTES: uint64 = 8ULL
+const SEPARATOR_WORD: uint64 = 0x203aULL
+const SEPARATOR_WORD_BYTES: uint64 = 2ULL
 
 -- 1 when the function a frame runs owns affine values (its catalog record
 -- lands errors).
@@ -218,6 +226,157 @@ local function forgetModules(ctx: voidptr, state: voidptr, stop: uint64): nil
     end
 end
 
+-- The frame beneath `frame`, or 0 for none: a walk that stops there takes
+-- `frame` in too.
+local function beneath(frame: uint64): uint64
+    if frame == 0ULL then
+        return 0ULL
+    end
+    @unsafe do
+        return native.load64(native.pointer(frame), native.fieldOffset<frames.Frame>("previous"))
+    end
+end
+
+-- A frame's key in Services.pending.
+local function pendingKey(frame: uint64): uint64
+    return values.TAG_INTEGER | frame
+end
+
+-- What Services.pending keeps for `frame`: nil when no failure is pending
+-- there, the pending table itself for a nil one, which a table cannot hold
+-- (`unkept`), else the failure.
+local function kept(services: voidptr, frame: uint64): uint64
+    @unsafe do
+        local pending = native.load64(services, native.fieldOffset<guestscope.Services>("pending"))
+        if pending == 0ULL then
+            return values.NIL
+        end
+        return tables.get(pending & values.PAYLOAD, pendingKey(frame))
+    end
+end
+
+-- The failure a present `kept` entry stands for.
+local function unkept(services: voidptr, entry: uint64): uint64
+    @unsafe do
+        if entry == native.load64(services, native.fieldOffset<guestscope.Services>("pending")) then
+            return values.NIL
+        end
+        return entry
+    end
+end
+
+-- Forgets the pending failures of the frames from the active one up to
+-- `stop`, which keeps its own (0 for every frame): they are unwound.
+local function forgetPending(ctx: voidptr, state: voidptr, stop: uint64): nil
+    @unsafe do
+        local services = native.loadPointer(ctx, context.SERVICE_SCOPE)
+        local pending = native.load64(services, native.fieldOffset<guestscope.Services>("pending"))
+        if pending == 0ULL then
+            return
+        end
+        local h = native.pointer(guestscope.guestHeap(ctx)) as heap.Heap*
+        local at = native.load64(state, native.fieldOffset<frames.State>("active"))
+        while at ~= 0ULL and at ~= stop do
+            -- Clearing a present key allocates nothing.
+            if tables.get(pending & values.PAYLOAD, pendingKey(at)) ~= values.NIL then
+                tables.set(h, pending & values.PAYLOAD, pendingKey(at), values.NIL)
+            end
+            at = native.load64(native.pointer(at), native.fieldOffset<frames.Frame>("previous"))
+        end
+        tables.drain(h)
+    end
+end
+
+-- `primary` with the cleanup failure `more` kept under it, as one message
+-- that prints the primary failure and then it, as the VM's does: a
+-- failure that is no string keeps its identity and drops `more`, as does
+-- one the core cannot phrase without calling a metamethod.
+local function suppressing(ctx: voidptr, primary: uint64, more: uint64): uint64
+    local state0 = strings.Builder(0ULL, 0ULL)
+    @unsafe do
+        local first = strings.header(primary)
+        local second = strings.header(more)
+        if more == primary or first == 0ULL or second == 0ULL and not guesterrors.identified(more) then
+            return primary
+        end
+        local h = native.pointer(guestscope.guestHeap(ctx)) as heap.Heap*
+        local builderLifetime = strings.open(h, state0 as strings.Builder*)
+        local builder = state0 as strings.Builder*
+        local refused = strings.appendString(h, builder, first)
+            | strings.appendWord(h, builder, CLEANUP_WORD, CLEANUP_WORD_BYTES)
+            | strings.appendWord(h, builder, SEPARATOR_WORD, SEPARATOR_WORD_BYTES)
+        if second ~= 0ULL then
+            refused = refused | strings.appendString(h, builder, second)
+        else
+            refused = refused | guesterrors.appendIdentity(h, builder, more)
+        end
+        if refused ~= 0ULL then
+            strings.release(builder)
+            return primary
+        end
+        local result = strings.finish(h, builder)
+        tables.drain(h)
+        return values.TAG_OBJ | result
+    end
+end
+
+-- The error `value` landed at `frame`: it is that frame's pending failure,
+-- raised again once its owners are destroyed (`takepending`), or kept
+-- under the failure already pending there when a cleanup on its way out
+-- raised it. Each landing frame keeps its own, so a protected call made
+-- meanwhile, or another frame's landing, loses none. `value` is rooted
+-- (Services.lastError) by the caller; lastError ends up holding the
+-- failure now pending.
+local function remember(ctx: voidptr, frame: uint64, value: uint64): nil
+    @unsafe do
+        local services = native.loadPointer(ctx, context.SERVICE_SCOPE)
+        local h = native.pointer(guestscope.guestHeap(ctx)) as heap.Heap*
+        local pending = native.load64(services, native.fieldOffset<guestscope.Services>("pending"))
+        if pending == 0ULL then
+            pending = values.TAG_OBJ | guestscope.newTable(ctx)
+            native.store64(services, native.fieldOffset<guestscope.Services>("pending"), pending)
+        end
+        local failure = value
+        local before = kept(services, frame)
+        if before ~= values.NIL then
+            failure = suppressing(ctx, unkept(services, before), value)
+        end
+        native.store64(services, native.fieldOffset<guestscope.Services>("lastError"), failure)
+        local stored = failure
+        if stored == values.NIL then
+            stored = pending
+        end
+        if tables.set(h, pending & values.PAYLOAD, pendingKey(frame), stored) == tables.NO_MEMORY then
+            error("not enough memory")
+        end
+        tables.drain(h)
+    end
+end
+
+-- The failure `frame` raises again once its owners are destroyed (RERAISE):
+-- the one pending at it, now forgotten, else the last one recovered.
+export function takepending(ctx: voidptr, frame: uint64): uint64
+    @unsafe do
+        local services = native.loadPointer(ctx, context.SERVICE_SCOPE)
+        local entry = kept(services, frame)
+        if entry == values.NIL then
+            return native.load64(services, native.fieldOffset<guestscope.Services>("lastError"))
+        end
+        local value = unkept(services, entry)
+        local h = native.pointer(guestscope.guestHeap(ctx)) as heap.Heap*
+        -- Clearing a present key allocates nothing; the caller raises the
+        -- value, which roots it, before anything allocates.
+        tables.set(
+            h,
+            native.load64(services, native.fieldOffset<guestscope.Services>("pending")) & values.PAYLOAD,
+            pendingKey(frame),
+            values.NIL
+        )
+        tables.drain(h)
+        return value
+    end
+end
+
 -- After a guest error stops the handlers: unwinds it to the nearest protected
 -- call (frames.recover) and answers the pc to resume at, or 0 when the stop
 -- was not a guest error (a refusal, budget or cancellation is not one) or no
@@ -337,17 +496,24 @@ export function recoverEntry(ctx: voidptr): uint64
         -- to the protected call (all of them when none takes it).
         if own == 0ULL and landing ~= 0ULL then
             forgetModules(ctx, state, landing)
+            forgetPending(ctx, state, landing)
         elseif own == 0ULL and not closing then
-            forgetModules(ctx, state, protectedFrame(state))
+            local destination = protectedFrame(state)
+            forgetModules(ctx, state, destination)
+            forgetPending(ctx, state, beneath(destination))
+        elseif own == 0ULL and closing then
+            forgetPending(ctx, state, 0ULL)
         end
         local parent: uint64 = 0ULL
         if own ~= 0ULL then
             parent = own
             native.store64(services, native.fieldOffset<guestscope.Services>("landed"), 1ULL)
+            remember(ctx, own, value)
         elseif landing ~= 0ULL then
             parent = frames.land(state, landing)
             if parent ~= 0ULL then
                 native.store64(services, native.fieldOffset<guestscope.Services>("landed"), 1ULL)
+                remember(ctx, parent, value)
             end
         elseif native.load64(services, native.fieldOffset<guestscope.Services>("closing")) == 0ULL then
             local destination = protectedFrame(state)
