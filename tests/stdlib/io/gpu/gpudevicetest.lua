@@ -3,22 +3,22 @@
 -- NUPP_REQUIRE_GPU turns a missing adapter from a skip into a failure, which is
 -- how the GPU conformance jobs run it; NUPP_EXPECT_GPU_BACKEND and
 -- NUPP_EXPECT_GPU_ADAPTER name the device those jobs must have found.
-local ffi = require("nupp.runtime.provider.wgpumemory")
+local memory = require("nupp.runtime.provider.wgpumemory")
 local assertions = require("assert")
 local device = require("nupp.runtime.provider.gpudevice")
 local costs = require("nupp.runtime.provider.gpucosts")
 local json = require("nupp.codec.json.provider")
 
 local function upload(context, buffer, offset, source, length)
-    return device.upload(context, buffer, offset, ffi.raw(source), length)
+    return device.upload(context, buffer, offset, memory.raw(source), length)
 end
 
 local function readdownload(context, buffer, offset, size, destination)
-    return device.readdownload(context, buffer, offset, size, ffi.raw(destination))
+    return device.readdownload(context, buffer, offset, size, memory.raw(destination))
 end
 
 local function dispatch(context, binding, work, uniforms, length)
-    return device.dispatch(context, binding, work, ffi.raw(uniforms), length)
+    return device.dispatch(context, binding, work, memory.raw(uniforms), length)
 end
 
 local M = {}
@@ -69,7 +69,7 @@ fn main(@builtin(global_invocation_id) id: vec3<u32>) {
 }
 ]]
 
-local NO_UNIFORMS = ffi.new("uint8_t[1]")
+local NO_UNIFORMS = memory.new("uint8_t[1]")
 
 local function check(value, problem)
     assert(problem == nil, problem)
@@ -77,14 +77,14 @@ local function check(value, problem)
 end
 
 function M.invalidTimestampIntervalsDoNotClaimDeviceDuration()
-    local first, last = ffi.new("uint64_t", 10), ffi.new("uint64_t", 1010)
+    local first, last = memory.new("uint64_t", 10), memory.new("uint64_t", 1010)
     assert(device.timestampmilliseconds(first, last, 2.0) == 0.002)
-    local _, equal = device.timestampmilliseconds(ffi.new("uint64_t", 0), ffi.new("uint64_t", 0), 1.0)
+    local _, equal = device.timestampmilliseconds(memory.new("uint64_t", 0), memory.new("uint64_t", 0), 1.0)
     assert(equal == "equal-timestamps")
-    local _, reversed = device.timestampmilliseconds(ffi.new("uint64_t", 10), ffi.new("uint64_t", 9), 1.0)
+    local _, reversed = device.timestampmilliseconds(memory.new("uint64_t", 10), memory.new("uint64_t", 9), 1.0)
     assert(reversed == "reversed-timestamps")
     for _, period in ipairs({0.0, -1.0, 0 / 0, math.huge}) do
-        local _, reason = device.timestampmilliseconds(ffi.new("uint64_t", 10), ffi.new("uint64_t", 20), period)
+        local _, reason = device.timestampmilliseconds(memory.new("uint64_t", 10), memory.new("uint64_t", 20), period)
         assert(reason == "invalid-timestamp-period", tostring(period))
     end
 end
@@ -959,10 +959,10 @@ end
 function M.narrowBuffersMoveBytesThatEndPartwayThroughAWordWhenAvailable()
     local gpu = open()
     local buffer = check(device.createbuffer(gpu, 3))
-    check(upload(gpu, buffer, 0, ffi.new("uint8_t[3]", {1, 2, 3}), 3))
+    check(upload(gpu, buffer, 0, memory.new("uint8_t[3]", {1, 2, 3}), 3))
     check(device.queuedownload(gpu, buffer, 0, 3))
     check(device.synchronize(gpu))
-    local bytes = ffi.new("uint8_t[3]")
+    local bytes = memory.new("uint8_t[3]")
     check(readdownload(gpu, buffer, 0, 3, bytes))
     assert(bytes[0] == 1 and bytes[1] == 2 and bytes[2] == 3)
     local kernel = check(device.createwgslkernel(gpu, ROUND_TRIP, {1, 1, 1}))
@@ -985,10 +985,10 @@ function M.anUnreadDownloadSaysSoWhenAvailable()
     check(device.synchronize(gpu))
     local _, unread = device.queuedownload(gpu, buffer, 0, 16)
     assert(unread == "gpu: buffer " .. buffer .. " has a synchronized download that has not been read yet", unread)
-    local _, mismatch = readdownload(gpu, buffer, 4, 12, ffi.new("uint8_t[12]"))
+    local _, mismatch = readdownload(gpu, buffer, 4, 12, memory.new("uint8_t[12]"))
     assert(mismatch == "gpu: downloaded range 0..16 does not match requested range 4..16", mismatch)
-    check(readdownload(gpu, buffer, 0, 16, ffi.new("uint8_t[16]")))
-    local _, missing = readdownload(gpu, buffer, 0, 16, ffi.new("uint8_t[16]"))
+    check(readdownload(gpu, buffer, 0, 16, memory.new("uint8_t[16]")))
+    local _, missing = readdownload(gpu, buffer, 0, 16, memory.new("uint8_t[16]"))
     assert(missing == "gpu: buffer " .. buffer .. " has no synchronized download", missing)
     check(device.queuedownload(gpu, buffer, 0, 16))
     check(device.synchronize(gpu))
@@ -999,11 +999,11 @@ end
 function M.aCostOutputFailureLeavesAConsumedDownloadReadWhenAvailable()
     local gpu = open()
     local buffer = check(device.createbuffer(gpu, 16))
-    check(upload(gpu, buffer, 0, ffi.new("uint8_t[16]", {9, 9, 9, 9, 9, 9, 9, 9, 9, 9, 9, 9, 9, 9, 9, 9}), 16))
+    check(upload(gpu, buffer, 0, memory.new("uint8_t[16]", {9, 9, 9, 9, 9, 9, 9, 9, 9, 9, 9, 9, 9, 9, 9, 9}), 16))
     check(device.queuedownload(gpu, buffer, 0, 16))
     check(device.synchronize(gpu))
     costs.injectfailure("injected write failure")
-    local bytes = ffi.new("uint8_t[16]")
+    local bytes = memory.new("uint8_t[16]")
     check(readdownload(gpu, buffer, 0, 16, bytes))
     assert(bytes[0] == 9 and bytes[15] == 9)
     assert(costs.check() == "injected write failure")
@@ -1147,7 +1147,7 @@ function M.adapterComputeRoundTripWhenAvailable()
     )
     local buffer = check(device.createbuffer(gpu, 16))
     check(device.metadata(gpu, buffer, false, {format = "uint32", shape = {4}, elementBytes = 4}))
-    check(upload(gpu, buffer, 0, ffi.new("uint32_t[4]", {1, 2, 3, 4}), 16))
+    check(upload(gpu, buffer, 0, memory.new("uint32_t[4]", {1, 2, 3, 4}), 16))
     local bindings = check(device.createbindings(gpu, kernel))
     check(device.setbuffer(gpu, bindings, true, 0, buffer, 0, 16))
     check(device.metadata(gpu, buffer, false, {shape = {2, 2}, strides = {2, 1}}))
@@ -1157,9 +1157,9 @@ function M.adapterComputeRoundTripWhenAvailable()
     -- This upload is ordered after the queued copy; its version must not
     -- replace the downloaded snapshot's provenance.
     check(device.metadata(gpu, buffer, false, {shape = {1, 4}, strides = {4, 1}}))
-    check(upload(gpu, buffer, 0, ffi.new("uint32_t[4]"), 16))
+    check(upload(gpu, buffer, 0, memory.new("uint32_t[4]"), 16))
     check(device.synchronize(gpu))
-    local values = ffi.new("uint32_t[4]")
+    local values = memory.new("uint32_t[4]")
     check(readdownload(gpu, buffer, 0, 16, values))
     assert(values[0] == 3 and values[1] == 4 and values[2] == 5 and values[3] == 6)
     -- Hardware without timestamp support, even on an adapter that has it: no
@@ -1223,8 +1223,8 @@ function M.adapterComputeRoundTripWhenAvailable()
         end
         assert(#timings == 2, #timings)
         for _, timing in ipairs(timings) do
-            local first = ffi.new("uint64_t", tonumber(timing.gpuTicksBegin))
-            local last = ffi.new("uint64_t", tonumber(timing.gpuTicksEnd))
+            local first = memory.new("uint64_t", tonumber(timing.gpuTicksBegin))
+            local last = memory.new("uint64_t", tonumber(timing.gpuTicksEnd))
             local _, reason = device.timestampmilliseconds(first, last, timing.gpuTickPeriodNs)
             if reason == nil then
                 assert(timing.gpuTiming == "timestamp-query" and type(timing.gpuMs) == "number")
