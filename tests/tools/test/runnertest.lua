@@ -31,6 +31,28 @@ end
 -- temporary project that holds a copy of tests/run.lua, it is that copy.
 local RUNNER = ROOT .. "/build/nupp-test"
 
+-- On the native core `nupp test` runs the runner the compiler carries rather
+-- than building one (project.test), so the runner a person runs is that
+-- command: a script that starts it, put in place by rename so a shard never
+-- starts a half-written one.
+local function coreRunner()
+    local script = ROOT .. "/build/nupp-test-core"
+    local staged = os.tmpname()
+    write(staged, ("#!/bin/sh\nexec %q test --internal-runner \"$@\"\n"):format(NUPP))
+    assert(os.execute(("chmod +x %q && mv -f %q %q"):format(staged, staged, script)) == 0, "cannot stage " .. script)
+
+    return script
+end
+
+do
+    local built = io.open(RUNNER, "rb")
+    if built then
+        built:close()
+    elseif rawget(_G, "__nupp_load_image") == nil then
+        RUNNER = coreRunner()
+    end
+end
+
 -- The suite's records as data. Decoded here rather than through the runner's
 -- own codec, which only a running runner preloads.
 local function decode(text)
