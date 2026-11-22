@@ -1608,7 +1608,11 @@ export function describe(modules: {any}, entryModule: string, options: any?): an
         -- Checked builtin projections take precedence over legacy library
         -- tables. Ordinary qualified paths keep their unbound/module roots.
         local projection = builtinprojection(node)
-        if p.chunkModule and node.kind == "dotIndex" and node.environmentRequire and node.qualifiedModule then
+        if p.chunkModule
+            and (node.kind == "dotIndex" or node.kind == "name")
+            and node.environmentRequire
+            and node.qualifiedModule
+        then
             local module = graph.coremodule(node.qualifiedModule)
             local anchor = need(cst.firstToken(node), "a qualified chunk read needs a source anchor")
             local requireCall = chunkRequire(module, anchor)
@@ -2659,6 +2663,7 @@ export function verify(p: any): boolean
                     item.library ~= nil and (node.kind == "name" or node.kind == "dotIndex")
                     or (
                         node.kind == "dotIndex"
+                        or item.environmentCall and node.kind == "name"
                         or item.builtin and (node.kind == "name" or node.kind == "call")
                         or item.eager and node.kind == "qualifiedLoad"
                         or item.callable and node.kind == "qualifiedLoad"
