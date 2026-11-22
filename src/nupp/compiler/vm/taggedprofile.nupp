@@ -245,12 +245,107 @@ local function comptimeData(ctx: any, node: any, value: any): integer
     return result as integer
 end
 
+-- The runtime module whose keyed field codec a materialized
+-- `types.reflect.fieldcodec` calls.
+const RUNTIME_REFLECT = "nupp.compiler.runtime.reflect"
+
+local function stringConstant(ctx: any, node: any, text: string): integer
+    return ctx.emit(node, "K", {pool(ctx, "str", text)}, "tagged") as integer
+end
+
+-- IR `item` of the materialized comptime value `node`
+-- (nupp.compiler.comptime.materialize.ir), lowered as the expression it
+-- renders to: its type objects read through the references the program
+-- graph issued, and its calls made through `any` at the callsites it
+-- issued. Closures are not lowered yet.
+local materialized: function(any, any, any): integer?
+materialized = function(ctx: any, node: any, item: any): integer?
+    local made = need(catalog(ctx).materializations[node], "a materialization was not discovered")
+    local tag = item.tag
+    if tag == "literal" then
+        return defaultConstant(ctx, node, item.value)
+    elseif tag == "helper" then
+        need(item.name == "nupp.fieldcodec.keyed", "a materialization names an unknown helper")
+        local name = stringConstant(ctx, node, RUNTIME_REFLECT)
+        local loader = corelibrary.immediate(corelibrary.id("MODULE_REQUIRE"), false)
+        local module = ctx.emit(node, "LibCall", {loader, name}, "tagged")
+        return ctx.emit(node, "GetIdx", {module, stringConstant(ctx, node, "keyedFieldCodec")}, "tagged")
+    elseif tag == "typeobject" then
+        local value: integer? = nil
+        for member in (item.path as string):gmatch("[^.]+") do
+            if value == nil then
+                local token = need(made.tokens[member], "a materialized type object has no reference")
+                value = ctx.expression({kind = "name", token = token, token}, "tagged")
+                if value == nil then
+                    return nil
+                end
+            else
+                value = ctx.emit(node, "GetIdx", {value, stringConstant(ctx, node, member)}, "tagged")
+            end
+        end
+        return value
+    elseif tag == "field" then
+        local object = materialized(ctx, node, item.object)
+        return object and ctx.emit(node, "GetIdx", {object, stringConstant(ctx, node, item.name)}, "tagged")
+    elseif tag == "table" then
+        local held = ctx.hold(ctx.emit(node, "NewTable", {}, "tagged"))
+        local entries = {}
+        for index, child in ipairs(item.array or {}) do
+            entries[#entries + 1] = {key = index, value = child}
+        end
+        for _, field in ipairs(item.fields or {}) do
+            entries[#entries + 1] = {key = field.name, value = field.value}
+        end
+        for _, entry in ipairs(entries) do
+            local value = materialized(ctx, node, entry.value)
+            if value == nil or ctx.block == nil then
+                ctx.release(held)
+                return nil
+            end
+            local key = type(entry.key) == "string" and stringConstant(ctx, node, entry.key)
+                or ctx.emit(node, "K", {pool(ctx, "int64", tostring(entry.key))}, "tagged")
+            ctx.emit(node, "SetIdx", {ctx.readHeld(held), key, value}, nil)
+        end
+        local result = ctx.readHeld(held)
+        ctx.release(held)
+        return result
+    elseif tag == "call" then
+        local call = need(made.calls[item], "a materialized call has no callsite")
+        local parts = {item.callee}
+        for _, argument in ipairs(item.args or {}) do
+            parts[#parts + 1] = argument
+        end
+        local held = {}
+        for index, part in ipairs(parts) do
+            local value = materialized(ctx, node, part)
+            if value == nil or ctx.block == nil then
+                for _, handle in ipairs(held) do
+                    ctx.release(handle)
+                end
+                return nil
+            end
+            held[index] = ctx.hold(value)
+        end
+        local values = {}
+        for index, handle in ipairs(held) do
+            values[index] = ctx.readHeld(handle)
+            ctx.release(handle)
+        end
+        local callee = table.remove(values, 1)
+        return ctx.invoke(call, callee, values, graph.dynamicInvokeContract(call, 1), true)
+    end
+
+    error("tagged graph: a comptime materialization's " .. tostring(tag) .. " is not lowered on the core yet", 0)
+end
+
 -- A `comptime` block the checker ran stands for the value it produced,
--- which the checker quoted as Lua source of plain data. A materialized value
--- names code to run, which the core does not lower yet.
+-- which the checker quoted as Lua source of plain data, or, materialized,
+-- the code it chose to make it.
 export function comptime(ctx: any, node: any, expected: string?): integer
     need(expected == nil or expected == "tagged", "comptime requires tagged destination")
-    need(node.materializedIR == nil, "a comptime materialization is not lowered on the core yet")
+    if node.materializedIR ~= nil then
+        return materialized(ctx, node, node.materializedIR) as integer
+    end
     local text = need(node.comptimeValue, "a comptime block lacks its checked value")
     local chunk = need(load("return " .. text, "=comptime", "t", {}), "a comptime value does not load")
 
