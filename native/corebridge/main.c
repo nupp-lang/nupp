@@ -298,6 +298,83 @@ int32_t nuppsnprintf2 (char *out, uint64_t room, const char *format,
                   count > INT_MAX ? INT_MAX : (int)count, value);
 }
 
+/* A text a C callback is lent as a pair passed by value: its bytes and their
+ * length, SIZE_MAX for bytes a NUL ends. WebGPU's WGPUStringView. */
+typedef struct {
+  const char *data;
+  size_t length;
+} LentText;
+
+/* A record's words (`nupp.runtime.provider.wgpu`): how many calls it was
+ * offered, how many entry bytes it keeps, how many fit and how many calls
+ * found no room. Its entries follow. */
+enum { KEPT_CALLS, KEPT_USED, KEPT_CAPACITY, KEPT_DROPPED, KEPT_HEADER };
+
+/* An entry's words before its text: the call's two leading arguments and the
+ * text's length. The text follows, padded to a word. */
+enum { KEPT_ENTRY_WORDS = 3 };
+
+/* Keeps one call in `record`, when there is room for it. */
+static void keepcall (uint64_t *record, uint64_t first, uint64_t second,
+                      LentText text) {
+  if (!record) {
+    return;
+  }
+
+  size_t length = 0;
+
+  if (text.data) {
+    length = text.length == SIZE_MAX ? strlen(text.data) : text.length;
+  }
+
+  uint64_t words[KEPT_ENTRY_WORDS] = {first, second, (uint64_t)length};
+  uint64_t padded = ((uint64_t)length + 7) / 8 * 8;
+  uint64_t bytes = sizeof words + padded;
+  uint64_t used = record[KEPT_USED];
+  uint64_t capacity = record[KEPT_CAPACITY];
+
+  record[KEPT_CALLS] += 1;
+
+  if (padded < length || used > capacity || bytes > capacity - used) {
+    record[KEPT_DROPPED] += 1;
+
+    return;
+  }
+
+  unsigned char *entry = (unsigned char *)(record + KEPT_HEADER) + used;
+
+  memcpy(entry, words, sizeof words);
+
+  if (length) {
+    memcpy(entry + sizeof words, text.data, length);
+  }
+
+  record[KEPT_USED] = used + bytes;
+}
+
+/* C callbacks Nupp cannot be entered from, as WebGPU calls them: each keeps
+ * the call in the record its first userdata names, which Nupp reads once the
+ * call that ran it has returned. Nothing managed runs. A leading argument
+ * narrower than a word arrives as the platform passes it, its upper bits
+ * unspecified, so the reader masks it. */
+#ifdef _WIN32
+__declspec(dllexport)
+#endif
+void nupp_core_keep_pair_text (uint64_t first, uint64_t second, LentText text,
+                               void *record, void *unused) {
+  (void)unused;
+  keepcall(record, first, second, text);
+}
+
+#ifdef _WIN32
+__declspec(dllexport)
+#endif
+void nupp_core_keep_text (uint64_t first, LentText text, void *record,
+                          void *unused) {
+  (void)unused;
+  keepcall(record, first, 0, text);
+}
+
 #ifndef _WIN32
 
 /** The native monotonic clock in nanoseconds. */
