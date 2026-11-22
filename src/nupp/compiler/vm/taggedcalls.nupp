@@ -457,8 +457,10 @@ end
 
 -- `R(...)` with a constructor: a fresh instance with R's field
 -- defaults, then R's constructor called with it first (from the table R's
--- name holds); the instance is the value.
-export function construct(ctx: any, node: any, origin: any): any
+-- name holds); the instance is the value. `instantiate`, when given, makes
+-- the instance in place of a record's table: a struct's zeroed bytes with
+-- its defaults written.
+export function construct(ctx: any, node: any, origin: any, instantiate: any?): any
     local p = catalog(ctx)
     local call = node.call
     local site = need(p.callByNode[call], "construction lacks its checked callsite")
@@ -479,20 +481,31 @@ export function construct(ctx: any, node: any, origin: any): any
     local name = "\0new" .. tostring(call.constructorEntry.index)
     local key = ctx.emit(node, "K", {pool(ctx, "str", name)}, "tagged")
     local callee = ctx.hold(ctx.emit(node, "GetIdx", {ctx.readHeld(heldClass), key}, "tagged"))
-    local instance = ctx.hold(ctx.emit(node, "NewTable", {}, "tagged"))
-    ctx.emit(
-        node,
-        "LibCall",
-        {corelibrary.id("SETMETATABLE"), ctx.readHeld(instance), ctx.readHeld(heldClass)},
-        "tagged"
-    )
-    ctx.release(heldClass)
-    for _, field in ipairs(origin.fieldOrder or {}) do
-        local default = origin.fieldDefaults and origin.fieldDefaults[field]
-        if default then
-            local value = defaultConstant(ctx, node, default.value)
-            local slotKey = taggedvalues.slotKey(ctx, node, origin, field)
-            ctx.emit(node, "SetIdx", {ctx.readHeld(instance), slotKey, value}, nil)
+    local instance: any = nil
+    if instantiate ~= nil then
+        ctx.release(heldClass)
+        local made = instantiate(ctx)
+        if made == nil then
+            ctx.release(callee)
+            return nil
+        end
+        instance = ctx.hold(made)
+    else
+        instance = ctx.hold(ctx.emit(node, "NewTable", {}, "tagged"))
+        ctx.emit(
+            node,
+            "LibCall",
+            {corelibrary.id("SETMETATABLE"), ctx.readHeld(instance), ctx.readHeld(heldClass)},
+            "tagged"
+        )
+        ctx.release(heldClass)
+        for _, field in ipairs(origin.fieldOrder or {}) do
+            local default = origin.fieldDefaults and origin.fieldDefaults[field]
+            if default then
+                local value = defaultConstant(ctx, node, default.value)
+                local slotKey = taggedvalues.slotKey(ctx, node, origin, field)
+                ctx.emit(node, "SetIdx", {ctx.readHeld(instance), slotKey, value}, nil)
+            end
         end
     end
     -- A `...` or a call giving other than one result last spreads its pack
@@ -958,12 +971,21 @@ end
 
 local function methodCallee(ctx: any, node: any, site: any, receiver: integer?): integer?
     local owner: integer?
-    if site.dynamic then
+    -- A struct method read from its table is called as `any`, though it is
+    -- not read from its receiver.
+    if site.dynamic and site.classToken == nil then
         owner = receiver
     elseif site.metatable then
         owner = ctx.emit(node, "LibCall", {corelibrary.id("GETMETATABLE"), receiver}, "tagged")
     else
         owner = ctx.expression({kind = "name", token = site.classToken, site.classToken}, "tagged")
+        -- `function t.S:m()` reaches S's table through `t`.
+        for _, name in ipairs(site.classPath or {}) do
+            if owner ~= nil then
+                local step = ctx.emit(node, "K", {pool(ctx, "str", name)}, "tagged")
+                owner = ctx.emit(node, "GetIdx", {owner, step}, "tagged")
+            end
+        end
     end
     if owner == nil then
         return nil

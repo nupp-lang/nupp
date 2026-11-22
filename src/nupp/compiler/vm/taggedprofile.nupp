@@ -848,11 +848,24 @@ export function forVersion(version: integer): any
             local origin = recordOrigin(node.inferredType)
             local callsite = node.call
             local declared = taggedstructs.origin(node.inferredType)
+            if declared and callsite and callsite.constructorEntry then
+                -- A struct's constructor runs on its zeroed bytes with each
+                -- field default written, as a record's runs on its table.
+                return construct(ctx, node, declared, function(c: any): integer?
+                    local names, values = {}, {}
+                    for _, field in ipairs(declared.fieldOrder or {}) do
+                        local default = declared.fieldDefaults and declared.fieldDefaults[field]
+                        if default then
+                            names[#names + 1] = field
+                            values[#values + 1] = defaultConstant(c, node, default.value)
+                        end
+                    end
+
+                    return taggedstructs.construct(c, node, declared, names, values)
+                end) as integer
+            end
             if declared then
-                need(
-                    callsite and not callsite.constructorEntry and type(callsite.recordFields) == "table",
-                    "only plain struct construction is admitted"
-                )
+                need(callsite and type(callsite.recordFields) == "table", "only plain struct construction is admitted")
                 local nodes, names, defaults = {}, {}, {}
                 for _, binding in ipairs(callsite.recordFields) do
                     if binding.node then
