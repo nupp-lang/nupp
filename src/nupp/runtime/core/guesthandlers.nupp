@@ -2186,6 +2186,25 @@ export function Ret(pc: voidptr, regs: voidptr, ints: voidptr, floats: voidptr, 
         uncaught.answered(ctx, value)
         return native.fail()
     end
+    -- xpcall's message handler, run on the failing stack: its answer is
+    -- what the protected call answers, once the stack unwinds to it.
+    if native.load64(frame, native.fieldOffset<frames.Frame>("resultKind")) == frames.HANDLER_DESTINATION then
+        local handledPC = landing.handled(ctx, value, true)
+        if handledPC == 0ULL then
+            ops.failure(ctx, ops.INVALID)
+            return native.fail()
+        end
+        local unwound = native.pointer(ops.state(ctx))
+        local caller = native.pointer(access.active(unwound))
+        return native.dispatch(
+            native.pointer(handledPC),
+            native.pointer(access.values(unwound, caller)),
+            native.pointer(access.integers(unwound, caller)),
+            native.pointer(access.floats(unwound, caller)),
+            ctx,
+            caller
+        )
+    end
     if ops.root(ctx, frame) == 1ULL then
         -- The root result outlives the guest heap, so it must be an immediate:
         -- a table, string or boxed integer cannot be published.
@@ -2324,6 +2343,25 @@ export function RetN(pc: voidptr, regs: voidptr, ints: voidptr, floats: voidptr,
     if native.load64(frame, native.fieldOffset<frames.Frame>("resultKind")) == frames.REPORT_DESTINATION then
         uncaught.answered(ctx, value)
         return native.fail()
+    end
+    -- xpcall's message handler, run on the failing stack: its answer is
+    -- what the protected call answers, once the stack unwinds to it.
+    if native.load64(frame, native.fieldOffset<frames.Frame>("resultKind")) == frames.HANDLER_DESTINATION then
+        local handledPC = landing.handled(ctx, value, true)
+        if handledPC == 0ULL then
+            ops.failure(ctx, ops.INVALID)
+            return native.fail()
+        end
+        local unwound = native.pointer(ops.state(ctx))
+        local caller = native.pointer(access.active(unwound))
+        return native.dispatch(
+            native.pointer(handledPC),
+            native.pointer(access.values(unwound, caller)),
+            native.pointer(access.integers(unwound, caller)),
+            native.pointer(access.floats(unwound, caller)),
+            ctx,
+            caller
+        )
     end
     if ops.root(ctx, frame) == 1ULL then
         if value & values.TAG_MASK == values.TAG_OBJ then
@@ -2723,6 +2761,25 @@ export function RetV(pc: voidptr, regs: voidptr, ints: voidptr, floats: voidptr,
         uncaught.answered(ctx, value)
         return native.fail()
     end
+    -- xpcall's message handler, run on the failing stack: its answer is
+    -- what the protected call answers, once the stack unwinds to it.
+    if native.load64(frame, native.fieldOffset<frames.Frame>("resultKind")) == frames.HANDLER_DESTINATION then
+        local handledPC = landing.handled(ctx, value, true)
+        if handledPC == 0ULL then
+            ops.failure(ctx, ops.INVALID)
+            return native.fail()
+        end
+        local unwound = native.pointer(ops.state(ctx))
+        local caller = native.pointer(access.active(unwound))
+        return native.dispatch(
+            native.pointer(handledPC),
+            native.pointer(access.values(unwound, caller)),
+            native.pointer(access.integers(unwound, caller)),
+            native.pointer(access.floats(unwound, caller)),
+            ctx,
+            caller
+        )
+    end
     if ops.root(ctx, frame) == 1ULL then
         if value & values.TAG_MASK == values.TAG_OBJ then
             ops.fail(ctx, frame, pc, ops.RESOURCE)
@@ -3003,6 +3060,14 @@ export function XPHandle(
         local pack = result & values.PAYLOAD
         failed = tables.get(pack, values.TAG_INTEGER | 1ULL) == values.FALSE
         problem = tables.get(pack, values.TAG_INTEGER | 2ULL)
+    end
+    -- The handler already answered, on the failing stack: its answer is
+    -- where the error was, and where the code after takes it from.
+    if landing.takehandled(ctx) then
+        if wanted == 0 then
+            slots.writeValue(frame, regs, status + 1, problem)
+        end
+        failed = false
     end
     if failed then
         local top = native.index(count - 4ULL)
