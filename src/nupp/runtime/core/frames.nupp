@@ -155,10 +155,19 @@ export const LIBRARY_DESTINATION: uint64 = 8ULL
 export const REPORT_DESTINATION: uint64 = 9ULL
 -- A protected caller retaining its complete status/result pack in one slot.
 export const PROTECTED_PACK_DESTINATION: uint64 = 10ULL
+-- xpcall's message handler, called on the failing stack before it unwinds
+-- (`guestlanding.handled`): its first result is what the protected call
+-- answers in the error's place.
+export const HANDLER_DESTINATION: uint64 = 11ULL
 
 export function isprotected(frame: voidptr): boolean
     local kind = native.load64(frame, native.fieldOffset<Frame>("resultKind"))
     return kind == PROTECTED_DESTINATION or kind == PROTECTED_PACK_DESTINATION
+end
+
+-- Whether the frame runs an xpcall message handler.
+export function ishandler(frame: voidptr): boolean
+    return native.load64(frame, native.fieldOffset<Frame>("resultKind")) == HANDLER_DESTINATION
 end
 
 -- The most results a caller frame may want from one call.
@@ -1478,6 +1487,7 @@ export function rootRangeCount(
                 and native.load64(frame, native.fieldOffset<Frame>("resultKind")) ~= MODULE_DESTINATION
                 and native.load64(frame, native.fieldOffset<Frame>("resultKind")) ~= LIBRARY_DESTINATION
                 and native.load64(frame, native.fieldOffset<Frame>("resultKind")) ~= REPORT_DESTINATION
+                and native.load64(frame, native.fieldOffset<Frame>("resultKind")) ~= HANDLER_DESTINATION
                 or native.load64(frame, native.fieldOffset<Frame>("resultOwner")) ~= previous
                 or native.load64(
                     frame,
@@ -1607,6 +1617,16 @@ export function reportresult(state: voidptr, child: voidptr): uint64
         return 0ULL
     end
     native.store64(child, native.fieldOffset<Frame>("resultKind"), REPORT_DESTINATION)
+
+    return 1ULL
+end
+
+-- Marks a prepared child as an xpcall message handler's.
+export function handlerresult(state: voidptr, child: voidptr): uint64
+    if prepared(state, child) == 0ULL then
+        return 0ULL
+    end
+    native.store64(child, native.fieldOffset<Frame>("resultKind"), HANDLER_DESTINATION)
 
     return 1ULL
 end
