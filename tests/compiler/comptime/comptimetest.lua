@@ -699,6 +699,9 @@ end
 return CRC
 ]]
     local got = run("comptimetest.matchesAnIndependentComputationOfTheSameTable", src)
+    -- The BitOp library the evaluator's operators answer as: a global on
+    -- LuaJIT and the VM, a module on the core.
+    local bit = rawget(_G, "bit") or require("bit")
     local want = {}
     for byte = 0, 255 do
         local acc = byte
