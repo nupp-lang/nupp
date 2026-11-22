@@ -699,7 +699,10 @@ local function compileOwner(fn: any, options: any, profile: any, site: any): any
         -- that owner's cleanup from here: a later failure destroys it.
         if cleanupEnabled and node.automaticOwnerReinit then
             reinitialize(node)
-            bindings[cleanupOwners[node.automaticOwnerReinit.owner].value] = value
+            -- A field written back is read from its record as that closes.
+            if not node.automaticOwnerReinit.field then
+                bindings[cleanupOwners[node.automaticOwnerReinit.owner].value] = value
+            end
         end
         site.node = outer
 
@@ -965,10 +968,14 @@ local function compileOwner(fn: any, options: any, profile: any, site: any): any
     -- is live again. The caller binds the cleanup to v.
     reinitialize = function(node: any): nil
         local reinit = node.automaticOwnerReinit
-        need(not reinit.field, "reinitializing an owned field is unsupported")
         local entry = need(cleanupOwners[reinit.owner], "reinitialization lacks a registered checked owner")
         transferExpression(node)
-        bindings[entry.live] = flag(node, true)
+        -- A moved field was cleared from its record, which stayed live; the
+        -- assignment stores the new value there, and the record's cleanup
+        -- closes whatever the field holds then.
+        if not reinit.field then
+            bindings[entry.live] = flag(node, true)
+        end
     end
 
     -- An intrinsic that takes its argument (`own.manage(v)`): v's obligation,

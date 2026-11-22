@@ -421,6 +421,33 @@ export function cleanupProfile(base: any): any
         local inner = t and t.tag == "affine" and t.inner
         local origin = inner and (inner.origin or inner)
         local declaration = origin and origin.deriveDeclaration
+        -- A record whose fields own values closes each field it holds as it
+        -- closes, by the field's own cleanup; each other item is its own plan.
+        local fields = false
+        for _, item in ipairs(chain) do
+            fields = fields or item.kind == "field"
+        end
+        if fields then
+            local steps = {}
+            for index, item in ipairs(chain) do
+                if item.kind == "field" then
+                    local declared = origin and origin.byname and origin.byname[item.field]
+                    local fieldType = declared
+                    if not (declared and declared.tag == "affine") then
+                        fieldType = {tag = "affine", inner = declared}
+                    end
+                    steps[index] = {
+                        field = item.field,
+                        plan = profile.cleanupPlan(ctx, site, fieldType, {
+                            item.cleanup
+                        })
+                    }
+                else
+                    steps[index] = {plan = profile.cleanupPlan(ctx, site, t, {item})}
+                end
+            end
+            return {steps = steps, optional = inner ~= nil and inner.tag == "union"}
+        end
         local tokens = catalog(ctx).cleanupTokens[site]
         -- A method cleanup (`close`) is looked up on the value as it is
         -- destroyed, whatever implements it.
@@ -434,7 +461,7 @@ export function cleanupProfile(base: any): any
                 need(item.kind == "method", "a method cleanup chain mixes in a function")
                 names[#names + 1] = item.name
             end
-            return {names = names, optional = inner.tag == "union"}
+            return {names = names, optional = inner ~= nil and inner.tag == "union"}
         end
         -- Cleanups that are not the record's own methods are functions read
         -- from the core's registry by key.
@@ -470,6 +497,38 @@ export function cleanupProfile(base: any): any
     end
     profile.cleanupRun = function(ctx: any, node: any, plan: any, value: integer, reason: string): nil
         local held = ctx.hold(value)
+        if plan.steps then
+            -- In the chain's order, which lists a record's fields last first.
+            local function close(c: any, site: any): nil
+                for index = 1, #plan.steps do
+                    local step = plan.steps[index]
+                    if step.field then
+                        local key = c.emit(site, "K", {pool(c, "str", step.field)}, "tagged")
+                        local field = c.hold(c.emit(site, "GetIdx", {c.readHeld(held), key}, "tagged"))
+                        local none = c.emit(site, "Nil", {}, "tagged")
+                        local absent = c.emit(site, "Eq", {c.readHeld(field), none}, "tagged")
+                        local present = c.emit(site, "Not", {absent}, "tagged")
+                        c.when(site, present, function(inner: any, at: any): nil
+                            profile.cleanupRun(inner, at, step.plan, inner.readHeld(field), reason)
+                        end)
+                        c.release(field)
+                    else
+                        profile.cleanupRun(c, site, step.plan, c.readHeld(held), reason)
+                    end
+                end
+            end
+
+            if plan.optional then
+                local none = ctx.emit(node, "Nil", {}, "tagged")
+                local absent = ctx.emit(node, "Eq", {ctx.readHeld(held), none}, "tagged")
+                local present = ctx.emit(node, "Not", {absent}, "tagged")
+                ctx.when(node, present, close)
+            else
+                close(ctx, node)
+            end
+            ctx.release(held)
+            return
+        end
         if plan.names then
             local function destroy(ctx: any, node: any): nil
                 for index = #plan.names, 1, -1 do
