@@ -641,6 +641,10 @@ export function describe(modules: {any}, entryModule: string, options: any?): an
         -- In a chunk, the name tokens that read or write a global, each to
         -- the read of the chunk's environment it is a field of.
         globals = {},
+        -- Each `debug.log` severity call in statement position the checker
+        -- lowered, to the two calls through `any` its site makes: the view's
+        -- `formodule` it tests, and the `emitat` it calls when admitted.
+        logSites = {},
         -- In a chunk, the name of the local its environment is in, and of
         -- the one the library functions as the program started are in.
         environment = options ~= nil and options.environment or nil,
@@ -1798,6 +1802,26 @@ export function describe(modules: {any}, entryModule: string, options: any?): an
         -- So are the library constants it folds (math.pi).
         if graph.coreLibraryField(node) then
             loopForms[node] = true
+        end
+        if node.kind == "callStmt" and node.expr and node.expr.logIntrinsic and node.expr.kind == "call" then
+            local logged = node.expr
+            local anchor = need(cst.firstToken(logged), "a log site lacks its source position")
+
+            local function dynamicCall(count: integer): any
+                local exprs = {}
+                for index = 1, count do
+                    exprs[index] = {kind = "nil", token = anchor, inferredType = types.any, anchor}
+                end
+                local made = {kind = "call", args = {kind = "args", exprs = exprs}, anchor}
+                local site = {id = #p.calls, owner = owner.id, node = made, dynamic = true, logSite = logged}
+                p.calls[#p.calls + 1], p.callByNode[made] = site, site
+
+                return made
+            end
+
+            -- formodule(name), then emitat(name, severity, line, format, ...).
+            local view = dynamicCall(1)
+            p.logSites[logged] = {view = view, emit = dynamicCall(3 + #(logged.args.exprs or {}))}
         end
         if p.chunk and node.cheaderCdef or node.kind == "cdefFunc" and p.foreignValues[node.name.definition] then
             local call = {kind = "call", args = {kind = "args", exprs = {{kind = "nil", inferredType = types.any}}}}
@@ -2975,6 +2999,17 @@ export function verify(p: any): boolean
                 "indexed span callsite identity mismatch"
             )
             indexedaccess.verify(access, access.node, item.owner)
+        elseif item.logSite then
+            local sites = p.logSites[item.logSite]
+            need(
+                node.kind == "call"
+                and p.callByNode[node] == item
+                and item.dynamic
+                and item.definition == nil
+                and sites ~= nil
+                and (sites.view == node or sites.emit == node),
+                "log site callsite identity mismatch"
+            )
         elseif item.materialized then
             need(
                 node.kind == "call"
