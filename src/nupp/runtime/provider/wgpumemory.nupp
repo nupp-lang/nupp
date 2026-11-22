@@ -1,8 +1,20 @@
 @!internal
 module nupp.runtime.provider.wgpumemory
 
-local strings = string
-local native = require("nupp.vm.foreign")
+--[[
+The pinned wgpu-native ABI's structs, and the C memory a call passes them in.
+
+A struct is allocated by name with [](new) and is typed where it is used,
+through the aliases below: a struct's fields are read and written by its
+layout, which a dynamic value does not carry. A scalar array is element storage,
+which indexes from zero.
+
+C holds no reference the collector sees. A struct or storage whose address a
+descriptor field keeps is reachable from Nupp only while something holds it, so
+[](raw), [](cast) and [](view) hold what they answer until `PINS` more have
+been taken: far past the call that reads it, since wgpu-native copies what a
+descriptor names before the call it is passed to returns.
+]]
 
 cdef struct WGPUStringView
     data: voidptr?
@@ -274,238 +286,170 @@ cdef struct WGPUQuerySetDescriptor
     count: uint32
 end
 
-cdef struct GpuByte
-    value: uint8
-end
+-- What each struct is called where it is used.
+export type StringView = WGPUStringView
+export type ChainedStruct = WGPUChainedStruct
+export type Future = WGPUFuture
+export type CallbackInfo = WGPUCallbackInfo
+export type UncapturedErrorCallbackInfo = WGPUUncapturedErrorCallbackInfo
+export type NativeDisplayHandle = WGPUNativeDisplayHandle
+export type InstanceExtras = WGPUInstanceExtras
+export type InstanceDescriptor = WGPUInstanceDescriptor
+export type RequestAdapterOptions = WGPURequestAdapterOptions
+export type AdapterInfo = WGPUAdapterInfo
+export type Limits = WGPULimits
+export type QueueDescriptor = WGPUQueueDescriptor
+export type DeviceDescriptor = WGPUDeviceDescriptor
+export type BufferDescriptor = WGPUBufferDescriptor
+export type BufferBindingLayout = WGPUBufferBindingLayout
+export type SamplerBindingLayout = WGPUSamplerBindingLayout
+export type TextureBindingLayout = WGPUTextureBindingLayout
+export type StorageTextureBindingLayout = WGPUStorageTextureBindingLayout
+export type BindGroupLayoutEntry = WGPUBindGroupLayoutEntry
+export type BindGroupLayoutDescriptor = WGPUBindGroupLayoutDescriptor
+export type PipelineLayoutDescriptor = WGPUPipelineLayoutDescriptor
+export type ShaderSourceSPIRV = WGPUShaderSourceSPIRV
+export type ShaderSourceWGSL = WGPUShaderSourceWGSL
+export type ShaderModuleDescriptor = WGPUShaderModuleDescriptor
+export type ComputeState = WGPUComputeState
+export type ComputePipelineDescriptor = WGPUComputePipelineDescriptor
+export type BindGroupEntry = WGPUBindGroupEntry
+export type BindGroupDescriptor = WGPUBindGroupDescriptor
+export type CommandEncoderDescriptor = WGPUCommandEncoderDescriptor
+export type CommandBufferDescriptor = WGPUCommandBufferDescriptor
+export type PassTimestampWrites = WGPUPassTimestampWrites
+export type ComputePassDescriptor = WGPUComputePassDescriptor
+export type QuerySetDescriptor = WGPUQuerySetDescriptor
 
-cdef struct GpuWord
-    value: uint32
-end
+local storage = require("nupp.vm.storagebinding")
 
-cdef struct GpuWide
-    value: uint64
-end
+cdef function memcpy(borrows target: voidptr, borrows source: voidptr, count: uint64): voidptr
+cdef function strlen(borrows text: voidptr): uint64
 
-cdef struct GpuPointer
-    value: voidptr?
-end
+const PINS = 256
+local pins: {any} = {}
+local pinned: integer = 0
 
-local layouts: {
-    [string]: any
-} = {
-    WGPUNativeDisplayHandle = ffi.typeof<WGPUNativeDisplayHandle>(),
-    WGPUStringView = ffi.typeof<WGPUStringView>(),
-    WGPUChainedStruct = ffi.typeof<WGPUChainedStruct>(),
-    WGPUFuture = ffi.typeof<WGPUFuture>(),
-    WGPUCallbackInfo = ffi.typeof<WGPUCallbackInfo>(),
-    WGPUUncapturedErrorCallbackInfo = ffi.typeof<WGPUUncapturedErrorCallbackInfo>(),
-    WGPUInstanceExtras = ffi.typeof<WGPUInstanceExtras>(),
-    WGPUInstanceDescriptor = ffi.typeof<WGPUInstanceDescriptor>(),
-    WGPURequestAdapterOptions = ffi.typeof<WGPURequestAdapterOptions>(),
-    WGPUAdapterInfo = ffi.typeof<WGPUAdapterInfo>(),
-    WGPULimits = ffi.typeof<WGPULimits>(),
-    WGPUQueueDescriptor = ffi.typeof<WGPUQueueDescriptor>(),
-    WGPUDeviceDescriptor = ffi.typeof<WGPUDeviceDescriptor>(),
-    WGPUBufferDescriptor = ffi.typeof<WGPUBufferDescriptor>(),
-    WGPUBufferBindingLayout = ffi.typeof<WGPUBufferBindingLayout>(),
-    WGPUSamplerBindingLayout = ffi.typeof<WGPUSamplerBindingLayout>(),
-    WGPUTextureBindingLayout = ffi.typeof<WGPUTextureBindingLayout>(),
-    WGPUStorageTextureBindingLayout = ffi.typeof<WGPUStorageTextureBindingLayout>(),
-    WGPUBindGroupLayoutEntry = ffi.typeof<WGPUBindGroupLayoutEntry>(),
-    WGPUBindGroupLayoutDescriptor = ffi.typeof<WGPUBindGroupLayoutDescriptor>(),
-    WGPUPipelineLayoutDescriptor = ffi.typeof<WGPUPipelineLayoutDescriptor>(),
-    WGPUShaderSourceSPIRV = ffi.typeof<WGPUShaderSourceSPIRV>(),
-    WGPUShaderSourceWGSL = ffi.typeof<WGPUShaderSourceWGSL>(),
-    WGPUShaderModuleDescriptor = ffi.typeof<WGPUShaderModuleDescriptor>(),
-    WGPUComputeState = ffi.typeof<WGPUComputeState>(),
-    WGPUComputePipelineDescriptor = ffi.typeof<WGPUComputePipelineDescriptor>(),
-    WGPUBindGroupEntry = ffi.typeof<WGPUBindGroupEntry>(),
-    WGPUBindGroupDescriptor = ffi.typeof<WGPUBindGroupDescriptor>(),
-    WGPUCommandEncoderDescriptor = ffi.typeof<WGPUCommandEncoderDescriptor>(),
-    WGPUCommandBufferDescriptor = ffi.typeof<WGPUCommandBufferDescriptor>(),
-    WGPUPassTimestampWrites = ffi.typeof<WGPUPassTimestampWrites>(),
-    WGPUComputePassDescriptor = ffi.typeof<WGPUComputePassDescriptor>(),
-    WGPUQuerySetDescriptor = ffi.typeof<WGPUQuerySetDescriptor>(),
-}
+-- Holds `value` until PINS more values have been held.
+local function pin(value: any): any
+    pinned = (pinned % PINS + 1) as integer
+    pins[pinned] = value
 
-export function descriptor(name: string): any
-    local value = assert(layouts[name], "unknown GPU ABI type " .. name)
     return value
 end
 
+--- `value` as a descriptor's pointer field takes it, held for the calls that read it.
 export function raw(value: any): any
-    if type(value) == "table" and value.__gpuStorage ~= nil then
-        return value.__gpuStorage
-    end
-    return value
+    return pin(value)
 end
 
-local function scalararray(storage: any, count: integer): any
-    return setmetatable({__gpuStorage = storage, count = count}, {
-        __index = function(self: any, key: integer): any
-            assert(key >= 0 and key < count, "GPU native array index out of range")
-            return storage[key].value
-        end,
-        __newindex = function(self: any, key: integer, value: any): nil
-            assert(key >= 0 and key < count, "GPU native array index out of range")
-            storage[key].value = raw(value)
-        end,
-    })
+--- `value` as a pointer to the chained struct it starts with, held as `raw` holds it.
+export function cast(name: string, value: any): any
+    assert(name == "WGPUChainedStruct *", "unsupported GPU pointer cast")
+    return pin(value)
 end
 
-local function allocate(name: string, count: any): any
+-- A new zeroed struct of the given name.
+local function struct(name: string): any
     if name == "WGPUStringView" then
         return WGPUStringView()
-    elseif name == "WGPUStringView[?]" then
-        return carray(WGPUStringView, count)
     elseif name == "WGPUChainedStruct" then
         return WGPUChainedStruct()
-    elseif name == "WGPUChainedStruct[?]" then
-        return carray(WGPUChainedStruct, count)
     elseif name == "WGPUFuture" then
         return WGPUFuture()
-    elseif name == "WGPUFuture[?]" then
-        return carray(WGPUFuture, count)
     elseif name == "WGPUCallbackInfo" then
         return WGPUCallbackInfo()
-    elseif name == "WGPUCallbackInfo[?]" then
-        return carray(WGPUCallbackInfo, count)
     elseif name == "WGPUUncapturedErrorCallbackInfo" then
         return WGPUUncapturedErrorCallbackInfo()
-    elseif name == "WGPUUncapturedErrorCallbackInfo[?]" then
-        return carray(WGPUUncapturedErrorCallbackInfo, count)
+    elseif name == "WGPUNativeDisplayHandle" then
+        return WGPUNativeDisplayHandle()
     elseif name == "WGPUInstanceExtras" then
         return WGPUInstanceExtras()
-    elseif name == "WGPUInstanceExtras[?]" then
-        return carray(WGPUInstanceExtras, count)
     elseif name == "WGPUInstanceDescriptor" then
         return WGPUInstanceDescriptor()
-    elseif name == "WGPUInstanceDescriptor[?]" then
-        return carray(WGPUInstanceDescriptor, count)
     elseif name == "WGPURequestAdapterOptions" then
         return WGPURequestAdapterOptions()
-    elseif name == "WGPURequestAdapterOptions[?]" then
-        return carray(WGPURequestAdapterOptions, count)
     elseif name == "WGPUAdapterInfo" then
         return WGPUAdapterInfo()
-    elseif name == "WGPUAdapterInfo[?]" then
-        return carray(WGPUAdapterInfo, count)
     elseif name == "WGPULimits" then
         return WGPULimits()
-    elseif name == "WGPULimits[?]" then
-        return carray(WGPULimits, count)
     elseif name == "WGPUQueueDescriptor" then
         return WGPUQueueDescriptor()
-    elseif name == "WGPUQueueDescriptor[?]" then
-        return carray(WGPUQueueDescriptor, count)
     elseif name == "WGPUDeviceDescriptor" then
         return WGPUDeviceDescriptor()
-    elseif name == "WGPUDeviceDescriptor[?]" then
-        return carray(WGPUDeviceDescriptor, count)
     elseif name == "WGPUBufferDescriptor" then
         return WGPUBufferDescriptor()
-    elseif name == "WGPUBufferDescriptor[?]" then
-        return carray(WGPUBufferDescriptor, count)
     elseif name == "WGPUBufferBindingLayout" then
         return WGPUBufferBindingLayout()
-    elseif name == "WGPUBufferBindingLayout[?]" then
-        return carray(WGPUBufferBindingLayout, count)
     elseif name == "WGPUSamplerBindingLayout" then
         return WGPUSamplerBindingLayout()
-    elseif name == "WGPUSamplerBindingLayout[?]" then
-        return carray(WGPUSamplerBindingLayout, count)
     elseif name == "WGPUTextureBindingLayout" then
         return WGPUTextureBindingLayout()
-    elseif name == "WGPUTextureBindingLayout[?]" then
-        return carray(WGPUTextureBindingLayout, count)
     elseif name == "WGPUStorageTextureBindingLayout" then
         return WGPUStorageTextureBindingLayout()
-    elseif name == "WGPUStorageTextureBindingLayout[?]" then
-        return carray(WGPUStorageTextureBindingLayout, count)
     elseif name == "WGPUBindGroupLayoutEntry" then
         return WGPUBindGroupLayoutEntry()
-    elseif name == "WGPUBindGroupLayoutEntry[?]" then
-        return carray(WGPUBindGroupLayoutEntry, count)
     elseif name == "WGPUBindGroupLayoutDescriptor" then
         return WGPUBindGroupLayoutDescriptor()
-    elseif name == "WGPUBindGroupLayoutDescriptor[?]" then
-        return carray(WGPUBindGroupLayoutDescriptor, count)
     elseif name == "WGPUPipelineLayoutDescriptor" then
         return WGPUPipelineLayoutDescriptor()
-    elseif name == "WGPUPipelineLayoutDescriptor[?]" then
-        return carray(WGPUPipelineLayoutDescriptor, count)
     elseif name == "WGPUShaderSourceSPIRV" then
         return WGPUShaderSourceSPIRV()
-    elseif name == "WGPUShaderSourceSPIRV[?]" then
-        return carray(WGPUShaderSourceSPIRV, count)
     elseif name == "WGPUShaderSourceWGSL" then
         return WGPUShaderSourceWGSL()
-    elseif name == "WGPUShaderSourceWGSL[?]" then
-        return carray(WGPUShaderSourceWGSL, count)
     elseif name == "WGPUShaderModuleDescriptor" then
         return WGPUShaderModuleDescriptor()
-    elseif name == "WGPUShaderModuleDescriptor[?]" then
-        return carray(WGPUShaderModuleDescriptor, count)
     elseif name == "WGPUComputeState" then
         return WGPUComputeState()
-    elseif name == "WGPUComputeState[?]" then
-        return carray(WGPUComputeState, count)
     elseif name == "WGPUComputePipelineDescriptor" then
         return WGPUComputePipelineDescriptor()
-    elseif name == "WGPUComputePipelineDescriptor[?]" then
-        return carray(WGPUComputePipelineDescriptor, count)
     elseif name == "WGPUBindGroupEntry" then
         return WGPUBindGroupEntry()
-    elseif name == "WGPUBindGroupEntry[?]" then
-        return carray(WGPUBindGroupEntry, count)
     elseif name == "WGPUBindGroupDescriptor" then
         return WGPUBindGroupDescriptor()
-    elseif name == "WGPUBindGroupDescriptor[?]" then
-        return carray(WGPUBindGroupDescriptor, count)
     elseif name == "WGPUCommandEncoderDescriptor" then
         return WGPUCommandEncoderDescriptor()
-    elseif name == "WGPUCommandEncoderDescriptor[?]" then
-        return carray(WGPUCommandEncoderDescriptor, count)
     elseif name == "WGPUCommandBufferDescriptor" then
         return WGPUCommandBufferDescriptor()
-    elseif name == "WGPUCommandBufferDescriptor[?]" then
-        return carray(WGPUCommandBufferDescriptor, count)
     elseif name == "WGPUPassTimestampWrites" then
         return WGPUPassTimestampWrites()
-    elseif name == "WGPUPassTimestampWrites[?]" then
-        return carray(WGPUPassTimestampWrites, count)
     elseif name == "WGPUComputePassDescriptor" then
         return WGPUComputePassDescriptor()
-    elseif name == "WGPUComputePassDescriptor[?]" then
-        return carray(WGPUComputePassDescriptor, count)
     elseif name == "WGPUQuerySetDescriptor" then
         return WGPUQuerySetDescriptor()
-    elseif name == "WGPUQuerySetDescriptor[?]" then
-        return carray(WGPUQuerySetDescriptor, count)
-    elseif name == "uint8_t[?]" then
-        return scalararray(carray(GpuByte, count), count)
-    elseif name == "uint32_t[?]" then
-        return scalararray(carray(GpuWord, count), count)
-    elseif name == "uint64_t[?]" then
-        return scalararray(carray(GpuWide, count), count)
-    elseif name == "WGPUCommandBuffer[?]" then
-        return scalararray(carray(GpuPointer, count), count)
-    elseif name == "WGPUBindGroupLayout[?]" then
-        return scalararray(carray(GpuPointer, count), count)
     end
     error("unknown GPU allocation " .. name)
 end
 
+-- The element kinds a scalar array may hold, by its C name. A handle is a
+-- pointer, which a core word holds.
+const SCALARS: {
+    [string]: string
+} = {
+    uint8_t = "uint8",
+    uint32_t = "uint32",
+    uint64_t = "uint64",
+    WGPUCommandBuffer = "uint64",
+    WGPUBindGroupLayout = "uint64",
+}
+
+-- A new zeroed array of `count` elements named `element`.
+local function array(element: string, count: integer): any
+    local kind = assert(SCALARS[element], "unknown GPU allocation " .. element .. "[?]")
+    return storage.allocarray(storage.scalar(kind), count)
+end
+
+--- A new zeroed struct, a scalar array (`T[?]` with its count, or `T[N]`
+--- with an optional initializer: a table of its elements from 1, or its first),
+--- or the `uint64_t` value `initializer`.
 export function new(name: string, initializer: any): any
     if name == "uint64_t" then
-        local value = GpuWide()
-        value.value = initializer as uint64
-        return value.value
+        return initializer as uint64
     end
     local element, size = name:match("^(.-)%[(%d+)%]$")
     if element ~= nil then
         local count = tonumber(size) as integer
-        local value = allocate(element .. "[?]", count)
+        local value = array(element, count)
         if initializer ~= nil then
             if type(initializer) == "table" then
                 for i = 0, count - 1 do
@@ -517,45 +461,70 @@ export function new(name: string, initializer: any): any
         end
         return value
     end
+    local unsized = name:match("^(.-)%[%?%]$")
+    if unsized ~= nil then
+        return array(unsized, initializer as integer)
+    end
 
-    return allocate(name, initializer)
+    return struct(name)
 end
 
-local nativecopy = native.bind(nil, "memcpy", {
-    params = {"pointer", {kind = "pointer", readonly = true}, "uint64"},
-    result = "pointer"
-})
+--- Bind group layout entries for `count` buffer bindings from zero, at least one.
+export function layoutentries(count: integer, visibility: integer, kind: integer, minimum: integer): any
+    local entries = carray(WGPUBindGroupLayoutEntry, math.max(count, 1))
+    @unsafe do
+        for binding = 0, count - 1 do
+            entries[binding].binding = binding
+            entries[binding].visibility = visibility
+            entries[binding].buffer.type = kind
+            entries[binding].buffer.minBindingSize = minimum
+        end
+    end
+
+    return pin(entries)
+end
+
+--- Bind group entries for `buffers` from binding zero, each `{buffer =
+--- handle, offset = n, size = n}`; at least one.
+export function groupentries(buffers: {any}): any
+    local entries = carray(WGPUBindGroupEntry, math.max(#buffers, 1))
+    @unsafe do
+        for index, value in ipairs(buffers) do
+            entries[index - 1].binding = index - 1
+            entries[index - 1].buffer = value.buffer
+            entries[index - 1].offset = value.offset
+            entries[index - 1].size = value.size
+        end
+    end
+
+    return pin(entries)
+end
+
+--- Copies `length` bytes from `source` to `destination`: storage, a struct,
+--- an address, or a string to copy from.
 export function copy(destination: any, source: any, length: integer): nil
-    nativecopy(raw(destination), raw(source), length)
+    memcpy(destination, source, length)
 end
 
+--- The `length` bytes at `pointer`, or those before its NUL when `length` is nil.
 export function readstring(pointer: any, length: any): string
-    local text = native.string(raw(pointer), length and tonumber(length))
-    return text
+    local count = length == nil and tonumber(strlen(pointer)) as integer or tonumber(length) as integer
+    if count == 0 then
+        return ""
+    end
+    local bytes: any = storage.allocbytes(count)
+    memcpy(bytes, pointer, count)
+
+    return storage.string(bytes, count)
 end
 
-export function cast(name: string, value: any): any
-    assert(name == "WGPUChainedStruct *", "unsupported GPU pointer cast")
-    return raw(value)
-end
-
-export function token(value: integer): any
-    local cell = GpuWide()
-    cell.value = value as uint64
-    return cell
-end
-
-export function tokenvalue(pointer: any): integer
-    local value = GpuWide()
-    nativecopy(value, pointer, 8)
-    return tonumber(value.value) as integer
-end
-
-export function view(text: string?): any
-    local result: any = WGPUStringView()
+--- A string view of a copy of `text`, held as `raw` holds it; a null view for nil.
+export function view(text: string?): StringView
+    local result = WGPUStringView()
     if text ~= nil then
-        local bytes = carray(GpuByte, #text + 1)
-        nativecopy(bytes, text, #text)
+        local bytes: any = pin(storage.allocbytes(#text + 1))
+        local source: any = text
+        memcpy(bytes, source, #text)
         result.data = bytes
         result.length = #text
     end
@@ -563,21 +532,46 @@ export function view(text: string?): any
     return result
 end
 
-export function maxsize(): any
-    local cell = GpuWide()
-    nativecopy(cell, strings.rep(strings.char(255), 8), 8)
-    return cell.value
-end
+-- Every struct's layout, as the target lays it out.
+local layouts: {
+    [string]: any
+} = {
+    WGPUStringView = types.layoutof(WGPUStringView),
+    WGPUChainedStruct = types.layoutof(WGPUChainedStruct),
+    WGPUFuture = types.layoutof(WGPUFuture),
+    WGPUCallbackInfo = types.layoutof(WGPUCallbackInfo),
+    WGPUUncapturedErrorCallbackInfo = types.layoutof(WGPUUncapturedErrorCallbackInfo),
+    WGPUNativeDisplayHandle = types.layoutof(WGPUNativeDisplayHandle),
+    WGPUInstanceExtras = types.layoutof(WGPUInstanceExtras),
+    WGPUInstanceDescriptor = types.layoutof(WGPUInstanceDescriptor),
+    WGPURequestAdapterOptions = types.layoutof(WGPURequestAdapterOptions),
+    WGPUAdapterInfo = types.layoutof(WGPUAdapterInfo),
+    WGPULimits = types.layoutof(WGPULimits),
+    WGPUQueueDescriptor = types.layoutof(WGPUQueueDescriptor),
+    WGPUDeviceDescriptor = types.layoutof(WGPUDeviceDescriptor),
+    WGPUBufferDescriptor = types.layoutof(WGPUBufferDescriptor),
+    WGPUBufferBindingLayout = types.layoutof(WGPUBufferBindingLayout),
+    WGPUSamplerBindingLayout = types.layoutof(WGPUSamplerBindingLayout),
+    WGPUTextureBindingLayout = types.layoutof(WGPUTextureBindingLayout),
+    WGPUStorageTextureBindingLayout = types.layoutof(WGPUStorageTextureBindingLayout),
+    WGPUBindGroupLayoutEntry = types.layoutof(WGPUBindGroupLayoutEntry),
+    WGPUBindGroupLayoutDescriptor = types.layoutof(WGPUBindGroupLayoutDescriptor),
+    WGPUPipelineLayoutDescriptor = types.layoutof(WGPUPipelineLayoutDescriptor),
+    WGPUShaderSourceSPIRV = types.layoutof(WGPUShaderSourceSPIRV),
+    WGPUShaderSourceWGSL = types.layoutof(WGPUShaderSourceWGSL),
+    WGPUShaderModuleDescriptor = types.layoutof(WGPUShaderModuleDescriptor),
+    WGPUComputeState = types.layoutof(WGPUComputeState),
+    WGPUComputePipelineDescriptor = types.layoutof(WGPUComputePipelineDescriptor),
+    WGPUBindGroupEntry = types.layoutof(WGPUBindGroupEntry),
+    WGPUBindGroupDescriptor = types.layoutof(WGPUBindGroupDescriptor),
+    WGPUCommandEncoderDescriptor = types.layoutof(WGPUCommandEncoderDescriptor),
+    WGPUCommandBufferDescriptor = types.layoutof(WGPUCommandBufferDescriptor),
+    WGPUPassTimestampWrites = types.layoutof(WGPUPassTimestampWrites),
+    WGPUComputePassDescriptor = types.layoutof(WGPUComputePassDescriptor),
+    WGPUQuerySetDescriptor = types.layoutof(WGPUQuerySetDescriptor),
+}
 
--- WebGPU transfers a reference through a callback. The VM callback pointer
--- itself is lent only until return; native storage carries the owned reference
--- to the context after that callback has ended.
-export function ownedslot(pointer: any): any
-    local slot = GpuPointer()
-    slot.value = pointer
-    return slot
-end
-
+--- Each struct's size, alignment and field offsets, to hold against the headers.
 export function layoutinfo(): {[string]: any}
     local result: {[string]: any} = {}
     for name, value in pairs(layouts) do

@@ -15,8 +15,8 @@ handle can cross threads.
 ]]
 module nupp.runtime.provider.gpudevice
 
--- A wgpu-native call may run a callback before it returns, and a compiled trace
--- cannot call back into Lua, so nothing in this module is compiled.
+-- A wgpu-native call may run a callback before it returns. The callback is C
+-- that records the call (nupp.runtime.provider.wgpu), so no Nupp runs inside it.
 
 local memory = require("nupp.runtime.provider.wgpumemory")
 local wgpu = require("nupp.runtime.provider.wgpu")
@@ -931,7 +931,7 @@ local function settle(context: any): nil
 end
 
 local function callbackInfo(callback: any, userdata: any, mode: integer?): any
-    local info: any = memory.new("WGPUCallbackInfo")
+    local info: memory.CallbackInfo = memory.new("WGPUCallbackInfo")
     info.mode = mode or CALLBACK_MODE
     info.callback = callback
     info.userdata1 = userdata
@@ -939,7 +939,7 @@ local function callbackInfo(callback: any, userdata: any, mode: integer?): any
     return info
 end
 
-local function limitsOf(limits: any): {[string]: integer}
+local function limitsOf(limits: memory.Limits): {[string]: integer}
     return {
         maxBufferSize = tonumber(limits.maxBufferSize) as integer,
         maxBindGroups = limits.maxBindGroups,
@@ -1011,20 +1011,20 @@ local function createContext(): any
     if not backendsOk then
         fail("no suitable compute adapter is available: " .. tostring(backends))
     end
-    local extras: any = nil
     local descriptor: any = nil
     if backends ~= 0 then
-        extras = memory.new("WGPUInstanceExtras") as any
+        local extras: memory.InstanceExtras = memory.new("WGPUInstanceExtras")
         extras.chain.sType = wgpu.STYPE_INSTANCE_EXTRAS
         extras.backends = backends
-        descriptor = memory.new("WGPUInstanceDescriptor") as any
-        descriptor.nextInChain = memory.cast("WGPUChainedStruct *", extras)
+        local instance: memory.InstanceDescriptor = memory.new("WGPUInstanceDescriptor")
+        instance.nextInChain = memory.cast("WGPUChainedStruct *", extras)
+        descriptor = instance
     end
     context.instance = library.wgpuCreateInstance(descriptor)
     if context.instance == nil then
         fail("no suitable compute adapter is available: wgpu-native created no instance")
     end
-    local options: any = memory.new("WGPURequestAdapterOptions")
+    local options: memory.RequestAdapterOptions = memory.new("WGPURequestAdapterOptions")
     options.featureLevel = wgpu.FEATURE_LEVEL_CORE
     options.powerPreference = wgpu.POWER_HIGH_PERFORMANCE
     local userdata, key = wgpu.token()
@@ -1037,7 +1037,7 @@ local function createContext(): any
     end
     context.adapter = adapter.value
     local adapterTime = costs.elapsed(setupStart)
-    local info: any = memory.new("WGPUAdapterInfo")
+    local info: memory.AdapterInfo = memory.new("WGPUAdapterInfo")
     local infoStatus = library.wgpuAdapterGetInfo(context.adapter, info)
     if infoStatus == wgpu.STATUS_SUCCESS then
         context.adapterName = memory.readstring(info.device.data, info.device.length)
@@ -1050,22 +1050,22 @@ local function createContext(): any
     context.timestampSupported = costs.enabled()
         and library.wgpuAdapterHasFeature(context.adapter, wgpu.FEATURE_TIMESTAMP_QUERY) ~= 0
     local deviceStart = costs.clock()
-    local adapterLimits: any = memory.new("WGPULimits")
+    local adapterLimits: memory.Limits = memory.new("WGPULimits")
     library.wgpuAdapterGetLimits(context.adapter, adapterLimits)
     local features: any = memory.new("uint32_t[1]", wgpu.FEATURE_TIMESTAMP_QUERY)
     local label = "Nupp native compute device"
-    local faultUserdata, faultKey = wgpu.faultsink()
+    local lostUserdata, errorUserdata, faultKey = wgpu.faultsink()
     context.faultKey = faultKey
-    local request: any = memory.new("WGPUDeviceDescriptor")
+    local request: memory.DeviceDescriptor = memory.new("WGPUDeviceDescriptor")
     request.label = wgpu.view(label)
     request.requiredFeatureCount = context.timestampSupported and 1 or 0
     request.requiredFeatures = memory.raw(features)
-    request.requiredLimits = adapterLimits
+    request.requiredLimits = memory.raw(adapterLimits)
     request.deviceLostCallbackInfo.mode = wgpu.CALLBACK_SPONTANEOUS
     request.deviceLostCallbackInfo.callback = callbacks.lost
-    request.deviceLostCallbackInfo.userdata1 = faultUserdata
+    request.deviceLostCallbackInfo.userdata1 = lostUserdata
     request.uncapturedErrorCallbackInfo.callback = callbacks.error
-    request.uncapturedErrorCallbackInfo.userdata1 = faultUserdata
+    request.uncapturedErrorCallbackInfo.userdata1 = errorUserdata
     userdata, key = wgpu.token()
     library.wgpuAdapterRequestDevice(context.adapter, request, callbackInfo(callbacks.device, userdata))
     library.wgpuInstanceProcessEvents(context.instance)
@@ -1076,7 +1076,7 @@ local function createContext(): any
     end
     context.device = device.value
     context.queue = library.wgpuDeviceGetQueue(context.device)
-    local deviceLimits: any = memory.new("WGPULimits")
+    local deviceLimits: memory.Limits = memory.new("WGPULimits")
     library.wgpuDeviceGetLimits(context.device, deviceLimits)
     context.limits = limitsOf(deviceLimits)
     costRecord(context, "adapterDevice", {
@@ -1125,7 +1125,7 @@ local function createBuffer(context: any, size: integer): integer
     local allocated = alignUp(size, COPY_ALIGNMENT)
     local start = costs.clock()
     local label = "Nupp resident compute buffer"
-    local descriptor: any = memory.new("WGPUBufferDescriptor")
+    local descriptor: memory.BufferDescriptor = memory.new("WGPUBufferDescriptor")
     descriptor.label = wgpu.view(label)
     descriptor.size = allocated
     descriptor.usage = wgpu.BUFFER_USAGE_STORAGE | wgpu.BUFFER_USAGE_COPY_SRC | wgpu.BUFFER_USAGE_COPY_DST
@@ -1266,14 +1266,8 @@ local function validateKernelDescriptor(context: any, descriptor: any): nil
 end
 
 local function bindGroupLayout(context: any, label: string, count: integer, kind: integer, minimum: integer): any
-    local entries: any = memory.new("WGPUBindGroupLayoutEntry[?]", math.max(count, 1))
-    for binding = 0, count - 1 do
-        entries[binding].binding = binding
-        entries[binding].visibility = wgpu.SHADER_STAGE_COMPUTE
-        entries[binding].buffer.type = kind
-        entries[binding].buffer.minBindingSize = minimum
-    end
-    local descriptor: any = memory.new("WGPUBindGroupLayoutDescriptor")
+    local entries = memory.layoutentries(count, wgpu.SHADER_STAGE_COMPUTE, kind, minimum)
+    local descriptor: memory.BindGroupLayoutDescriptor = memory.new("WGPUBindGroupLayoutDescriptor")
     descriptor.label = wgpu.view(label)
     descriptor.entryCount = count
     descriptor.entries = entries
@@ -1282,7 +1276,7 @@ local function bindGroupLayout(context: any, label: string, count: integer, kind
 end
 
 local function emptyGroup(context: any, layout: any): any
-    local descriptor: any = memory.new("WGPUBindGroupDescriptor")
+    local descriptor: memory.BindGroupDescriptor = memory.new("WGPUBindGroupDescriptor")
     local label = "Nupp empty bind group"
     descriptor.label = wgpu.view(label)
     descriptor.layout = layout
@@ -1375,17 +1369,17 @@ local function createKernel(context: any, descriptor: any): integer
     end
     entry.used = used
     local layoutLabel = "Nupp compute pipeline layout"
-    local layoutDescriptor: any = memory.new("WGPUPipelineLayoutDescriptor")
+    local layoutDescriptor: memory.PipelineLayoutDescriptor = memory.new("WGPUPipelineLayoutDescriptor")
     layoutDescriptor.label = wgpu.view(layoutLabel)
     layoutDescriptor.bindGroupLayoutCount = groups
     layoutDescriptor.bindGroupLayouts = memory.raw(layouts)
     local pipelineLayout = library.wgpuDeviceCreatePipelineLayout(context.device, layoutDescriptor)
-    local source: any = memory.new("WGPUShaderSourceSPIRV")
+    local source: memory.ShaderSourceSPIRV = memory.new("WGPUShaderSourceSPIRV")
     source.chain.sType = wgpu.STYPE_SHADER_SOURCE_SPIRV
     source.codeSize = count
     source.code = memory.raw(words)
     local moduleLabel = "Nupp SPIR-V compute module"
-    local moduleDescriptor: any = memory.new("WGPUShaderModuleDescriptor")
+    local moduleDescriptor: memory.ShaderModuleDescriptor = memory.new("WGPUShaderModuleDescriptor")
     moduleDescriptor.nextInChain = memory.cast("WGPUChainedStruct *", source)
     moduleDescriptor.label = wgpu.view(moduleLabel)
     local shader = library.wgpuDeviceCreateShaderModule(context.device, moduleDescriptor)
@@ -1400,7 +1394,7 @@ local function createKernel(context: any, descriptor: any): integer
     end
     library.wgpuDevicePushErrorScope(context.device, wgpu.ERROR_FILTER_VALIDATION)
     local pipelineLabel = "Nupp compute pipeline"
-    local pipelineDescriptor: any = memory.new("WGPUComputePipelineDescriptor")
+    local pipelineDescriptor: memory.ComputePipelineDescriptor = memory.new("WGPUComputePipelineDescriptor")
     pipelineDescriptor.label = wgpu.view(pipelineLabel)
     pipelineDescriptor.layout = pipelineLayout
     pipelineDescriptor.compute.module = shader
@@ -1433,16 +1427,16 @@ end
 local function createWgslKernel(context: any, shader: string, workgroupSize: {integer}): integer
     local library = context.lib
     library.wgpuDevicePushErrorScope(context.device, wgpu.ERROR_FILTER_VALIDATION)
-    local source: any = memory.new("WGPUShaderSourceWGSL")
+    local source: memory.ShaderSourceWGSL = memory.new("WGPUShaderSourceWGSL")
     source.chain.sType = wgpu.STYPE_SHADER_SOURCE_WGSL
     source.code = wgpu.view(shader)
     local label = "Nupp GPU round-trip test"
-    local moduleDescriptor: any = memory.new("WGPUShaderModuleDescriptor")
+    local moduleDescriptor: memory.ShaderModuleDescriptor = memory.new("WGPUShaderModuleDescriptor")
     moduleDescriptor.nextInChain = memory.cast("WGPUChainedStruct *", source)
     moduleDescriptor.label = wgpu.view(label)
     local module = library.wgpuDeviceCreateShaderModule(context.device, moduleDescriptor)
     local entryPoint = "main"
-    local pipelineDescriptor: any = memory.new("WGPUComputePipelineDescriptor")
+    local pipelineDescriptor: memory.ComputePipelineDescriptor = memory.new("WGPUComputePipelineDescriptor")
     pipelineDescriptor.label = wgpu.view(label)
     pipelineDescriptor.compute.module = module
     pipelineDescriptor.compute.entryPoint = wgpu.view(entryPoint)
@@ -1531,7 +1525,7 @@ local function createBindings(context: any, kernelHandle: any): integer
     local uniform: any = nil
     if kernel.uniformSize ~= 0 then
         local label = "Nupp dispatch uniforms"
-        local descriptor: any = memory.new("WGPUBufferDescriptor")
+        local descriptor: memory.BufferDescriptor = memory.new("WGPUBufferDescriptor")
         descriptor.label = wgpu.view(label)
         descriptor.size = alignUp(kernel.uniformSize, 16)
         descriptor.usage = wgpu.BUFFER_USAGE_UNIFORM | wgpu.BUFFER_USAGE_COPY_DST
@@ -1633,16 +1627,14 @@ local function validateStorageSlots(context: any, values: {any}, writable: boole
 end
 
 local function storageGroup(context: any, layout: any, values: {any}, writable: boolean): any
-    local entries: any = memory.new("WGPUBindGroupEntry[?]", math.max(#values, 1))
+    local buffers: {any} = {}
     for index, value in ipairs(values) do
         local buffer = lookup(context.resources, value.buffer, "buffer")
-        entries[index - 1].binding = index - 1
-        entries[index - 1].buffer = buffer.buffer
-        entries[index - 1].offset = value.offset
-        entries[index - 1].size = value.size
+        buffers[index] = {buffer = buffer.buffer, offset = value.offset, size = value.size}
     end
+    local entries = memory.groupentries(buffers)
     local label = writable and "Nupp writable storage bind group" or "Nupp read-only storage bind group"
-    local descriptor: any = memory.new("WGPUBindGroupDescriptor")
+    local descriptor: memory.BindGroupDescriptor = memory.new("WGPUBindGroupDescriptor")
     descriptor.label = wgpu.view(label)
     descriptor.layout = layout
     descriptor.entryCount = #values
@@ -1652,13 +1644,9 @@ local function storageGroup(context: any, layout: any, values: {any}, writable: 
 end
 
 local function uniformGroup(context: any, layout: any, buffer: any, size: integer): any
-    local entries: any = memory.new("WGPUBindGroupEntry[1]")
-    entries[0].binding = 0
-    entries[0].buffer = buffer
-    entries[0].offset = 0
-    entries[0].size = size
+    local entries = memory.groupentries({{buffer = buffer, offset = 0, size = size}})
     local label = "Nupp uniform bind group"
-    local descriptor: any = memory.new("WGPUBindGroupDescriptor")
+    local descriptor: memory.BindGroupDescriptor = memory.new("WGPUBindGroupDescriptor")
     descriptor.label = wgpu.view(label)
     descriptor.layout = layout
     descriptor.entryCount = 1
@@ -1759,26 +1747,25 @@ local function submitDispatch(
         )
     end
     local encoderLabel = "Nupp compute dispatch"
-    local encoderDescriptor: any = memory.new("WGPUCommandEncoderDescriptor")
+    local encoderDescriptor: memory.CommandEncoderDescriptor = memory.new("WGPUCommandEncoderDescriptor")
     encoderDescriptor.label = wgpu.view(encoderLabel)
     local encoder = library.wgpuDeviceCreateCommandEncoder(context.device, encoderDescriptor)
     local query: any = nil
     local passLabel = "Nupp compute pass"
-    local passDescriptor: any = memory.new("WGPUComputePassDescriptor")
+    local passDescriptor: memory.ComputePassDescriptor = memory.new("WGPUComputePassDescriptor")
     passDescriptor.label = wgpu.view(passLabel)
-    local writes: any = nil
     if context.timestampSupported and costs.enabled() then
         local queryLabel = "Nupp cost timestamps"
-        local queryDescriptor: any = memory.new("WGPUQuerySetDescriptor")
+        local queryDescriptor: memory.QuerySetDescriptor = memory.new("WGPUQuerySetDescriptor")
         queryDescriptor.label = wgpu.view(queryLabel)
         queryDescriptor.type = wgpu.QUERY_TYPE_TIMESTAMP
         queryDescriptor.count = 2
         query = library.wgpuDeviceCreateQuerySet(context.device, queryDescriptor)
-        writes = memory.new("WGPUPassTimestampWrites")
+        local writes: memory.PassTimestampWrites = memory.new("WGPUPassTimestampWrites")
         writes.querySet = query
         writes.beginningOfPassWriteIndex = 0
         writes.endOfPassWriteIndex = 1
-        passDescriptor.timestampWrites = writes
+        passDescriptor.timestampWrites = memory.raw(writes)
     end
     local pass = library.wgpuCommandEncoderBeginComputePass(encoder, passDescriptor)
     library.wgpuComputePassEncoderSetPipeline(pass, kernel.pipeline)
@@ -1841,7 +1828,7 @@ end
 -- --- downloads and synchronization -------------------------------------------
 
 local function stagingBuffer(context: any, label: string, size: integer, usage: integer): any
-    local descriptor: any = memory.new("WGPUBufferDescriptor")
+    local descriptor: memory.BufferDescriptor = memory.new("WGPUBufferDescriptor")
     descriptor.label = wgpu.view(label)
     descriptor.size = size
     descriptor.usage = usage
@@ -1851,7 +1838,7 @@ end
 
 local function submitCopy(context: any, label: string, record: function(encoder: any): nil): nil
     local library = context.lib
-    local descriptor: any = memory.new("WGPUCommandEncoderDescriptor")
+    local descriptor: memory.CommandEncoderDescriptor = memory.new("WGPUCommandEncoderDescriptor")
     descriptor.label = wgpu.view(label)
     local encoder = library.wgpuDeviceCreateCommandEncoder(context.device, descriptor)
     record(encoder)
