@@ -25,8 +25,8 @@ const stacks = require("nupp.runtime.core.stacks")
 const foreignabi = require("nupp.runtime.core.foreignabi")
 
 -- The Services fields the collector roots, from `running` through
--- `stringmeta`.
-const ROOTED_FIELDS: uint64 = 13ULL
+-- `pending`.
+const ROOTED_FIELDS: uint64 = 14ULL
 
 -- The scope comes first, so a Services address is also its scope's address.
 export struct Services
@@ -115,6 +115,11 @@ export struct Services
     finalcall: uint64
     -- The builtin string metatable installed by the canonical library values.
     stringmeta: uint64
+    -- The failures that landed at frames that own affine values and are
+    -- not raised again yet (`guestlanding`): a table from each frame's
+    -- address to its failure, once one has landed. A cleanup's failure
+    -- landing at a frame already failing is kept under the first.
+    pending: uint64
     -- 1 while coroutine.close unwinds a suspended thread: its error lands at
     -- every frame that owns affine values, and no protected call takes it.
     closing: uint64
@@ -310,6 +315,7 @@ local function initializeHeap(
         native.store64(services, native.fieldOffset<Services>("gcanswer"), 0ULL)
         native.store64(services, native.fieldOffset<Services>("finalcall"), 0ULL)
         native.store64(services, native.fieldOffset<Services>("stringmeta"), 0ULL)
+        native.store64(services, native.fieldOffset<Services>("pending"), 0ULL)
         native.store64(services, native.fieldOffset<Services>("closing"), 0ULL)
         native.store64(services, native.fieldOffset<Services>("replay"), 0ULL)
         native.store64(services, native.fieldOffset<Services>("replaycursor"), 0ULL)
