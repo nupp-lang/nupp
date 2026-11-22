@@ -89,6 +89,60 @@ local function hasModuleSyntax(result)
     return false
 end
 
+-- What a fragment body holds outside every function body: its `return`
+-- statements, whether it reads `...`, and whether it declares an `@aot`
+-- function.
+local function chunkLevel(root)
+    local returns, varargs, aot = {}, false, false
+
+    local function visit(node)
+        if type(node) ~= "table" or node.trivia ~= nil or node.kind == "funcbody" then
+            return
+        end
+        if node.kind == "returnStmt" then
+            returns[#returns + 1] = node
+        elseif node.kind == "vararg" then
+            varargs = true
+        elseif (node.kind == "pragmaStmt" or node.kind == "annotationApply") and node.name and node.name.text == "aot" then
+            aot = true
+        end
+        for _, child in ipairs(node) do
+            visit(child)
+        end
+    end
+
+    visit(root)
+
+    return returns, varargs, aot
+end
+
+local PACK = "__nupp_fragment_results"
+
+-- `source` with each of `returns` publishing its results as one packed
+-- table, or nil where a return has no tokens to rewrite around.
+local function packedReturns(source, returns)
+    local cst = require("nupp.compiler.syntax.cst")
+    local edits = {}
+    for _, stat in ipairs(returns) do
+        local keyword = cst.firstToken(stat)
+        local last = #stat.exprs > 0 and cst.lastToken(stat.exprs[#stat.exprs]) or keyword
+        if keyword == nil or keyword.text ~= "return" or last == nil then
+            return nil
+        end
+        edits[#edits + 1] = {at = keyword.offset + #keyword.text, text = " " .. PACK .. "("}
+        edits[#edits + 1] = {at = last.offset + #last.text, text = ")"}
+    end
+    table.sort(edits, function(a, b)
+        return a.at > b.at
+    end)
+    for _, edit in ipairs(edits) do
+        source = source:sub(1, edit.at - 1) .. edit.text .. source:sub(edit.at)
+    end
+
+    -- On the first line, so every line keeps its number.
+    return "local function " .. PACK .. "(...: any): any return {n = select('#', ...), ...} end " .. source
+end
+
 -- On the native core there is no image to load. The chunk compiler the core
 -- compiler carries compiles the fragment's source as a module instance, as
 -- `nupp run` compiles a program there, and loading that chunk runs it.
@@ -100,10 +154,21 @@ local function coreLoad(result, name, path)
     local display = path or (name or "main") .. ".nupp"
     local isBody = not hasModuleSyntax(result)
     local source = result.source
+    local packed = false
     if isBody then
-        -- A module initializer publishes one value. A fragment body runs as
-        -- a function so the caller receives every result, including nils.
-        source = "return function(...: any): ...any " .. source .. "\nend\n"
+        local returns, varargs, aot = chunkLevel(result.root)
+        local rewritten = aot and not varargs and packedReturns(source, returns)
+        if rewritten then
+            -- An `@aot` function is refused inside another function, so a
+            -- body declaring one stays the module initializer, and each of
+            -- its returns publishes every result, nils included, as one table.
+            source, packed = rewritten, true
+        else
+            -- A module initializer publishes one value. A fragment body runs
+            -- as a function so the caller receives every result, including
+            -- nils.
+            source = "return function(...: any): ...any " .. source .. "\nend\n"
+        end
     end
     -- Checked as the module the fragment was checked as, which is what
     -- decides the modules it may import, as the VM's lowering of that
@@ -121,7 +186,13 @@ local function coreLoad(result, name, path)
         if failure ~= nil then
             error(failure, 0)
         end
-        if isBody then
+        if packed then
+            assert(select("#", ...) == 0, "a fragment declaring an @aot function takes no arguments on the core")
+            if value == nil then
+                return
+            end
+            return (table.unpack or unpack)(value, 1, value.n)
+        elseif isBody then
             return value(...)
         end
 
