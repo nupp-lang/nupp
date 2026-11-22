@@ -244,6 +244,7 @@ for name in ("pooltest structpooltest randomtest nuppsuitetest"):gmatch("%S+") d
     scopes[name] = "component"
 end
 scopes.serdecheckcontracttest = "component"
+scopes.tracebacktest = "component"
 scopes.resultliststest = "integration"
 scopes.testcachetest = "integration"
 scopes.sharedcachetest = "integration"
