@@ -310,6 +310,10 @@ interface cst.Hints
     --- Structured runtime-expression IR selected for an opaque comptime result.
     materializedIR: any
 
+    --- The checked definition each of that IR's type-object paths starts from, by
+    --- its first name.
+    materializedTypeObjects: any
+
     --- The resolved type written directly on the declaration owning this expression.
     materializationExpected: any
 
