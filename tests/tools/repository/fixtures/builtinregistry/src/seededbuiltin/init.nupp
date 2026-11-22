@@ -1,0 +1,9 @@
+module seededbuiltin
+
+local reader = require("seededbuiltin.reader")
+
+cdef function seeded_version(): int32 from"nuppseeded"
+
+export function version(): integer
+    return seeded_version() + reader.offset()
+end

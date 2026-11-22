@@ -1,0 +1,5 @@
+module seededbuiltin.reader
+
+export function offset(): integer
+    return 0
+end

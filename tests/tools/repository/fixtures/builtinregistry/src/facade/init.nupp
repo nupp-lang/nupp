@@ -1,0 +1,13 @@
+module facade
+
+local seeded = require("seededbuiltin")
+local reader = require"seededbuiltin.reader"
+
+export function read(): integer
+    return seededbuiltin.reader.offset() + seeded.version() + reader.offset()
+end
+
+const _PROVIDER = "@requires-dynamically nupp.runtime.provider.seeded"
+
+-- A facade that binds the builtin's library itself carries it too.
+cdef function seeded_version(): int32 from"nuppseeded"

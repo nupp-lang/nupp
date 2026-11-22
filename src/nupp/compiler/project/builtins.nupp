@@ -1,0 +1,179 @@
+--[[
+The builtin libraries that sit on a pinned C library, or are large enough to
+be worth stripping, and what each one owns.
+
+A builtin is a set of modules and the logical C libraries they bind. A
+program carries one only when its require closure reaches one of those
+modules (`nupp.core.guestbuild`), and a build can strip one by name
+(`nupp build --without NAME`, or a target's `without = {...}`): a stripped
+builtin the program reaches fails the build, naming the chain of requires
+that reached it.
+
+This module is data. Nothing here loads a builtin's provider to learn about
+it, and it requires nothing at load, so the build reads it before checking a
+line.
+
+An entry is shaped like this one, which is not registered:
+
+    sqlite = {
+        -- What a program requires. `sqlite.*` is every module under `sqlite`.
+        modules = {"sqlite", "sqlite.*"},
+        -- The internal modules only the builtin's own modules require.
+        owned = {"nupp.runtime.provider.nativesqlite", "nupp.runtime.core.sqlitecodec"},
+        -- Each logical library its modules bind with `cdef ... from "NAME"`:
+        -- `file` is its `libraries.STANDARD` base name, and `notices` the
+        -- license files staged beside it.
+        libraries = {{name = "nuppsqlite", file = "nupp_sqlite", notices = {"sqlite-PUBLIC-DOMAIN.txt"}}},
+        -- The hosts that can provide it.
+        hosts = {"native"},
+    },
+
+`tests/tools/repository/builtinregistrytest.lua` holds every entry to the
+standard library's module lists and to `libraries.STANDARD`, and refuses a
+module outside an entry that requires one of its modules. `scripts/core-bridge`
+reads the `file = "..."` and notice names written here to refuse staging a
+builtin's library beside the bridge, so a library row stays on one line.
+]]
+module nupp.compiler.project.builtins
+
+export type Library = {
+    name: string,
+    file: string,
+    notices: {string}
+}
+
+export type Builtin = {
+    modules: {string},
+    owned: {string},
+    libraries: {Library},
+    hosts: {string}
+}
+
+--- Every registered builtin, by the name `--without` takes.
+export const REGISTRY: {[string]: Builtin} = {}
+
+--- The variable naming a JSON file of further entries, in the registry's
+--- shape, that a test registers for one process: how a fixture builtin is
+--- proven before a real one exists.
+export const FIXTURE_VARIABLE = "NUPP_BUILTIN_FIXTURE"
+
+-- The fixture entries the environment's file holds, read once per file.
+local fixtures: {[string]: {[string]: Builtin}} = {}
+
+local function fixtureEntries(path: string): {[string]: Builtin}
+    local known = fixtures[path]
+    if known ~= nil then
+        return known
+    end
+    local file = assert(io.open(path, "rb"), "cannot read " .. FIXTURE_VARIABLE .. " " .. path)
+    local text = file:read("*a") or ""
+    file:close()
+    local json: any = require("serde.json")
+    local decoded, invalid = json.decodevalue(text, json.NULL)
+    assert(invalid == nil and type(decoded) == "table", FIXTURE_VARIABLE .. " must name a JSON object")
+    local found: {[string]: Builtin} = {}
+    for name, builtin in pairs(decoded as {[string]: any}) do
+        found[
+            name
+        ] = {
+            modules = builtin.modules or {},
+            owned = builtin.owned or {},
+            libraries = builtin.libraries or {},
+            hosts = builtin.hosts or {"native"},
+        }
+    end
+    fixtures[path] = found
+
+    return found
+end
+
+--- The registry with any fixture entries the environment names.
+export function entries(): {[string]: Builtin}
+    local all: {[string]: Builtin} = {}
+    for name, builtin in pairs(REGISTRY) do
+        all[name] = builtin
+    end
+    local fixture = os.getenv(FIXTURE_VARIABLE)
+    if fixture ~= nil and fixture ~= "" then
+        for name, builtin in pairs(fixtureEntries(fixture)) do
+            all[name] = builtin
+        end
+    end
+
+    return all
+end
+
+--- The registered names, sorted.
+export function names(): {string}
+    local found: {string} = {}
+    for name in pairs(entries()) do
+        found[#found + 1] = name
+    end
+    table.sort(found)
+
+    return found
+end
+
+--- Whether `pattern`, a module name or `prefix.*`, covers `module`.
+export function covers(pattern: string, module: string): boolean
+    if pattern:sub(-2) == ".*" then
+        local prefix = pattern:sub(1, -2)
+        return module:sub(1, #prefix) == prefix
+    end
+
+    return pattern == module
+end
+
+--- Whether `module` is one of `builtin`'s, public or owned.
+export function owns(builtin: Builtin, module: string): boolean
+    for _, list in ipairs({builtin.modules, builtin.owned}) do
+        for _, pattern in ipairs(list) do
+            if covers(pattern, module) then
+                return true
+            end
+        end
+    end
+
+    return false
+end
+
+--- The builtin `module` belongs to, by name, or nil.
+export function owner(module: string): string?
+    local all = entries()
+    for _, name in ipairs(names()) do
+        if owns(all[name] as Builtin, module) then
+            return name
+        end
+    end
+
+    return nil
+end
+
+--- The builtin that binds the logical library `library`, by name, or nil.
+export function libraryOwner(library: string): string?
+    local all = entries()
+    for _, name in ipairs(names()) do
+        for _, bound in ipairs((all[name] as Builtin).libraries) do
+            if bound.name == library then
+                return name
+            end
+        end
+    end
+
+    return nil
+end
+
+--- Every notice file name a builtin's library carries, as a set.
+export function notices(): {[string]: string}
+    local found: {[string]: string} = {}
+    local all = entries()
+    for _, name in ipairs(names()) do
+        for _, library in ipairs((all[name] as Builtin).libraries) do
+            for _, notice in ipairs(library.notices) do
+                found[notice] = name
+            end
+        end
+    end
+
+    return found
+end

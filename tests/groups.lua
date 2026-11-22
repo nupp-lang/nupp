@@ -285,6 +285,8 @@ end
 scopes.advancestage0test = "delivery"
 scopes.opensslpintest = "delivery"
 scopes.libcurlpintest = "delivery"
+-- The builtin registry, what a core package stages of it and the strip switch.
+scopes.builtinregistrytest = "component"
 scopes.compressionnativeprovidertest = "integration"
 scopes.nativeforeignmodetest = "integration"
 scopes.nativecodecabittest = "integration"
