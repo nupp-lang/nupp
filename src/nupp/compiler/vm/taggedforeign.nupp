@@ -18,7 +18,7 @@ const layouts = require("nupp.compiler.targetlayout")
 const data = require("nupp.compiler.vm.derivedmembers")
 const calls = require("nupp.compiler.vm.graphcalls")
 const corelibrary = require("nupp.compiler.vm.corelibrary")
-const FACTORY = "nupp.runtime.provider.coreforeignvalue"
+export const FACTORY = "nupp.runtime.provider.coreforeignvalue"
 const need = taggedvalues.need
 
 -- The letter of each C kind, as the core reads it.
