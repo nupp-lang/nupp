@@ -175,6 +175,70 @@ local function select(ctx: voidptr, packValue: uint64, index: uint64): uint64
     end
 end
 
+-- The byte of "#", select's index asking for the count.
+const COUNT_INDEX_BYTE: uint64 = 0x23ULL
+
+-- select(i, ...) where a list takes all it gives: a fresh pack {[0] = count,
+-- ...} of the values from the i-th on, from the end when negative; none past
+-- the end. An index of "#" gives the count alone.
+local function selectAll(ctx: voidptr, packValue: uint64, index: uint64): uint64
+    @unsafe do
+        local h = guestvalues.guestheap(ctx)
+        local pack = packValue & values.PAYLOAD
+        local n = native.index(ints.bitsOf(tables.get(pack, values.TAG_INTEGER)))
+        local result = guestscope.newTable(ctx)
+        guestscope.hold(ctx, values.TAG_OBJ | result)
+        local s = strings.header(index)
+        if s ~= 0ULL
+            and strings.length(s) == 1ULL
+            and native.word(native.load8(native.pointer(strings.bytes(s)), 0)) == COUNT_INDEX_BYTE
+        then
+            if tables.set(h, result, values.TAG_INTEGER, values.TAG_INTEGER | 1ULL) == tables.NO_MEMORY
+                or tables.set(
+                    h,
+                    result,
+                    values.TAG_INTEGER | 1ULL,
+                    values.TAG_INTEGER | native.word(n)
+                ) == tables.NO_MEMORY
+            then
+                error("not enough memory")
+            end
+            tables.drain(h)
+            return values.TAG_OBJ | result
+        end
+        local i = guestvalues.intarg(ctx, index, 0, 1ULL)
+        if i < 0 then
+            i = n + i + 1
+            if i < 1 then
+                texts.argumentError(ctx, 1ULL, 0ULL, librarytexts.TEXT_INDEX_RANGE, index)
+            end
+        elseif i == 0 then
+            texts.argumentError(ctx, 1ULL, 0ULL, librarytexts.TEXT_INDEX_RANGE, index)
+        end
+        local count: int64 = 0
+        if i <= n then
+            count = n - i + 1
+        end
+        local k: int64 = 1
+        while k <= count do
+            if tables.set(
+                h,
+                result,
+                values.TAG_INTEGER | native.word(k),
+                tables.get(pack, values.TAG_INTEGER | native.word(i + k - 1))
+            ) == tables.NO_MEMORY then
+                error("not enough memory")
+            end
+            k = k + 1
+        end
+        if tables.set(h, result, values.TAG_INTEGER, values.TAG_INTEGER | native.word(count)) == tables.NO_MEMORY then
+            error("not enough memory")
+        end
+        tables.drain(h)
+        return values.TAG_OBJ | result
+    end
+end
+
 -- {...}: a fresh table holding a variadic pack's values at 1..n.
 local function packCopy(ctx: voidptr, packValue: uint64, named: boolean): uint64
     local state = strings.Builder(0ULL, 0ULL)
@@ -428,6 +492,8 @@ export function call(ctx: voidptr, id: uint64, count: uint64, a: uint64, b: uint
         return guestmeta.rawSet(ctx, a, b, c)
     elseif id == librarycalls.SELECT then
         return select(ctx, a, b)
+    elseif id == librarycalls.SELECT_ALL then
+        return selectAll(ctx, a, b)
     elseif id == librarycalls.PACK_COPY then
         return packCopy(ctx, a, false)
     elseif id == librarycalls.PACK_NAMED then

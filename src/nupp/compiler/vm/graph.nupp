@@ -200,6 +200,7 @@ export const iteratorcontract = graphcalls.iteratorcontract
 export const dynamicmethodcontract = graphcalls.dynamicmethodcontract
 export const dynamicInvokeContract = graphcalls.dynamicInvokeContract
 export const expandsResults = graphcalls.expandsResults
+export const selectsValues = graphcalls.selectsValues
 export const spreadsLast = graphcalls.spreadsLast
 export const callbackArgument = graphcalls.callbackArgument
 export const indexedReplacement = graphcalls.indexedReplacement
