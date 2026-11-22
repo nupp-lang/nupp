@@ -379,16 +379,19 @@ return answer
     for key, value in pairs(guest) do
         profile[key] = value
     end
+    -- It is called through the value its name holds, not composed with.
+    local resolved = false
     profile.call = function(ctx, call)
-        ctx.callee(call)
-        error("reassigned declaration unexpectedly resolved")
+        resolved = ctx.callee(call)
+        error("reached the reassigned call")
     end
     refuses(
         function()
             program.functionGraph(p, owner(p, "answer"), profile)
         end,
-        "composed function declaration was reassigned"
+        "reached the reassigned call"
     )
+    assert(resolved == nil, "reassigned declaration resolved to its original body")
 end
 
 function M.qualifiedMemberIsNotAProvenCompositionTarget()
