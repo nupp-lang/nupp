@@ -344,7 +344,11 @@ export function invoke(
     end
     if target == nil and dynamic then
         -- From v8 a call through a function value is resolved when it runs.
-        need(p.functionsByDefinition[site.definition] == nil, "dynamic call names a declaration")
+        -- One reassigned since its declaration calls the value its name holds.
+        need(
+            p.functionsByDefinition[site.definition] == nil or site.definition.reassigned,
+            "dynamic call names a declaration"
+        )
         contract = graph.dynamicInvokeContract(node, count)
     elseif target ~= nil and called ~= nil and called.tag == "func" and not graphcalls.fitsArity(called, node) then
         -- A plain Lua chunk may pass a function more or fewer arguments than

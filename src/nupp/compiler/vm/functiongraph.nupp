@@ -1594,7 +1594,11 @@ local function compileOwner(fn: any, options: any, profile: any, site: any): any
             local token = call.obj.token
             local definition = token and token.definition
             local target = definition and options.program.functionsByDefinition[definition]
-            need(not target or not definition.reassigned, "composed function declaration was reassigned")
+            -- A declaration reassigned since is called through the value its
+            -- name holds as the call runs, not composed with.
+            if target and definition.reassigned then
+                return nil
+            end
             return target
         end
         if call.obj.kind == "name" then
