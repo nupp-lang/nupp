@@ -3157,9 +3157,21 @@ local function spanCount(source: any): number
 end
 
 --- Reads an element, or one named field of it, from a span or view.
+-- The descriptor function `name` of the element a columnar span holds, or
+-- nil: a struct row with no fields by name (the native core's structs are
+-- their bytes) is read and written through its descriptor.
+local function rowAccessor(source: any, name: string): any
+    local element = (source as any).element
+    return type(element) == "table" and rawget(element as table, name) or nil
+end
+
 local function readAt(source: any, offset: any, field: string?): any
     local value = (source as any):get(offset)
     if field ~= nil then
+        local read = rowAccessor(source, "readfield")
+        if read ~= nil then
+            return (read as any)((source as any).element, value, field)
+        end
         return (value as any)[field as string]
     end
 
@@ -3257,7 +3269,12 @@ local record LuaSpecies
                 if activeAt(fifth, i) then
                     local at = (offset as number) + i - 1
                     local row = target:get(at) as {[string]: any}
-                    row[field] = laneAt(fourth, i)
+                    local write = rowAccessor(target, "writefield")
+                    if write ~= nil then
+                        (write as any)(target.element, row, field, laneAt(fourth, i))
+                    else
+                        row[field] = laneAt(fourth, i)
+                    end
                     target:set(at, row)
                 end
             end
