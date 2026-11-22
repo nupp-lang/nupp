@@ -889,8 +889,17 @@ export function forVersion(version: integer): any
                     defaults[#defaults + 1] = binding
                 end
             end
+            -- The record's table is the instance's metatable. It is what the
+            -- callee evaluates to, which runs before the arguments, as any
+            -- call's callee does.
+            local class = ctx.expression(callsite.obj, "tagged")
+            if class == nil then
+                return nil as any
+            end
+            local heldClass = ctx.hold(class)
             local values = ctx.operands(nodes, kinds)
             if values == nil then
+                ctx.release(heldClass)
                 return nil as any
             end
             for _, binding in ipairs(defaults) do
@@ -901,16 +910,16 @@ export function forVersion(version: integer): any
             for index, value in ipairs(values) do
                 ctx.emit(node, "SetIdx", {record, taggedvalues.slotKey(ctx, node, origin, slots[index]), value}, nil)
             end
-            -- The record's table is the instance's metatable.
             local held = ctx.hold(record)
-            local class = ctx.expression(callsite.obj, "tagged")
-            if class == nil then
-                ctx.release(held)
-                return nil as any
-            end
-            ctx.emit(node, "LibCall", {corelibrary.id("SETMETATABLE"), ctx.readHeld(held), class}, "tagged")
+            ctx.emit(
+                node,
+                "LibCall",
+                {corelibrary.id("SETMETATABLE"), ctx.readHeld(held), ctx.readHeld(heldClass)},
+                "tagged"
+            )
             record = ctx.readHeld(held)
             ctx.release(held)
+            ctx.release(heldClass)
             -- Until the record is complete, a failure still unwinds its initializers.
             for _, binding in ipairs(callsite.recordFields) do
                 if binding.takesInitializer then
