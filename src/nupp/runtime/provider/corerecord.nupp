@@ -69,6 +69,23 @@ export function create(owner: any, spec: any): any
     if blueprint ~= nil then
         owner["\0nupp:reflection"] = {blueprint = blueprint, references = spec.references}
     end
+    if spec.declarationKey ~= nil then
+        -- The declaration's cell holds its table, and the cells of the
+        -- declarations its descriptor names are where
+        -- `types.reflect.runtimetype` finds theirs.
+        local namespace: any = rawget(_G, "nupp")
+        if namespace == nil then
+            namespace = {}
+            rawset(_G, "nupp", namespace)
+        end
+        require("nupp.compiler.runtime.typewitness").install(namespace)
+        local reflect: any = namespace.__reflect
+        local children: {any} = {}
+        for _, target in ipairs(spec.targets or {}) do
+            children[#children + 1] = reflect.reference(target.key, target.module)
+        end
+        reflect.link(owner, reflect.declaration(spec.declarationKey), children)
+    end
 
     local function construct(_: any, ...: any): any
         local count = select("#", ...)

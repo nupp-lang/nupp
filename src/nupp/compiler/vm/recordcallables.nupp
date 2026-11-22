@@ -414,6 +414,23 @@ local function spec(plan: any): any
         end
         made.blueprintChunks = chunks
         made.references = reflection.runtimeReferences(nominal)
+        -- The declaration's own cell and the cells of those its descriptor
+        -- names, which `types.reflect.runtimetype` follows to their tables
+        -- (nupp.compiler.runtime.typewitness): each by its portable key, and a
+        -- module's by the module that declares it, required when first asked.
+        made.declarationKey = reflection.portableKey(nominal.runtimeDeclarationKey or nominal.declarationKey)
+        made.targets = {}
+        local _, _, sources = reflection.graph(nominal)
+        local seen: {[string]: boolean} = {}
+        for _, source in ipairs(sources) do
+            local declaration = source.tag == "nominal" and (source.origin or source) or nil
+            local key = declaration
+                and reflection.portableKey(declaration.runtimeDeclarationKey or declaration.declarationKey)
+            if key and key ~= made.declarationKey and not seen[key] then
+                seen[key] = true
+                made.targets[#made.targets + 1] = {key = key, module = declaration.moduleName}
+            end
+        end
     end
     for position, field in ipairs(nominal.fieldOrder or {}) do
         local declared = nominal.byname and nominal.byname[field]
