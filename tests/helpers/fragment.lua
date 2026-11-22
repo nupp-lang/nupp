@@ -45,6 +45,9 @@ function fragment.check(result, filename, env, opts)
         merged.lints = lints
     end
     local diagnostics, moduleType, exports = check.check(result, filename, env, merged)
+    -- The environment it was checked in, which the native core checks the
+    -- fragment in again when it compiles it from source (program.load).
+    result.fragmentEnv = env
     if result.declaredModuleName ~= nil and result.declaredModuleName == result.moduleName then
         -- The checked module and the diagnostics its native lowering needs.
         result.fragmentCheck = {
