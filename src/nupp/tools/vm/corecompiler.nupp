@@ -127,6 +127,7 @@ export function main(argv: {string}): integer
         -- this machine is part of it.
         guestbuild.packageLibraries()
         guestbuild.singleProgram()
+        guestbuild.reportProgress()
         if entry ~= nil then
             local fixture = (entry as string):gsub("%.nupp$", "")
             local base = fs.basename(fixture)
