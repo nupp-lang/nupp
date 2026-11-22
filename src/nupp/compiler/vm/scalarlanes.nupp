@@ -1,0 +1,143 @@
+module nupp.compiler.vm.scalarlanes
+
+--[[
+Explicit SIMD on the scalar core. The core has no vector registers, so a
+vector is what the `simd` library's ordinary Lua body makes of one: a
+preferred species is one lane wide, its vector a number and its mask a
+boolean, and a fixed species' vector and mask are N-lane tables. An
+operator the checker typed on a vector or a mask (`simdIntrinsic`), a lane
+math call on a vector (`simdMath`) and a method of a vector or a mask are
+calls of the library's lane runtime, `simd.lane`, which applies them lane by
+lane with the element's wrapping. Each is a call through `any` of its own
+callsite, the checked operands its arguments after the operation's name and
+element.
+]]
+
+local apiidentity = require("nupp.compiler.apiidentity")
+local types = require("nupp.compiler.types")
+
+export const MODULE = "simd"
+export const RUNTIME = "lane"
+
+-- The lane runtime's names for the elements whose type tag differs.
+const ELEMENTS: {[string]: string} = {float32 = "float", float64 = "number", integer = "int64"}
+
+-- The element tag the lane runtime gives a mask's operations.
+const MASK = "mask"
+
+local function bare(t: any): any
+    while t
+        and (
+            t.tag == "const" or t.tag == "affine" or t.tag == "borrowed" or t.tag == "pinned" or t.tag == "genericAlias"
+        ) do
+        t = t.tag == "genericAlias" and t.body or t.inner
+    end
+
+    return t
+end
+
+--- The explicit SIMD family a checked type names (`Vector`, `Mask` or
+--- `Species`) and the lane runtime's name for its element, or nil for any
+--- other type.
+export function family(t: any): (string?, string?)
+    local subject = bare(t)
+    if subject == nil or subject.tag ~= "nominal" then
+        return nil, nil
+    end
+    local origin = subject.origin or subject
+    if apiidentity.canonical(origin.moduleName or "") ~= MODULE then
+        return nil, nil
+    end
+    local name = origin.name
+    if name ~= "Vector" and name ~= "Mask" and name ~= "Species" then
+        return nil, nil
+    end
+    local element = (subject.typeArgs or {})[1]
+    if element ~= nil and element.tag == "literal" and element.base ~= nil then
+        element = element.base
+    end
+    local tag = element ~= nil and tostring(element.tag) or "number"
+
+    return name, ELEMENTS[tag] or tag
+end
+
+-- A string the call passes ahead of its operands, as an argument the
+-- callsite checks.
+local function lead(text: string): any
+    return {kind = "string", value = text, inferredType = types.string}
+end
+
+--- The lane runtime operation node `node` is, or nil: the runtime member it
+--- calls, the strings it passes first, and the operands that follow them.
+export function operation(node: any): any
+    if (node.kind == "binop" or node.kind == "unop") and node.simdIntrinsic and node.op then
+        local unary = node.kind == "unop"
+        local operand = unary and node.operand or node.lhs
+        local named, element = family(operand and operand.inferredType)
+        if named ~= "Vector" and named ~= "Mask" and not unary then
+            named, element = family(node.rhs and node.rhs.inferredType)
+        end
+        if named ~= "Vector" and named ~= "Mask" then
+            return nil
+        end
+        return {
+            member = unary and "unary" or "binary",
+            leads = {node.op.text, named == "Mask" and MASK or element},
+            operands = unary and {node.operand} or {node.lhs, node.rhs}
+        }
+    end
+    if node.kind == "call" and node.simdMath and node.args and #(node.args.exprs or {}) == 1 then
+        local _, element = family(node.args.exprs[1].inferredType)
+        return {member = "method", leads = {node.simdMath, element or "number"}, operands = {node.args.exprs[1]}}
+    end
+    if node.kind == "methodCall" and node.obj and node.name and not node.args.str and not node.args.table then
+        local named, element = family(node.obj.inferredType)
+        if named ~= "Vector" and named ~= "Mask" then
+            return nil
+        end
+        local operands = {node.obj}
+        for _, argument in ipairs(node.args.exprs or {}) do
+            if argument.kind == "vararg" then
+                return nil
+            end
+            operands[#operands + 1] = argument
+        end
+        return {member = "method", leads = {node.name.text, named == "Mask" and MASK or element}, operands = operands}
+    end
+
+    return nil
+end
+
+--- Whether a method call's receiver is a species, whose methods the
+--- library's ordinary body answers by their written names.
+export function species(node: any): boolean
+    local named = family(node.obj and node.obj.inferredType)
+
+    return named == "Species"
+end
+
+local calls: {[any]: any} = setmetatable({}, {__mode = "k"})
+
+--- The callsite of node `node`'s lane runtime call, made once, or nil when
+--- the node is no lane operation.
+export function call(node: any): any
+    local known = calls[node]
+    if known ~= nil then
+        return known
+    end
+    local described = operation(node)
+    if described == nil then
+        return nil
+    end
+    local exprs = {}
+    for _, text in ipairs(described.leads) do
+        exprs[#exprs + 1] = lead(text)
+    end
+    for _, operand in ipairs(described.operands) do
+        exprs[#exprs + 1] = operand
+    end
+    local made = {kind = "call", args = {kind = "args", exprs = exprs}, laneOperation = described, laneSource = node}
+    calls[node] = made
+
+    return made
+end

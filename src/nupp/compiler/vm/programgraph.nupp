@@ -26,6 +26,7 @@ local namedarguments = require("nupp.compiler.vm.namedarguments")
 local aliasdowncast = require("nupp.compiler.vm.aliasdowncast")
 local stubmodules = require("nupp.compiler.vm.stubmodules")
 local scalarcapabilities = require("nupp.compiler.vm.scalarcapabilities")
+local scalarlanes = require("nupp.compiler.vm.scalarlanes")
 
 -- Lua's `f "s"` and `f {...}` as the calls of one argument they are, which
 -- is the only form the core lowers: every call reads its argument list.
@@ -642,6 +643,9 @@ export function describe(modules: {any}, entryModule: string, options: any?): an
         reflected = {},
         foreignValues = {},
         foreignFactories = {},
+        -- By checked operation, the callsite of its lane runtime call
+        -- (scalarlanes).
+        laneCalls = {},
         classCells = {},
         -- Executable references the checker resolved to no declaration.
         unresolved = {},
@@ -1386,6 +1390,13 @@ export function describe(modules: {any}, entryModule: string, options: any?): an
             for index, target in ipairs(node.targets) do
                 registerindexed(indexedaccess.preparewrite(target, owner.id, node, index))
             end
+        end
+        -- An operation on a vector or a mask is a call of the lane runtime,
+        -- at a callsite of its own; its operands are collected as they are.
+        local lane = scalarlanes.call(node)
+        if lane then
+            local item = {id = #p.calls, owner = owner.id, node = lane, lane = node}
+            p.calls[#p.calls + 1], p.callByNode[lane], p.laneCalls[node] = item, item, item
         end
         local witness = p.scalartypes.witnesses[node]
         if witness then
@@ -2173,6 +2184,7 @@ export function describe(modules: {any}, entryModule: string, options: any?): an
             and target == nil
             and graph.coreLibraryCall(node) == nil
             and p.callByNode[node] == nil
+            and p.laneCalls[node] == nil
         then
             -- A method the program holds no body for, as a declared type's:
             -- read from the receiver when the call runs.
@@ -2780,6 +2792,16 @@ export function verify(p: any): boolean
                 and item.definition == nil
                 and p.materializations[item.materialized] ~= nil,
                 "materialized callsite identity mismatch"
+            )
+        elseif item.lane then
+            local source = item.lane
+            need(
+                p.laneCalls[source] == item
+                and p.callByNode[node] == item
+                and scalarlanes.call(source) == node
+                and item.definition == nil
+                and node.kind == "call",
+                "lane runtime callsite identity mismatch"
             )
         elseif item.foreign then
             local source = item.foreign

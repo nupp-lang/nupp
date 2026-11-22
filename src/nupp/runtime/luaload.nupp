@@ -449,6 +449,9 @@ end
 
 -- What the core says of a module its image does not hold.
 const NOT_IN_IMAGE = "no module of that name in the image"
+-- The SIMD library, which the scalar capabilities stand in for where a
+-- program's image does not carry it.
+const SIMD = "simd"
 
 -- The first file `package.path`'s templates name for module `name` that
 -- opens, as Lua's package.searchpath finds it, or nil.
@@ -545,6 +548,16 @@ local function requirevalue(name: string): (any, any)
     if ok then
         return value, extra
     end
+    if name == SIMD
+        and type(value) == "string"
+        and (value as string):find("module '" .. SIMD .. "' not found", 1, true) ~= nil
+        and (value as string):find(NOT_IN_IMAGE, 1, true) ~= nil
+    then
+        -- A program whose image does not carry the SIMD library still
+        -- answers its scalar capability guard: there are no vectors here.
+        -- One that carries it but cannot start it says why.
+        return libraryvalues.settle(name, scalarSimd), nil
+    end
     local ambient: any = libraryvalues.functions.package
     local filename = type(value) == "string"
         and (value as string):find(NOT_IN_IMAGE, 1, true) ~= nil
@@ -580,7 +593,4 @@ end
 -- require answers what package.loaded holds.
 for name, value in pairs(corecallvalues.modules) do
     libraryvalues.functions.package.loaded[name] = value
-end
-if libraryvalues.functions.package.loaded.simd == nil then
-    libraryvalues.functions.package.loaded.simd = scalarSimd
 end

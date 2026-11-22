@@ -43,8 +43,6 @@ for the complete SIMD contract.
 ]]
 module simd
 
-const types = require("types")
-
 const {type Span, type WriteSpan} = require("nupp.mem.span")
 
 const storageWitnesses = require("nupp.array")
@@ -2695,7 +2693,15 @@ end
 
 local function popcount(element: string, value: any): any
     if BITS[element] == 64 then
-        return math.u64.popcount((0ULL + (value as any)) as uint64)
+        -- One bit cleared a step, in the operations every tier has: the
+        -- native core has no 64-bit population count.
+        local bits = (0ULL + (value as any)) as uint64
+        local count: integer = 0
+        while bits ~= 0ULL do
+            bits = math.u64.andbits(bits, math.u64.sub(bits, 1ULL))
+            count += 1
+        end
+        return count
     end
 
     return math.u32.popcount(pattern(element, value))
@@ -2718,7 +2724,7 @@ end
 --- The methods on one lane, or on a preferred-species vector or mask. On an
 --- N-lane form `lane.method` applies the lane-by-lane ones here to each
 --- lane and takes the rest from `WIDE` below.
-local METHODS: {[string]: function(string, any, ...: any): any} = {
+local METHODS: {[string]: function(string, any, ...: any): ...any} = {
     propagatingMin = function(_element: string, a: any, b: any): any
         return extremum(a, b, true, true)
     end,
@@ -2887,7 +2893,7 @@ end
 --- The methods whose answer is not lane by lane: on an N-lane form they
 --- rearrange, pack, scan or summarize its lanes. `n` is the lane count and
 --- `element` the receiver's element; a mask method receives the mask.
-local WIDE: {[string]: function(string, integer, any, ...: any): any} = {
+local WIDE: {[string]: function(string, integer, any, ...: any): ...any} = {
     extract = function(_element: string, n: integer, a: any, index: any): any
         return laneAt(a, laneIndex(index, n, "extraction"))
     end,
@@ -3113,7 +3119,7 @@ local METHOD_OPERATIONS: {
 
 --- @raises string when the method is not one the lanes have
 --- @export
-function lane.method(name: string, element: string, receiver: any, ...: any): any
+function lane.method(name: string, element: string, receiver: any, ...: any): ...any
     name = METHOD_OPERATIONS[name] or name
     local method = METHODS[name]
     if method == nil then
@@ -3568,7 +3574,7 @@ end
 --- @export
 local transpose: function<Rows...>(
     ...: Rows...
-): unpackof Transposed(Rows..., simd.Vector<uint32, simd.Fixed<2>>, simd.Fixed<2>) = function(...: any): any
+): unpackof Transposed(Rows..., simd.Vector<uint32, simd.Fixed<2>>, simd.Fixed<2>) = function(...: any): ...any
     -- As ordinary Lua a preferred-species row is one lane, so the tile is
     -- its own transpose; fixed-species rows are transposed lane by lane.
     local first = ...
