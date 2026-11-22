@@ -1250,7 +1250,6 @@ local coremodules: {
     [string]: string
 } = {
     bit = "nupp.runtime.provider.scalarbitops",
-    simd = "nupp.runtime.provider.coresimd",
     ["io.internal.argumenterror"] = "nupp.runtime.provider.coreargumenterror",
     ["nupp.vm.storagebinding"] = "nupp.runtime.provider.heapstorage",
     ["nupp.vm.cryptobinding"] = "nupp.runtime.provider.coreentropy",

@@ -606,7 +606,9 @@ end
 --- twins in src, so they are named outright until the pin moves past
 --- v0.0.15-vm.2. So is `nupp.runtime.standardos`, which the compiler's
 --- `os.info` and `os.monotonic` reach as builtin extension members: the
---- pinned stage zero's closure does not follow those.
+--- pinned stage zero's closure does not follow those. So is `simd`, whose
+--- lane runtime a chunk the core compiles calls by name
+--- (nupp.compiler.vm.scalarlanes).
 project.ROOT_EXTRAS = "nupp.compiler.hostservices,nupp.compiler.fs,nupp.compiler.project.projectconfig,"
     .. "nupp.runtime.standardos,"
     .. "nupp.compiler.project.store,nupp.compiler.project.fingerprint,nupp.compiler.hash,"
@@ -616,7 +618,7 @@ project.ROOT_EXTRAS = "nupp.compiler.hostservices,nupp.compiler.fs,nupp.compiler
     .. "nupp.runtime.provider.nativetime,nupp.runtime.provider.nativetls,"
     .. "nupp.runtime.provider.nativeuri,nupp.runtime.provider.suspension,"
     .. "nupp.runtime.provider.workers,nupp.compiler.clif.lower,nupp.compiler.clif.guest,"
-    .. "nupp.tools.vm.build,nupp.tools.vm.aotparts"
+    .. "nupp.tools.vm.build,nupp.tools.vm.aotparts,simd"
 
 --- Rebuild the compiler image, including its computed module dependencies.
 --- @raises string when the compiler sources fail to compile.
