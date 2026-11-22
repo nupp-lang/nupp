@@ -425,7 +425,8 @@ local TARGET_KEYS = {
     "format",
     "title",
     "name",
-    "targetName"
+    "targetName",
+    "without"
 }
 
 -- The build section itself, which is either one target inline or the table the named
@@ -657,6 +658,17 @@ local function validateTarget(target, label, dependencies)
     end
     if target.reload ~= nil and type(target.reload) ~= "boolean" then
         return nil, label .. ".reload must be a boolean"
+    end
+    -- The builtins a target strips (`nupp.compiler.project.builtins`), by name.
+    if target.without ~= nil then
+        local valid, err = validateArray(target.without, label .. ".without", "string", true)
+        if not valid then
+            return nil, err
+        end
+        local problems = require("nupp.core.builtinclosure").unknown(target.without)
+        if #problems > 0 then
+            return nil, label .. ".without: " .. problems[1]
+        end
     end
     if target.reload then
         if kind ~= "component" then

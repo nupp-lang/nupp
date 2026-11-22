@@ -1,0 +1,3 @@
+local checksum = require("app.checksum")
+
+print(checksum.ofhello())

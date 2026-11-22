@@ -1,0 +1,34 @@
+--[[
+A builtin the closure harness registers over the pinned ISA-L CRC library
+(`nuppcrc`), so the mechanism is proven before a real C-backed builtin lands.
+]]
+module crcfixture
+
+const span = require("bytes.span")
+
+cdef struct Words
+    state: uint64
+    snapshot: uint64
+end
+
+cdef function nuppCrcUpdate(
+    id: uint32,
+    reset: int32,
+    exclusive words: Words*,
+    borrows data: const uint8*?,
+    length: uint64
+): int32 from"nuppcrc"
+
+const CRC32: integer = 1
+
+--- The CRC-32/ISO-HDLC of "hello", in decimal.
+export function hello(): string
+    const text = "hello"
+    local input = span.fromstring(text)
+    local words = Words(0ULL, 0ULL)
+    local source, count = input:ref()
+    local status = nuppCrcUpdate(math.u32.wrap(CRC32), 1, words, source, count as uint64)
+    assert(status == 0, "invalid CRC input")
+
+    return tostring(words.snapshot)
+end

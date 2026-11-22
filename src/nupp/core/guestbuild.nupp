@@ -1171,12 +1171,15 @@ end
 
 --- The native libraries `bundle` loads relative to itself, by the path under
 --- its directory each is staged at, with the file it is copied from: those
---- the packaged bindings resolved and the bundle names.
-export function packagedLibraryFiles(bundle: string, projectBindings: table?): {[string]: string}
+--- the packaged bindings resolved and the bundle names. The notices those
+--- libraries carry follow as a second map, by `notices/FILE`, so a notice is
+--- staged only beside a library that is.
+export function packagedLibraryFiles(bundle: string, projectBindings: table?): ({[string]: string}, {[string]: string})
     local files: {[string]: string} = {}
+    local notices: {[string]: string} = {}
     local source = projectBindings or packagedBindings
     if source == nil then
-        return files
+        return files, notices
     end
     local bindings: any = source
 
@@ -1187,24 +1190,38 @@ export function packagedLibraryFiles(bundle: string, projectBindings: table?): {
         local relative = (binding.reference as string):match("^@(lib/.+)$")
         if relative ~= nil and bundle:find("@" .. relative .. "\0", 1, true) ~= nil then
             files[relative] = binding.path as string
+            for _, notice in ipairs(binding.notices or {}) do
+                local name = (notice as string):match("([^/\\]+)$") or notice
+                notices["notices/" .. (name as string)] = notice as string
+            end
         end
     end
 
     for _, binding in pairs(bindings as {[string]: any}) do
         take(binding)
     end
-    -- The standard bindings resolve on first use, so each is asked by name.
-    for _, name in ipairs({"nuppzlib", "nuppcrc"}) do
+    -- The standard bindings resolve on first use, so each the bundle names is
+    -- asked by name: asking one it does not name would build its library.
+    local libraries: any = require("nupp.compiler.project.libraries")
+    local standard: {string} = {}
+    for name, library in pairs(libraries.STANDARD as {[string]: any}) do
+        if bundle:find("@lib/" .. libraries.filename(library.name) .. "\0", 1, true) ~= nil then
+            standard[#standard + 1] = name
+        end
+    end
+    table.sort(standard)
+    for _, name in ipairs(standard) do
         take(bindings[name])
     end
 
-    return files
+    return files, notices
 end
 
 local type ProjectEntry = {
     module: string,
     inc: any,
-    embedded: string?
+    embedded: string?,
+    inspect: function({any}, string)?
 }
 
 -- The checked program catalog for a case: its entry after every module it carries.
@@ -1496,6 +1513,29 @@ local function programCatalog(
         catalog = described
     end
     timings["compile describe"] = (timings["compile describe"] or 0) + os.clock() - describing
+    -- A project build is shown what it carries, by module, with the modules
+    -- each one's requests reached, before anything is compiled.
+    if projectEntry ~= nil and projectEntry.inspect ~= nil then
+        local requests: {[string]: any} = catalog.requests or {}
+        local byPath: {[string]: string} = {}
+        for name, request in pairs(requests) do
+            byPath[modulePath(root, request.request)] = name
+        end
+        local carried: {any} = {}
+        for _, module in ipairs(catalog.modules) do
+            local reached: {string} = {}
+            local request = requests[module.name]
+            for _, made in ipairs(request and request.reached or {}) do
+                local name = byPath[modulePath(root, made)]
+                if name ~= nil then
+                    reached[#reached + 1] = name
+                end
+            end
+            carried[#carried + 1] = {name = module.name, path = module.path, reached = reached}
+        end
+        local inspect = projectEntry.inspect as function({any}, string)
+        inspect(carried, catalog.modules[#catalog.modules].name)
+    end
     -- What a kept piece is keyed by: what each module's check read.
     catalog.checkedProject = project
     if project ~= nil then
@@ -1803,10 +1843,21 @@ end
 
 -- The project's checked entry and module index are supplied by the build
 -- session. Runtime sources are checked in the compiler's own project.
-export function projectGuest(name: string, path: string, inc: any, embedded: string?): any
+export function projectGuest(
+    name: string,
+    path: string,
+    inc: any,
+    embedded: string?,
+    inspect: function({any}, string)?
+): any
     local fixture = require("nupp.compiler.fs").absolute(path)
     local caseName = "project:" .. fixture
-    local compiled = compileProgram(caseName, fixture, 8, nil, {module = name, inc = inc, embedded = embedded,})
+    local compiled = compileProgram(caseName, fixture, 8, nil, {
+        module = name,
+        inc = inc,
+        embedded = embedded,
+        inspect = inspect,
+    })
     local cache = require("nupp.core.sharedcache").directory("kernels")
     local held = runtime("normal", cache, false)
 

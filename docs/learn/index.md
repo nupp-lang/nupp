@@ -32,6 +32,8 @@ language.
 ## Building and measuring
 
 [Project builds](projects/build.md) owns targets, dependencies, and artifacts.
+[Builtin libraries](projects/builtins.md) covers which C-backed libraries a
+binary carries and how to strip them.
 [Performance](performance/index.md) covers what the VM runs and how to measure
 it, and [ahead-of-time compilation](performance/ahead-of-time/index.md) covers the
 `@aot` subset, SIMD, and GPU kernels.

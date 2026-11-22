@@ -1,0 +1,267 @@
+--[[
+What a core program's closure carries of the registered builtins
+(`nupp.compiler.project.builtins`), and the refusal of a builtin the build
+was asked to go without, or that its host cannot provide.
+
+The closure is the one `nupp.core.guestbuild` discovers: the modules a
+program's requires, qualified paths and literal dynamic requires reach. A
+builtin it does not reach costs the program nothing, so stripping one only
+has to refuse the builds that do reach it, and say how.
+]]
+module nupp.core.builtinclosure
+
+local builtins = require("nupp.compiler.project.builtins")
+
+--- The diagnostic code of a build that reaches a builtin it is built without.
+export const CODE = "NUPP0006"
+
+--- What a build was asked for: the builtins it goes without, the host it
+--- runs on, its target's name, and the project root paths are shown from.
+export type Options = {
+    without: {string},
+    host: string,
+    target: string,
+    root: string
+}
+
+--- One module the closure carries: its name, the file it was read from, and
+--- the requests it made, each normalized to the module it reached.
+export type Carried = {
+    name: string,
+    path: string,
+    reached: {string}
+}
+
+--- A builtin the program carries and the modules of it that it carries.
+export type Carrying = {
+    name: string,
+    modules: {string}
+}
+
+--- One step of a chain: the file and the place in it that reached the next
+--- module, and the source line that did.
+export type Step = {
+    file: string,
+    display: string,
+    line: integer,
+    offset: integer,
+    length: integer,
+    text: string,
+    reaches: string
+}
+
+local function readFile(path: string): string
+    local file = io.open(path, "rb")
+    if file == nil then
+        return ""
+    end
+    local text = file:read("*a") or ""
+    file:close()
+
+    return text
+end
+
+local function relative(root: string, path: string): string
+    local prefix = root:gsub("[/\\]+$", "") .. "/"
+    if path:sub(1, #prefix) == prefix then
+        return path:sub(#prefix + 1)
+    end
+
+    return path
+end
+
+local function escaped(text: string): string
+    return (text:gsub("[%^%$%(%)%%%.%[%]%*%+%-%?]", "%%%0"))
+end
+
+-- Where `source` reaches module `name`: a quoted `name` (a require, static
+-- or literal dynamic), else the name as a dotted path, else its first line.
+local function placeOf(source: string, name: string): (integer, integer)
+    local pattern = escaped(name)
+    for _, candidate in ipairs({"[\"']" .. pattern .. "[\"']", "%f[%w_%.]" .. pattern .. "%f[^%w_]"}) do
+        local at = source:find(candidate)
+        if at ~= nil then
+            return at, #name
+        end
+    end
+
+    return 1, 0
+end
+
+local function lineAt(source: string, offset: integer): (integer, string)
+    local line: integer, start: integer = 1, 1
+    for position in source:gmatch("()\n") do
+        if position >= offset then
+            break
+        end
+        line, start = line + 1, position + 1
+    end
+    local finish = source:find("\n", start, true) or #source + 1
+
+    return line, (source:sub(start, finish - 1):gsub("^%s+", ""):gsub("%s+$", ""))
+end
+
+-- The shortest chain of modules from `entry` to the first module of
+-- `builtin`, as the parent of each module the search found.
+local function chainTo(byName: {[string]: Carried}, entry: string, builtin: builtins.Builtin): {string}?
+    local parent: {[string]: string} = {}
+    local seen: {[string]: boolean} = {[entry] = true}
+    local queue: {string} = {entry}
+    local at: integer = 1
+    while at <= #queue do
+        local name = queue[at]
+        at = at + 1
+        if builtins.owns(builtin, name) then
+            local chain: {string} = {name}
+            local above = parent[chain[1]]
+            while above ~= nil do
+                table.insert(chain, 1, above as string)
+                above = parent[chain[1]]
+            end
+            return chain
+        end
+        local module = byName[name]
+        for _, child in ipairs(module and module.reached or {}) do
+            if not seen[child] then
+                seen[child] = true
+                parent[child] = name
+                queue[#queue + 1] = child
+            end
+        end
+    end
+
+    return nil
+end
+
+--- The steps of `chain`: for each module but the last, where it reaches the
+--- next.
+export function steps(byName: {[string]: Carried}, chain: {string}, root: string): {Step}
+    local found: {Step} = {}
+    for index = 1, #chain - 1 do
+        local module = byName[chain[index]]
+        local path = module and module.path or chain[index]
+        local source = readFile(path)
+        local offset, length = placeOf(source, chain[index + 1])
+        local line, text = lineAt(source, offset)
+        found[
+            #found + 1
+        ] = {
+            file = path,
+            display = relative(root, path),
+            line = line,
+            offset = offset,
+            length = length,
+            text = text,
+            reaches = chain[index + 1],
+        }
+    end
+
+    return found
+end
+
+local function refusal(name: string, found: {Step}, headline: string, help: string): any
+    local width = 0
+    for _, step in ipairs(found) do
+        width = math.max(width, #(step.display .. ":" .. tostring(step.line)))
+    end
+    local lines = {headline}
+    local related: {any} = {}
+    for _, step in ipairs(found) do
+        local place = step.display .. ":" .. tostring(step.line)
+        lines[#lines + 1] = "  " .. place .. string.rep(" ", width - #place + 2) .. step.text
+        related[
+            #related + 1
+        ] = {filename = step.file, offset = step.offset, length = step.length, message = "reaches " .. step.reaches,}
+    end
+    local last = found[#found]
+
+    return {
+        code = CODE,
+        builtin = name,
+        msg = table.concat(lines, "\n"),
+        filename = last and last.file or nil,
+        offset = last and last.offset or nil,
+        length = last and last.length or nil,
+        related = related,
+        help = help,
+    }
+end
+
+--- Which registered builtins `modules` carry, and the refusals for those the
+--- build goes without or its host cannot provide, one per builtin.
+export function inspect(modules: {Carried}, entry: string, options: Options): ({Carrying}, {any})
+    local all = builtins.entries()
+    local byName: {[string]: Carried} = {}
+    local carrying: {[string]: {string}} = {}
+    for _, module in ipairs(modules) do
+        byName[module.name] = module
+        local owner = builtins.owner(module.name)
+        if owner ~= nil then
+            local list = carrying[owner] or {}
+            list[#list + 1] = module.name
+            carrying[owner] = list
+        end
+    end
+    local stripped: {[string]: boolean} = {}
+    for _, name in ipairs(options.without) do
+        stripped[name] = true
+    end
+    local carried: {Carrying} = {}
+    local refusals: {any} = {}
+    for _, name in ipairs(builtins.names()) do
+        local list = carrying[name]
+        if list ~= nil then
+            table.sort(list)
+            carried[#carried + 1] = {name = name, modules = list}
+            local builtin = all[name] as builtins.Builtin
+            local hosted = false
+            for _, host in ipairs(builtin.hosts) do
+                hosted = hosted or host == options.host
+            end
+            if stripped[name] or not hosted then
+                local chain = chainTo(byName, entry, builtin) or {entry, list[1]}
+                local headline = (
+                    "build target %q is built without %s, but it reaches %s"
+                ):format(options.target, name, chain[#chain])
+                local help = "remove the require that reaches it, or drop "
+                    .. name
+                    .. " from --without and the target's without list"
+                if not stripped[name] then
+                    headline = (
+                        "build target %q reaches %s, which host %s cannot provide"
+                    ):format(options.target, chain[#chain], options.host)
+                    help = name .. " is provided on " .. table.concat(
+                        builtin.hosts,
+                        " and "
+                    ) .. "; build for one of those hosts, or remove the require that reaches it"
+                end
+                refusals[#refusals + 1] = refusal(name, steps(byName, chain, options.root), headline, help)
+            end
+        end
+    end
+
+    return carried, refusals
+end
+
+--- The builtins `names` lists that the registry does not know, each with the
+--- nearest name it does, as messages.
+export function unknown(names: {string}): {string}
+    local known = builtins.names()
+    local present: {[string]: boolean} = {}
+    for _, name in ipairs(known) do
+        present[name] = true
+    end
+    local problems: {string} = {}
+    for _, name in ipairs(names) do
+        if not present[name] then
+            local fixits: any = require("nupp.compiler.check.fixits")
+            local nearest = fixits.nearest(name, known)
+            problems[#problems + 1] = nearest and ("unknown builtin %q; did you mean %q?"):format(name, nearest)
+                or (
+                    "unknown builtin %q; known builtins: %s"
+                ):format(name, #known > 0 and table.concat(known, ", ") or "none")
+        end
+    end
+
+    return problems
+end

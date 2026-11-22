@@ -1,0 +1,37 @@
+#!/bin/sh
+# Refuse a directory of bridge sidecars that holds a builtin's library or
+# notice. A builtin's C library is staged beside a program bundle that binds
+# it and never beside the bridge, which every program carries
+# (`nupp.compiler.project.builtins`). scripts/core-bridge runs this on what it
+# stages; a test passes its own REGISTRY.
+#
+#   scripts/core-bridge-builtins DIRECTORY [REGISTRY]
+set -eu
+ROOT=$(CDPATH= cd -- "$(dirname "$0")/.." && pwd)
+[ "$#" -ge 1 ] && [ "$#" -le 2 ] || {
+    printf 'usage: scripts/core-bridge-builtins DIRECTORY [REGISTRY]\n' >&2
+    exit 2
+}
+directory=$1
+registry=${2:-"$ROOT/src/nupp/compiler/project/builtins.nupp"}
+refuse() {
+    printf 'core-bridge: the bridge must not carry a builtin'"'"'s library or notice: %s\n' \
+        "${1#"$directory"/}" >&2
+    exit 1
+}
+# Each library row is one line: `file = "BASE"` and `notices = {"FILE", ...}`.
+body=$(sed -n '/^export const REGISTRY/,$p' "$registry" | grep -v '^[[:space:]]*--' || true)
+files=$(printf '%s\n' "$body" | sed -n 's/.*file = "\([^"]*\)".*/\1/p')
+notices=$(printf '%s\n' "$body" | sed -n 's/.*notices = {\([^}]*\)}.*/\1/p' | tr -d '",')
+for name in $files; do
+    for file in "$directory/lib/lib$name".* "$directory/lib/$name".* "$directory/lib$name".* "$directory/$name".dll; do
+        if [ -e "$file" ] || [ -L "$file" ]; then
+            refuse "$file"
+        fi
+    done
+done
+for name in $notices; do
+    if [ -e "$directory/notices/$name" ]; then
+        refuse "$directory/notices/$name"
+    fi
+done

@@ -634,17 +634,81 @@ local function publishExecutable(path: string, bytes: string): nil
     end
 end
 
+-- The files of the runtime host's `lib/` and `notices/` that a package never
+-- copies from there: every standard binding's library and every builtin's
+-- library and notices. Those are staged through their bindings, beside a
+-- bundle that names them, so a library the program never binds is never in
+-- its package.
+local function bindingOwnedFiles(): {[string]: boolean}
+    local libraries: any = require("nupp.compiler.project.libraries")
+    local builtins = require("nupp.compiler.project.builtins")
+    local owned: {[string]: boolean} = {}
+    for _, library in pairs(libraries.STANDARD as {[string]: any}) do
+        owned["lib/" .. libraries.filename(library.name)] = true
+    end
+    for _, builtin in pairs(builtins.entries()) do
+        for _, library in ipairs(builtin.libraries) do
+            owned["lib/" .. libraries.filename(library.file)] = true
+        end
+    end
+    for notice in pairs(builtins.notices()) do
+        owned["notices/" .. notice] = true
+    end
+
+    return owned
+end
+
+-- What a core package carries of the registered builtins: for each, the
+-- modules it carries, the libraries and notices staged for it and their
+-- bytes. Libraries are attributed through the binding that staged them.
+local function builtinReport(
+    carried: {any},
+    bindings: {[string]: any},
+    staged: {[string]: string},
+    contentByPath: {[string]: string}
+): {any}
+    local builtins = require("nupp.compiler.project.builtins")
+    local all = builtins.entries()
+    local report: {any} = {}
+    for _, carrying in ipairs(carried) do
+        local builtin: any = all[carrying.name]
+        local files: {any} = {}
+        local notices: {string} = {}
+        local bytes = 0
+        for _, library in ipairs(builtin.libraries) do
+            local binding = bindings[library.name]
+            local relative = binding and type(binding.reference) == "string" and binding.reference:match("^@(lib/.+)$")
+            if relative ~= nil and staged[relative] ~= nil then
+                local size = #(contentByPath[relative] or "")
+                files[#files + 1] = {library = library.name, file = relative, bytes = size}
+                bytes = bytes + size
+            end
+            for _, notice in ipairs(library.notices) do
+                local path = "notices/" .. notice
+                if contentByPath[path] ~= nil and relative ~= nil and staged[relative] ~= nil then
+                    notices[#notices + 1] = path
+                    bytes = bytes + #(contentByPath[path] as string)
+                end
+            end
+        end
+        report[
+            #report + 1
+        ] = {name = carrying.name, modules = carrying.modules, libraries = files, notices = notices, bytes = bytes,}
+    end
+
+    return report
+end
+
 -- A core binary consists of the launcher, a program bundle and the bridge
--- with its libraries beside that bundle.
-function package_.coreBinary(
-    root: string,
-    config: Config,
-    target: Target,
-    outDir: string,
-    output: string,
-    inc: any,
-    digest: function(string): string
-): ({[string]: boolean}, string, string, {string}, {string})
+-- with its libraries beside that bundle. `options` names the builtins the
+-- target goes without and the target's name, for the refusal of a build
+-- that reaches one; the last result is what the package carries of them.
+function package_.coreBinary(root: string, config: Config, target: Target, outDir: string, output: string, inc: any, digest: function(
+    string
+): string, options: {
+    without: {string}?,
+    targetName: string?
+}?): ({[string]: boolean}, string, string, {string}, {string}, {any})
     local host = assert(os.getenv("NUPP_CORE_RUNTIME"), "the core runtime path is unavailable")
     local entry = (target.entries or {})[1] or "nupp.tools.main"
     local isPath = entry:find("[/\\]") or entry:match("%.nupp$") or entry:match("%.lua$")
@@ -667,9 +731,34 @@ function package_.coreBinary(
         inc.stageCarriedDocument("nupp.embedded", path, source)
         embedded = path
     end
-    local bytes = require("nupp.core.guestprogramproducer").projectBundle(name, path, inc, embedded)
+    local closure = require("nupp.core.builtinclosure")
+    local carried: {any} = {}
+
+    -- A builtin the target goes without, or its host cannot provide, that
+    -- the program reaches stops the build here, before it is compiled.
+    local function inspect(modules: {any}, entryModule: string): nil
+        local found, refusals = closure.inspect(modules, entryModule, {
+            without = options and options.without or {},
+            host = target.host or "native",
+            target = options and options.targetName or target.name or "default",
+            root = fs.absolute(root),
+        })
+        if #refusals > 0 then
+            error({builtinRefusals = refusals}, 0)
+        end
+        carried = found
+    end
+
+    local bytes = require("nupp.core.guestprogramproducer").projectBundle(name, path, inc, embedded, inspect)
     local bindings = (config as any)._nativeLibraryBindings or {}
-    local libraries = require("nupp.core.guestbuild").packagedLibraryFiles(bytes, bindings)
+    local libraries, notices = require("nupp.core.guestbuild").packagedLibraryFiles(bytes, bindings)
+    local staged: {[string]: string} = {}
+    for relative, source in pairs(libraries) do
+        staged[relative] = source
+    end
+    for relative, source in pairs(notices) do
+        libraries[relative] = source
+    end
     local used: {string} = {}
     for name, binding in pairs(bindings) do
         local reference = binding.reference
@@ -680,11 +769,12 @@ function package_.coreBinary(
     end
     table.sort(used)
     local hostDirectory = dirname(host)
+    local owned = bindingOwnedFiles()
     for _, subdirectory in ipairs({"lib", "notices"}) do
         local path = join(hostDirectory, subdirectory)
         for _, source in ipairs(fs.listFiles(path)) do
-            local relative = source:sub(#hostDirectory + 2)
-            if libraries[relative] == nil then
+            local relative = source:sub(#hostDirectory + 2):gsub("\\", "/")
+            if libraries[relative] == nil and not owned[relative] then
                 libraries[relative] = source
             end
         end
@@ -739,7 +829,7 @@ function package_.coreBinary(
     publishExecutable(output, launcher)
     outputs[output] = true
 
-    return outputs, bundle, host, unreachable or {}, used
+    return outputs, bundle, host, unreachable or {}, used, builtinReport(carried, bindings, staged, contentByPath)
 end
 
 package_.binaryOutput = binaryOutput

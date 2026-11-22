@@ -41,6 +41,10 @@ type project.BuildOptions = {
 
     host: string?,
 
+    --- Builtins to strip, beside the target's own `without` list. A stripped
+    --- builtin the program reaches fails the build.
+    without: {string}?,
+
     --- Where to write, instead of the target's own directory.
     outDir: string?,
 
@@ -241,6 +245,27 @@ local function buildOne(root: string?, opts: project.BuildOptions?): integer
         say(opts, "NUPP0002", "nupp: host must be native or browser\n")
         return 1
     end
+    -- The builtins the command line and the target strip, as one sorted list
+    -- in the configuration, so the build key changes with it.
+    local without: {string} = {}
+    do
+        local seen: {[string]: boolean} = {}
+        for _, list in ipairs({opts.without or {}, (target as any).without or {}}) do
+            for _, name in ipairs(list as {string}) do
+                if not seen[name] then
+                    seen[name] = true
+                    without[#without + 1] = name
+                end
+            end
+        end
+        table.sort(without)
+        local problems = require("nupp.core.builtinclosure").unknown(without)
+        if #problems > 0 then
+            say(opts, "NUPP0003", "nupp: " .. problems[1] .. "\n")
+            return 1
+        end
+    end
+    config._without = without
     if target.host == "browser" and target.platforms ~= nil then
         say(
             opts,
@@ -607,7 +632,7 @@ local function buildOne(root: string?, opts: project.BuildOptions?): integer
         local package = loadBuildTool("nupp.tools.build.package")
         local name = target.name or opts.target or "binary"
         local output = package.binaryOutput(root, target, name, outDir, nil, opts.outDir ~= nil)
-        local ok, outputs, bundle, host, unreachable, usedLibraries = pcall(
+        local ok, outputs, bundle, host, unreachable, usedLibraries, carriedBuiltins = pcall(
             package.coreBinary,
             root,
             config,
@@ -615,11 +640,44 @@ local function buildOne(root: string?, opts: project.BuildOptions?): integer
             outDir,
             output,
             session.inc,
-            contentDigest
+            contentDigest,
+            {without = without, targetName = target.name or opts.target or "default"}
         )
+        if not ok and type(outputs) == "table" and (outputs as any).builtinRefusals ~= nil then
+            -- A builtin the target goes without, reached: one diagnostic for
+            -- each, with the chain of requires that reached it.
+            for _, refusal in ipairs((outputs as any).builtinRefusals as {any}) do
+                if opts.diagnostics ~= nil then
+                    local diagnostics = opts.diagnostics as {any}
+                    diagnostics[#diagnostics + 1] = refusal
+                else
+                    io.stderr:write("nupp: " .. refusal.msg .. "\n")
+                end
+            end
+            if opts.produced then
+                opts.produced.without = cache.jsonArray(without)
+            end
+            return 1
+        end
         if not ok then
             say(opts, "NUPP0004", "nupp: " .. tostring(outputs) .. "\n")
             return 1
+        end
+        if opts.produced then
+            local reported: {any} = {}
+            for _, item in ipairs((carriedBuiltins or {}) as {any}) do
+                reported[
+                    #reported + 1
+                ] = {
+                    name = item.name,
+                    modules = cache.jsonArray(item.modules as {string}),
+                    libraries = cache.jsonArray(item.libraries as {any}),
+                    notices = cache.jsonArray(item.notices as {string}),
+                    bytes = item.bytes,
+                }
+            end
+            opts.produced.builtins = cache.jsonArray(reported)
+            opts.produced.without = cache.jsonArray(without)
         end
         for path in pairs(outputs) do
             newState.outputs[path] = true

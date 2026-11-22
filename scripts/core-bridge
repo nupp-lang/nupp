@@ -186,6 +186,8 @@ done
 if [ "$platform" = Darwin:arm64 ]; then
     for library in "$stage"/lib/*.dylib; do check_floor "$library"; done
 fi
+# No builtin's library is ever staged beside the bridge.
+sh "$ROOT/scripts/core-bridge-builtins" "$stage"
 
 compile() {
     if [ "$platform" = Darwin:arm64 ]; then

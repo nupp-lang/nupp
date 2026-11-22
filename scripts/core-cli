@@ -38,7 +38,7 @@ CLI="$ROOT/.nupp/core-cli"
 FORMAT=nupp-core-cli-1
 LOCK="$CLI/build.lock"
 # What a core compiler is built from, beside the compiler that builds it.
-SOURCES='src templates native/corebridge nupp.lua scripts/core-self-build scripts/core-bridge
+SOURCES='src templates native/corebridge nupp.lua scripts/core-self-build scripts/core-bridge scripts/core-bridge-builtins
 scripts/core-http-linux-sdk.sh scripts/native-libraries native/httpcurl
 scripts/c-libraries/libuv.sh scripts/c-libraries/libcurl.sh scripts/c-libraries/openssl.sh
 scripts/c-libraries/libcurl-early-response.patch scripts/c-libraries/zlib.sh scripts/toolchain.pins notices/libuv-LICENSE.txt

@@ -197,6 +197,12 @@ export function bundle(caseName: string, capacity: integer): string
     return bundleBytes(source, capacity)
 end
 
-export function projectBundle(entry: string, path: string, inc: any, embedded: string?): string
-    return bundleBytes(guestbuild.projectGuest(entry, path, inc, embedded), 1048576)
+export function projectBundle(
+    entry: string,
+    path: string,
+    inc: any,
+    embedded: string?,
+    inspect: function({any}, string)?
+): string
+    return bundleBytes(guestbuild.projectGuest(entry, path, inc, embedded, inspect), 1048576)
 end

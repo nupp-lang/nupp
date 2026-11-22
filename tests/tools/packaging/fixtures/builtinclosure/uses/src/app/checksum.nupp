@@ -1,0 +1,8 @@
+module app.checksum
+
+local crcfixture = require("crcfixture")
+
+--- The CRC-32 of "hello", through the fixture builtin.
+export function ofhello(): string
+    return crcfixture.hello()
+end

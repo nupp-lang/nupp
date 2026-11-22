@@ -202,6 +202,23 @@ local ENTRIES: {any} = {
         docs = "docs/learn/projects/integrations/luacats.md#recovery",
     },
     {
+        code = "NUPP0006",
+        summary = "A build reaches a builtin it is built without",
+        rule = "`nupp build --without NAME` and a target's `without = {...}` strip a "
+        .. "builtin library, and a target whose host cannot provide a builtin goes "
+        .. "without it too. A program that still reaches one of its modules -- through "
+        .. "a require, a qualified path or a literal dynamic require, however many "
+        .. "modules away -- fails to build rather than failing at run time, and the "
+        .. "diagnostic names each require on the chain from the entry. For example, "
+        .. "`without = {\"sqlite\"}` on a target whose `src/main.nupp` reaches "
+        .. "`require(\"sqlite\")` through `app.store` fails, naming both requires; "
+        .. "removing the require from `app.store`, or `sqlite` from the without list, "
+        .. "builds. The check is a build's, so no single file a check is given "
+        .. "reports it.",
+        related = {"NUPP0002", "NUPP0003"},
+        docs = "docs/learn/projects/builtins.md#stripping-a-builtin",
+    },
+    {
         code = "NUPP1002",
         summary = "A required token is missing",
         rule = "A construct was opened and not closed. The position reported is "

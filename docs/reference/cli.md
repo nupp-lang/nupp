@@ -834,6 +834,7 @@ Examples:
     nupp build
     nupp build --target app
     nupp build --json
+    nupp build --without sqlite,yaml
 
 Usage:
   nupp build [options]
@@ -843,6 +844,8 @@ Options:
   --platform NAME       Build one configured binary platform, or all.
   --output DIR, -o DIR  Output directory, overriding the target's.
   --host HOST           Runtime host services.
+  --without NAMES       Strip these builtins, comma-separated; reaching one
+                        fails the build.
   --progress[=WHEN], -q, --quiet
                         When to report progress and timing.
   --format FORMAT, --json, --text
@@ -852,6 +855,13 @@ Options:
   --color[=WHEN]        When to color output: always, never, or auto
   --no-color            Never color output
 ```
+
+#### Stripping builtins
+
+`--without` names builtin libraries the target must not carry, and adds them to
+the target's own `without` list. A program that reaches one fails with
+`NUPP0006`, naming the requires that reach it. See
+[builtin libraries](../learn/projects/builtins.md#stripping-a-builtin).
 
 #### Output directories
 

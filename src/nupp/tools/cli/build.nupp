@@ -172,6 +172,49 @@ local REPORT_SCHEMA = {
             required = {"totalMs", "compiledModules", "reusedModules", "phases", "slowest",},
         },
         ok = {type = "boolean", description = "Whether the build completed. False when a " .. "diagnostic stopped it."},
+        builtins = {
+            type = "array",
+            description = "The builtin libraries a core binary carries: those its require closure "
+            .. "reaches, each with the modules it carries and the libraries and notices staged for it. "
+            .. "A builtin the program does not reach is absent and costs nothing.",
+            items = {
+                type = "object",
+                properties = {
+                    name = {type = "string", description = "The builtin, as --without names it."},
+                    modules = {
+                        type = "array",
+                        items = {type = "string"},
+                        description = "Its modules the bundle carries."
+                    },
+                    libraries = {
+                        type = "array",
+                        description = "Its C libraries staged beside the bundle.",
+                        items = {
+                            type = "object",
+                            properties = {
+                                library = {type = "string", description = "The logical library name."},
+                                file = {type = "string", description = "The staged path under the package generation."},
+                                bytes = {type = "integer"},
+                            },
+                            required = {"library", "file", "bytes"},
+                        },
+                    },
+                    notices = {
+                        type = "array",
+                        items = {type = "string"},
+                        description = "Its license notices staged beside its libraries."
+                    },
+                    bytes = {type = "integer", description = "The staged libraries' and notices' bytes."},
+                },
+                required = {"name", "modules", "libraries", "notices", "bytes"},
+            },
+        },
+        without = {
+            type = "array",
+            items = {type = "string"},
+            description = "The builtins the build was asked to strip, from --without and the target's "
+            .. "without list, sorted. Reaching one fails the build with NUPP0006."
+        },
     },
     required = {"ok", "diagnostics", "written", "materializations", "derives"},
 }
@@ -208,6 +251,8 @@ local function run(options: any): integer
                 artifact = produced.artifact,
                 materializations = produced.materializations or materializations,
                 derives = produced.derives or derives,
+                builtins = produced.builtins,
+                without = produced.without,
                 timing = code == 0 and produced.timing or nil,
             })
         end
@@ -217,11 +262,20 @@ local function run(options: any): integer
 
     local project = require("nupp.tools.build.project")
     local produced: {[string]: any} = {}
+    local without: {string}? = nil
+    if values.without ~= nil then
+        local names: {string} = {}
+        for name in (values.without as string):gmatch("[^,%s]+") do
+            names[#names + 1] = name
+        end
+        without = names
+    end
     local code = project.build(".", {
         outDir = projectOutDir,
         target = target,
         platform = values.platform,
         host = values.host,
+        without = without,
         diagnostics = asJson and diagnostics or nil,
         produced = asJson and produced or nil,
         progress = progressMode
@@ -242,6 +296,7 @@ end
 ---     nupp build
 ---     nupp build --target app
 ---     nupp build --json
+---     nupp build --without sqlite,yaml
 @cli("build")
 @derive(cliModule.command)
 local record Build
@@ -260,6 +315,10 @@ local record Build
     --- Runtime host services.
     @cli(value = "HOST", choices = {"native", "browser"})
     host: string?
+
+    --- Strip these builtins, comma-separated; reaching one fails the build.
+    @cli(value = "NAMES")
+    without: string?
 
     --- When to report progress and timing.
     @cli(
