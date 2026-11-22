@@ -911,6 +911,62 @@ end
 -- A true constant, for the cleanup protocol's conditions: a guest error
 -- unwinds in the runtime, so no call or terminal reports failure here.
 
+-- A `debug.log` severity call in statement position: the level test stands
+-- at the site, so a filtered line evaluates none of its arguments, and the
+-- module and line are constants (`debug.log.emitat`), as main lowers it.
+local function logSite(ctx: any, node: any): nil
+    local sites = catalog(ctx).logSites[node]
+
+    local function text(value: any): integer
+        return derivedmembers.plainData(ctx, node, value)
+    end
+
+    local logModule = ctx.hold(
+        ctx.emit(node, "LibCall", {corelibrary.id("MODULE_REQUIRE"), text(node.logModule or "debug.log")}, "tagged")
+    )
+    local moduleName = ctx.fn and ctx.fn.scope and ctx.fn.scope.name or "?"
+    local formodule = ctx.emit(node, "GetIdx", {ctx.readHeld(logModule), text("formodule")}, "tagged")
+    local view = landed(
+        ctx,
+        node,
+        ctx.invoke(node, formodule, {text(moduleName)}, graph.dynamicInvokeContract(sites.view, 1), true)
+    )
+    local on = ctx.emit(node, "GetIdx", {view, text("on")}, "tagged")
+    local enabled = ctx.emit(node, "GetIdx", {on, text(node.logIntrinsic)}, "tagged")
+    ctx.when(
+        node,
+        enabled,
+        function(c: any): nil
+            local token = cst.firstToken(node)
+            local held = {}
+            for _, value in ipairs({text(moduleName), text(node.logIntrinsic), text(token and token.line or 0)}) do
+                held[#held + 1] = c.hold(value)
+            end
+            for _, argument in ipairs(node.args.exprs or {}) do
+                local value = c.expression(argument, "tagged")
+                if c.block == nil or value == nil then
+                    for _, handle in ipairs(held) do
+                        c.release(handle)
+                    end
+                    return
+                end
+                held[#held + 1] = c.hold(value)
+            end
+            local emitat = c.emit(node, "GetIdx", {c.readHeld(logModule), text("emitat")}, "tagged")
+            local values = {}
+            for index, handle in ipairs(held) do
+                values[index] = c.readHeld(handle)
+            end
+            for _, handle in ipairs(held) do
+                c.release(handle)
+            end
+            landed(c, node, c.invoke(node, emitat, values, graph.dynamicInvokeContract(sites.emit, 1), true))
+        end,
+        true
+    )
+    ctx.release(logModule)
+end
+
 -- A profile for one checked-source graph version (see coregraphschema).
 export function forVersion(version: integer): any
     local profile = {}
@@ -2600,7 +2656,9 @@ export function forVersion(version: integer): any
         end
         profile.statementCall = function(ctx: any, node: any): nil
             local site = catalog(ctx).callByNode[node]
-            if node.kind == "safeCall" then
+            if catalog(ctx).logSites[node] ~= nil then
+                logSite(ctx, node)
+            elseif node.kind == "safeCall" then
                 taggedcalls.safeinvoke(ctx, node, false)
             elseif node.layoutOf
                 or graph.dynamicRequire(node)
