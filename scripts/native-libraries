@@ -57,6 +57,10 @@ if [ "$TARGET" = aarch64-pc-windows-gnullvm ]; then
         aarch64-w64-windows-gnu | aarch64-w64-mingw32) ;;
         *) die 'Windows ARM64 needs an LLVM MinGW clang targeting aarch64-w64-windows-gnu' ;;
     esac
+    # lld stamps each DLL with the time it linked; without the stamp the
+    # same sources link to the same bytes.
+    LDFLAGS="${LDFLAGS:+$LDFLAGS }-Wl,--no-insert-timestamp"
+    export LDFLAGS
 fi
 # Autotools and OpenSSL's Configure need a POSIX perl and make, which Git Bash
 # lacks. On Windows ARM64 they run in MSYS2's own shell, in its clangarm64
@@ -64,7 +68,9 @@ fi
 msys2() {
     root=${NUPP_MSYS2_ROOT:-/c/msys64}
     [ -x "$root/usr/bin/bash.exe" ] || die "MSYS2 is required at $root (NUPP_MSYS2_ROOT)"
-    MSYSTEM=CLANGARM64 CHERE_INVOKING=1 MSYS2_PATH_TYPE=minimal "$root/usr/bin/bash.exe" -lc "$1"
+    # Its login shell starts LDFLAGS afresh, so the build's are passed on.
+    MSYSTEM=CLANGARM64 CHERE_INVOKING=1 MSYS2_PATH_TYPE=minimal "$root/usr/bin/bash.exe" \
+        -lc "export LDFLAGS='${LDFLAGS:-}'; $1"
 }
 # The VM's ISA-L and zlib and checkout docs' Markdown can be provisioned with
 # MinGW. The C SDK lane uses MSVC.
