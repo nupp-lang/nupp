@@ -50,6 +50,23 @@ local kinds: {
 }
 local widths: {integer} = {1, 1, 2, 2, 4, 4, 8, 8, 4, 8}
 local descriptors: {[string]: Descriptor} = {}
+-- A struct's bytes are one element of a block kind: BLOCK plus its size
+-- (nupp.runtime.core.corestorage), which an array of structs holds.
+const BLOCK = 0x40000000
+
+-- The bytes an element of storage kind `code` spans.
+local function widthOf(code: integer): integer
+    if code > BLOCK then
+        return code - BLOCK
+    end
+
+    return widths[code]
+end
+
+-- The block kind of a struct of `size` bytes.
+export function block(size: integer): integer
+    return BLOCK + size
+end
 
 export function scalar(kind: string): any
     local found = descriptors[kind]
@@ -70,7 +87,7 @@ export function descriptor(value: any): any
     local code = calls.elementkind(value)
     local found = byKind[code]
     if found == nil then
-        found = {kind = code, size = widths[code], alignment = widths[code], name = tostring(code)}
+        found = {kind = code, size = widthOf(code), alignment = widthOf(code), name = tostring(code)}
         byKind[code] = found
     end
 
@@ -84,11 +101,18 @@ end
 
 export function allocarray(element: any, count: integer): any
     local scalarelement = element as Descriptor
+    assert(count >= 0, "nupp: storage element count must be a whole, finite count")
+    local size: integer = type(element) == "table" and (element as any).size or 0
     if type(element) == "table" and (element as any).kind == "struct" then
         -- A struct's array is its elements' bytes back to back, as C lays
-        -- one out (nupp.runtime.provider.corestructs).
-        assert(count >= 0, "nupp: storage element count must be a whole, finite count")
-        return calls.allocbytes(count * ((element as any).size as integer))
+        -- one out (nupp.runtime.provider.corestructs), each one block.
+        if size == 0 then
+            return calls.allocbytes(0)
+        end
+        return calls.allocate(block(size), count)
+    elseif type(element) == "table" and type(scalarelement.kind) == "number" and scalarelement.kind > BLOCK then
+        -- The descriptor of a struct instance's storage: an array of more.
+        return calls.allocate(scalarelement.kind, count)
     end
     assert(type(element) == "table" and kinds[scalarelement.name] ~= nil, "nupp: storage arrays hold scalars")
 
@@ -113,7 +137,7 @@ export function sizeof(element: any): integer
         return (element as Descriptor).size
     end
 
-    return calls.elements(element) * widths[calls.elementkind(element)]
+    return calls.elements(element) * widthOf(calls.elementkind(element))
 end
 
 export function string(borrows source: any, count: integer): string
@@ -125,7 +149,12 @@ export function castbytes(borrows pointer: any): const uint8[?] borrows (pointer
 end
 
 export function castelements<T>(element: ctype<T>, borrows pointer: any): any borrows (pointer)
-    return calls.cast(pointer, ((element as any) as Descriptor).kind)
+    local described: any = element
+    if described.kind == "struct" then
+        return calls.cast(pointer, block(described.size))
+    end
+
+    return calls.cast(pointer, (described as Descriptor).kind)
 end
 
 -- Raw references require the caller to supply their readable extent.
