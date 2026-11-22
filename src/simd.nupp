@@ -2709,8 +2709,7 @@ end
 
 --- The N-lane vector a stored `Fixed<N>` field holds: `storage` is the field's
 --- C array, lane `i` at index `i - 1`, each wrapped to the element as a load
---- wraps it. Writing the field back is the assignment itself, since the FFI
---- copies an N-lane table into an N-element array.
+--- wraps it.
 --- @export
 function lane.fromstorage(element: string, n: integer, storage: any): any
     local lanes: {[integer]: any} = {}
@@ -2719,6 +2718,17 @@ function lane.fromstorage(element: string, n: integer, storage: any): any
     end
 
     return vectorOf(element, n, lanes)
+end
+
+--- Writes vector `value` to a stored `Fixed<N>` field whose C array is
+--- `storage`: lane `i` at index `i - 1`, converted as the array's element
+--- converts a number. Where the FFI copies an N-lane table into the array on
+--- assignment, the native core's struct field is written through this.
+--- @export
+function lane.intostorage(_element: string, n: integer, storage: any, value: any): nil
+    for i = 1, n do
+        (storage as {[integer]: any})[i - 1] = laneAt(value, i)
+    end
 end
 
 --- The methods on one lane, or on a preferred-species vector or mask. On an

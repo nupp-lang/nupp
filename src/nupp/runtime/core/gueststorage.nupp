@@ -50,6 +50,20 @@ export function storageget(ctx: voidptr, subject: uint64, key: uint64): uint64
     if index == NOINDEX then
         return values.TRUE
     end
+    local kind = corestorage.elementkind(object)
+    if corestorage.isblock(kind) then
+        -- A block (a struct) is a view of its bytes, a reference into the
+        -- storage's, as an element of a C array of structs is.
+        @unsafe do
+            local h = guestvalues.guestheap(ctx)
+            local made = corestorage.newview(h, object, kind, index * corestorage.elementwidth(kind), 1ULL)
+            if made == 0ULL then
+                error("not enough memory")
+            end
+            tables.drain(h)
+            return values.TAG_OBJ | made
+        end
+    end
     if not corestorage.readable(
         object,
         index * corestorage.elementwidth(corestorage.elementkind(object)),
@@ -82,8 +96,45 @@ local function pointerbits(ctx: voidptr, value: uint64): uint64
     return native.word(guestvalues.intarg(ctx, value, 0, 2ULL))
 end
 
--- storage[key] = value for SetIdx: 0, or 1 once an error is raised. A float
--- stored as an integer kind is truncated toward zero, as C converts one.
+-- Whether `value` is a number: an integer or a float.
+local function isnumber(value: uint64): boolean
+    return ints.isInteger(value) or value & values.QNAN ~= values.QNAN or value == values.QNAN
+end
+
+-- The bits a `kind` element stores for number `value`. A float stored as an
+-- integer kind is truncated toward zero, as C converts one.
+local function numberbits(kind: uint64, value: uint64): uint64
+    local floating = kind == corestorage.FLOAT32 or kind == corestorage.FLOAT64
+    if ints.isInteger(value) then
+        if floating then
+            return ints.toFloatBits(ints.bitsOf(value))
+        end
+        return ints.bitsOf(value)
+    elseif not floating then
+        return native.word(native.toInt(native.fromBits(value)))
+    end
+
+    return value
+end
+
+-- A block (a struct) stored as element `index`: the bytes of `value`, a
+-- block at least as wide, copied over the element's.
+local function storeblock(ctx: voidptr, object: uint64, kind: uint64, index: uint64, value: uint64): uint64
+    local width = corestorage.elementwidth(kind)
+    if not corestorage.isstorage(value) then
+        guestscope.raise(ctx, texts.textvalue(ctx, librarytexts.TEXT_STORAGE), 1ULL)
+        return 1ULL
+    end
+    local source = value & values.PAYLOAD
+    if corestorage.bytelength(source) < width or not corestorage.readable(source, 0ULL, width) then
+        error("nupp: a struct element is written from a narrower or unreadable value")
+    end
+    corestorage.copybytes(corestorage.storagebase(object) + index * width, corestorage.storagebase(source), width)
+
+    return 0ULL
+end
+
+-- storage[key] = value for SetIdx: 0, or 1 once an error is raised.
 export function storageset(ctx: voidptr, subject: uint64, key: uint64, value: uint64): uint64
     local object = subject & values.PAYLOAD
     if not corestorage.iswritable(object) then
@@ -96,24 +147,14 @@ export function storageset(ctx: voidptr, subject: uint64, key: uint64, value: ui
     local kind = corestorage.elementkind(object)
     if kind == corestorage.POINTER then
         return corestorage.writeelement(object, index, pointerbits(ctx, value))
+    elseif corestorage.isblock(kind) then
+        return storeblock(ctx, object, kind, index, value)
     end
-    local floating = kind == corestorage.FLOAT32 or kind == corestorage.FLOAT64
-    local bits: uint64 = 0ULL
-    if ints.isInteger(value) then
-        bits = ints.bitsOf(value)
-        if floating then
-            bits = ints.toFloatBits(bits)
-        end
-    elseif value & values.QNAN ~= values.QNAN or value == values.QNAN then
-        bits = value
-        if not floating then
-            bits = native.word(native.toInt(native.fromBits(value)))
-        end
-    else
+    if not isnumber(value) then
         guestscope.raise(ctx, texts.textvalue(ctx, librarytexts.TEXT_NUMBER_EXPECTED), 1ULL)
         return 1ULL
     end
-    corestorage.writeelement(object, index, bits)
+    corestorage.writeelement(object, index, numberbits(kind, value))
 
     return 0ULL
 end
@@ -200,6 +241,63 @@ local function countargument(ctx: voidptr, value: uint64, position: uint64, limi
     end
 
     return ints.bitsOf(value)
+end
+
+-- The byte offset a struct field access names in storage `object`, for an
+-- element of `kind`: the offset, once it and the kind are checked against
+-- the storage's bytes.
+local function fieldoffset(ctx: voidptr, object: uint64, kind: uint64, offset: uint64): uint64
+    local width = corestorage.elementwidth(ints.bitsOf(kind))
+    if not ints.isInteger(kind) or width == 0ULL or corestorage.isblock(ints.bitsOf(kind)) then
+        texts.argumentError(ctx, 2ULL, librarytexts.TEXT_NUMBER, 0ULL, kind)
+    end
+    local at = countargument(ctx, offset, 3ULL, corestorage.bytelength(object))
+    if not corestorage.readable(object, at, width) then
+        error("nupp: stale, closed or out of range struct field")
+    end
+
+    return at
+end
+
+-- A struct field's value read in place (STORAGE_LOAD): the element of
+-- `kind` at byte `offset` of `subject`, with no view of it made. A pointer
+-- field loads as its address.
+export function loadat(ctx: voidptr, subject: uint64, kind: uint64, offset: uint64): uint64
+    local object = storageargument(ctx, subject, 1ULL)
+    local at = fieldoffset(ctx, object, kind, offset)
+    local code = ints.bitsOf(kind)
+    if code == corestorage.POINTER then
+        code = corestorage.UINT64
+    end
+    @unsafe do
+        local h = guestvalues.guestheap(ctx)
+        local value = corestorage.loadelement(h, code, corestorage.storagebase(object) + at, 0ULL)
+        tables.drain(h)
+        return value
+    end
+end
+
+-- A struct field written in place (STORAGE_STORE): `value` as the element
+-- of `kind` at byte `offset` of `subject`, a pointer kind storing the
+-- address of what it names.
+export function storeat(ctx: voidptr, subject: uint64, kind: uint64, offset: uint64, value: uint64): uint64
+    local object = storageargument(ctx, subject, 1ULL)
+    if not corestorage.iswritable(object) then
+        texts.argumentError(ctx, 1ULL, librarytexts.TEXT_WRITABLE_STORAGE, 0ULL, subject)
+    end
+    local at = fieldoffset(ctx, object, kind, offset)
+    local code = ints.bitsOf(kind)
+    local base = corestorage.storagebase(object) + at
+    if code == corestorage.POINTER then
+        corestorage.storeelement(corestorage.UINT64, base, 0ULL, pointerbits(ctx, value))
+        return values.NIL
+    end
+    if not isnumber(value) then
+        texts.argumentError(ctx, 4ULL, librarytexts.TEXT_NUMBER, 0ULL, value)
+    end
+    corestorage.storeelement(code, base, 0ULL, numberbits(code, value))
+
+    return values.NIL
 end
 
 -- The storage views (`STORAGE_VIEW` through `STORAGE_CAST`),
