@@ -129,6 +129,24 @@ end
 -- starts on.
 local measuring = os.getenv("NUPP_GUEST_MEMORY") == "1"
 
+-- Whether the build says on stderr how far it has got: the compiler's own
+-- build (`__core-compiler`) does, for the log a long build is watched by, and
+-- NUPP_GUEST_PROGRESS=1 asks for it anywhere. A program's `nupp build` is
+-- quiet on success.
+local reporting = os.getenv("NUPP_GUEST_PROGRESS") == "1"
+
+--- Reports the build's progress on stderr, as the compiler's own build does.
+export function reportProgress(): nil
+    reporting = true
+end
+
+-- Writes a progress line, when the build reports its progress.
+local function progress(...: string): nil
+    if reporting then
+        io.stderr:write(...)
+    end
+end
+
 --- Reports on stderr the live heap after `phase`, when asked to.
 export function memory(phase: string): nil
     if measuring then
@@ -666,7 +684,7 @@ local function runtime(mode: string, cacheDirectory: string?, audited: boolean):
     -- The checked session and catalog serve both modes.
     sessions[kind] = sessions[kind] or service.buildUnits(fixtures, roots, handlers)
     local units = sessions[kind]
-    io.stderr:write(("guest runtime session %ds\n"):format(os.time() - began))
+    progress(("guest runtime session %ds\n"):format(os.time() - began))
     memory("runtime session")
     local phases = {}
     local started = os.clock()
@@ -677,7 +695,7 @@ local function runtime(mode: string, cacheDirectory: string?, audited: boolean):
         handlers,
         function(name: string): nil
             phases[#phases + 1] = {name = name, seconds = os.clock() - started}
-            io.stderr:write(("guest runtime %s %ds\n"):format(name, os.time() - began))
+            progress(("guest runtime %s %ds\n"):format(name, os.time() - began))
         end,
         units.session.module("nupp.runtime.core.context")
     )
@@ -1692,10 +1710,10 @@ local function compileProgram(
     if pieces == nil then
         -- What the kept catalog stands for changed, or a piece it needs is
         -- gone: the whole program is checked and described again.
-        io.stderr:write("guest pieces: checking ", caseName, " afresh\n")
+        progress("guest pieces: checking ", caseName, " afresh\n")
         return compileProgram(caseName, fixture, version, true, projectEntry)
     end
-    io.stderr:write(
+    progress(
         (
             "guest pieces: %s reused %d of %d, %ds after %ds checking\n"
         ):format(caseName, reused, #pieces, math.floor(os.clock() - described), math.floor(described - began))
@@ -1705,14 +1723,14 @@ local function compileProgram(
     local entry = catalog.modules[#catalog.modules].name
     local ok, result = pcall(corelink.link, pieces, entry)
     if not ok and catalog.kept then
-        io.stderr:write("guest pieces: checking ", caseName, " afresh: ", tostring(result), "\n")
+        progress("guest pieces: checking ", caseName, " afresh: ", tostring(result), "\n")
         return compileProgram(caseName, fixture, version, true, projectEntry)
     elseif not ok and reused > 0 then
         -- A kept piece no longer links: what it read of another module, a
         -- callee's signature or an initializer's result, has changed. Every
         -- module is compiled again, so what is refused is what a fresh
         -- build refuses.
-        io.stderr:write("guest pieces: compiling ", caseName, " afresh: ", tostring(result), "\n")
+        progress("guest pieces: compiling ", caseName, " afresh: ", tostring(result), "\n")
         result = corelink.link(assert(piecesOf(catalog, profile, store, keys, true)), entry)
     elseif not ok then
         error(result, 0)
