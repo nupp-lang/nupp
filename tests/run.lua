@@ -1804,11 +1804,67 @@ end
 --- second less than the one that started it.
 local groupDepth = tonumber(os.getenv("NUPP_TEST_GROUP_DEPTH") or "") or 0
 
-local function groupedWorker(worker)
+--- A worker is also ended once it has gone quiet for longer than any case has
+--- reason to. A case that never finishes -- a loop whose budget the runtime
+--- cannot enforce, a wait nothing will answer -- otherwise holds its lane, and
+--- the run with it, for as long as nobody looks: one held the core's isolated
+--- lane for six and a half hours. What is measured is the time since the
+--- worker last wrote to its error log, where every case it starts is marked,
+--- not how long it has run: a queue worker runs a whole lane and is busy the
+--- entire time. `NUPP_TEST_STALL_SECONDS` sets it, and 0 turns it off. Only
+--- the outermost workers are watched; what a nested worker writes reaches the
+--- log of the one that started it.
+local DEFAULT_STALL_SECONDS = 60 * 60
+local WATCH_INTERVAL_SECONDS = 2
+local STALLED_STATUS = 124
+local stallSeconds = tonumber(os.getenv("NUPP_TEST_STALL_SECONDS") or "") or DEFAULT_STALL_SECONDS
+if groupDepth > 0 then
+    stallSeconds = 0
+end
+
+local function shellQuote(value)
+    return "'" .. tostring(value):gsub("'", "'\\''") .. "'"
+end
+
+-- The watch's step for a worker that has gone quiet: it counts its own sleeps
+-- since the log last grew, rather than reading a clock, which is all a shell
+-- has everywhere. On ending the worker it leaves a mark beside the log.
+local function stallStep(limit, errors)
+    if limit <= 0 or errors == nil then
+        return ""
+    end
+    local log = shellQuote(errors)
+
+    return (" nupp_size=$(wc -c < %s 2>/dev/null || echo 0);"
+        .. " if [ \"$nupp_size\" = \"$nupp_seen\" ]; then nupp_idle=$((nupp_idle + %d));"
+        .. " else nupp_seen=$nupp_size; nupp_idle=0; fi;"
+        .. " if [ $nupp_idle -ge %d ]; then : > %s; nupp_reap $nupp_worker;"
+        .. " kill -KILL $nupp_worker 2>/dev/null; exit 0; fi;"):format(
+        log,
+        WATCH_INTERVAL_SECONDS,
+        limit,
+        shellQuote(errors .. ".stalled")
+    )
+end
+
+-- Says why the worker ended when the watch was what ended it.
+local function stalled(limit, errors)
+    if limit <= 0 or errors == nil then
+        return nil
+    end
+    local mark = shellQuote(errors .. ".stalled")
+
+    return ("if [ -f %s ]; then rm -f %s;"
+        .. " echo 'the worker wrote nothing for %d seconds and was ended (NUPP_TEST_STALL_SECONDS)' >&2;"
+        .. " nupp_status=%d; fi"):format(mark, mark, limit, STALLED_STATUS)
+end
+
+local function groupedWorker(worker, errors)
     if package.config:sub(1, 1) == "\\" then
         return worker .. "; nupp_status=$?"
     end
     local grace = math.max(1, 6 - groupDepth)
+    local limit = math.max(0, math.floor(stallSeconds))
 
     return table.concat(
         {
@@ -1819,19 +1875,19 @@ local function groupedWorker(worker)
             .. " nupp_waited=$((nupp_waited + 1)); done; kill -KILL -$1 2>/dev/null; }",
             ("NUPP_TEST_PROCESS_GROUP=1 NUPP_TEST_GROUP_DEPTH=%d %s & nupp_worker=$!"):format(groupDepth + 1, worker),
             "trap 'nupp_reap $nupp_worker; kill -KILL $nupp_worker 2>/dev/null; exit 143' HUP INT TERM",
-            "( while kill -0 $PPID 2>/dev/null && kill -0 $nupp_worker 2>/dev/null; do sleep 2; done;"
+            "( nupp_idle=0; nupp_seen=-1; while kill -0 $PPID 2>/dev/null && kill -0 $nupp_worker 2>/dev/null; do"
+            .. (" sleep %d;"):format(WATCH_INTERVAL_SECONDS)
+            .. stallStep(limit, errors)
+            .. " done;"
             .. " kill -0 $PPID 2>/dev/null || { nupp_reap $nupp_worker; kill -KILL $nupp_worker 2>/dev/null; } )"
             .. " </dev/null >/dev/null 2>&1 & nupp_watch=$!",
             "wait $nupp_worker; nupp_status=$?",
             "kill $nupp_watch 2>/dev/null",
             "nupp_reap $nupp_worker",
+            stalled(limit, errors),
         },
         "; "
     )
-end
-
-local function shellQuote(value)
-    return "'" .. tostring(value):gsub("'", "'\\''") .. "'"
 end
 
 -- Windows CRT descriptors cannot be named across process boundaries. Its
@@ -3422,7 +3478,7 @@ then
                         verbose and " --verbose" or ""
                     )
                     local command = workerErrors(
-                        groupedWorker(worker) .. '; echo "__status__:$nupp_status" >&2',
+                        groupedWorker(worker, errors) .. '; echo "__status__:$nupp_status" >&2',
                         errors
                     )
                     running[
@@ -4152,7 +4208,7 @@ local function runFreshPiece(spec)
         verbose and " --verbose" or ""
     )
     local command = workerErrors(
-        ("%s; printf '\n__piece_status__:%%d\n' $nupp_status"):format(groupedWorker(worker)),
+        ("%s; printf '\n__piece_status__:%%d\n' $nupp_status"):format(groupedWorker(worker, errors)),
         errors
     )
     local pipe = io.popen(command, "r")
