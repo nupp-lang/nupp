@@ -1,0 +1,66 @@
+-- serde.yaml with bindings: defaults and strictness apply as from any codec,
+-- scalars read as YAML writes them, failures name their path, line and
+-- column, and what encode writes decodes back to the value.
+local yaml = require("serde.yaml")
+local test = require("assert")
+local M = {}
+
+local record Config
+    name: string
+    port: integer = 8080
+    ratio: number = 0.5
+    tags: {string} = {}
+    limits: {[string]: integer} = {}
+end
+
+local configs = serde.binding(Config)
+
+local function failure(text: string): serde.Error
+    local ok, problem = pcall(yaml.decode, configs, text)
+    test(not ok, "decoding was refused")
+
+    return problem as serde.Error
+end
+
+function M.aBindingDecodesWithItsDefaults(): nil
+    local config = yaml.decode(configs, "name: watchashow\nport: 9000\n")
+    test(config.name == "watchashow" and config.port == 9000)
+    test(config.ratio == 0.5 and #config.tags == 0)
+end
+
+function M.scalarsReadAsYamlWritesThem(): nil
+    -- An integer where a float is wanted, and integer keys where string keys are.
+    local config = yaml.decode(configs, "name: x\nratio: 1\nlimits: {a: 1, 2: 3}\ntags: [x, \"yes\", 'no']\n")
+    test(config.ratio == 1.0 and math.type(config.ratio) == "float")
+    test(config.limits.a == 1 and config.limits["2"] == 3)
+    test(config.tags[2] == "yes" and config.tags[3] == "no")
+end
+
+function M.aMismatchNamesItsPathLineAndColumn(): nil
+    local problem = failure("name: x\ntags:\n  - a\n  - 7\n")
+    test(problem.path == '$["tags"][2]', problem.path)
+    test(problem.line == 4 and problem.column == 5 and problem.byte == 24, tostring(problem))
+    test(problem.message:find("expected a string", 1, true) ~= nil, problem.message)
+end
+
+function M.strictnessAppliesAsFromAnyCodec(): nil
+    test(failure("port: 1\n").message:find("name", 1, true) ~= nil)
+    test(failure("name: x\nport: 1.5\n").path == '$["port"]')
+    test(failure("name: x\nport: 9223372036854775808\n").code == "syntax")
+    local unknown = failure("name: x\nextra: 1\n")
+    test(unknown.line == 2, tostring(unknown))
+end
+
+function M.encodeWritesBindingOrderAndDecodesBack(): nil
+    local config = Config(name = "watchashow", port = 9000, ratio = 1.0, tags = {"x", "yes"}, limits = {b = 2, a = 1})
+    local written = yaml.encode(configs, config)
+    test(
+        written == "name: watchashow\nport: 9000\nratio: 1.0\ntags:\n- x\n- \"yes\"\nlimits:\n  a: 1\n  b: 2\n",
+        written
+    )
+    local back = yaml.decode(configs, written)
+    test(back.name == config.name and back.port == 9000 and back.ratio == 1.0)
+    test(back.tags[2] == "yes" and back.limits.b == 2)
+end
+
+return M

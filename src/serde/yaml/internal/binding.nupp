@@ -1,0 +1,445 @@
+--[[
+Constructs a bound value from the [](serde.Document) the YAML reader built,
+through serde's reader contract, as `serde.document.into` does, with what a
+YAML document needs beyond it: every failure is a [](serde.Error) with the
+logical path and the line and column of the node it happened at, and a
+document's scalars are read as YAML writes them. An integer is read where a
+float, a big integer, a decimal or a number token is wanted; a mapping is read
+where a map or a one-member union is; a key is read as a string where the
+binding's keys are strings; and a timestamp is read from its RFC 3339 string.
+]]
+module serde.yaml.internal.binding
+
+const assert2 = require("assert")
+
+local core = require("nupp.serde.internal.value")
+local aggregates = require("nupp.serde.internal.aggregate")
+local readplans = require("nupp.serde.internal.readplan")
+local {type Plan} = require("nupp.serde.internal.readplan")
+local publication = require("nupp.serde.internal.publication")
+local memos = require("nupp.serde.internal.memo")
+local documents = require("nupp.serde.internal.document")
+local readers = require("nupp.serde.internal.documentreader")
+local numbers = require("nupp.serde.internal.numbers")
+local timestamps = require("nupp.serde.internal.timestamps")
+local errors = require("nupp.serde.internal.errors")
+local reader = require("serde.yaml.internal.reader")
+
+-- Where each document the reader built started.
+local record Source
+    @readonly locations: reader.Locations
+end
+
+local function fail(source: Source, value: documents.Document, path: string, message: string): never
+    local at = source.locations[value]
+    error(
+        errors.Error(
+            code = "model",
+            message = message,
+            path = path,
+            byte = at and at.byte,
+            line = at and at.line,
+            column = at and at.column,
+            cause = message
+        ),
+        0
+    )
+end
+
+-- A failure inside a child, placed at the child: one that already knows
+-- where it happened keeps its own place.
+local function placed(source: Source, value: documents.Document, path: string, problem: unknown): never
+    local wrapped = errors.wrap(problem, path, nil)
+    if wrapped.line ~= nil then
+        error(wrapped, 0)
+    end
+    local at = source.locations[value]
+    error(
+        errors.Error(
+            code = wrapped.code,
+            message = wrapped.message,
+            path = wrapped.path == "$" and path or wrapped.path,
+            byte = at and at.byte,
+            line = at and at.line,
+            column = at and at.column,
+            cause = wrapped.cause,
+            suppressed = wrapped.suppressed
+        ),
+        0
+    )
+end
+
+local record Unknown is core.UnknownReader, own.Closeable
+    @readonly value: documents.Document
+    used: boolean = false
+    expired: boolean = false
+    function close(takes self): nil
+        self.expired = true
+    end
+
+    function live(self): nil
+        assert2(not self.expired and not self.used, "unknown document reader is no longer usable")
+    end
+
+    function skipvalue(exclusive self): nil
+        self:live()
+        self.used = true
+    end
+
+    function capturevalue<D>(exclusive self, adapter: core.DocumentAdapter<D>): D
+        self:live()
+        self.used = true
+        local contents = readers.reader(self.value)
+        local result = adapter:readcontents(contents)
+        local complete, problem = pcall(contents.finish, contents)
+        if not complete then
+            error(publication.failure(adapter, result, problem), 0)
+        end
+
+        return result
+    end
+end
+
+local KINDS: {
+    [string]: string
+} = {
+    null = "null",
+    bool = "a Boolean",
+    integer = "an integer",
+    float = "a float",
+    string = "a string",
+    structure = "a mapping",
+    map = "a mapping",
+    list = "a sequence",
+}
+
+local function named(kind: string): string
+    return KINDS[kind] or kind
+end
+
+local record Input<M is core.Member> is aggregates.Reader<M>, own.Closeable
+    @readonly value: documents.Document
+    @readonly plan: Plan<M>
+    @readonly source: Source
+    @readonly path: string
+    -- A map key, which is read as a string where the binding wants one.
+    @readonly key: boolean = false
+    used: boolean = false
+    expired: boolean = false
+    function close(takes self): nil
+        self.expired = true
+    end
+
+    function live(self): nil
+        assert2(not self.expired and not self.used, "YAML value reader is no longer usable")
+    end
+
+    function context(self): core.Context?
+        self:live()
+        return self.value:context()
+    end
+
+    function isnull(self): boolean
+        self:live()
+        return self.value.kind == "null"
+    end
+
+    -- Takes the value, which must be one of `kinds`, and answers its kind.
+    function take(exclusive self, wanted: string, kinds: {string}): string
+        self:live()
+        local kind: string = self.value.kind
+        for _, allowed in ipairs(kinds) do
+            if kind == allowed then
+                self.used = true
+                return kind
+            end
+        end
+        fail(self.source, self.value, self.path, "expected " .. wanted .. ", found " .. named(kind))
+    end
+
+    function consume(exclusive self, kind: core.Kind): nil
+        self:take(named(kind), {kind})
+    end
+
+    function readnull(exclusive self, member: M): nil
+        assert2(self.plan.description.nullable or self.plan.description.kind == "null", "binding does not admit null")
+        self:consume("null")
+    end
+
+    function readbool(exclusive self, member: M): boolean
+        self:consume("bool")
+        return self.value:bool()
+    end
+
+    function checked<V>(self, read: function(): V): V
+        local ok, result = pcall(read)
+        if not ok then
+            placed(self.source, self.value, self.path, result)
+        end
+
+        return result as V
+    end
+
+    function readinteger(exclusive self, member: M, width: 8 | 16 | 32 | 64, signed: boolean): core.Integer
+        self:consume("integer")
+        local digits = self.value:integer().decimal
+        return self:checked(function(): core.Integer
+            return numbers.integer(digits, width, signed)
+        end)
+    end
+
+    function readfloat(exclusive self, member: M, width: 32 | 64): number
+        local kind = self:take("a number", {"float", "integer"})
+        local value: number = 0.0
+        if kind == "integer" then
+            value = assert2(tonumber(self.value:integer().decimal)) + 0.0
+        else
+            value = self.value:float().value
+        end
+
+        return self:checked(function(): number
+            return numbers.floating(value, width, true)
+        end)
+    end
+
+    function readbiginteger(exclusive self, member: M): string
+        self:consume("integer")
+        return self.value:integer().decimal
+    end
+
+    function readdecimal(exclusive self, member: M): core.Decimal
+        local kind = self:take("a number", {"integer", "float"})
+        if kind == "integer" then
+            return core.Decimal(coefficient = self.value:integer().decimal, exponent = 0)
+        end
+        local text = ("%.17g"):format(self.value:float().value)
+        local mantissa, exponent = text:match("^([^eE]*)[eE]?(.*)$")
+        local whole, fraction = (mantissa as string):match("^([^.]*)%.?(.*)$")
+        local scale = (tonumber(exponent) or 0) as integer
+
+        return core.Decimal(
+            coefficient = (whole as string) .. (fraction as string),
+            exponent = scale - #(fraction as string)
+        )
+    end
+
+    function readnumbertoken(exclusive self, member: M): string
+        local kind = self:take("a number", {"integer", "float"})
+        if kind == "integer" then
+            return self.value:integer().decimal
+        end
+
+        return ("%.17g"):format(self.value:float().value)
+    end
+
+    function readstring(exclusive self, member: M): string
+        if not self.key then
+            self:consume("string")
+            return self.value:string()
+        end
+        local kind = self:take("a string", {"string", "integer", "bool"})
+        if kind == "integer" then
+            return self.value:integer().decimal
+        elseif kind == "bool" then
+            return self.value:bool() and "true" or "false"
+        end
+
+        return self.value:string()
+    end
+
+    function readbytes(exclusive self, member: M): string
+        fail(self.source, self.value, self.path, "binary data is !!binary, which serde.yaml does not read")
+    end
+
+    function readtimestamp(exclusive self, member: M): core.Timestamp
+        self:consume("string")
+        local text = self.value:string()
+        return self:checked(function(): core.Timestamp
+            return timestamps.parseDateTime(text)
+        end)
+    end
+
+    function readatom(exclusive self, member: M): core.Atom
+        fail(self.source, self.value, self.path, "a model atom has no YAML form")
+    end
+
+    function readdocument<D>(exclusive self, member: M, adapter: core.DocumentAdapter<D>): D
+        self:live()
+        self.used = true
+        local contents = readers.reader(self.value)
+        local result = adapter:readcontents(contents)
+        local complete, problem = pcall(contents.finish, contents)
+        if not complete then
+            error(publication.failure(adapter, result, problem), 0)
+        end
+
+        return result
+    end
+
+    function size(self): integer?
+        local kind = self.value.kind
+        if kind == "structure" or kind == "map" or kind == "list" then
+            return self.value:size()
+        end
+
+        return nil
+    end
+
+    function containersize(self): integer?
+        self:live()
+        return self:size()
+    end
+
+    function slot(self, index: integer): Plan<M>
+        local child = assert2(self.plan.description.children[index], "binding has no container child")
+        return assert2(self.plan.children[child.member])
+    end
+
+    function child(self, value: documents.Document, selected: Plan<M>, segment: string, key: boolean): Input<M>
+        return Input<M>(value = value, plan = selected, source = self.source, path = self.path .. segment, key = key)
+    end
+
+    function object<S>(
+        exclusive self,
+        kind: core.Kind,
+        exclusive state: S,
+        consume: core.MemberConsumer<M, S>,
+        unknown: core.UnknownConsumer<S>
+    ): nil
+        self:take("a mapping", {"structure"})
+        if kind == "union" and self.value:size() ~= 1 then
+            fail(self.source, self.value, self.path, "a union is a mapping of exactly one member")
+        end
+        for index = 1, self.value:size() do
+            local entry = self.value:field(index)
+            local member = self.plan.names[entry.name]
+            local segment = reader.segment(entry.name)
+            if member ~= nil then
+                local child = self:child(entry.value, assert2(self.plan.children[member]), segment, false)
+                local ok, problem = pcall(consume.apply, consume, state, member, child)
+                if not ok then
+                    placed(self.source, entry.value, self.path .. segment, problem)
+                end
+                assert2(child.used, "member callback did not consume its value")
+            else
+                local child = Unknown(value = entry.value)
+                local ok, problem = pcall(unknown.apply, unknown, state, documents.Name(name = entry.name), child)
+                if not ok then
+                    placed(self.source, entry.value, self.path .. segment, problem)
+                end
+                assert2(child.used, "unknown callback did not consume its value")
+            end
+        end
+    end
+
+    function array<S>(
+        exclusive self,
+        kind: core.Kind,
+        size: integer?,
+        exclusive state: S,
+        consume: core.ElementConsumer<M, S>
+    ): nil
+        self:take("a sequence", {"list"})
+        if size ~= nil and self.value:size() ~= size then
+            fail(self.source, self.value, self.path, "expected a sequence of " .. tostring(size))
+        end
+        for index = 1, self.value:size() do
+            local element = self.value:at(index)
+            local segment = reader.segment(index)
+            local child = self:child(element, self:slot(kind == "tuple" and index or 1), segment, false)
+            local ok, problem = pcall(consume.apply, consume, state, index, child)
+            if not ok then
+                placed(self.source, element, self.path .. segment, problem)
+            end
+            assert2(child.used, "element callback did not consume its value")
+        end
+    end
+
+    function readmap<S>(exclusive self, member: M, exclusive state: S, consume: core.EntryConsumer<M, S>): nil
+        local kind = self:take("a mapping", {"map", "structure"})
+        for index = 1, self.value:size() do
+            local keyDocument: documents.Document = documents.null()
+            local valueDocument: documents.Document = documents.null()
+            if kind == "map" then
+                local entry = self.value:entry(index)
+                keyDocument, valueDocument = entry.key, entry.value
+            else
+                local field = self.value:field(index)
+                keyDocument, valueDocument = documents.string(field.name), field.value
+            end
+            local segment = keyDocument.kind == "string" and reader.segment(keyDocument:string())
+                or "[" .. tostring(index) .. "]"
+            local key = self:child(keyDocument, self:slot(1), segment, true)
+            local value = self:child(valueDocument, self:slot(2), segment, false)
+            local ok, problem = pcall(consume.apply, consume, state, key, value)
+            if not ok then
+                placed(self.source, valueDocument, self.path .. segment, problem)
+            end
+            assert2(key.used and value.used, "entry callback did not consume key and value")
+        end
+    end
+end
+
+Input.readstruct = aggregates.Reader.readstruct
+Input.readunion = aggregates.Reader.readunion
+Input.readlist = aggregates.Reader.readlist
+Input.readtuple = aggregates.Reader.readtuple
+
+local interface Decoder<T>
+    read: function(self, value: documents.Document, locations: reader.Locations): T
+end
+
+local record Reconstruction<T, M is core.Member> is Decoder<T>
+    @readonly adapter: core.Adapter<T, M>
+    @readonly selected: Plan<M>
+    @readonly discard: core.Discard<T>
+    function read(self, value: documents.Document, locations: reader.Locations): T
+        local source = Source(locations = locations)
+        local input = Input<M>(value = value, plan = self.selected, source = source, path = "$")
+        local ok, result = pcall(self.adapter.read, self.adapter, input)
+        if not ok then
+            placed(source, value, "$", result)
+        end
+        if not input.used then
+            error(publication.failure(self.discard, result, "binding did not consume its value"), 0)
+        end
+
+        return result as T
+    end
+end
+
+local record Resolve<T> is core.Consumer<T, nil, nil>
+    @readonly binding: core.Binding<T>
+    result: Decoder<T>?
+    function apply<M is core.Member>(self, adapter: core.Adapter<T, M>, borrows state: nil): nil
+        local description = adapter:describe("read")
+        self.result = Reconstruction<T, M>(
+            adapter = adapter,
+            selected = readplans.plan(description, {}),
+            discard = self.binding
+        )
+    end
+end
+
+local memo = memos.new("YAML reconstruction", 256)
+
+local function decoder<T>(binding: core.Binding<T>): Decoder<T>
+    local found, cached = memo:find(binding, "read")
+    if found then
+        return cached as Decoder<T>
+    end
+    local slot = memo:start(binding, "read")
+    local resolve = Resolve<T>(binding = binding)
+    local ok, problem = pcall(binding.accept, binding, resolve, nil)
+    if ok and resolve.result == nil then
+        ok, problem = false, "binding did not supply its adapter"
+    end
+
+    return memo:finish(slot, ok, ok and resolve.result or problem) as Decoder<T>
+end
+
+--- Constructs a bound value from a document the YAML reader built.
+--- @raises serde.Error with the path, line and column of the node that does not fit
+export function into<T>(binding: core.Binding<T>, value: documents.Document, locations: reader.Locations): T
+    return decoder(binding):read(value, locations)
+end

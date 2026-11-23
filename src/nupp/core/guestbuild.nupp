@@ -384,6 +384,12 @@ local CASES: {[string]: {
     nullablepointers = {fixture = "catalog-nullable-pointers", version = 8},
     compressioncodec = {fixture = "catalog-compression-codec", version = 8, follow = true},
     cryptocodec = {fixture = "catalog-crypto-codec", version = 8, follow = true},
+    -- serde.yaml over libyaml: the codec's events, emitter and errors; decoding,
+    -- its refusals and limits; encoding; and the yaml-test-suite.
+    yamlcodec = {fixture = "catalog-yaml-codec", version = 8, follow = true},
+    yamldecode = {fixture = "catalog-yaml-decode", version = 8, follow = true},
+    yamlencode = {fixture = "catalog-yaml-encode", version = 8, follow = true},
+    yamlsuite = {fixture = "catalog-yaml-suite", version = 8, follow = true},
     -- Library behaviors the test runner's suites lean on.
     runnersmall = {fixture = "catalog-runner-small", version = 8},
     -- A plain Lua chunk the host compiles, as the runner's suites are.

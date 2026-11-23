@@ -261,6 +261,12 @@ local RESOURCES = {
     {source = "src/serde/xml/internal/doctype.nupp", output = "nupp/compiler/serde/xml/internal/doctype.nupp"},
     {source = "src/serde/xml/internal/tree.nupp", output = "nupp/compiler/serde/xml/internal/tree.nupp"},
     {source = "src/serde/xml/internal/writer.nupp", output = "nupp/compiler/serde/xml/internal/writer.nupp"},
+    {source = "src/serde/yaml/init.nupp", output = "nupp/compiler/serde/yaml/init.nupp"},
+    {source = "src/serde/yaml/internal/binding.nupp", output = "nupp/compiler/serde/yaml/internal/binding.nupp"},
+    {source = "src/serde/yaml/internal/reader.nupp", output = "nupp/compiler/serde/yaml/internal/reader.nupp"},
+    {source = "src/serde/yaml/internal/resolve.nupp", output = "nupp/compiler/serde/yaml/internal/resolve.nupp"},
+    {source = "src/serde/yaml/internal/style.nupp", output = "nupp/compiler/serde/yaml/internal/style.nupp"},
+    {source = "src/serde/yaml/internal/writer.nupp", output = "nupp/compiler/serde/yaml/internal/writer.nupp"},
     {
         source = "src/nupp/serde/internal/json/compiled.nupp",
         output = "nupp/compiler/nupp/serde/internal/json/compiled.nupp"
@@ -393,6 +399,7 @@ local RESOURCES = {
     },
     {source = "src/nupp/checksum/internal/builtin.nupp", output = "nupp/compiler/nupp/checksum/internal/builtin.nupp"},
     {source = "src/nupp/runtime/core/crccodec.nupp", output = "nupp/compiler/nupp/runtime/core/crccodec.nupp"},
+    {source = "src/nupp/runtime/core/yamlcodec.nupp", output = "nupp/compiler/nupp/runtime/core/yamlcodec.nupp"},
     {
         source = "src/nupp/runtime/provider/nativecrc.nupp",
         output = "nupp/compiler/nupp/runtime/provider/nativecrc.nupp"
@@ -566,6 +573,7 @@ local TEST_RUNNER_SOURCES = {
     "src/nupp/runtime/*.nupp",
     "src/nupp/runtime/core/compressioncodec.nupp",
     "src/nupp/runtime/core/crccodec.nupp",
+    "src/nupp/runtime/core/yamlcodec.nupp",
 }
 for _, tree in ipairs({
     "src/bytes",

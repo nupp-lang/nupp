@@ -1,0 +1,228 @@
+module nupp.core.catalogyamlencode
+
+-- serde.yaml's encoding: block style, scalar styles that read back as the
+-- same value under YAML 1.2 and 1.1, sorted keys, refusals with paths, and a
+-- seeded round trip through decodevalue.
+local serde = require("serde")
+local yaml = require("serde.yaml")
+
+local score = 0
+
+-- Mappings sort their keys and sequences keep their order. (Bindings need
+-- reflection blueprints, which core guests do not carry yet;
+-- tests/stdlib/serde/yaml covers them.)
+local written = yaml.encodevalue({
+    name = "watchashow",
+    port = 9000,
+    tags = {"tv", "yes"},
+    servers = {{host = "a", port = 80}, {host = "b", port = 81}},
+})
+local expected = "name: watchashow\nport: 9000\nservers:\n- host: a\n  port: 80\n- host: b\n  port: 81\ntags:\n- tv\n- \"yes\"\n"
+local back: any = yaml.decodevalue(written)
+if written == expected and back.tags[2] == "yes" and back.servers[2].port == 81 then
+    score = score + 1
+end
+
+-- Every string either schema could read as something else is quoted, and
+-- reads back as itself.
+local ambiguous = {
+    "yes",
+    "No",
+    "on",
+    "OFF",
+    "y",
+    "~",
+    "null",
+    "true",
+    "",
+    "1",
+    "-2",
+    "1.5",
+    ".inf",
+    ".nan",
+    "0x1F",
+    "1_000",
+    "190:20:30",
+    "2026-11-20",
+    " lead",
+    "trail ",
+    "a: b",
+    "#hash",
+    "- dash",
+    "<<",
+    "line\nbreak",
+    "caf\195\169",
+    "nul\0byte",
+}
+local quoted = 0
+for _, text in ipairs(ambiguous) do
+    local encoded = yaml.encodevalue(text)
+    local decoded = yaml.decodevalue(encoded, yaml.NULL)
+    if encoded:sub(1, 1) == "\"" and decoded == text then
+        quoted = quoted + 1
+    end
+end
+if quoted == #ambiguous and yaml.encodevalue("plain words") == "plain words\n" then
+    score = score + 2
+end
+
+-- Keys sort by type, then value, so equal values write equal text.
+local mixed = yaml.encodevalue({b = 1, a = {2, 3}, [10] = "ten", [2] = "two", [true] = "t", [false] = "f"})
+local empties = yaml.encodevalue({list = yaml.asarray({}), map = {}})
+if mixed == "false: f\ntrue: t\n2: two\n10: ten\na:\n- 2\n- 3\nb: 1\n" and empties == "list: []\nmap: {}\n" then
+    score = score + 4
+end
+
+-- Numbers write their shortest text, and floats stay floats.
+local numbers = yaml.encodevalue({1, -0, 1.0, 0.1, 1e20, -math.huge, math.maxinteger, math.mininteger})
+local numbersBack: any = yaml.decodevalue(numbers)
+if numbers == "- 1\n- 0\n- 1.0\n- 0.1\n- 1.0e+20\n- -.inf\n- 9223372036854775807\n- -9223372036854775808\n"
+    and math.type(numbersBack[3]) == "float"
+    and numbersBack[8] == math.mininteger
+then
+    score = score + 8
+end
+
+-- What has no YAML form is refused at its path.
+local function refusal(value: any): serde.Error?
+    local ok, problem = pcall(yaml.encodevalue, value)
+    if ok then
+        return nil
+    end
+
+    return problem as serde.Error
+end
+
+local cyclic: {[string]: any} = {}
+cyclic.self = {inner = cyclic}
+
+local function sample(): nil
+end
+
+local functionValue = refusal({a = {b = sample}})
+local cycle = refusal(cyclic)
+local floatKey = refusal({[1.5] = "x"})
+if functionValue ~= nil
+    and functionValue.path == '$["a"]["b"]'
+    and functionValue.code == "unsupported"
+    and cycle ~= nil
+    and cycle.path == '$["self"]["inner"]'
+    and floatKey ~= nil
+    and floatKey.message:find("float", 1, true) ~= nil
+then
+    score = score + 16
+end
+
+-- A seeded round trip: random values in the encoder's domain decode back
+-- to themselves.
+local seed: integer = 20261120
+
+local function random(limit: integer): integer
+    seed = (seed * 1103515245 + 12345) % 2147483648
+    return seed % limit
+end
+
+local ALPHABET = {
+    "a",
+    "Z",
+    "0",
+    "9",
+    " ",
+    ":",
+    "#",
+    "-",
+    "'",
+    "\"",
+    "\\",
+    "\n",
+    "\t",
+    "~",
+    "y",
+    "e",
+    ".",
+    "\0",
+    "\195\169",
+    "["
+}
+local WORDS = {"yes", "no", "null", "true", "1.5", "0x10", "2026-01-01", "", "on", "~"}
+
+local function text(): string
+    if random(4) == 0 then
+        return WORDS[random(#WORDS) + 1]
+    end
+    local parts: {string} = {}
+    for index = 1, random(12) do
+        parts[index] = ALPHABET[random(#ALPHABET) + 1]
+    end
+
+    return table.concat(parts)
+end
+
+local generate: function(integer): any
+generate = function(depth: integer): any
+    local choice = random(depth > 3 and 5 or 8)
+    if choice == 0 then
+        return random(2) == 0
+    elseif choice == 1 then
+        return random(2000000) - 1000000
+    elseif choice == 2 then
+        return (random(2000000) - 1000000) / 64.0
+    elseif choice < 5 then
+        return text()
+    elseif choice < 7 then
+        local list: {any} = {}
+        for index = 1, random(4) do
+            list[index] = generate(depth + 1)
+        end
+        return yaml.asarray(list)
+    end
+    local map: {[any]: any} = {}
+    for _ = 1, random(4) do
+        local kind = random(3)
+        local key: any = kind == 0 and text() or kind == 1 and random(100) - 50 or random(2) == 0
+        map[key] = generate(depth + 1)
+    end
+
+    return yaml.asobject(map)
+end
+
+local same: function(any, any): boolean
+same = function(left: any, right: any): boolean
+    if type(left) ~= "table" or type(right) ~= "table" then
+        return left == right and math.type(left) == math.type(right)
+    end
+    for key, value in pairs(left as table) do
+        if not same(value, (right as {[any]: any})[key]) then
+            return false
+        end
+    end
+    for key in pairs(right as table) do
+        if (left as {[any]: any})[key] == nil then
+            return false
+        end
+    end
+
+    return true
+end
+
+local trips = 0
+for _ = 1, 200 do
+    local value = generate(0)
+    local encoded = yaml.encodevalue(value)
+    local decoded = yaml.decodevalue(encoded)
+    if same(value, decoded) and yaml.encodevalue(decoded) == encoded then
+        trips = trips + 1
+    end
+end
+if trips == 200 then
+    score = score + 32
+end
+
+-- A long string folds at the line width and still reads back whole.
+local long = string.rep("word ", 60) .. "end"
+local longBack = yaml.decodevalue(yaml.encodevalue({long = long}))
+if longBack ~= nil and (longBack as {[string]: string}).long == long then
+    score = score + 64
+end
+
+export const result = score

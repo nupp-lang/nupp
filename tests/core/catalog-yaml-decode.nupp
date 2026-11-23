@@ -1,0 +1,187 @@
+module nupp.core.catalogyamldecode
+
+-- serde.yaml's decoding: the core schema, the refusals that keep
+-- it to its subset, its limits, and errors that say where they happened.
+local serde = require("serde")
+local yaml = require("serde.yaml")
+
+local score = 0
+
+local function failure(text: string, options: yaml.DecodeOptions?): serde.Error?
+    local value, problem = yaml.decodevalue(text, nil, options)
+    if value ~= nil then
+        return nil
+    end
+
+    return problem
+end
+
+-- Nested collections decode to tables. (Bindings need reflection blueprints,
+-- which core guests do not carry yet; tests/stdlib/serde/yaml covers them.)
+local config: any = yaml.decodevalue("name: watchashow\nport: 9000\nservers:\n  - host: a\n  - {host: b, port: 81}\n")
+if config ~= nil
+    and config.name == "watchashow"
+    and config.port == 9000
+    and #config.servers == 2
+    and config.servers[1].host == "a"
+    and config.servers[1].port == nil
+    and config.servers[2].port == 81
+then
+    score = score + 1
+end
+
+-- The core schema resolves plain scalars; YAML 1.1 forms and quoted
+-- scalars are strings.
+local value: any = yaml.decodevalue(
+    "n: ~\nt: true\nF: FALSE\ni: -12\nh: 0x1F\no: 0o17\nf: 1.5\ne: 1e3\ninf: -.inf\nnan: .NaN\n"
+    .. "yes: yes\noff: off\nq: \"12\"\nd: 2026-11-20\nempty:\n"
+)
+if value ~= nil
+    and value.n == nil
+    and value.t == true
+    and value.F == false
+    and value.i == -12
+    and math.type(value.i) == "integer"
+    and value.h == 31
+    and value.o == 15
+    and value.f == 1.5
+    and value.e == 1000.0
+    and math.type(value.e) == "float"
+    and value.inf == -math.huge
+    and value.nan ~= value.nan
+    and value.yes == "yes"
+    and value.off == "off"
+    and value.q == "12"
+    and value.d == "2026-11-20"
+    and value.empty == nil
+then
+    score = score + 2
+end
+
+-- Collections keep their shape, nulls drop unless kept, and an alias is its
+-- anchor's table.
+local shaped: any = yaml.decodevalue("list: [1, ~, 2]\nnone: []\nmap: {}\nfirst: &a {x: 1}\nsecond: *a\n")
+local kept: any = yaml.decodevalue("[1, ~, 2]\n", yaml.NULL)
+if shaped ~= nil
+    and #shaped.list == 2
+    and shaped.list[2] == 2
+    and yaml.isarray(shaped.none)
+    and not yaml.isarray(shaped.map)
+    and shaped.first == shaped.second
+    and shaped.second.x == 1
+    and kept ~= nil
+    and #kept == 3
+    and kept[2] == yaml.NULL
+then
+    score = score + 4
+end
+
+-- What the subset leaves out is refused by name.
+local refusals = {
+    {"a: !!binary aGk=\n", "tag:yaml.org,2002:binary"},
+    {"a: !thing x\n", "!thing"},
+    {"<<: {a: 1}\nb: 2\n", "merge keys"},
+    {"1: a\n0x1: b\n", "appears twice"},
+    {"a: 1\na: 2\n", "appears twice"},
+    {"~: a\n", "must not be null"},
+    {"1.5: a\n", "must not be a float"},
+    {"? [a]\n: b\n", "not a collection"},
+    {"a: !!int x\n", "is not an integer"},
+    {"a: 99999999999999999999\n", "64-bit range"},
+}
+local refused = 0
+for _, case in ipairs(refusals) do
+    local problem = failure(case[1])
+    if problem ~= nil and problem.message:find(case[2], 1, true) ~= nil then
+        refused = refused + 1
+    end
+end
+if refused == #refusals then
+    score = score + 8
+end
+
+-- Limits: nested aliases stop at the node limit, depth is bounded at and
+-- one past the limit, the input size is checked first, and bad options are
+-- refused.
+local laughs = {"a: &a [x, x, x, x, x, x, x, x, x]"}
+local previous = "a"
+for _, name in ipairs({"b", "c", "d", "e", "f", "g", "h", "i"}) do
+    laughs[
+        #laughs + 1
+    ] = name .. ": &" .. name .. " [" .. string.rep("*" .. previous .. ", ", 8) .. "*" .. previous .. "]"
+    previous = name
+end
+local laughter = failure(table.concat(laughs, "\n") .. "\n")
+
+local function nested(depth: integer): string
+    return string.rep("[", depth) .. string.rep("]", depth) .. "\n"
+end
+
+local atLimit = yaml.decodevalue(nested(5), nil, {maxdepth = 5})
+local pastLimit = failure(nested(6), {maxdepth = 5})
+local defaultDepth = yaml.decodevalue(nested(256))
+local pastDefault = failure(nested(257))
+local sized = "a: 123456789012\n"
+local fits = yaml.decodevalue(sized, nil, {maxbytes = #sized})
+local tooLarge = failure(sized, {maxbytes = #sized - 1})
+local deepAlias = failure("a: &a [[[1]]]\nb: [[*a]]\n", {maxdepth = 4})
+local badOption = not pcall(yaml.decodevalue, "a: 1\n", nil, {maxdepth = 2000})
+if laughter ~= nil
+    and laughter.code == "limit"
+    and atLimit ~= nil
+    and pastLimit ~= nil
+    and pastLimit.code == "limit"
+    and defaultDepth ~= nil
+    and pastDefault ~= nil
+    and pastDefault.code == "limit"
+    and fits ~= nil
+    and tooLarge ~= nil
+    and tooLarge.code == "limit"
+    and deepAlias ~= nil
+    and deepAlias.code == "limit"
+    and badOption
+then
+    score = score + 16
+end
+
+-- A failure carries its path, byte offset, line and column: a refusal at
+-- the node it refused, and libyaml's syntax errors at libyaml's mark.
+local duplicate = failure("name: x\nservers:\n  - host: a\n  - host: b\n    host: c\n")
+local syntax = failure("a: [1, 2\n")
+if duplicate ~= nil
+    and duplicate.path == '$["servers"][2]["host"]'
+    and duplicate.line == 5
+    and duplicate.column == 5
+    and duplicate.byte == 45
+    and syntax ~= nil
+    and syntax.code == "syntax"
+    and syntax.message:find("while parsing a flow sequence", 1, true) ~= nil
+    and syntax.line == 2
+    and syntax.column == 1
+then
+    score = score + 32
+end
+
+-- Every prefix of a small document reads or raises a serde.Error.
+local document = "name: \"x\"\nlist:\n  - &a {k: [1, 2.5]}\n  - *a\n  - 'q'\n"
+local readable = true
+for length = 0, #document do
+    local _, why = yaml.decodevalue(document:sub(1, length))
+    -- A failure the reader did not raise itself would be a model error.
+    if why ~= nil and (why as serde.Error).code ~= "syntax" then
+        readable = false
+    end
+end
+if readable then
+    score = score + 64
+end
+
+-- A stream holds documents; one decode wants exactly one.
+local all = yaml.decodeall("--- 1\n--- two\n...\n--- [3]\n")
+local two = failure("--- 1\n--- 2\n")
+local none = failure("")
+if all ~= nil and #all == 3 and all[1] == 1 and all[2] == "two" and all[3][1] == 3 and two ~= nil and none ~= nil then
+    score = score + 128
+end
+
+export const result = score

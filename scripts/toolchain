@@ -46,6 +46,7 @@ usage: scripts/toolchain COMPONENT...
        scripts/toolchain --prefix
 
 Components: luajit luarocks uncrustify stage0-image stage0-seed core-seed xmlts
+            yaml-test-suite
             core-seed-install ARCHIVE SHA256
             rust-vendor OUTPUT
             vm-runtime FACILITIES, vm-program FACILITIES PAYLOAD
@@ -421,6 +422,15 @@ xmlts() {
         mv "$staging" "$tree"
     fi
     native_path "$tree/xmlconf"
+}
+
+# The YAML test suite's data release, the conformance corpus of serde.yaml
+# (tests/core/catalog-yaml-suite.nupp). It is data: nothing in it is built or
+# run, so it is kept by release under the shared sources rather than under the
+# compiler pair's key, and offline it is refused without the archive.
+yaml_test_suite() {
+    native_path "$(source_tree "yaml-test-suite-$YAMLTESTSUITE_VERSION" \
+        "$(expand_pin "$YAMLTESTSUITE_URL")" "$YAMLTESTSUITE_SHA256" "$YAMLTESTSUITE_MARKER")"
 }
 
 # --- the stage-zero compiler ------------------------------------------------
@@ -1535,6 +1545,7 @@ for component in "$@"; do
             ;;
         core-seed) core_seed ;;
         xmlts) xmlts ;;
+        yaml-test-suite) yaml_test_suite ;;
         *) note "unknown component $component"; usage ;;
     esac
 done

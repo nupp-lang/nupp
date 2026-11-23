@@ -1,0 +1,198 @@
+--[[
+What a YAML scalar means: the YAML 1.2 core schema's resolution of a plain
+scalar, and of a scalar with an explicit core tag.
+
+A plain scalar resolves by the core schema alone: `null`, `~` and the empty
+scalar are null, `true` and `false` in their three cases are Booleans, decimal,
+`0o` and `0x` integers are integers, the decimal and exponent forms and `.inf`
+and `.nan` are floats, and anything else, YAML 1.1's `yes`, `no`, `on` and
+`off` and dates included, is a string. Plain Nupp, so the rules are tested
+without the C library.
+]]
+module serde.yaml.internal.resolve
+
+--- The core schema's tags, as libyaml reports them once it has expanded `!!`.
+export const STRING = "tag:yaml.org,2002:str"
+
+export const INTEGER = "tag:yaml.org,2002:int"
+export const FLOAT = "tag:yaml.org,2002:float"
+export const BOOLEAN = "tag:yaml.org,2002:bool"
+export const NULL = "tag:yaml.org,2002:null"
+export const SEQUENCE = "tag:yaml.org,2002:seq"
+export const MAPPING = "tag:yaml.org,2002:map"
+
+--- The non-specific tag `!`, which makes a scalar a string.
+export const NONSPECIFIC = "!"
+
+--- What a scalar resolved to.
+export type Kind = "null" | "boolean" | "integer" | "float" | "string"
+
+-- The largest int64, as the digits a decimal integer is compared with.
+const INT64_DIGITS = "9223372036854775807"
+-- Its magnitude's negative, which one more than it reaches.
+const INT64_MIN_DIGITS = "9223372036854775808"
+
+local NULLS: {[string]: boolean} = {[""] = true, ["~"] = true, null = true, Null = true, NULL = true}
+local BOOLEANS: {
+    [string]: boolean
+} = {["true"] = true, True = true, TRUE = true, ["false"] = false, False = false, FALSE = false,}
+local INFINITIES: {[string]: boolean} = {[".inf"] = true, [".Inf"] = true, [".INF"] = true}
+local NANS: {[string]: boolean} = {[".nan"] = true, [".NaN"] = true, [".NAN"] = true}
+
+-- Whether decimal `digits`, with no sign or leading zeroes, fit in `limit`'s
+-- width and value.
+local function within(digits: string, limit: string): boolean
+    if #digits ~= #limit then
+        return #digits < #limit
+    end
+
+    return digits <= limit
+end
+
+-- The integer a decimal integer lexeme names, or nil and why not.
+local function decimal(text: string): (integer?, string?)
+    local sign, digits = text:match("^([-+]?)(%d+)$")
+    if digits == nil then
+        return nil, nil
+    end
+    digits = digits:gsub("^0+", "")
+    if digits == "" then
+        return 0, nil
+    end
+    local negative = sign == "-"
+    if not within(digits, negative and INT64_MIN_DIGITS or INT64_DIGITS) then
+        return nil, "integer " .. text .. " is out of the 64-bit range"
+    end
+    if negative and digits == INT64_MIN_DIGITS then
+        return math.mininteger, nil
+    end
+    local value = assert(math.tointeger(tonumber(digits)))
+
+    return negative and -value or value, nil
+end
+
+-- The integer an `0o` or `0x` lexeme names, or nil and why not.
+local function radix(text: string): (integer?, string?)
+    local base: integer = 8
+    local digits = text:match("^0o([0-7]+)$")
+    if digits == nil then
+        base = 16
+        digits = text:match("^0x(%x+)$")
+    end
+    if digits == nil then
+        return nil, nil
+    end
+    local limit: integer = math.maxinteger // base
+    local value: integer = 0
+    for index = 1, #digits do
+        local digit: integer = assert(math.tointeger(tonumber(digits:sub(index, index), base)))
+        if value > limit or value == limit and digit > math.maxinteger % base then
+            return nil, "integer " .. text .. " is out of the 64-bit range"
+        end
+        value = value * base + digit
+    end
+
+    return value, nil
+end
+
+--- The integer a core-schema integer lexeme names.
+---
+--- @return the integer, or nil when the text is not an integer, and why it
+--- is not one when it is an integer out of the 64-bit range
+export function integer(text: string): (integer?, string?)
+    local value, problem = decimal(text)
+    if value ~= nil or problem ~= nil then
+        return value, problem
+    end
+
+    return radix(text)
+end
+
+--- The float a core-schema float lexeme names, or nil.
+export function float(text: string): number?
+    if INFINITIES[text] or INFINITIES[text:sub(2)] and text:match("^[-+]") then
+        return text:sub(1, 1) == "-" and -math.huge or math.huge
+    end
+    if NANS[text] then
+        return 0.0 / 0.0
+    end
+    local mantissa = text:match("^[-+]?(%.?%d[%d%.]*)[eE][-+]?%d+$") or text:match("^[-+]?(%.?%d[%d%.]*)$")
+    if mantissa == nil then
+        return nil
+    end
+    -- One point at most, and a digit before it or after it.
+    local _, points = mantissa:gsub("%.", "")
+    if points > 1 or not (mantissa:match("^%d") or mantissa:match("^%.%d")) then
+        return nil
+    end
+    local value = tonumber(text)
+    if value == nil then
+        return nil
+    end
+
+    return value + 0.0
+end
+
+--- Resolves a plain scalar by the core schema.
+---
+--- @return its kind and value: nil for null, or the Boolean, integer, float or
+--- string; and why it cannot be read, for an integer out of range
+export function plain(text: string): (Kind, any, string?)
+    if NULLS[text] then
+        return "null", nil, nil
+    end
+    local flag = BOOLEANS[text]
+    if flag ~= nil then
+        return "boolean", flag, nil
+    end
+    local whole, problem = integer(text)
+    if problem ~= nil then
+        return "integer", nil, problem
+    end
+    if whole ~= nil then
+        return "integer", whole, nil
+    end
+    local fraction = float(text)
+    if fraction ~= nil then
+        return "float", fraction, nil
+    end
+
+    return "string", text, nil
+end
+
+--- Resolves a scalar by its explicit tag.
+---
+--- `!` and `!!str` make a string; `!!int`, `!!float`, `!!bool` and `!!null`
+--- make their type and refuse text that does not fit it.
+---
+--- @return its kind and value, or nil and why the tag does not apply
+export function tagged(tag: string, text: string): (Kind?, any, string?)
+    if tag == STRING or tag == NONSPECIFIC then
+        return "string", text, nil
+    elseif tag == INTEGER then
+        local value, problem = integer(text)
+        if value == nil then
+            return nil, nil, problem or "!!int " .. text .. " is not an integer"
+        end
+        return "integer", value, nil
+    elseif tag == FLOAT then
+        local value = float(text)
+        if value == nil then
+            return nil, nil, "!!float " .. text .. " is not a float"
+        end
+        return "float", value, nil
+    elseif tag == BOOLEAN then
+        local flag = BOOLEANS[text]
+        if flag == nil then
+            return nil, nil, "!!bool " .. text .. " is not a Boolean"
+        end
+        return "boolean", flag, nil
+    elseif tag == NULL then
+        if not NULLS[text] then
+            return nil, nil, "!!null " .. text .. " is not null"
+        end
+        return "null", nil, nil
+    end
+
+    return nil, nil, "the tag " .. tag .. " is not in the YAML 1.2 core schema"
+end

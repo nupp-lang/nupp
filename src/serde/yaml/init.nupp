@@ -1,0 +1,231 @@
+--[==[
+YAML through the pinned libyaml: [](decode) and [](encode) for typed
+[](serde.Binding) values, [](decodevalue), [](decodeall) and [](encodevalue)
+for ordinary Lua values.
+
+```nupp
+local yaml = serde.yaml
+local record Config
+    name: string
+    port: integer = 8080
+    tags: {string} = {}
+end
+local configs = serde.binding(Config)
+local config = yaml.decode(configs, "name: watchashow\nport: 9000\n")
+assert(config.port == 9000 and #config.tags == 0)
+assert(yaml.encode(configs, config) == "name: watchashow\nport: 9000\ntags: []\n")
+```
+
+A binding decodes as it does from any codec: its renames, defaults and
+strictness apply unchanged, and what does not fit it is a [](serde.Error).
+
+## The subset
+
+Decoding reads YAML 1.2's core schema and refuses the rest rather than guess
+at it. A plain scalar is null (`null`, `~` or nothing), a Boolean (`true` or
+`false`), an integer (decimal, `0o` octal or `0x` hexadecimal, within 64
+bits), a float (decimal or exponent forms, `.inf`, `.nan`) or a string, so
+YAML 1.1's `yes`, `no`, `on` and `off` are strings. A quoted scalar is a string.
+Block and flow collections, anchors and aliases are read.
+
+These are errors that name the construct: a tag other than the core schema's
+`!!str`, `!!int`, `!!float`, `!!bool`, `!!null`, `!!seq` and `!!map` and the
+non-specific `!`, so no application tag constructs anything; YAML 1.1's merge
+key `<<`; a mapping key that is a collection, null or a float; and a key
+repeated after resolution, such as `1` and `0x1`.
+
+```nupp
+local yaml = serde.yaml
+local value = assert(yaml.decodevalue("answer: yes\nport: 0x1F90\n"))
+assert(value.answer == "yes" and value.port == 8080)
+local refused, problem = yaml.decodevalue("<<: {a: 1}\n")
+assert(refused == nil and problem ~= nil and problem.code == "unsupported")
+```
+
+## Limits
+
+Every decode bounds its input bytes, its collection depth and the nodes it
+materializes, alias expansion included, so a document of nested aliases stops
+at the node limit rather than growing. The defaults are 64 MiB, a depth of 256
+and a million nodes, and [](DecodeOptions) changes them for one call; a depth
+is at most 1024. Passing a limit is an error, not a hang.
+
+## Errors
+
+A failure is a [](serde.Error) with the logical path, such as
+`$["servers"][2]["port"]`, and the byte offset and 1-based line and column of
+the node it happened at, or of libyaml's problem mark for a syntax error, whose
+message is libyaml's problem and context.
+
+## Encoding
+
+[](encode) and [](encodevalue) write block-style YAML with two-space
+indentation. A string is written plain only when it reads back as the same
+string under both the YAML 1.2 core schema and YAML 1.1, and double-quoted
+otherwise, so `"yes"`, `"1.0"` and `"2026-11-20"` stay strings everywhere.
+Table keys are sorted -- Booleans, then integers, then strings -- and a record
+keeps its fields' order, so a value always writes the same text, and decoding
+what was written gives the value back. A table is a sequence by serde.json's
+rule: its array mark ([](asarray)), or keys 1 through n.
+]==]
+module serde.yaml
+
+const core = require("nupp.serde.internal.value")
+const errors = require("nupp.serde.internal.errors")
+const documents = require("nupp.serde.internal.document")
+const writers = require("nupp.serde.internal.documentwriter")
+const marks = require("nupp.serde.internal.json.values")
+const reader = require("serde.yaml.internal.reader")
+const construction = require("serde.yaml.internal.binding")
+const writer = require("serde.yaml.internal.writer")
+
+--- The bounds on one decode. An unset bound takes its default.
+export type DecodeOptions = {
+    --- The most input bytes, 67108864 (64 MiB) unless set.
+    maxbytes: integer?,
+
+    --- The deepest collection nesting, 256 unless set, and at most 1024.
+    maxdepth: integer?,
+
+    --- The most nodes materialized, aliases expanded, 1000000 unless set.
+    maxnodes: integer?
+}
+
+--- What a null decodes to when it should be kept, and encodes back as null:
+--- the same value as `serde.json.NULL`.
+export const NULL: any = marks.NULL
+
+--- Marks a Lua table as a sequence, including while it is empty: the same
+--- mark `serde.json.asarray` sets.
+export const asarray = marks.asArray
+
+--- Marks a Lua table as a mapping: the same mark `serde.json.asobject` sets.
+export const asobject = marks.asObject
+
+--- Whether a value has sequence shape: its mark, or keys 1 through n.
+--- @raises string if a table mixes mapping and sequence keys or has holes
+export const isarray = marks.isArray
+
+local function failure(problem: unknown): errors.Error
+    return errors.wrap(problem, "$", nil)
+end
+
+-- Every document in `text`, built by `builder`, with where each started.
+local function all(text: string, builder: reader.Builder, options: DecodeOptions?): ({any}, {reader.Location})
+    local found: {any} = {}
+    local starts: {reader.Location} = {}
+    reader.read(text, builder, options, function(value: any, at: reader.Location): nil
+        starts[#starts + 1] = at
+        found[#starts] = value
+    end)
+
+    return found, starts
+end
+
+-- The one document in `text`, or an error when there is none or more.
+local function one(text: string, builder: reader.Builder, options: DecodeOptions?): any
+    local found, starts = all(text, builder, options)
+    if #starts ~= 1 then
+        local at = starts[2]
+        error(
+            errors.Error(
+                code = "syntax",
+                message = #starts == 0 and "the text holds no YAML document"
+                or "the text holds " .. tostring(#starts) .. " YAML documents, not one",
+                path = "$",
+                byte = at and at.byte or #text,
+                line = at and at.line,
+                column = at and at.column,
+                cause = "documents"
+            ),
+            0
+        )
+    end
+
+    return found[1]
+end
+
+--- Decodes one YAML document into a bound value.
+---
+--- @param binding the value's binding
+--- @param text the YAML text, holding exactly one document
+--- @param options the bounds on the decode, or nil for the defaults
+--- @return the value
+--- @raises serde.Error with the path, byte offset, line and column of the failure
+export function decode<T>(binding: core.Binding<T>, text: string, options: DecodeOptions?): T
+    local builder, locations = reader.treebuilder()
+    local tree = one(text, builder, options) as documents.Document
+
+    return construction.into(binding, tree, locations)
+end
+
+--- Decodes one YAML document into plain Lua values: tables marked as
+--- sequences and mappings, strings, Booleans, integers and floats.
+---
+--- A null is dropped, as serde.json drops one, unless `null` is given to
+--- decode it to; [](NULL) encodes back as null. An alias is the same table its
+--- anchor decoded to. Text that is not one readable document is an ordinary
+--- answer, as with `serde.json.decodevalue`: the value is nil and the error
+--- says why.
+---
+--- @param text the YAML text, holding exactly one document
+--- @param null what a null decodes to, or nil to drop nulls
+--- @param options the bounds on the decode, or nil for the defaults
+--- @return the value, or nil when the text is not one readable document
+--- @return the [](serde.Error) saying why, when it is not
+--- @raises string for options that are not positive integers, or a depth over 1024
+export function decodevalue(text: string, null: any?, options: DecodeOptions?): (any, errors.Error?)
+    reader.check(options)
+    local ok, value = pcall(one, text, reader.valuebuilder(null), options)
+    if not ok then
+        return nil, failure(value)
+    end
+
+    return value, nil
+end
+
+--- Decodes every document in a YAML stream, as [](decodevalue) decodes one.
+---
+--- @param text the YAML stream
+--- @param null what a null decodes to, or nil to drop nulls
+--- @param options the bounds on the decode, which the whole stream shares
+--- @return the documents' values in order, or nil when the stream is not readable
+--- @return the [](serde.Error) saying why, when it is not
+--- @raises string for options that are not positive integers, or a depth over 1024
+export function decodeall(text: string, null: any?, options: DecodeOptions?): ({any}?, errors.Error?)
+    reader.check(options)
+    local ok, found = pcall(all, text, reader.valuebuilder(null), options)
+    if not ok then
+        return nil, failure(found)
+    end
+
+    return found as {any}, nil
+end
+
+--- Encodes a bound value as one YAML document.
+---
+--- @param binding the value's binding
+--- @param value the value
+--- @return the YAML text
+--- @raises serde.Error when a value has no YAML form, at its path
+export function encode<T>(binding: core.Binding<T>, borrows value: T): string
+    local ok, tree = pcall(writers.fromBinding, binding, value)
+    if not ok then
+        error(failure(tree), 0)
+    end
+
+    return writer.document(tree as documents.Document)
+end
+
+--- Encodes a Lua value as one YAML document.
+---
+--- `nil` and [](NULL) are null, and a table is a sequence or a mapping by
+--- [](isarray).
+---
+--- @param value the value
+--- @return the YAML text
+--- @raises serde.Error when a value has no YAML form, such as a function, a
+--- cyclic table or a float key, at its path
+export function encodevalue(value: any): string
+    return writer.values(value)
+end

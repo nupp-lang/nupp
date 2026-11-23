@@ -1,0 +1,182 @@
+module nupp.core.catalogyamlsuite
+
+-- The YAML test suite (scripts/toolchain yaml-test-suite) against its committed
+-- classification (tests/stdlib/serde/yaml/suite-manifest.json). Every case the suite
+-- holds must be classified, and every classified case must still be in it. A supported
+-- case's documents must decode to the ones its in.json holds; an error, a case outside
+-- the subset and valid YAML the pinned libyaml does not parse must be refused; and a
+-- case classified as decoding without a comparable in.json must still decode.
+-- NUPP_YAML_SUITE names the suite, NUPP_YAML_SUITE_INDEX a file of its case directories
+-- one per line, and NUPP_YAML_SUITE_MANIFEST the manifest; the counts per class go to
+-- standard error.
+const json = require("serde.json")
+const yaml = require("serde.yaml")
+
+local function read(path: string): string?
+    local file = io.open(path, "rb")
+    if file == nil then
+        return nil
+    end
+    local text = file:read("*a")
+    file:close()
+
+    return text
+end
+
+local function setting(name: string): string
+    local value = os.getenv(name)
+    if value == nil then
+        error(name .. " must be set", 0)
+    end
+
+    return value as string
+end
+
+local root = setting("NUPP_YAML_SUITE")
+local manifest: any = assert(json.decodevalue(assert(read(setting("NUPP_YAML_SUITE_MANIFEST")))))
+local classes = manifest.cases as {[string]: {
+    class: string,
+    reason: string?
+}}
+
+-- The JSON values in a stream of them, one after another.
+local function stream(text: string): {any}
+    local values: {any} = {}
+    local at = 1
+    while true do
+        local start = text:find("[^%s]", at)
+        if start == nil then
+            break
+        end
+        local depth, index, quoted = 0, start, false
+        while index <= #text do
+            local character = text:sub(index, index)
+            if quoted then
+                if character == "\\" then
+                    index = index + 1
+                elseif character == "\"" then
+                    quoted = false
+                    if depth == 0 then
+                        break
+                    end
+                end
+            elseif character == "\"" then
+                quoted = true
+            elseif character == "[" or character == "{" then
+                depth = depth + 1
+            elseif character == "]" or character == "}" then
+                depth = depth - 1
+                if depth == 0 then
+                    break
+                end
+            elseif depth == 0 and character:match("%s") then
+                index = index - 1
+                break
+            end
+            index = index + 1
+        end
+        local value, why = json.decodevalue(text:sub(start, index), json.NULL)
+        assert(why == nil, "in.json does not decode: " .. tostring(why))
+        values[#values + 1] = value
+        at = index + 1
+    end
+
+    return values
+end
+
+-- A decoded key as in.json spells it: JSON keys are strings.
+local function spelled(key: any): string
+    if type(key) == "boolean" then
+        return key and "true" or "false"
+    end
+
+    return tostring(key)
+end
+
+local same: function(any, any): boolean
+same = function(decoded: any, expected: any): boolean
+    if type(decoded) ~= "table" or type(expected) ~= "table" then
+        return decoded == expected
+    end
+    local count = 0
+    for key, value in pairs(decoded as table) do
+        count = count + 1
+        local other = (
+            expected as {[any]: any}
+        )[type(key) == "number" and yaml.isarray(decoded) and key or spelled(key)]
+        if not same(value, other) then
+            return false
+        end
+    end
+    for _ in pairs(expected as table) do
+        count = count - 1
+    end
+
+    return count == 0
+end
+
+local present: {[string]: boolean} = {}
+local unclassified, stale, mismatched, accepted, rejected = 0, 0, 0, 0, 0
+local counts: {[string]: integer} = {supported = 0, error = 0, subset = 0, refused = 0, decodes = 0}
+for line in assert(read(setting("NUPP_YAML_SUITE_INDEX"))):gmatch("[^\r\n]+") do
+    local id = line:gsub("^%./", "")
+    present[id] = true
+    local entry = classes[id]
+    if entry == nil then
+        unclassified = unclassified + 1
+        io.stderr:write("unclassified yaml-test-suite case " .. id .. "\n")
+    else
+        local class = entry.class
+        counts[class] = (counts[class] or 0) + 1
+        local directory = root .. "/" .. id
+        local documents, problem = yaml.decodeall(assert(read(directory .. "/in.yaml")), yaml.NULL)
+        if class == "supported" then
+            local expected = stream(read(directory .. "/in.json") or "")
+            local equal = documents ~= nil and #(documents as {any}) == #expected
+            if equal then
+                for index, value in ipairs(documents as {any}) do
+                    equal = equal and same(value, expected[index])
+                end
+            end
+            if not equal then
+                mismatched = mismatched + 1
+                io.stderr:write("yaml-test-suite case " .. id .. " decodes otherwise: " .. tostring(problem) .. "\n")
+            end
+        elseif class == "decodes" then
+            if documents == nil then
+                rejected = rejected + 1
+                io.stderr:write("yaml-test-suite case " .. id .. " no longer decodes: " .. tostring(problem) .. "\n")
+            end
+        elseif documents ~= nil then
+            accepted = accepted + 1
+            io.stderr:write("yaml-test-suite case " .. id .. " (" .. class .. ") decodes\n")
+        end
+    end
+end
+for id in pairs(classes) do
+    if not present[id] then
+        stale = stale + 1
+        io.stderr:write("classified yaml-test-suite case " .. id .. " is not in the suite\n")
+    end
+end
+io.stderr:write(
+    (
+        "yaml-test-suite: %d supported, %d errors, %d outside the subset, %d libyaml refuses, %d decode otherwise\n"
+    ):format(counts.supported or 0, counts.error or 0, counts.subset or 0, counts.refused or 0, counts.decodes or 0)
+)
+
+local score = 0
+if unclassified == 0 and stale == 0 and (counts.supported or 0) > 0 then
+    score = score + 1
+end
+if mismatched == 0 then
+    score = score + 2
+end
+if accepted == 0 then
+    score = score + 4
+end
+if rejected == 0 then
+    score = score + 8
+end
+
+export const result = score

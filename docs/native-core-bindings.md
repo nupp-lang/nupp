@@ -9,3 +9,5 @@ The guest selectors are `compressioncodec` and `cryptocodec`. They need `NUPP_ZL
 Core bindings, stream/facade integration, TLS/HTTP adapters, supported-target acceptance and coordinated Rust retirement are separate work. No existing provider selection, release artifact or published seed is changed here.
 
 Sync flush needs an output window of at least seven bytes, as required by the pinned zlib header. Smaller nonempty windows fail before touching C and can be retried safely; ordinary stepping and finish still support one-byte windows.
+
+`nupp.runtime.core.yamlcodec` binds the pinned libyaml (`nuppyaml`, built as `nupp_yaml` by `scripts/c-libraries/libyaml.sh`) the same way, for `serde.yaml`. libyaml's parser, emitter and event structures are read through overlays whose sizes and offsets `scripts/c-libraries/libyamlprobe.c` holds every target to, since the core's FFI passes no union. The emitter writes only through a callback, so its handler is the C bridge's byte sink, `nuppappendbytes`, and the bytes are read once the emitter has flushed.

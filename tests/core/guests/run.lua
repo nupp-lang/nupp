@@ -282,6 +282,11 @@ local CASES = {
     {"nullablepointers", 0x7FFF000000000007},
     {"compressioncodec", 0x7FFF000000000009},
     {"cryptocodec", 0x7FFF000000000004},
+    -- serde.yaml over libyaml (catalog-yaml-*).
+    {"yamlcodec", 0x7FFF00000000007F},
+    {"yamldecode", 0x7FFF0000000000FF},
+    {"yamlencode", 0x7FFF00000000007F},
+    {"yamlsuite", 0x7FFF00000000000F},
     {"runnersmall", 0x7FFF00000000001F},
     {"runnerchunks", 0x7FFF00000000007F},
     -- The packaged test runner over real suites, its loadfile and dofile
@@ -465,6 +470,12 @@ OUTPUT.benchworkloads = function(printed)
         and type(case.medianMs) == "number"
 end
 
+-- The YAML test suite's counts per class, which the run reports.
+OUTPUT.yamlsuite = function(printed)
+    return printed:find("^yaml%-test%-suite: %d+ supported, %d+ errors, %d+ outside the subset, "
+        .. "%d+ libyaml refuses, %d+ decode otherwise\n$") ~= nil
+end
+
 -- The uncaught error's report names its chunk as the core does: a long
 -- path, shortened as Lua shortens one.
 OUTPUT.errorsuncaught = function(printed)
@@ -598,6 +609,7 @@ local STRESS = {
     nullablepointers = true,
     compressioncodec = true,
     cryptocodec = true,
+    yamlcodec = true,
     markdown = true,
     ffiaggregates = true,
     runnerresiduals = true,
@@ -982,6 +994,21 @@ local function quote(value)
 end
 
 SETUP.catalogtls = "cd " .. quote(ROOT) .. " && "
+-- The YAML test suite's data release, an index of its cases and the manifest
+-- that classifies them. The normal and spill runs start together, and the
+-- release is unpacked by the first of them alone.
+SETUP.yamlsuite = (
+    "until mkdir %s 2>/dev/null; do sleep 1; done; d=$(sh %s yaml-test-suite); rmdir %s; "
+    .. "[ -n \"$d\" ] && i=$(mktemp %s) && (cd \"$d\" && find . -name in.yaml "
+    .. "| sed 's|^\\./||; s|/in\\.yaml$||' | grep -E '^[0-9A-Z]{4}(/[0-9]+)?$' | LC_ALL=C sort) > \"$i\" "
+    .. "&& export NUPP_YAML_SUITE=\"$d\" NUPP_YAML_SUITE_INDEX=\"$i\" NUPP_YAML_SUITE_MANIFEST=%s; "
+):format(
+    quote(OUT .. "/yamlsuite.lock"),
+    quote(ROOT .. "/scripts/toolchain"),
+    quote(OUT .. "/yamlsuite.lock"),
+    quote(OUT .. "/yamlsuite.XXXXXX"),
+    quote(ROOT .. "/tests/stdlib/serde/yaml/suite-manifest.json")
+)
 
 -- Wall seconds by phase and by case, for the summary the run ends with.
 local timing = {phase = "setup", case = "setup", phases = {}, cases = {}}

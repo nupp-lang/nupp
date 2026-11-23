@@ -1,0 +1,114 @@
+--[[
+How the YAML encoder writes a scalar so that it reads back as the value it was:
+whether a string may be plain, and the shortest text of a float.
+
+A string is written plain only when the YAML 1.2 core schema and YAML 1.1
+would both read it back as the same string; anything else is double-quoted,
+which every YAML reader takes as a string. Plain Nupp, so the rules are tested
+without the C library.
+]]
+module serde.yaml.internal.style
+
+const resolve = require("serde.yaml.internal.resolve")
+
+-- YAML 1.1's Booleans and its merge and value keys, which a 1.1 reader would
+-- resolve a plain scalar to and the 1.2 core schema does not.
+local WORDS: {
+    [string]: boolean
+} = {
+    y = true,
+    Y = true,
+    yes = true,
+    Yes = true,
+    YES = true,
+    n = true,
+    N = true,
+    no = true,
+    No = true,
+    NO = true,
+    on = true,
+    On = true,
+    ON = true,
+    off = true,
+    Off = true,
+    OFF = true,
+    ["<<"] = true,
+    ["="] = true,
+}
+
+-- The characters a plain scalar may not start with: YAML's indicators.
+const INDICATORS = "-?:,[]{}#&*!|>'\"%@`"
+
+-- The most digits a float's shortest round-trip text needs.
+const FLOAT_DIGITS = 17
+
+--- Whether `text`, written as a plain scalar, would read back as the same
+--- string under the YAML 1.2 core schema and under YAML 1.1.
+---
+--- It is plain only when neither schema resolves it to anything else, it does
+--- not start the way a number or a date does, and it has no indicator,
+--- leading or trailing space, line break or other character a plain scalar
+--- cannot carry.
+export function plain(text: string): boolean
+    if text == "" or WORDS[text] then
+        return false
+    end
+    if (resolve.plain(text)) ~= "string" then
+        return false
+    end
+    -- A number or a date to YAML 1.1, its sexagesimal and underscored forms
+    -- included: anything that starts like one is quoted.
+    if text:match("^[-+]?%.?%d") or text:match("^[-+]?%.[iInN]") then
+        return false
+    end
+    if INDICATORS:find(text:sub(1, 1), 1, true) then
+        return false
+    end
+    if text:match("^%s") or text:match("%s$") then
+        return false
+    end
+    -- Only printable ASCII: line breaks, tabs, controls and every non-ASCII
+    -- character go to the quoted style.
+    if text:find("[^ -~]") then
+        return false
+    end
+    if text:find(": ", 1, true) or text:find(" #", 1, true) or text:sub(-1) == ":" then
+        return false
+    end
+    -- A flow indicator anywhere would end the scalar in a flow collection.
+    if text:find("[,%[%]{}]") then
+        return false
+    end
+
+    return true
+end
+
+--- The shortest text that reads back as `value` and that the core schema
+--- resolves to a float.
+export function float(value: number): string
+    if value ~= value then
+        return ".nan"
+    elseif value == math.huge then
+        return ".inf"
+    elseif value == -math.huge then
+        return "-.inf"
+    end
+    local text = ""
+    for precision = 1, FLOAT_DIGITS do
+        text = ("%." .. tostring(precision) .. "g"):format(value)
+        if tonumber(text) == value then
+            break
+        end
+    end
+    -- A point before any exponent, so neither schema reads an integer.
+    if not text:find(".", 1, true) and not text:find("[iInN]") then
+        local mantissa, exponent = text:match("^([^eE]*)([eE].*)$")
+        if mantissa ~= nil then
+            text = mantissa .. ".0" .. exponent
+        else
+            text = text .. ".0"
+        end
+    end
+
+    return text
+end

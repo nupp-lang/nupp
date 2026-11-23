@@ -1,0 +1,1323 @@
+{
+  "suite": "yaml-test-suite data-2022-01-17",
+  "classes": {
+    "supported": "decodes to the documents its in.json holds",
+    "error": "invalid YAML, refused",
+    "subset": "valid YAML outside serde.yaml's subset, refused naming the construct",
+    "refused": "valid YAML that the pinned libyaml does not parse, refused",
+    "decodes": "decodes, but has no in.json the decoded value matches; the reason says why"
+  },
+  "cases": {
+    "229Q": {
+      "class": "supported"
+    },
+    "236B": {
+      "class": "error"
+    },
+    "26DV": {
+      "class": "supported"
+    },
+    "27NA": {
+      "class": "supported"
+    },
+    "2AUY": {
+      "class": "supported"
+    },
+    "2CMS": {
+      "class": "error"
+    },
+    "2EBW": {
+      "class": "supported"
+    },
+    "2G84/00": {
+      "class": "error"
+    },
+    "2G84/01": {
+      "class": "error"
+    },
+    "2G84/02": {
+      "class": "supported"
+    },
+    "2G84/03": {
+      "class": "supported"
+    },
+    "2JQS": {
+      "class": "refused",
+      "reason": "valid YAML that libyaml 0.2.6 refuses: did not find expected key while parsing a block mapping"
+    },
+    "2LFX": {
+      "class": "refused",
+      "reason": "valid YAML that libyaml 0.2.6 refuses: found unknown directive name while scanning a directive"
+    },
+    "2SXE": {
+      "class": "subset",
+      "reason": "a mapping key must not be null"
+    },
+    "2XXW": {
+      "class": "subset",
+      "reason": "the tag tag:yaml.org,2002:set is not in the YAML 1.2 core schema"
+    },
+    "33X3": {
+      "class": "supported"
+    },
+    "35KP": {
+      "class": "supported"
+    },
+    "36F6": {
+      "class": "supported"
+    },
+    "3ALJ": {
+      "class": "supported"
+    },
+    "3GZX": {
+      "class": "supported"
+    },
+    "3HFZ": {
+      "class": "error"
+    },
+    "3MYT": {
+      "class": "supported"
+    },
+    "3R3P": {
+      "class": "supported"
+    },
+    "3RLN/00": {
+      "class": "supported"
+    },
+    "3RLN/01": {
+      "class": "supported"
+    },
+    "3RLN/02": {
+      "class": "supported"
+    },
+    "3RLN/03": {
+      "class": "supported"
+    },
+    "3RLN/04": {
+      "class": "supported"
+    },
+    "3RLN/05": {
+      "class": "supported"
+    },
+    "3UYS": {
+      "class": "supported"
+    },
+    "4ABK": {
+      "class": "refused",
+      "reason": "valid YAML that libyaml 0.2.6 refuses: found unexpected ':' while scanning a plain scalar"
+    },
+    "4CQQ": {
+      "class": "supported"
+    },
+    "4EJS": {
+      "class": "error"
+    },
+    "4FJ6": {
+      "class": "subset",
+      "reason": "a mapping key must be a scalar, not a collection"
+    },
+    "4GC6": {
+      "class": "supported"
+    },
+    "4H7K": {
+      "class": "error"
+    },
+    "4HVU": {
+      "class": "error"
+    },
+    "4JVG": {
+      "class": "error"
+    },
+    "4MUZ/00": {
+      "class": "refused",
+      "reason": "valid YAML that libyaml 0.2.6 refuses: did not find expected ',' or '}' while parsing a flow mapping"
+    },
+    "4MUZ/01": {
+      "class": "refused",
+      "reason": "valid YAML that libyaml 0.2.6 refuses: did not find expected ',' or '}' while parsing a flow mapping"
+    },
+    "4MUZ/02": {
+      "class": "refused",
+      "reason": "valid YAML that libyaml 0.2.6 refuses: did not find expected ',' or '}' while parsing a flow mapping"
+    },
+    "4Q9F": {
+      "class": "supported"
+    },
+    "4QFQ": {
+      "class": "supported"
+    },
+    "4RWC": {
+      "class": "supported"
+    },
+    "4UYU": {
+      "class": "supported"
+    },
+    "4V8U": {
+      "class": "supported"
+    },
+    "4WA9": {
+      "class": "supported"
+    },
+    "4ZYM": {
+      "class": "supported"
+    },
+    "52DL": {
+      "class": "supported"
+    },
+    "54T7": {
+      "class": "supported"
+    },
+    "55WF": {
+      "class": "error"
+    },
+    "565N": {
+      "class": "subset",
+      "reason": "the tag tag:yaml.org,2002:binary is not in the YAML 1.2 core schema"
+    },
+    "57H4": {
+      "class": "supported"
+    },
+    "58MP": {
+      "class": "refused",
+      "reason": "valid YAML that libyaml 0.2.6 refuses: did not find expected node content while parsing a flow node"
+    },
+    "5BVJ": {
+      "class": "supported"
+    },
+    "5C5M": {
+      "class": "supported"
+    },
+    "5GBF": {
+      "class": "supported"
+    },
+    "5KJE": {
+      "class": "supported"
+    },
+    "5LLU": {
+      "class": "error"
+    },
+    "5MUD": {
+      "class": "refused",
+      "reason": "valid YAML that libyaml 0.2.6 refuses: did not find expected ',' or '}' while parsing a flow mapping"
+    },
+    "5NYZ": {
+      "class": "supported"
+    },
+    "5T43": {
+      "class": "refused",
+      "reason": "valid YAML that libyaml 0.2.6 refuses: did not find expected node content while parsing a flow node"
+    },
+    "5TRB": {
+      "class": "error"
+    },
+    "5TYM": {
+      "class": "subset",
+      "reason": "the tag !my-light is not in the YAML 1.2 core schema"
+    },
+    "5U3A": {
+      "class": "error"
+    },
+    "5WE3": {
+      "class": "supported"
+    },
+    "62EZ": {
+      "class": "error"
+    },
+    "652Z": {
+      "class": "decodes",
+      "reason": "libyaml 0.2.6 reads it otherwise than the suite's in.json"
+    },
+    "65WH": {
+      "class": "supported"
+    },
+    "6BCT": {
+      "class": "refused",
+      "reason": "valid YAML that libyaml 0.2.6 refuses: found character that cannot start any token while scanning for the next token"
+    },
+    "6BFJ": {
+      "class": "subset",
+      "reason": "a mapping key must be a scalar, not a collection"
+    },
+    "6CA3": {
+      "class": "refused",
+      "reason": "valid YAML that libyaml 0.2.6 refuses: found character that cannot start any token while scanning for the next token"
+    },
+    "6CK3": {
+      "class": "subset",
+      "reason": "the tag !local is not in the YAML 1.2 core schema"
+    },
+    "6FWR": {
+      "class": "supported"
+    },
+    "6H3V": {
+      "class": "supported"
+    },
+    "6HB6": {
+      "class": "supported"
+    },
+    "6JQW": {
+      "class": "supported"
+    },
+    "6JTT": {
+      "class": "error"
+    },
+    "6JWB": {
+      "class": "supported"
+    },
+    "6KGN": {
+      "class": "supported"
+    },
+    "6LVF": {
+      "class": "refused",
+      "reason": "valid YAML that libyaml 0.2.6 refuses: found unknown directive name while scanning a directive"
+    },
+    "6M2F": {
+      "class": "refused",
+      "reason": "valid YAML that libyaml 0.2.6 refuses: did not find expected key while parsing a block mapping"
+    },
+    "6PBE": {
+      "class": "subset",
+      "reason": "a mapping key must be a scalar, not a collection"
+    },
+    "6S55": {
+      "class": "error"
+    },
+    "6SLA": {
+      "class": "supported"
+    },
+    "6VJK": {
+      "class": "supported"
+    },
+    "6WLZ": {
+      "class": "subset",
+      "reason": "the tag !foo is not in the YAML 1.2 core schema"
+    },
+    "6WPF": {
+      "class": "supported"
+    },
+    "6XDY": {
+      "class": "supported"
+    },
+    "6ZKB": {
+      "class": "supported"
+    },
+    "735Y": {
+      "class": "supported"
+    },
+    "74H7": {
+      "class": "supported"
+    },
+    "753E": {
+      "class": "supported"
+    },
+    "7A4E": {
+      "class": "supported"
+    },
+    "7BMT": {
+      "class": "supported"
+    },
+    "7BUB": {
+      "class": "supported"
+    },
+    "7FWL": {
+      "class": "subset",
+      "reason": "the tag !bar is not in the YAML 1.2 core schema"
+    },
+    "7LBH": {
+      "class": "error"
+    },
+    "7MNF": {
+      "class": "error"
+    },
+    "7T8X": {
+      "class": "supported"
+    },
+    "7TMG": {
+      "class": "supported"
+    },
+    "7W2P": {
+      "class": "supported"
+    },
+    "7Z25": {
+      "class": "refused",
+      "reason": "valid YAML that libyaml 0.2.6 refuses: did not find expected <document start>"
+    },
+    "7ZZ5": {
+      "class": "supported"
+    },
+    "82AN": {
+      "class": "supported"
+    },
+    "87E4": {
+      "class": "supported"
+    },
+    "8CWC": {
+      "class": "supported"
+    },
+    "8G76": {
+      "class": "supported"
+    },
+    "8KB6": {
+      "class": "supported"
+    },
+    "8MK2": {
+      "class": "supported"
+    },
+    "8QBE": {
+      "class": "supported"
+    },
+    "8UDB": {
+      "class": "supported"
+    },
+    "8XDJ": {
+      "class": "error"
+    },
+    "8XYN": {
+      "class": "refused",
+      "reason": "valid YAML that libyaml 0.2.6 refuses: did not find expected alphabetic or numeric character while scanning an anchor"
+    },
+    "93JH": {
+      "class": "supported"
+    },
+    "93WF": {
+      "class": "supported"
+    },
+    "96L6": {
+      "class": "supported"
+    },
+    "96NN/00": {
+      "class": "refused",
+      "reason": "valid YAML that libyaml 0.2.6 refuses: found a tab character where an indentation space is expected while scanning a block scalar"
+    },
+    "96NN/01": {
+      "class": "refused",
+      "reason": "valid YAML that libyaml 0.2.6 refuses: found a tab character where an indentation space is expected while scanning a block scalar"
+    },
+    "98YD": {
+      "class": "supported"
+    },
+    "9BXH": {
+      "class": "supported"
+    },
+    "9C9N": {
+      "class": "decodes",
+      "reason": "invalid YAML that libyaml 0.2.6 accepts"
+    },
+    "9CWY": {
+      "class": "error"
+    },
+    "9DXL": {
+      "class": "supported"
+    },
+    "9FMG": {
+      "class": "supported"
+    },
+    "9HCY": {
+      "class": "error"
+    },
+    "9J7A": {
+      "class": "supported"
+    },
+    "9JBA": {
+      "class": "decodes",
+      "reason": "invalid YAML that libyaml 0.2.6 accepts"
+    },
+    "9KAX": {
+      "class": "supported"
+    },
+    "9KBC": {
+      "class": "error"
+    },
+    "9MAG": {
+      "class": "error"
+    },
+    "9MMA": {
+      "class": "error"
+    },
+    "9MMW": {
+      "class": "subset",
+      "reason": "a mapping key must be a scalar, not a collection"
+    },
+    "9MQT/00": {
+      "class": "supported"
+    },
+    "9MQT/01": {
+      "class": "error"
+    },
+    "9SA2": {
+      "class": "refused",
+      "reason": "valid YAML that libyaml 0.2.6 refuses: did not find expected ',' or '}' while parsing a flow mapping"
+    },
+    "9SHH": {
+      "class": "supported"
+    },
+    "9TFX": {
+      "class": "supported"
+    },
+    "9U5K": {
+      "class": "supported"
+    },
+    "9WXW": {
+      "class": "subset",
+      "reason": "the tag !foo is not in the YAML 1.2 core schema"
+    },
+    "9YRD": {
+      "class": "supported"
+    },
+    "A2M4": {
+      "class": "refused",
+      "reason": "valid YAML that libyaml 0.2.6 refuses: found character that cannot start any token while scanning for the next token"
+    },
+    "A6F9": {
+      "class": "supported"
+    },
+    "A984": {
+      "class": "supported"
+    },
+    "AB8U": {
+      "class": "supported"
+    },
+    "AVM7": {
+      "class": "supported"
+    },
+    "AZ63": {
+      "class": "supported"
+    },
+    "AZW3": {
+      "class": "supported"
+    },
+    "B3HG": {
+      "class": "supported"
+    },
+    "B63P": {
+      "class": "error"
+    },
+    "BD7L": {
+      "class": "error"
+    },
+    "BEC7": {
+      "class": "refused",
+      "reason": "valid YAML that libyaml 0.2.6 refuses: found incompatible YAML document"
+    },
+    "BF9H": {
+      "class": "error"
+    },
+    "BS4K": {
+      "class": "error"
+    },
+    "BU8L": {
+      "class": "supported"
+    },
+    "C2DT": {
+      "class": "supported"
+    },
+    "C2SP": {
+      "class": "error"
+    },
+    "C4HZ": {
+      "class": "subset",
+      "reason": "the tag tag:clarkevans.com,2002:shape is not in the YAML 1.2 core schema"
+    },
+    "CC74": {
+      "class": "subset",
+      "reason": "the tag tag:example.com,2000:app/foo is not in the YAML 1.2 core schema"
+    },
+    "CFD4": {
+      "class": "refused",
+      "reason": "valid YAML that libyaml 0.2.6 refuses: did not find expected node content while parsing a flow node"
+    },
+    "CML9": {
+      "class": "error"
+    },
+    "CN3R": {
+      "class": "supported"
+    },
+    "CPZ3": {
+      "class": "supported"
+    },
+    "CQ3W": {
+      "class": "error"
+    },
+    "CT4Q": {
+      "class": "supported"
+    },
+    "CTN5": {
+      "class": "error"
+    },
+    "CUP7": {
+      "class": "subset",
+      "reason": "the tag !local is not in the YAML 1.2 core schema"
+    },
+    "CVW2": {
+      "class": "decodes",
+      "reason": "invalid YAML that libyaml 0.2.6 accepts"
+    },
+    "CXX2": {
+      "class": "error"
+    },
+    "D49Q": {
+      "class": "error"
+    },
+    "D83L": {
+      "class": "supported"
+    },
+    "D88J": {
+      "class": "supported"
+    },
+    "D9TU": {
+      "class": "supported"
+    },
+    "DBG4": {
+      "class": "refused",
+      "reason": "valid YAML that libyaml 0.2.6 refuses: did not find expected node content while parsing a flow node"
+    },
+    "DC7X": {
+      "class": "supported"
+    },
+    "DE56/00": {
+      "class": "supported"
+    },
+    "DE56/01": {
+      "class": "supported"
+    },
+    "DE56/02": {
+      "class": "supported"
+    },
+    "DE56/03": {
+      "class": "supported"
+    },
+    "DE56/04": {
+      "class": "supported"
+    },
+    "DE56/05": {
+      "class": "supported"
+    },
+    "DFF7": {
+      "class": "subset",
+      "reason": "a mapping key must not be null"
+    },
+    "DHP8": {
+      "class": "supported"
+    },
+    "DK3J": {
+      "class": "refused",
+      "reason": "valid YAML that libyaml 0.2.6 refuses: did not find expected <document start>"
+    },
+    "DK4H": {
+      "class": "error"
+    },
+    "DK95/00": {
+      "class": "refused",
+      "reason": "valid YAML that libyaml 0.2.6 refuses: found character that cannot start any token while scanning for the next token"
+    },
+    "DK95/01": {
+      "class": "decodes",
+      "reason": "invalid YAML that libyaml 0.2.6 accepts"
+    },
+    "DK95/02": {
+      "class": "supported"
+    },
+    "DK95/03": {
+      "class": "refused",
+      "reason": "valid YAML that libyaml 0.2.6 refuses: found character that cannot start any token while scanning for the next token"
+    },
+    "DK95/04": {
+      "class": "refused",
+      "reason": "valid YAML that libyaml 0.2.6 refuses: found a tab character that violates indentation while scanning a plain scalar"
+    },
+    "DK95/05": {
+      "class": "supported"
+    },
+    "DK95/06": {
+      "class": "error"
+    },
+    "DK95/07": {
+      "class": "supported"
+    },
+    "DK95/08": {
+      "class": "supported"
+    },
+    "DMG6": {
+      "class": "error"
+    },
+    "DWX9": {
+      "class": "supported"
+    },
+    "E76Z": {
+      "class": "supported"
+    },
+    "EB22": {
+      "class": "decodes",
+      "reason": "invalid YAML that libyaml 0.2.6 accepts"
+    },
+    "EHF6": {
+      "class": "supported"
+    },
+    "EW3V": {
+      "class": "error"
+    },
+    "EX5H": {
+      "class": "supported"
+    },
+    "EXG3": {
+      "class": "supported"
+    },
+    "F2C7": {
+      "class": "supported"
+    },
+    "F3CP": {
+      "class": "supported"
+    },
+    "F6MC": {
+      "class": "supported"
+    },
+    "F8F9": {
+      "class": "supported"
+    },
+    "FBC9": {
+      "class": "supported"
+    },
+    "FH7J": {
+      "class": "subset",
+      "reason": "a mapping key must not be null"
+    },
+    "FP8R": {
+      "class": "refused",
+      "reason": "valid YAML that libyaml 0.2.6 refuses: did not find expected <document start>"
+    },
+    "FQ7F": {
+      "class": "supported"
+    },
+    "FRK4": {
+      "class": "refused",
+      "reason": "valid YAML that libyaml 0.2.6 refuses: found unexpected ':' while scanning a plain scalar"
+    },
+    "FTA2": {
+      "class": "supported"
+    },
+    "FUP4": {
+      "class": "supported"
+    },
+    "G4RS": {
+      "class": "supported"
+    },
+    "G5U8": {
+      "class": "decodes",
+      "reason": "invalid YAML that libyaml 0.2.6 accepts"
+    },
+    "G7JE": {
+      "class": "error"
+    },
+    "G992": {
+      "class": "supported"
+    },
+    "G9HC": {
+      "class": "error"
+    },
+    "GDY7": {
+      "class": "error"
+    },
+    "GH63": {
+      "class": "supported"
+    },
+    "GT5M": {
+      "class": "error"
+    },
+    "H2RW": {
+      "class": "supported"
+    },
+    "H3Z8": {
+      "class": "supported"
+    },
+    "H7J7": {
+      "class": "error"
+    },
+    "H7TQ": {
+      "class": "error"
+    },
+    "HM87/00": {
+      "class": "refused",
+      "reason": "valid YAML that libyaml 0.2.6 refuses: did not find expected node content while parsing a flow node"
+    },
+    "HM87/01": {
+      "class": "decodes",
+      "reason": "libyaml 0.2.6 reads it otherwise than the suite's in.json"
+    },
+    "HMK4": {
+      "class": "supported"
+    },
+    "HMQ5": {
+      "class": "supported"
+    },
+    "HRE5": {
+      "class": "error"
+    },
+    "HS5T": {
+      "class": "supported"
+    },
+    "HU3P": {
+      "class": "error"
+    },
+    "HWV9": {
+      "class": "refused",
+      "reason": "valid YAML that libyaml 0.2.6 refuses: did not find expected node content while parsing a block node"
+    },
+    "J3BT": {
+      "class": "supported"
+    },
+    "J5UC": {
+      "class": "supported"
+    },
+    "J7PZ": {
+      "class": "subset",
+      "reason": "the tag tag:yaml.org,2002:omap is not in the YAML 1.2 core schema"
+    },
+    "J7VC": {
+      "class": "supported"
+    },
+    "J9HZ": {
+      "class": "supported"
+    },
+    "JEF9/00": {
+      "class": "supported"
+    },
+    "JEF9/01": {
+      "class": "supported"
+    },
+    "JEF9/02": {
+      "class": "decodes",
+      "reason": "libyaml 0.2.6 reads it otherwise than the suite's in.json"
+    },
+    "JHB9": {
+      "class": "supported"
+    },
+    "JKF3": {
+      "class": "error"
+    },
+    "JQ4R": {
+      "class": "supported"
+    },
+    "JR7V": {
+      "class": "supported"
+    },
+    "JS2J": {
+      "class": "supported"
+    },
+    "JTV5": {
+      "class": "supported"
+    },
+    "JY7Z": {
+      "class": "error"
+    },
+    "K3WX": {
+      "class": "refused",
+      "reason": "valid YAML that libyaml 0.2.6 refuses: did not find expected ',' or '}' while parsing a flow mapping"
+    },
+    "K4SU": {
+      "class": "supported"
+    },
+    "K527": {
+      "class": "supported"
+    },
+    "K54U": {
+      "class": "supported"
+    },
+    "K858": {
+      "class": "supported"
+    },
+    "KH5V/00": {
+      "class": "supported"
+    },
+    "KH5V/01": {
+      "class": "supported"
+    },
+    "KH5V/02": {
+      "class": "supported"
+    },
+    "KK5P": {
+      "class": "subset",
+      "reason": "a mapping key must be a scalar, not a collection"
+    },
+    "KMK3": {
+      "class": "supported"
+    },
+    "KS4U": {
+      "class": "error"
+    },
+    "KSS4": {
+      "class": "supported"
+    },
+    "L24T/00": {
+      "class": "supported"
+    },
+    "L24T/01": {
+      "class": "decodes",
+      "reason": "libyaml 0.2.6 reads it otherwise than the suite's in.json"
+    },
+    "L383": {
+      "class": "supported"
+    },
+    "L94M": {
+      "class": "supported"
+    },
+    "L9U5": {
+      "class": "supported"
+    },
+    "LE5A": {
+      "class": "supported"
+    },
+    "LHL4": {
+      "class": "error"
+    },
+    "LP6E": {
+      "class": "supported"
+    },
+    "LQZ7": {
+      "class": "supported"
+    },
+    "LX3P": {
+      "class": "subset",
+      "reason": "a mapping key must be a scalar, not a collection"
+    },
+    "M29M": {
+      "class": "supported"
+    },
+    "M2N8/00": {
+      "class": "refused",
+      "reason": "valid YAML that libyaml 0.2.6 refuses: did not find expected key while parsing a block mapping"
+    },
+    "M2N8/01": {
+      "class": "subset",
+      "reason": "a mapping key must be a scalar, not a collection"
+    },
+    "M5C3": {
+      "class": "subset",
+      "reason": "the tag !foo is not in the YAML 1.2 core schema"
+    },
+    "M5DY": {
+      "class": "subset",
+      "reason": "a mapping key must be a scalar, not a collection"
+    },
+    "M6YH": {
+      "class": "supported"
+    },
+    "M7A3": {
+      "class": "refused",
+      "reason": "valid YAML that libyaml 0.2.6 refuses: did not find expected <document start>"
+    },
+    "M7NX": {
+      "class": "supported"
+    },
+    "M9B4": {
+      "class": "supported"
+    },
+    "MJS9": {
+      "class": "supported"
+    },
+    "MUS6/00": {
+      "class": "decodes",
+      "reason": "invalid YAML that libyaml 0.2.6 accepts"
+    },
+    "MUS6/01": {
+      "class": "decodes",
+      "reason": "invalid YAML that libyaml 0.2.6 accepts"
+    },
+    "MUS6/02": {
+      "class": "supported"
+    },
+    "MUS6/03": {
+      "class": "supported"
+    },
+    "MUS6/04": {
+      "class": "supported"
+    },
+    "MUS6/05": {
+      "class": "refused",
+      "reason": "valid YAML that libyaml 0.2.6 refuses: found unknown directive name while scanning a directive"
+    },
+    "MUS6/06": {
+      "class": "refused",
+      "reason": "valid YAML that libyaml 0.2.6 refuses: found unknown directive name while scanning a directive"
+    },
+    "MXS3": {
+      "class": "supported"
+    },
+    "MYW6": {
+      "class": "supported"
+    },
+    "MZX3": {
+      "class": "supported"
+    },
+    "N4JP": {
+      "class": "error"
+    },
+    "N782": {
+      "class": "error"
+    },
+    "NAT4": {
+      "class": "supported"
+    },
+    "NB6Z": {
+      "class": "supported"
+    },
+    "NHX8": {
+      "class": "refused",
+      "reason": "valid YAML that libyaml 0.2.6 refuses: did not find expected key while parsing a block mapping"
+    },
+    "NJ66": {
+      "class": "refused",
+      "reason": "valid YAML that libyaml 0.2.6 refuses: did not find expected ',' or '}' while parsing a flow mapping"
+    },
+    "NKF9": {
+      "class": "refused",
+      "reason": "valid YAML that libyaml 0.2.6 refuses: did not find expected key while parsing a block mapping"
+    },
+    "NP9H": {
+      "class": "supported"
+    },
+    "P2AD": {
+      "class": "supported"
+    },
+    "P2EQ": {
+      "class": "error"
+    },
+    "P76L": {
+      "class": "subset",
+      "reason": "the tag tag:example.com,2000:app/int is not in the YAML 1.2 core schema"
+    },
+    "P94K": {
+      "class": "supported"
+    },
+    "PBJ2": {
+      "class": "supported"
+    },
+    "PRH3": {
+      "class": "supported"
+    },
+    "PUW8": {
+      "class": "supported"
+    },
+    "PW8X": {
+      "class": "subset",
+      "reason": "a mapping key must not be null"
+    },
+    "Q4CL": {
+      "class": "error"
+    },
+    "Q5MG": {
+      "class": "refused",
+      "reason": "valid YAML that libyaml 0.2.6 refuses: found character that cannot start any token while scanning for the next token"
+    },
+    "Q88A": {
+      "class": "supported"
+    },
+    "Q8AD": {
+      "class": "supported"
+    },
+    "Q9WF": {
+      "class": "subset",
+      "reason": "a mapping key must be a scalar, not a collection"
+    },
+    "QB6E": {
+      "class": "decodes",
+      "reason": "invalid YAML that libyaml 0.2.6 accepts"
+    },
+    "QF4Y": {
+      "class": "supported"
+    },
+    "QLJ7": {
+      "class": "error"
+    },
+    "QT73": {
+      "class": "refused",
+      "reason": "valid YAML that libyaml 0.2.6 refuses: did not find expected node content while parsing a block node"
+    },
+    "R4YG": {
+      "class": "refused",
+      "reason": "valid YAML that libyaml 0.2.6 refuses: found a tab character where an indentation space is expected while scanning a block scalar"
+    },
+    "R52L": {
+      "class": "supported"
+    },
+    "RHX7": {
+      "class": "decodes",
+      "reason": "invalid YAML that libyaml 0.2.6 accepts"
+    },
+    "RLU9": {
+      "class": "supported"
+    },
+    "RR7F": {
+      "class": "supported"
+    },
+    "RTP8": {
+      "class": "supported"
+    },
+    "RXY3": {
+      "class": "error"
+    },
+    "RZP5": {
+      "class": "subset",
+      "reason": "a mapping key must be a scalar, not a collection"
+    },
+    "RZT7": {
+      "class": "supported"
+    },
+    "S3PD": {
+      "class": "refused",
+      "reason": "valid YAML that libyaml 0.2.6 refuses: did not find expected key while parsing a block mapping"
+    },
+    "S4GJ": {
+      "class": "error"
+    },
+    "S4JQ": {
+      "class": "supported"
+    },
+    "S4T7": {
+      "class": "supported"
+    },
+    "S7BG": {
+      "class": "supported"
+    },
+    "S98Z": {
+      "class": "decodes",
+      "reason": "invalid YAML that libyaml 0.2.6 accepts"
+    },
+    "S9E8": {
+      "class": "supported"
+    },
+    "SBG9": {
+      "class": "subset",
+      "reason": "a mapping key must be a scalar, not a collection"
+    },
+    "SF5V": {
+      "class": "error"
+    },
+    "SKE5": {
+      "class": "supported"
+    },
+    "SM9W/00": {
+      "class": "supported"
+    },
+    "SM9W/01": {
+      "class": "refused",
+      "reason": "valid YAML that libyaml 0.2.6 refuses: did not find expected key while parsing a block mapping"
+    },
+    "SR86": {
+      "class": "error"
+    },
+    "SSW6": {
+      "class": "supported"
+    },
+    "SU5Z": {
+      "class": "decodes",
+      "reason": "invalid YAML that libyaml 0.2.6 accepts"
+    },
+    "SU74": {
+      "class": "error"
+    },
+    "SY6V": {
+      "class": "error"
+    },
+    "SYW4": {
+      "class": "supported"
+    },
+    "T26H": {
+      "class": "supported"
+    },
+    "T4YY": {
+      "class": "supported"
+    },
+    "T5N4": {
+      "class": "supported"
+    },
+    "T833": {
+      "class": "error"
+    },
+    "TD5N": {
+      "class": "error"
+    },
+    "TE2A": {
+      "class": "supported"
+    },
+    "TL85": {
+      "class": "supported"
+    },
+    "TS54": {
+      "class": "supported"
+    },
+    "U3C3": {
+      "class": "supported"
+    },
+    "U3XV": {
+      "class": "supported"
+    },
+    "U44R": {
+      "class": "error"
+    },
+    "U99R": {
+      "class": "error"
+    },
+    "U9NS": {
+      "class": "supported"
+    },
+    "UDM2": {
+      "class": "supported"
+    },
+    "UDR7": {
+      "class": "supported"
+    },
+    "UGM3": {
+      "class": "subset",
+      "reason": "the tag tag:clarkevans.com,2002:invoice is not in the YAML 1.2 core schema"
+    },
+    "UKK6/00": {
+      "class": "refused",
+      "reason": "valid YAML that libyaml 0.2.6 refuses: did not find expected key while parsing a block mapping"
+    },
+    "UKK6/01": {
+      "class": "supported"
+    },
+    "UKK6/02": {
+      "class": "decodes",
+      "reason": "the suite gives no JSON to compare it with"
+    },
+    "UT92": {
+      "class": "refused",
+      "reason": "valid YAML that libyaml 0.2.6 refuses: did not find expected ',' or '}' while parsing a flow mapping"
+    },
+    "UV7Q": {
+      "class": "supported"
+    },
+    "V55R": {
+      "class": "supported"
+    },
+    "V9D5": {
+      "class": "subset",
+      "reason": "a mapping key must be a scalar, not a collection"
+    },
+    "VJP3/00": {
+      "class": "error"
+    },
+    "VJP3/01": {
+      "class": "refused",
+      "reason": "valid YAML that libyaml 0.2.6 refuses: did not find expected ',' or '}' while parsing a flow mapping"
+    },
+    "W42U": {
+      "class": "supported"
+    },
+    "W4TN": {
+      "class": "refused",
+      "reason": "valid YAML that libyaml 0.2.6 refuses: could not find expected directive name while scanning a directive"
+    },
+    "W5VH": {
+      "class": "refused",
+      "reason": "valid YAML that libyaml 0.2.6 refuses: did not find expected alphabetic or numeric character while scanning an anchor"
+    },
+    "W9L4": {
+      "class": "error"
+    },
+    "WZ62": {
+      "class": "supported"
+    },
+    "X38W": {
+      "class": "subset",
+      "reason": "a mapping key must be a scalar, not a collection"
+    },
+    "X4QW": {
+      "class": "decodes",
+      "reason": "invalid YAML that libyaml 0.2.6 accepts"
+    },
+    "X8DW": {
+      "class": "supported"
+    },
+    "XLQ9": {
+      "class": "supported"
+    },
+    "XV9V": {
+      "class": "supported"
+    },
+    "XW4D": {
+      "class": "subset",
+      "reason": "a mapping key must be a scalar, not a collection"
+    },
+    "Y2GN": {
+      "class": "decodes",
+      "reason": "libyaml 0.2.6 reads it otherwise than the suite's in.json"
+    },
+    "Y79Y/000": {
+      "class": "error"
+    },
+    "Y79Y/001": {
+      "class": "refused",
+      "reason": "valid YAML that libyaml 0.2.6 refuses: found a tab character where an indentation space is expected while scanning a block scalar"
+    },
+    "Y79Y/002": {
+      "class": "supported"
+    },
+    "Y79Y/003": {
+      "class": "decodes",
+      "reason": "invalid YAML that libyaml 0.2.6 accepts"
+    },
+    "Y79Y/004": {
+      "class": "error"
+    },
+    "Y79Y/005": {
+      "class": "error"
+    },
+    "Y79Y/006": {
+      "class": "error"
+    },
+    "Y79Y/007": {
+      "class": "error"
+    },
+    "Y79Y/008": {
+      "class": "error"
+    },
+    "Y79Y/009": {
+      "class": "error"
+    },
+    "Y79Y/010": {
+      "class": "refused",
+      "reason": "valid YAML that libyaml 0.2.6 refuses: found character that cannot start any token while scanning for the next token"
+    },
+    "YD5X": {
+      "class": "supported"
+    },
+    "YJV2": {
+      "class": "decodes",
+      "reason": "invalid YAML that libyaml 0.2.6 accepts"
+    },
+    "Z67P": {
+      "class": "subset",
+      "reason": "the tag !foo is not in the YAML 1.2 core schema"
+    },
+    "Z9M4": {
+      "class": "subset",
+      "reason": "the tag tag:example.com,2000:app/foo is not in the YAML 1.2 core schema"
+    },
+    "ZCZ6": {
+      "class": "error"
+    },
+    "ZF4X": {
+      "class": "supported"
+    },
+    "ZH7C": {
+      "class": "supported"
+    },
+    "ZK9H": {
+      "class": "supported"
+    },
+    "ZL4Z": {
+      "class": "error"
+    },
+    "ZVH3": {
+      "class": "error"
+    },
+    "ZWK4": {
+      "class": "supported"
+    },
+    "ZXT5": {
+      "class": "error"
+    }
+  }
+}

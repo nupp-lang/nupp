@@ -1,0 +1,502 @@
+--[[
+Reads YAML through libyaml's parser events (`nupp.runtime.core.yamlcodec`)
+into values: plain Lua values for `decodevalue`, or [](serde.Document)s that a
+binding is constructed from.
+
+The reader keeps to a safe subset by refusal. A tag beyond the core schema's,
+a merge key, a key that is not a string, integer or Boolean scalar, and a key
+repeated after resolution are errors that name the construct. Input bytes,
+collection depth and materialized nodes are bounded, and an alias counts every
+node its anchor did, so a document of nested aliases stops at the node limit
+rather than growing. Every failure is a [](serde.Error) with the logical path
+and the byte offset and 1-based line and column where it happened.
+
+Events arrive one at a time, and the collections still open are a stack, so
+nesting costs no recursion.
+]]
+module serde.yaml.internal.reader
+
+const codec = require("nupp.runtime.core.yamlcodec")
+const resolve = require("serde.yaml.internal.resolve")
+const errors = require("nupp.serde.internal.errors")
+const documents = require("nupp.serde.internal.document")
+const core = require("nupp.serde.internal.value")
+const marks = require("nupp.serde.internal.json.values")
+
+--- The bounds on what one decode reads.
+export type Options = {
+    maxbytes: integer?,
+    maxdepth: integer?,
+    maxnodes: integer?
+}
+
+--- The input bytes a decode reads, unless its options say otherwise.
+export const MAX_BYTES = 67108864
+
+--- The collection depth a decode reads, unless its options say otherwise.
+export const MAX_DEPTH = 256
+
+--- The nodes a decode materializes, aliases expanded, unless its options say
+--- otherwise.
+export const MAX_NODES = 1000000
+
+--- Where a node starts: its byte offset and 1-based line and column.
+export record Location
+    @readonly byte: integer
+    @readonly line: integer
+    @readonly column: integer
+end
+
+--- What a reader builds its values with.
+export interface Builder
+    --- A scalar's value from its resolution.
+    scalar: function(self, kind: resolve.Kind, value: any): any
+
+    --- A sequence from its elements, in order; an element is nil only for a
+    --- null.
+    sequence: function(self, elements: {any}, count: integer): any
+
+    --- A mapping from its resolved keys and their values, in order.
+    mapping: function(self, keys: {any}, values: {any}, count: integer): any
+
+    --- Where the value a node built starts, for a failure found later.
+    locate: function(self, value: any, at: Location): nil
+end
+
+-- A finished node: the value it built, the nodes and collection depth it
+-- spans, and a scalar's resolution, which a key needs.
+local record Node
+    value: any
+    nodes: integer
+    height: integer
+    kind: resolve.Kind?
+    resolved: any
+    location: Location
+end
+
+-- A collection still open: what it has gathered and where it is in the path.
+local record Frame
+    mapping: boolean
+    anchor: string?
+    location: Location
+    keys: {any} = {}
+    values: {any} = {}
+    seen: {[any]: boolean} = {}
+    size: integer = 0
+    nodes: integer = 1
+    height: integer = 0
+    -- A mapping's key read, whose value is next.
+    key: any = nil
+    keyed: boolean = false
+end
+
+-- One decode's state.
+local record Reader
+    builder: Builder
+    maxdepth: integer
+    maxnodes: integer
+    nodes: integer = 0
+    anchors: {[string]: Node} = {}
+    frames: {Frame} = {}
+    path: {string} = {}
+    -- The root of the document being read, once it is complete.
+    root: Node? = nil
+    started: Location? = nil
+end
+
+local function location(event: codec.Item): Location
+    return Location(byte = event.index, line = event.line, column = event.column)
+end
+
+local function fail(reader: Reader, code: errors.Code, message: string, at: Location?): never
+    error(
+        errors.Error(
+            code = code,
+            message = message,
+            path = "$" .. table.concat(reader.path),
+            byte = at and at.byte,
+            line = at and at.line,
+            column = at and at.column,
+            cause = message
+        ),
+        0
+    )
+end
+
+-- A string as a JSON string, the way serde writes a member in a path.
+local ESCAPES: {
+    [string]: string
+} = {['"'] = '\\"', ["\\"] = "\\\\", ["\b"] = "\\b", ["\f"] = "\\f", ["\n"] = "\\n", ["\r"] = "\\r", ["\t"] = "\\t",}
+
+local function quoted(text: string): string
+    local escaped = text:gsub('[%c"\\]', function(character: string): string
+        return ESCAPES[character] or ("\\u%04x"):format(character:byte())
+    end)
+
+    return '"' .. escaped .. '"'
+end
+
+--- A key or an index as serde writes it in a path: `["name"]` or `[2]`.
+export function segment(value: any): string
+    if type(value) == "string" then
+        return "[" .. quoted(value as string) .. "]"
+    end
+
+    return "[" .. tostring(value) .. "]"
+end
+
+local function count(reader: Reader, nodes: integer, at: Location): nil
+    reader.nodes = reader.nodes + nodes
+    if reader.nodes > reader.maxnodes then
+        fail(
+            reader,
+            "limit",
+            "the document has more than " .. tostring(reader.maxnodes) .. " nodes, aliases expanded",
+            at
+        )
+    end
+end
+
+local function deep(reader: Reader, depth: integer, at: Location): nil
+    if depth > reader.maxdepth then
+        fail(reader, "limit", "the document nests deeper than " .. tostring(reader.maxdepth) .. " collections", at)
+    end
+end
+
+-- A key's resolution, refusing what the subset leaves out.
+local function key(reader: Reader, node: Node, merge: boolean): any
+    local kind = node.kind
+    if kind == nil then
+        fail(reader, "unsupported", "a mapping key must be a scalar, not a collection", node.location)
+    elseif kind == "null" then
+        fail(reader, "unsupported", "a mapping key must not be null", node.location)
+    elseif kind == "float" then
+        fail(reader, "unsupported", "a mapping key must not be a float", node.location)
+    elseif merge then
+        fail(reader, "unsupported", "merge keys (<<) are YAML 1.1, which this reader does not read", node.location)
+    end
+
+    return node.resolved
+end
+
+-- Hands a finished node to the collection it is in, or makes it the root.
+local function deliver(reader: Reader, node: Node, merge: boolean): nil
+    local frames = reader.frames
+    local frame = frames[#frames]
+    if frame == nil then
+        reader.root = node
+        return
+    end
+    if frame.mapping and not frame.keyed then
+        local resolved = key(reader, node, merge)
+        if frame.seen[resolved] then
+            fail(reader, "syntax", "the key " .. segment(resolved) .. " appears twice in one mapping", node.location)
+        end
+        frame.seen[resolved] = true
+        frame.key, frame.keyed = resolved, true
+        frame.nodes = frame.nodes + node.nodes
+        reader.path[#frames] = segment(resolved)
+        return
+    end
+    frame.size = frame.size + 1
+    if frame.mapping then
+        frame.keys[frame.size] = frame.key
+        frame.key, frame.keyed = nil, false
+    end
+    frame.values[frame.size] = node.value
+    frame.nodes = frame.nodes + node.nodes
+    frame.height = math.max(frame.height, node.height + 1)
+    if not frame.mapping then
+        reader.path[#frames] = segment(frame.size + 1)
+    end
+end
+
+local function remember(reader: Reader, anchor: string?, node: Node): Node
+    if anchor ~= nil then
+        reader.anchors[anchor] = node
+    end
+    reader.builder:locate(node.value, node.location)
+
+    return node
+end
+
+local function scalar(reader: Reader, event: codec.Item): nil
+    local at = location(event)
+    count(reader, 1, at)
+    local text = event.value or ""
+    local tag = event.tag
+    local kind: resolve.Kind? = nil
+    local value: any = nil
+    local problem: string? = nil
+    if tag ~= nil then
+        kind, value, problem = resolve.tagged(tag, text)
+    elseif event.style ~= codec.PLAIN then
+        kind, value = "string", text
+    else
+        kind, value, problem = resolve.plain(text)
+    end
+    if problem ~= nil or kind == nil then
+        fail(reader, tag ~= nil and "unsupported" or "syntax", problem or "unreadable scalar", at)
+    end
+    local resolved = kind as resolve.Kind
+    local node = Node(
+        value = reader.builder:scalar(resolved, value),
+        nodes = 1,
+        height = 0,
+        kind = resolved,
+        resolved = value,
+        location = at
+    )
+    local merge = tag == nil and event.style == codec.PLAIN and text == "<<"
+    deliver(reader, remember(reader, event.anchor, node), merge)
+end
+
+local function open(reader: Reader, event: codec.Item, mapping: boolean): nil
+    local at = location(event)
+    local tag = event.tag
+    local expected = mapping and resolve.MAPPING or resolve.SEQUENCE
+    if tag ~= nil and tag ~= expected and tag ~= resolve.NONSPECIFIC then
+        fail(reader, "unsupported", "the tag " .. tag .. " is not in the YAML 1.2 core schema", at)
+    end
+    local depth = #reader.frames + 1
+    deep(reader, depth, at)
+    count(reader, 1, at)
+    reader.frames[depth] = Frame(mapping = mapping, anchor = event.anchor, location = at)
+    if not mapping then
+        reader.path[depth] = segment(1)
+    end
+end
+
+local function close(reader: Reader): nil
+    local depth = #reader.frames
+    local frame = reader.frames[depth]
+    reader.frames[depth] = nil
+    reader.path[depth] = nil
+    local value: any = nil
+    if frame.mapping then
+        value = reader.builder:mapping(frame.keys, frame.values, frame.size)
+    else
+        value = reader.builder:sequence(frame.values, frame.size)
+    end
+    local node = Node(value = value, nodes = frame.nodes, height = frame.height, location = frame.location)
+    deliver(reader, remember(reader, frame.anchor, node), false)
+end
+
+local function alias(reader: Reader, event: codec.Item): nil
+    local at = location(event)
+    local name = event.anchor or ""
+    local anchor = reader.anchors[name]
+    if anchor == nil then
+        fail(reader, "syntax", "the alias *" .. name .. " names no anchor before it", at)
+    end
+    local found = anchor as Node
+    deep(reader, #reader.frames + found.height, at)
+    count(reader, found.nodes, at)
+    local node = Node(
+        value = found.value,
+        nodes = found.nodes,
+        height = found.height,
+        kind = found.kind,
+        resolved = found.resolved,
+        location = at
+    )
+    deliver(reader, node, false)
+end
+
+local function bound(value: integer?, default: integer, ceiling: integer?, name: string): integer
+    local chosen = value or default
+    if math.type(chosen) ~= "integer" or chosen <= 0 then
+        error(name .. " must be a positive integer", 3)
+    end
+    if ceiling ~= nil and chosen > ceiling then
+        error(name .. " must be at most " .. tostring(ceiling), 3)
+    end
+
+    return chosen
+end
+
+--- Refuses options whose bounds are not positive integers or whose depth
+--- passes [](codec.NEST_CEILING).
+--- @raises string naming the option
+export function check(options: Options?): nil
+    local selected: Options = options or {}
+    bound(selected.maxbytes, MAX_BYTES, nil, "maxbytes")
+    bound(selected.maxdepth, MAX_DEPTH, codec.NEST_CEILING, "maxdepth")
+    bound(selected.maxnodes, MAX_NODES, nil, "maxnodes")
+end
+
+--- Reads every document in `text` with `builder`, and calls `each` with each
+--- document's value and where it starts.
+---
+--- @raises serde.Error for input the subset does not read or a limit it passes
+export function read(text: string, builder: Builder, options: Options?, each: function(any, Location): nil): nil
+    local selected: Options = options or {}
+    local maxbytes = bound(selected.maxbytes, MAX_BYTES, nil, "maxbytes")
+    local maxdepth = bound(selected.maxdepth, MAX_DEPTH, codec.NEST_CEILING, "maxdepth")
+    local maxnodes = bound(selected.maxnodes, MAX_NODES, nil, "maxnodes")
+    if #text > maxbytes then
+        error(
+            errors.Error(
+                code = "limit",
+                message = "the input is " .. tostring(#text) .. " bytes, more than " .. tostring(maxbytes),
+                path = "$",
+                byte = 0,
+                cause = "maxbytes"
+            ),
+            0
+        )
+    end
+    local reader = Reader(builder = builder, maxdepth = maxdepth, maxnodes = maxnodes)
+    local problem = codec.parse(text, function(event: codec.Item): nil
+        local kind = event.kind
+        if kind == codec.SCALAR then
+            scalar(reader, event)
+        elseif kind == codec.SEQUENCE_START then
+            open(reader, event, false)
+        elseif kind == codec.MAPPING_START then
+            open(reader, event, true)
+        elseif kind == codec.SEQUENCE_END or kind == codec.MAPPING_END then
+            close(reader)
+        elseif kind == codec.ALIAS then
+            alias(reader, event)
+        elseif kind == codec.DOCUMENT_START then
+            reader.anchors, reader.root = {}, nil
+            reader.started = location(event)
+        elseif kind == codec.DOCUMENT_END then
+            local root = assert(reader.root, "a YAML document holds one node")
+            each(root.value, assert(reader.started))
+        end
+    end)
+    if problem ~= nil then
+        local message = problem.problem
+        if problem.context ~= nil then
+            message = message .. " " .. (problem.context as string)
+        end
+        fail(reader, "syntax", message, Location(byte = problem.index, line = problem.line, column = problem.column))
+    end
+end
+
+-- Builds plain values; `null` is what a null decodes to, and nil drops it.
+local record ValueBuilder is Builder
+    null: any
+    function scalar(self, kind: resolve.Kind, value: any): any
+        if kind == "null" then
+            return self.null
+        else
+            return value
+        end
+    end
+
+    function sequence(self, elements: {any}, count: integer): any
+        local result: {any} = {}
+        for index = 1, count do
+            local element = elements[index]
+            if element ~= nil then
+                result[#result + 1] = element
+            end
+        end
+
+        return marks.asArray(result)
+    end
+
+    function mapping(self, keys: {any}, values: {any}, count: integer): any
+        local result: {[any]: any} = {}
+        for index = 1, count do
+            local value = values[index]
+            if value ~= nil then
+                result[keys[index]] = value
+            end
+        end
+
+        return marks.asObject(result)
+    end
+
+    function locate(self, value: any, at: Location): nil
+    end
+end
+
+--- Builds plain Lua values: tables marked as sequences and mappings, nil or
+--- `null` for a null, and for an alias the value its anchor built.
+export function valuebuilder(null: any?): Builder
+    return ValueBuilder(null = null)
+end
+
+-- Builds documents, and remembers where each collection's started.
+local record DocumentBuilder is Builder
+    locations: {[any]: Location}
+    function scalar(self, kind: resolve.Kind, value: any): any
+        if kind == "null" then
+            return documents.null()
+        elseif kind == "boolean" then
+            return documents.boolean(value as boolean)
+        elseif kind == "integer" then
+            return documents.integer(core.Integer(decimal = tostring(value), width = 64, signed = true))
+        elseif kind == "float" then
+            return documents.float(core.Float(value = value as number, width = 64))
+        else
+            return documents.string(value as string)
+        end
+    end
+
+    function sequence(self, elements: {any}, count: integer): any
+        local list: {documents.Document} = {}
+        for index = 1, count do
+            list[index] = elements[index] as documents.Document
+        end
+
+        return documents.list(list)
+    end
+
+    function mapping(self, keys: {any}, values: {any}, count: integer): any
+        local named = true
+        for index = 1, count do
+            if type(keys[index]) ~= "string" then
+                named = false
+                break
+            end
+        end
+        if named then
+            local entries: {documents.Entry} = {}
+            for index = 1, count do
+                entries[
+                    index
+                ] = documents.Entry(name = keys[index] as string, value = values[index] as documents.Document)
+            end
+            return documents.object(entries)
+        end
+        local entries: {documents.MapEntry} = {}
+        for index = 1, count do
+            local name = keys[index]
+            local kind: resolve.Kind = math.type(name) == "integer" and "integer"
+                or type(name) == "boolean" and "boolean"
+                or "string"
+            entries[
+                index
+            ] = documents.MapEntry(
+                key = self:scalar(kind, name) as documents.Document,
+                value = values[index] as documents.Document
+            )
+        end
+
+        return documents.map(entries)
+    end
+
+    function locate(self, value: any, at: Location): nil
+        if self.locations[value] == nil then
+            self.locations[value] = at
+        end
+    end
+end
+
+--- What a document builder records: where the node that built each document
+--- started.
+export type Locations = {[any]: Location}
+
+--- Builds [](serde.Document)s, which a binding is constructed from, and the
+--- table of where each one started. An alias shares its anchor's document,
+--- which is immutable.
+export function treebuilder(): (Builder, Locations)
+    local builder = DocumentBuilder(locations = setmetatable({}, {__mode = "k"}))
+
+    return builder, builder.locations
+end

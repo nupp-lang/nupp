@@ -45,6 +45,14 @@ XMLTS_SHA256=9b61db9f5dbffa545f4b8d78422167083a8568c59bd1129f94138f936cf6fc1f
 XMLTS_URL='https://www.w3.org/XML/Test/xmlts${XMLTS_VERSION}.tar.gz'
 XMLTS_MARKER=xmlconf/xmlconf.xml
 
+# The YAML test suite's data release (MIT), the conformance corpus of
+# serde.yaml. Data only: tests/stdlib/serde/yaml/suite-manifest.json says what
+# each of its cases is expected to do.
+YAMLTESTSUITE_VERSION=data-2022-01-17
+YAMLTESTSUITE_SHA256=ccae49c1d010d27c20d315969a97752f95b14642fc1e73755db4eb2df4bb0256
+YAMLTESTSUITE_URL='https://codeload.github.com/yaml/yaml-test-suite/tar.gz/refs/tags/${YAMLTESTSUITE_VERSION}'
+YAMLTESTSUITE_MARKER=229Q/in.yaml
+
 # A standalone release image for tools that explicitly request stage0-image.
 # Cold compiler builds use the matching runtime/image execution seed pinned in
 # scripts/bootstrap-seeds.json (`scripts/vm-cli build`), then run new images on

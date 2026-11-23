@@ -295,6 +295,10 @@ scopes.libcurlpintest = "delivery"
 -- The builtin registry, what a core package stages of it and the strip switch.
 scopes.builtinregistrytest = "component"
 scopes.clibrarypathstest = "component"
+-- serde.yaml's scalar resolution and style rules, which run without libyaml.
+scopes.yamlresolvetest = "unit"
+scopes.yamlstyletest = "unit"
+scopes.yamlbindingtest = "component"
 scopes.builtinpackagetest = "delivery"
 scopes.builtinwithouttest = "integration"
 scopes.builtinclosuretest = "delivery"

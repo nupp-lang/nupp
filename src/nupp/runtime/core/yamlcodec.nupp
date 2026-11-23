@@ -1,0 +1,570 @@
+@!internal
+--[[
+libyaml through checked native calls: its parser's events and its emitter, the
+two halves `serde.yaml` is written over. The library is the pinned 0.2.6 the
+logical library `nuppyaml` names (`scripts/c-libraries/libyaml.sh`), and the
+first use refuses any other.
+
+libyaml's structures are read through overlays rather than by value, since the
+core's FFI passes no union. The parser and emitter live in C memory of the
+sizes `scripts/c-libraries/libyamlprobe.c` checks, and their leading error
+fields are copied out through a prefix struct. An event is the union's scalar
+member, its widest, followed by its marks, and a collection start is copied
+into its own overlay. One layout serves every core target: libyaml uses only
+`int`, enums, `size_t` and pointers, which are the same width on macOS, Linux
+and Windows ARM64, and the probe fails a build anywhere they are not.
+
+The parser reads from a copy of the input in C memory, which it keeps a
+pointer to across calls; a Nupp string is only guaranteed through one. The
+emitter writes only through a callback, which the core cannot be entered
+from, so its handler is the C bridge's byte sink (`nuppappendbytes` in
+`native/corebridge/main.c`), and the bytes are read once the emitter has
+flushed. Events for the emitter come from libyaml's own initializers, which
+copy their strings, so no Nupp memory outlives a call. Every C allocation
+belongs to an owner that frees it on every path out, errors included.
+]]
+module nupp.runtime.core.yamlcodec
+
+const storage = require("nupp.vm.storagebinding")
+
+const WINDOWS = package.config:sub(1, 1) == "\\"
+-- RTLD_NOW, which is 2 on Darwin and Linux.
+const OPEN_NOW: int32 = 2
+
+--- The release this binding reads the layouts of.
+export const VERSION = "0.2.6"
+
+--- The nesting limit libyaml is set to once, process-wide: no decode's own
+--- depth limit may be higher.
+export const NEST_CEILING = 1024
+
+--- Event kinds (yaml_event_type_t).
+export const STREAM_START = 1
+
+export const STREAM_END = 2
+export const DOCUMENT_START = 3
+export const DOCUMENT_END = 4
+export const ALIAS = 5
+export const SCALAR = 6
+export const SEQUENCE_START = 7
+export const SEQUENCE_END = 8
+export const MAPPING_START = 9
+export const MAPPING_END = 10
+
+--- Scalar styles (yaml_scalar_style_t).
+export const PLAIN = 1
+
+export const SINGLE_QUOTED = 2
+export const DOUBLE_QUOTED = 3
+export const LITERAL = 4
+export const FOLDED = 5
+
+--- Collection styles (yaml_sequence_style_t and yaml_mapping_style_t).
+export const BLOCK = 1
+
+export const FLOW = 2
+
+-- The sizes libyamlprobe.c holds the pinned header to.
+const PARSER_BYTES = 480ULL
+const EMITTER_BYTES = 432ULL
+const EVENT_BYTES = 104ULL
+const PARSER_ERRORS_BYTES = 88ULL
+const EMITTER_ERRORS_BYTES = 16ULL
+const SINK_BYTES = 32ULL
+const UTF8_ENCODING: int32 = 1
+-- The longest scalar an event initializer takes: its length is a C int.
+const MAX_SCALAR_BYTES = 2147483647
+
+-- yaml_mark_t.
+cdef struct Mark
+    index: uint64
+    line: uint64
+    column: uint64
+end
+
+-- yaml_event_t, its union read as the scalar member: anchor, tag, value,
+-- length, the two implicit flags and the style.
+cdef struct Event
+    type: int32
+    anchor: voidptr?
+    tag: voidptr?
+    value: voidptr?
+    length: uint64
+    plain_implicit: int32
+    quoted_implicit: int32
+    style: int32
+    start_mark: Mark
+    end_mark: Mark
+end
+
+-- The same event read as a sequence or mapping start: anchor, tag, implicit
+-- and style, where the scalar member has its value.
+cdef struct CollectionEvent
+    type: int32
+    anchor: voidptr?
+    tag: voidptr?
+    implicit: int32
+    style: int32
+    unused: uint64[3]
+    start_mark: Mark
+    end_mark: Mark
+end
+
+-- yaml_parser_t's leading error fields.
+cdef struct ParserErrors
+    error: int32
+    problem: voidptr?
+    problem_offset: uint64
+    problem_value: int32
+    problem_mark: Mark
+    context: voidptr?
+    context_mark: Mark
+end
+
+-- yaml_emitter_t's leading error fields.
+cdef struct EmitterErrors
+    error: int32
+    problem: voidptr?
+end
+
+-- The bridge's byte sink (ByteSink in native/corebridge/main.c).
+cdef struct Sink
+    data: voidptr?
+    used: uint64
+    capacity: uint64
+    failed: uint64
+end
+
+cdef struct Number
+    value: int32
+end
+
+cdef function yaml_get_version(
+    exclusive major: Number*,
+    exclusive minor: Number*,
+    exclusive patch: Number*
+) from"nuppyaml"
+cdef function yaml_set_max_nest_level(max: int32) from"nuppyaml"
+cdef function yaml_parser_initialize(exclusive parser: voidptr): int32 from"nuppyaml"
+cdef function yaml_parser_set_input_string(
+    exclusive parser: voidptr,
+    borrows input: voidptr,
+    size: uint64
+) from"nuppyaml"
+cdef function yaml_parser_parse(exclusive parser: voidptr, exclusive event: Event*): int32 from"nuppyaml"
+cdef function yaml_parser_delete(exclusive parser: voidptr) from"nuppyaml"
+cdef function yaml_event_delete(exclusive event: Event*) from"nuppyaml"
+cdef function yaml_emitter_initialize(exclusive emitter: voidptr): int32 from"nuppyaml"
+cdef function yaml_emitter_set_output(
+    exclusive emitter: voidptr,
+    borrows handler: voidptr,
+    borrows data: voidptr
+) from"nuppyaml"
+cdef function yaml_emitter_set_unicode(exclusive emitter: voidptr, unicode: int32) from"nuppyaml"
+cdef function yaml_emitter_set_width(exclusive emitter: voidptr, width: int32) from"nuppyaml"
+cdef function yaml_emitter_emit(exclusive emitter: voidptr, exclusive event: Event*): int32 from"nuppyaml"
+cdef function yaml_emitter_flush(exclusive emitter: voidptr): int32 from"nuppyaml"
+cdef function yaml_emitter_delete(exclusive emitter: voidptr) from"nuppyaml"
+cdef function yaml_stream_start_event_initialize(exclusive event: Event*, encoding: int32): int32 from"nuppyaml"
+cdef function yaml_stream_end_event_initialize(exclusive event: Event*): int32 from"nuppyaml"
+cdef function yaml_document_start_event_initialize(
+    exclusive event: Event*,
+    borrows version: voidptr?,
+    borrows first: voidptr?,
+    borrows last: voidptr?,
+    implicit: int32
+): int32 from"nuppyaml"
+cdef function yaml_document_end_event_initialize(exclusive event: Event*, implicit: int32): int32 from"nuppyaml"
+cdef function yaml_scalar_event_initialize(
+    exclusive event: Event*,
+    borrows anchor: voidptr?,
+    borrows tag: voidptr?,
+    value: string,
+    length: int32,
+    plain: int32,
+    quoted: int32,
+    style: int32
+): int32 from"nuppyaml"
+cdef function yaml_sequence_start_event_initialize(
+    exclusive event: Event*,
+    borrows anchor: voidptr?,
+    borrows tag: voidptr?,
+    implicit: int32,
+    style: int32
+): int32 from"nuppyaml"
+cdef function yaml_sequence_end_event_initialize(exclusive event: Event*): int32 from"nuppyaml"
+cdef function yaml_mapping_start_event_initialize(
+    exclusive event: Event*,
+    borrows anchor: voidptr?,
+    borrows tag: voidptr?,
+    implicit: int32,
+    style: int32
+): int32 from"nuppyaml"
+cdef function yaml_mapping_end_event_initialize(exclusive event: Event*): int32 from"nuppyaml"
+cdef function malloc(size: uint64): voidptr?
+cdef function calloc(count: uint64, size: uint64): voidptr?
+cdef function free(takes block: voidptr)
+cdef function memcpy(borrows target: voidptr, borrows source: voidptr, count: uint64): voidptr
+cdef function memmove(exclusive target: CollectionEvent*, borrows source: Event*, count: uint64): voidptr
+cdef function strlen(borrows text: voidptr): uint64
+cdef function dlopen(path: voidptr?, mode: int32): voidptr?
+cdef function dlsym(borrows library: voidptr?, name: string): voidptr?
+cdef function GetModuleHandleA(name: voidptr?): voidptr?
+cdef function GetProcAddress(borrows library: voidptr?, name: string): voidptr?
+cdef function nuppreleasebytes(exclusive sink: voidptr)
+
+--- One parser event, copied out of libyaml's.
+export record Item
+    --- The event kind, such as [](SCALAR).
+    @readonly kind: integer
+
+    @readonly anchor: string?
+    @readonly tag: string?
+
+    --- A scalar's text.
+    @readonly value: string?
+
+    --- A scalar's or a collection's style.
+    @readonly style: integer
+
+    --- A scalar's plain_implicit, or a collection's or document's implicit.
+    @readonly implicit: boolean
+
+    --- A scalar's quoted_implicit.
+    @readonly quoted: boolean
+
+    --- Where the event starts: byte offset and 1-based line and column.
+    @readonly index: integer
+
+    @readonly line: integer
+    @readonly column: integer
+end
+
+--- Why the parser stopped: libyaml's problem and context, and the 1-based
+--- position of its problem mark.
+export record Problem
+    @readonly problem: string
+    @readonly context: string?
+    @readonly index: integer
+    @readonly line: integer
+    @readonly column: integer
+end
+
+-- Whether the loaded library has been checked, and its nest limit set.
+local ready = false
+
+local function prepare(): nil
+    if ready then
+        return
+    end
+    local major, minor, patch = Number(), Number(), Number()
+    yaml_get_version(major, minor, patch)
+    local found = tostring(major.value) .. "." .. tostring(minor.value) .. "." .. tostring(patch.value)
+    if found ~= VERSION then
+        error("libyaml " .. found .. " is loaded, but serde.yaml reads the layouts of " .. VERSION, 0)
+    end
+    -- Process-wide, so set once to the ceiling; each decode enforces its
+    -- own depth.
+    yaml_set_max_nest_level(NEST_CEILING)
+    ready = true
+end
+
+-- `count` bytes at `pointer`, or the bytes before its NUL when `count` is nil.
+local function copied(pointer: voidptr?, count: integer?): string?
+    if pointer == nil then
+        return nil
+    end
+    local length: integer = count or tonumber(strlen(pointer)) as integer
+    if length == 0 then
+        return ""
+    end
+    local bytes: any = storage.allocbytes(length)
+    local _ = memcpy(bytes, pointer, length as uint64)
+
+    return storage.string(bytes, length)
+end
+
+local function integer(value: uint64): integer
+    return tonumber(value) as integer
+end
+
+local function item(event: Event): Item
+    local kind: integer = event.type
+    local start = event.start_mark
+    local index, line, column = integer(start.index), integer(start.line) + 1, integer(start.column) + 1
+    if kind == SEQUENCE_START or kind == MAPPING_START then
+        local collection = CollectionEvent()
+        local _ = memmove(collection, event, EVENT_BYTES)
+        return Item(
+            kind = kind,
+            anchor = copied(collection.anchor, nil),
+            tag = copied(collection.tag, nil),
+            style = collection.style,
+            implicit = collection.implicit ~= 0,
+            quoted = false,
+            index = index,
+            line = line,
+            column = column
+        )
+    elseif kind == SCALAR then
+        return Item(
+            kind = kind,
+            anchor = copied(event.anchor, nil),
+            tag = copied(event.tag, nil),
+            value = copied(event.value, integer(event.length)),
+            style = event.style,
+            implicit = event.plain_implicit ~= 0,
+            quoted = event.quoted_implicit ~= 0,
+            index = index,
+            line = line,
+            column = column
+        )
+    elseif kind == ALIAS then
+        return Item(
+            kind = kind,
+            anchor = copied(event.anchor, nil),
+            style = 0,
+            implicit = false,
+            quoted = false,
+            index = index,
+            line = line,
+            column = column
+        )
+    end
+
+    return Item(kind = kind, style = 0, implicit = false, quoted = false, index = index, line = line, column = column)
+end
+
+-- The C memory one parse holds: the parser and the input it reads.
+local record ParserMemory is own.Closeable
+    @private parser: voidptr? = nil
+    @private initialized: boolean = false
+    @private input: voidptr? = nil
+
+    function close(takes self): nil
+        if self.parser ~= nil then
+            if self.initialized then
+                yaml_parser_delete(self.parser)
+            end
+            free(self.parser)
+            self.parser = nil
+        end
+        if self.input ~= nil then
+            free(self.input)
+            self.input = nil
+        end
+    end
+end
+
+local function problem(parser: voidptr): Problem
+    local errors = ParserErrors()
+    local target: any = errors
+    local _ = memcpy(target, parser, PARSER_ERRORS_BYTES)
+    local mark = errors.problem_mark
+
+    return Problem(
+        problem = copied(errors.problem, nil) or "the YAML parser failed",
+        context = copied(errors.context, nil),
+        index = integer(mark.index),
+        line = integer(mark.line) + 1,
+        column = integer(mark.column) + 1
+    )
+end
+
+--- Parses `text`, calling `visit` with each event in order, from the stream
+--- start to the stream end.
+---
+--- @return nil once the stream ends, or why the parser stopped
+--- @raises what `visit` raises, after freeing the parser
+export function parse(text: string, visit: function(Item): nil): Problem?
+    prepare()
+    local memory = ParserMemory()
+    memory.parser = malloc(PARSER_BYTES)
+    memory.input = malloc((#text + 1) as uint64)
+    if memory.parser == nil or memory.input == nil then
+        error("cannot allocate a YAML parser", 0)
+    end
+    if #text > 0 then
+        local source: any = text
+        local _ = memcpy(memory.input, source, #text as uint64)
+    end
+    if yaml_parser_initialize(memory.parser) == 0 then
+        error("cannot initialize a YAML parser", 0)
+    end
+    memory.initialized = true
+    yaml_parser_set_input_string(memory.parser, memory.input, #text as uint64)
+    while true do
+        local event = Event()
+        if yaml_parser_parse(memory.parser, event) == 0 then
+            return problem(memory.parser)
+        end
+        local read = item(event)
+        yaml_event_delete(event)
+        visit(read)
+        if read.kind == STREAM_END then
+            return nil
+        end
+    end
+end
+
+-- The address of the bridge's byte sink.
+local function appender(): voidptr
+    local found: voidptr? = nil
+    if WINDOWS then
+        found = GetProcAddress(GetModuleHandleA(nil), "nuppappendbytes")
+    else
+        found = dlsym(dlopen(nil, OPEN_NOW), "nuppappendbytes")
+    end
+    if found == nil then
+        error("the core's C bridge has no nuppappendbytes", 0)
+    end
+
+    return found as voidptr
+end
+
+-- The C memory one emit holds: the emitter and the sink it writes into.
+local record EmitterMemory is own.Closeable
+    @private emitter: voidptr? = nil
+    @private initialized: boolean = false
+    @private sink: voidptr? = nil
+
+    function close(takes self): nil
+        if self.emitter ~= nil then
+            if self.initialized then
+                yaml_emitter_delete(self.emitter)
+            end
+            free(self.emitter)
+            self.emitter = nil
+        end
+        if self.sink ~= nil then
+            nuppreleasebytes(self.sink)
+            free(self.sink)
+            self.sink = nil
+        end
+    end
+end
+
+--- Writes events through libyaml's emitter, for as long as the [](emit) that
+--- made it runs.
+export record Emitter
+    @private handle: voidptr? = nil
+
+    function send(self, event: Event): nil
+        if self.handle == nil then
+            error("the YAML emitter is finished", 2)
+        end
+        if yaml_emitter_emit(self.handle, event) == 0 then
+            local errors = EmitterErrors()
+            local target: any = errors
+            local _ = memcpy(target, self.handle, EMITTER_ERRORS_BYTES)
+            error("the YAML emitter failed: " .. (copied(errors.problem, nil) or "out of memory"), 0)
+        end
+    end
+
+    function documentstart(self, implicit: boolean): nil
+        local event = Event()
+        assert(yaml_document_start_event_initialize(event, nil, nil, nil, implicit and 1 or 0) == 1)
+        self:send(event)
+    end
+
+    function documentend(self, implicit: boolean): nil
+        local event = Event()
+        assert(yaml_document_end_event_initialize(event, implicit and 1 or 0) == 1)
+        self:send(event)
+    end
+
+    --- A scalar: whether its tag may be left out when it is written plain
+    --- and when it is quoted, and the style to write it in.
+    --- @raises string when the scalar is too long for libyaml or the emitter fails
+    function scalar(self, value: string, plain: boolean, quoted: boolean, style: integer): nil
+        if #value > MAX_SCALAR_BYTES then
+            error("a scalar of " .. tostring(#value) .. " bytes is longer than libyaml can write", 0)
+        end
+        local event = Event()
+        local initialized = yaml_scalar_event_initialize(
+            event,
+            nil,
+            nil,
+            value,
+            #value as int32,
+            plain and 1 or 0,
+            quoted and 1 or 0,
+            style as int32
+        )
+        if initialized == 0 then
+            error("libyaml refused a scalar", 0)
+        end
+        self:send(event)
+    end
+
+    function sequencestart(self, style: integer): nil
+        local event = Event()
+        assert(yaml_sequence_start_event_initialize(event, nil, nil, 1, style as int32) == 1)
+        self:send(event)
+    end
+
+    function sequenceend(self): nil
+        local event = Event()
+        assert(yaml_sequence_end_event_initialize(event) == 1)
+        self:send(event)
+    end
+
+    function mappingstart(self, style: integer): nil
+        local event = Event()
+        assert(yaml_mapping_start_event_initialize(event, nil, nil, 1, style as int32) == 1)
+        self:send(event)
+    end
+
+    function mappingend(self): nil
+        local event = Event()
+        assert(yaml_mapping_end_event_initialize(event) == 1)
+        self:send(event)
+    end
+end
+
+--- Emits one stream: its start, what `build` writes through the emitter,
+--- and its end, folding lines at `width`.
+---
+--- @return the UTF-8 text
+--- @raises what `build` raises, after freeing the emitter
+export function emit(width: integer, build: function(Emitter): nil): string
+    prepare()
+    local memory = EmitterMemory()
+    memory.emitter = malloc(EMITTER_BYTES)
+    memory.sink = calloc(1ULL, SINK_BYTES)
+    if memory.emitter == nil or memory.sink == nil then
+        error("cannot allocate a YAML emitter", 0)
+    end
+    if yaml_emitter_initialize(memory.emitter) == 0 then
+        error("cannot initialize a YAML emitter", 0)
+    end
+    memory.initialized = true
+    yaml_emitter_set_output(memory.emitter, appender(), memory.sink)
+    yaml_emitter_set_unicode(memory.emitter, 1)
+    yaml_emitter_set_width(memory.emitter, width as int32)
+    local emitter = Emitter(handle = memory.emitter)
+    local event = Event()
+    assert(yaml_stream_start_event_initialize(event, UTF8_ENCODING) == 1)
+    emitter:send(event)
+    local ok, failure = pcall(build, emitter)
+    if ok then
+        local ending = Event()
+        assert(yaml_stream_end_event_initialize(ending) == 1)
+        ok, failure = pcall(emitter.send, emitter, ending)
+    end
+    emitter.handle = nil
+    if not ok then
+        error(failure, 0)
+    end
+    if yaml_emitter_flush(memory.emitter) == 0 then
+        error("the YAML emitter could not flush", 0)
+    end
+    local sink = Sink()
+    local target: any = sink
+    local _ = memcpy(target, memory.sink, SINK_BYTES)
+    if sink.failed ~= 0ULL then
+        error("the YAML emitter's output could not be kept", 0)
+    end
+
+    return copied(sink.data, integer(sink.used)) or ""
+end

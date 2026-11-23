@@ -1,0 +1,129 @@
+module nupp.core.catalogyamlcodec
+
+-- libyaml's events and emitter through the checked binding
+-- (nupp.runtime.core.yamlcodec): each event's kind, marks, anchor, tag, value
+-- and style read through the overlays, a syntax error's problem, context and
+-- mark, and a stream emitted through the C bridge's byte sink.
+const codec = require("nupp.runtime.core.yamlcodec")
+
+local function events(text: string): ({codec.Item}, codec.Problem?)
+    local found: {codec.Item} = {}
+    local problem = codec.parse(text, function(event: codec.Item): nil
+        found[#found + 1] = event
+    end)
+
+    return found, problem
+end
+
+local function kinds(found: {codec.Item}): string
+    local parts: {string} = {}
+    for index, event in ipairs(found) do
+        parts[index] = tostring(event.kind)
+    end
+
+    return table.concat(parts, ",")
+end
+
+local score = 0
+
+-- A mapping of one pair parses to its exact event sequence.
+local simple, simpleProblem = events("a: 1\n")
+if simpleProblem == nil and kinds(simple) == "1,3,9,6,6,10,4,2" then
+    score = score + 1
+end
+
+-- Marks: byte offset and 1-based line and column of each node.
+local marked = events("first: one\nsecond: [two, three]\n")
+local second, flow, three = marked[6], marked[7], marked[9]
+if second ~= nil
+    and second.value == "second"
+    and second.index == 11
+    and second.line == 2
+    and second.column == 1
+    and flow.kind == codec.SEQUENCE_START
+    and flow.index == 19
+    and flow.column == 9
+    and three.value == "three"
+    and three.index == 25
+    and three.column == 15
+then
+    score = score + 2
+end
+
+-- Anchors, aliases, tags, styles, and a scalar holding a NUL byte.
+local detailed = events("seq: &list [1, 2]\nref: *list\nn: !!int 7\nq: \"a\\0b\"\nb: |\n  text\n")
+local anchored, alias, tagged, quoted, literal = detailed[5], detailed[10], detailed[12], detailed[14], detailed[16]
+if anchored.kind == codec.SEQUENCE_START
+    and anchored.anchor == "list"
+    and anchored.style == codec.FLOW
+    and anchored.implicit
+    and alias.kind == codec.ALIAS
+    and alias.anchor == "list"
+    and tagged.tag == "tag:yaml.org,2002:int"
+    and tagged.value == "7"
+    and not tagged.implicit
+    and quoted.style == codec.DOUBLE_QUOTED
+    and quoted.value == "a\0b"
+    and quoted.quoted
+    and literal.style == codec.LITERAL
+    and literal.value == "text\n"
+then
+    score = score + 4
+end
+
+-- A syntax error names libyaml's problem, its context and the problem mark.
+local _, problem = events("key: [1, 2\n")
+if problem ~= nil
+    and problem.problem == "did not find expected ',' or ']'"
+    and problem.context == "while parsing a flow sequence"
+    and problem.line == 2
+    and problem.column == 1
+    and problem.index == 11
+then
+    score = score + 8
+end
+
+-- A stream emitted through the bridge's byte sink.
+local emitted = codec.emit(80, function(emitter: codec.Emitter): nil
+    emitter:documentstart(true)
+    emitter:mappingstart(codec.BLOCK)
+    emitter:scalar("key", true, true, codec.PLAIN)
+    emitter:scalar("va\0lue", false, true, codec.DOUBLE_QUOTED)
+    emitter:scalar("list", true, true, codec.PLAIN)
+    emitter:sequencestart(codec.BLOCK)
+    emitter:scalar("1", true, false, codec.PLAIN)
+    emitter:scalar("yes", false, true, codec.DOUBLE_QUOTED)
+    emitter:sequenceend()
+    emitter:mappingend()
+    emitter:documentend(true)
+end)
+if emitted == "key: \"va\\0lue\"\nlist:\n- 1\n- \"yes\"\n" then
+    score = score + 16
+end
+
+-- A failure inside the build is raised after the emitter is freed, and a
+-- long stream grows the sink across many writes.
+local ok, why = pcall(codec.emit, 80, function(emitter: codec.Emitter): nil
+    emitter:documentstart(true)
+    error("stopped", 0)
+end)
+local long = codec.emit(80, function(emitter: codec.Emitter): nil
+    emitter:documentstart(true)
+    emitter:sequencestart(codec.BLOCK)
+    for index = 1, 5000 do
+        emitter:scalar("item" .. tostring(index), true, true, codec.PLAIN)
+    end
+    emitter:sequenceend()
+    emitter:documentend(true)
+end)
+if not ok and why == "stopped" and long:sub(1, 8) == "- item1\n" and long:sub(-11) == "- item5000\n" then
+    score = score + 32
+end
+
+-- An empty stream is its start and end.
+local empty, emptyProblem = events("")
+if emptyProblem == nil and kinds(empty) == "1,2" then
+    score = score + 64
+end
+
+export const result = score

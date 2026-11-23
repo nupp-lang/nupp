@@ -1,0 +1,310 @@
+--[[
+Writes YAML through libyaml's emitter (`nupp.runtime.core.yamlcodec`): plain
+Lua values for `encodevalue`, and the [](serde.Document) a binding writes for
+`encode`.
+
+The output is block-style YAML 1.2 with two-space indentation and no `---` for
+its one document. Each scalar's style is chosen here rather than by libyaml: a
+string is plain only when it reads back as the same string under the core
+schema and YAML 1.1 ([](serde.yaml.internal.style)), and double-quoted
+otherwise; numbers, Booleans and null are plain. Table keys sort by type --
+Booleans, then integers, then strings -- and then by value, and a record's
+fields keep their binding order, so the same value always writes the same
+text. What has no YAML form here -- a function, a cyclic table, a float or NaN
+key, binary data -- is a [](serde.Error) naming its path.
+]]
+module serde.yaml.internal.writer
+
+const codec = require("nupp.runtime.core.yamlcodec")
+const style = require("serde.yaml.internal.style")
+const errors = require("nupp.serde.internal.errors")
+const documents = require("nupp.serde.internal.document")
+const marks = require("nupp.serde.internal.json.values")
+const timestamps = require("nupp.serde.internal.timestamps")
+const resolve = require("serde.yaml.internal.resolve")
+const reader = require("serde.yaml.internal.reader")
+
+-- How wide a line the emitter folds a long plain or quoted scalar at.
+const WIDTH = 80
+
+-- One encode's state: the emitter, the path to the value being written, and
+-- the tables open around it.
+local record Writer
+    emitter: codec.Emitter
+    path: {string} = {}
+    open: {[table]: boolean} = {}
+    null: any = nil
+end
+
+local function fail(writer: Writer, message: string): never
+    error(
+        errors.Error(code = "unsupported", message = message, path = "$" .. table.concat(writer.path), cause = message),
+        0
+    )
+end
+
+-- A string, plain when that reads back as itself and double-quoted otherwise.
+local function text(writer: Writer, value: string): nil
+    if style.plain(value) then
+        writer.emitter:scalar(value, true, true, codec.PLAIN)
+    else
+        writer.emitter:scalar(value, false, true, codec.DOUBLE_QUOTED)
+    end
+end
+
+-- A scalar the core schema resolves by its text: a number, Boolean or null.
+local function bare(writer: Writer, value: string): nil
+    writer.emitter:scalar(value, true, false, codec.PLAIN)
+end
+
+local function integer(writer: Writer, digits: string): nil
+    local value, problem = resolve.integer(digits)
+    if value == nil then
+        fail(writer, problem or "the integer " .. digits .. " has no YAML form here")
+    end
+    bare(writer, tostring(value))
+end
+
+-- The order keys are written in: Booleans, then integers, then strings.
+local function rank(key: any): integer
+    local kind = type(key)
+    if kind == "boolean" then
+        return 1
+    elseif kind == "number" then
+        return 2
+    else
+        return 3
+    end
+end
+
+local function before(left: any, right: any): boolean
+    local leftRank, rightRank = rank(left), rank(right)
+    if leftRank ~= rightRank then
+        return leftRank < rightRank
+    elseif leftRank == 1 then
+        return left == false and right == true
+    end
+
+    return left < right
+end
+
+local function key(writer: Writer, value: any): nil
+    if type(value) == "string" then
+        text(writer, value as string)
+    elseif type(value) == "boolean" then
+        bare(writer, value and "true" or "false")
+    else
+        bare(writer, tostring(value))
+    end
+end
+
+-- Refuses a key the reader would not read back.
+local function checkKey(writer: Writer, value: any): nil
+    local kind = type(value)
+    if kind == "string" or kind == "boolean" or math.type(value) == "integer" then
+        return
+    elseif kind == "number" then
+        fail(writer, "a mapping key must not be a float")
+    else
+        fail(writer, "a mapping key must be a string, integer or Boolean, not a " .. kind)
+    end
+end
+
+local value: function(Writer, any): nil
+
+local function sequence(writer: Writer, list: table): nil
+    local depth = #writer.path + 1
+    writer.emitter:sequencestart(codec.BLOCK)
+    for index = 1, #list do
+        writer.path[depth] = reader.segment(index)
+        value(writer, (list as {any})[index])
+    end
+    writer.path[depth] = nil
+    writer.emitter:sequenceend()
+end
+
+local function mapping(writer: Writer, map: table): nil
+    local keys: {any} = {}
+    for name in pairs(map) do
+        checkKey(writer, name)
+        keys[#keys + 1] = name
+    end
+    table.sort(keys, before)
+    local depth = #writer.path + 1
+    writer.emitter:mappingstart(codec.BLOCK)
+    for _, name in ipairs(keys) do
+        writer.path[depth] = reader.segment(name)
+        key(writer, name)
+        value(writer, (map as {[any]: any})[name])
+    end
+    writer.path[depth] = nil
+    writer.emitter:mappingend()
+end
+
+-- Whether a table is written as a sequence, by the rule serde.json uses: its
+-- array mark, or keys 1 through n. A table serde.json could not write, with
+-- holes or mixed keys, is a mapping, which YAML can.
+local function listed(candidate: table): boolean
+    local ok, answer = pcall(marks.isArray, candidate)
+
+    return ok and answer == true
+end
+
+value = function(writer: Writer, item: any): nil
+    if item == nil or item == marks.NULL or writer.null ~= nil and item == writer.null then
+        bare(writer, "null")
+        return
+    end
+    local kind = type(item)
+    if kind == "boolean" then
+        bare(writer, item and "true" or "false")
+    elseif kind == "string" then
+        text(writer, item as string)
+    elseif math.type(item) == "integer" then
+        bare(writer, tostring(item))
+    elseif kind == "number" then
+        bare(writer, style.float(item as number))
+    elseif kind == "table" then
+        local container = item as table
+        if writer.open[container] then
+            fail(writer, "the table refers to itself, which YAML cannot write")
+        end
+        writer.open[container] = true
+        if listed(container) then
+            sequence(writer, container)
+        else
+            mapping(writer, container)
+        end
+        writer.open[container] = nil
+    else
+        fail(writer, "a " .. kind .. " has no YAML form")
+    end
+end
+
+--- Writes one Lua value as a YAML document; `null` is a further value to
+--- write as null.
+--- @raises serde.Error for a value with no YAML form
+export function values(item: any, null: any?): string
+    return codec.emit(WIDTH, function(emitter: codec.Emitter): nil
+        local writer = Writer(emitter = emitter, null = null)
+        emitter:documentstart(true)
+        value(writer, item)
+        emitter:documentend(true)
+    end)
+end
+
+local tree: function(Writer, documents.Document): nil
+
+local function entries(writer: Writer, document: documents.Document): nil
+    local depth = #writer.path + 1
+    writer.emitter:mappingstart(codec.BLOCK)
+    for index = 1, document:size() do
+        local field = document:field(index)
+        writer.path[depth] = reader.segment(field.name)
+        text(writer, field.name)
+        tree(writer, field.value)
+    end
+    writer.path[depth] = nil
+    writer.emitter:mappingend()
+end
+
+-- A map document's key as the Lua value it stands for.
+local function mapKey(writer: Writer, document: documents.Document): any
+    local kind = document.kind
+    if kind == "string" then
+        return document:string()
+    elseif kind == "bool" then
+        return document:bool()
+    elseif kind == "integer" or kind == "numbertoken" then
+        local digits = kind == "integer" and document:integer().decimal or document:numbertoken()
+        local found = resolve.integer(digits)
+        if found ~= nil then
+            return found
+        end
+    end
+    fail(writer, "a mapping key must be a string, integer or Boolean, not a " .. kind)
+end
+
+local function map(writer: Writer, document: documents.Document): nil
+    local keys: {any} = {}
+    local byKey: {[any]: documents.Document} = {}
+    for index = 1, document:size() do
+        local entry = document:entry(index)
+        local name = mapKey(writer, entry.key)
+        keys[index] = name
+        byKey[name] = entry.value
+    end
+    table.sort(keys, before)
+    local depth = #writer.path + 1
+    writer.emitter:mappingstart(codec.BLOCK)
+    for _, name in ipairs(keys) do
+        writer.path[depth] = reader.segment(name)
+        key(writer, name)
+        tree(writer, byKey[name] as documents.Document)
+    end
+    writer.path[depth] = nil
+    writer.emitter:mappingend()
+end
+
+tree = function(writer: Writer, document: documents.Document): nil
+    local kind = document.kind
+    if kind == "null" then
+        bare(writer, "null")
+    elseif kind == "bool" then
+        bare(writer, document:bool() and "true" or "false")
+    elseif kind == "string" then
+        text(writer, document:string())
+    elseif kind == "integer" then
+        integer(writer, document:integer().decimal)
+    elseif kind == "biginteger" then
+        integer(writer, document:biginteger())
+    elseif kind == "numbertoken" then
+        local token = document:numbertoken()
+        if resolve.integer(token) ~= nil then
+            integer(writer, token)
+        else
+            local number = resolve.float(token)
+            if number == nil then
+                fail(writer, "the number " .. token .. " has no YAML form here")
+            end
+            bare(writer, token)
+        end
+    elseif kind == "float" then
+        bare(writer, style.float(document:float().value))
+    elseif kind == "decimal" then
+        local decimal = document:decimal()
+        bare(writer, style.float(assert(tonumber(decimal.coefficient .. "e" .. tostring(decimal.exponent)))))
+    elseif kind == "timestamp" then
+        text(writer, timestamps.dateTime(document:timestamp()))
+    elseif kind == "list" or kind == "tuple" then
+        local depth = #writer.path + 1
+        writer.emitter:sequencestart(codec.BLOCK)
+        for index = 1, document:size() do
+            writer.path[depth] = reader.segment(index)
+            tree(writer, document:at(index))
+        end
+        writer.path[depth] = nil
+        writer.emitter:sequenceend()
+    elseif kind == "structure" or kind == "union" then
+        entries(writer, document)
+    elseif kind == "map" then
+        map(writer, document)
+    elseif kind == "document" then
+        tree(writer, document:document())
+    elseif kind == "bytes" then
+        fail(writer, "binary data is !!binary, which this writer does not write")
+    else
+        fail(writer, "a " .. kind .. " value has no YAML form")
+    end
+end
+
+--- Writes a document a binding wrote as one YAML document.
+--- @raises serde.Error for a value with no YAML form
+export function document(value: documents.Document): string
+    return codec.emit(WIDTH, function(emitter: codec.Emitter): nil
+        local writer = Writer(emitter = emitter)
+        emitter:documentstart(true)
+        tree(writer, value)
+        emitter:documentend(true)
+    end)
+end

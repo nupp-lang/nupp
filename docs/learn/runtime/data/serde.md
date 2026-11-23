@@ -87,6 +87,45 @@ assert(reason == nil and value.name == "Ada")
 `decodevalue` returns `nil` and a reason for malformed input. Pass
 `serde.json.NULL` as its second argument to retain JSON nulls.
 
+## YAML
+
+`serde.yaml` reads and writes YAML through the pinned libyaml, with the same
+verbs as `serde.json`: `decode` and `encode` for a binding, `decodevalue`,
+`decodeall` and `encodevalue` for values without a schema. A binding's renames,
+defaults and strictness apply unchanged:
+
+```nupp:fragment
+local record Config
+    name: string
+    port: integer = 8080
+end
+local configs = serde.binding(Config)
+local config = serde.yaml.decode(configs, "name: watchashow\n")
+assert(config.port == 8080)
+print(serde.yaml.encode(configs, config)) -- name: watchashow
+                                          -- port: 8080
+```
+
+Decoding reads the YAML 1.2 core schema and refuses what lies outside it
+rather than guess: `yes`, `no`, `on` and `off` are strings, and a tag beyond
+the core schema's, YAML 1.1's merge key `<<`, a key that is a collection,
+null or a float, and a key repeated after resolution are errors that name the
+construct. Input bytes, collection depth and materialized nodes are bounded --
+64 MiB, 256 and a million by default, aliases expanded, which
+`{maxbytes = ..., maxdepth = ..., maxnodes = ...}` changes per call -- so a
+document of nested aliases stops at the limit rather than growing. A failure is
+a `serde.Error` with the path, byte offset, line and column where it happened.
+
+Encoding writes block-style YAML. A string is plain only when it reads back as
+the same string under both YAML 1.2 and YAML 1.1, and double-quoted otherwise,
+so `"yes"` stays a string for every reader; keys are sorted and a record keeps
+its field order, so the same value always writes the same text.
+
+`serde.yaml` runs on the native core and is a builtin: a program that never
+requires it carries none of it, and `nupp build --without yaml` strips it
+([builtins](../../projects/builtins.md)). `serde` itself does not require it,
+so a JSON program carries no YAML.
+
 ## Model-owned bindings
 
 A model library owns its member identities, schemas, traits, and registry.
