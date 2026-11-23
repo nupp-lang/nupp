@@ -109,7 +109,14 @@ export function allocarray(element: any, count: integer): any
         if size == 0 then
             return calls.allocbytes(0)
         end
-        return calls.allocate(block(size), count)
+        local made = calls.allocate(block(size), count)
+        -- Each element a struct of the declaration's type, once declared.
+        local key = (element as any).key
+        if key ~= nil then
+            calls.typed(made, key)
+        end
+
+        return made
     elseif type(element) == "table" and type(scalarelement.kind) == "number" and scalarelement.kind > BLOCK then
         -- The descriptor of a struct instance's storage: an array of more.
         return calls.allocate(scalarelement.kind, count)
@@ -151,7 +158,12 @@ end
 export function castelements<T>(element: ctype<T>, borrows pointer: any): any borrows (pointer)
     local described: any = element
     if described.kind == "struct" then
-        return calls.cast(pointer, block(described.size))
+        local cast = calls.cast(pointer, block(described.size))
+        if described.key ~= nil then
+            calls.typed(cast, described.key)
+        end
+
+        return cast
     end
 
     return calls.cast(pointer, (described as Descriptor).kind)
