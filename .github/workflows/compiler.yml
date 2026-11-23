@@ -682,6 +682,13 @@ jobs:
           fi
           export NUPP_COMPILER_ROOT="$compiler_root"
           export NUPP_LUA_CORPUS="$compiler_root/.ci-corpus/teal/tl.lua"
+          # The XML suite is fetched here rather than by the suite through
+          # io.popen, which a typed suite could not call on the Windows VM.
+          xmlts=$(sh scripts/toolchain xmlts)
+          if command -v cygpath >/dev/null 2>&1; then
+            xmlts=$(cygpath -m "$xmlts")
+          fi
+          export NUPP_XMLTS="$xmlts"
           ./bin/nupp test --fresh --scope=all --jobs=1 --group=external-corpus
 
       # Three minutes of starting child processes, and the only thing that can
