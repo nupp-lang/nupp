@@ -8,6 +8,14 @@ module nupp.compiler.vm.taggedstructs
 -- struct or fixed array is a view of its bytes (STORAGE_VIEW), a reference
 -- into its parent's, as the language states.
 --
+-- Beside the bytes, in the storage's header or the view's body, is the
+-- struct's type id (gueststorage.structid), which names its declaration by
+-- the checker's runtime key: an instance, an array of them and a nested
+-- struct's view carry it. Where the static type is known nothing reads it;
+-- `v is S` the checker could not settle, and a field Lua reads by name
+-- through the metatable the struct provider declares for it, do. C and the
+-- GPU are given the bytes alone.
+--
 -- The layout is the host project's C ABI, which libffi also uses for calls.
 const taggedvalues = require("nupp.compiler.vm.taggedvalues")
 const corelibrary = require("nupp.compiler.vm.corelibrary")
@@ -16,10 +24,13 @@ const metadata = require("nupp.compiler.vm.metadata")
 const derivedmembers = require("nupp.compiler.vm.derivedmembers")
 const scalarlanes = require("nupp.compiler.vm.scalarlanes")
 const graphcalls = require("nupp.compiler.vm.graphcalls")
+const constructors = require("nupp.compiler.constructors")
 const need = taggedvalues.need
 const pool = taggedvalues.pool
 
 const LAYOUT_KEY = "\0nupp:structLayout"
+-- The struct provider, whose `declare` a struct's declaration calls.
+export const MODULE = "nupp.runtime.provider.corestructs"
 -- The storage element kinds (corestorage): each scalar's code.
 const UINT8 = 1
 const KINDS: {
@@ -90,6 +101,28 @@ export function origin(t: any): any
 end
 
 local laid: any = setmetatable({}, {__mode = "k"})
+
+-- The key that names struct declaration `declared` when the program runs,
+-- which its type id is given by (gueststorage.structid): the checker's
+-- runtime key, its module and its place there, so two declarations of one
+-- layout in two modules are two types.
+export function declarationkey(declared: any): string
+    local subject = origin(declared) or declared
+    local found = subject.runtimeDeclarationKey or subject.cdefIdentity or subject.declarationKey
+    if type(found) == "string" then
+        return found
+    end
+
+    return tostring(subject.moduleName) .. "\0struct\0" .. tostring(subject.runtimePath or subject.name)
+end
+
+-- `value` as a struct of the declaration `declared`: the type id beside a
+-- view's bytes, or a struct's a C function returned, names it.
+export function typed(ctx: any, node: any, declared: any, value: integer): integer
+    local name = ctx.emit(node, "K", {pool(ctx, "str", declarationkey(declared))}, "tagged")
+
+    return ctx.emit(node, "LibCall", {corelibrary.id("STRUCT_TYPED"), value, name}, "tagged") as integer
+end
 
 -- The struct's layout: size, alignment and each field's offset and size.
 local function layout(declared: any): any
@@ -340,7 +373,7 @@ local function load(ctx: any, node: any, object: integer, field: any): integer
         return laneStorage(ctx, node, "read", "fromstorage", field.vector, {cells}) as integer
     elseif field.nested then
         local count = field.size == 0 and 0 or 1
-        return view(ctx, node, object, blockKind(field.size), field.offset, count)
+        return typed(ctx, node, field.nested, view(ctx, node, object, blockKind(field.size), field.offset, count))
     elseif field.element then
         return view(ctx, node, object, field.element, field.offset, field.count)
     end
@@ -418,27 +451,29 @@ export function assign(ctx: any, node: any, given: any, receiver: integer, value
     store(ctx, node, receiver, given.structField, value, "write")
 end
 
--- The zeroed storage of `count` structs of `size` bytes, each an element.
-local function allocation(ctx: any, node: any, size: integer, count: integer): integer
-    if size == 0 then
-        local none = integerConstant(ctx, node, 0)
-        return ctx.emit(node, "LibCall", {corelibrary.id("STORAGE_ALLOCBYTES"), none}, "tagged") as integer
-    end
+-- The zeroed storage of `count` structs `declared`, each an element: a
+-- block of its bytes, which an empty struct has none of. The type id beside
+-- them names the declaration.
+local function allocation(ctx: any, node: any, declared: any, count: integer): integer
+    local size = layout(declared).size
     local kind = integerConstant(ctx, node, blockKind(size))
+    if size == 0 then
+        count = integerConstant(ctx, node, 0)
+    end
+    local name = ctx.emit(node, "K", {pool(ctx, "str", declarationkey(declared))}, "tagged")
 
-    return ctx.emit(node, "LibCall", {corelibrary.id("STORAGE_ALLOCATE"), kind, count}, "tagged") as integer
+    return ctx.emit(node, "LibCall", {corelibrary.id("STRUCT_NEW"), kind, count, name}, "tagged") as integer
 end
 
 -- A struct's construction: its zeroed bytes, then each field written, in
 -- the order given, from its argument or its default: `names[i]` is written
 -- with `values[i]`.
 export function construct(ctx: any, node: any, declared: any, names: {string}, values: {integer}): integer?
-    local measured = layout(declared)
     local held = {}
     for index, value in ipairs(values) do
         held[index] = ctx.hold(value)
     end
-    local made = allocation(ctx, node, measured.size, integerConstant(ctx, node, 1))
+    local made = allocation(ctx, node, declared, integerConstant(ctx, node, 1))
     local instance = ctx.hold(made)
     for index, name in ipairs(names) do
         store(ctx, node, ctx.readHeld(instance), member(declared, name), ctx.readHeld(held[index]), "write:" .. name)
@@ -475,7 +510,19 @@ end
 -- `carray(T, n)`: the zeroed bytes of `count` of struct `declared`, back to
 -- back as C lays out an array of them.
 export function allocate(ctx: any, node: any, declared: any, count: integer): integer
-    return allocation(ctx, node, layout(declared).size, count)
+    return allocation(ctx, node, declared, count)
+end
+
+-- `value is S` for struct `declared`, when the checker could not settle it
+-- from the value's static type: whether the type id beside its bytes names
+-- that declaration.
+export function test(ctx: any, node: any, declared: any, value: integer): integer
+    local held = ctx.hold(value)
+    local name = ctx.emit(node, "K", {pool(ctx, "str", declarationkey(declared))}, "tagged")
+    local answer = ctx.emit(node, "LibCall", {corelibrary.id("STRUCT_IS"), ctx.readHeld(held), name}, "tagged")
+    ctx.release(held)
+
+    return answer as integer
 end
 
 -- Element `index` of an array of struct `declared`: a view of its bytes, a
@@ -557,4 +604,57 @@ export function aggregate(t: any): string?
         return nil
     end
     return describe(t, 0)
+end
+
+-- Whether `node` declares a struct, whose table the struct provider is
+-- given where the declaration runs (`declare`).
+export function declaration(node: any): boolean
+    return type(node) == "table"
+        and node.kind == "recordDecl"
+        and node.declKind == "struct"
+        and not node.isAnnotationDefinition
+end
+
+-- What the struct provider reads of the struct `stat` declares, to build
+-- one from Lua: its key, each stored field in order with its default, and
+-- each constructor's arity.
+local function described(stat: any): any
+    local nominal = need(stat.resolvedType, "a struct declaration lacks its checked type")
+    local spec: any = {key = declarationkey(nominal), fields = {}, defaulted = {}, defaults = {}, constructors = {}}
+    for position, field in ipairs(nominal.fieldOrder or {}) do
+        local declared = nominal.byname and nominal.byname[field]
+        if not (declared and (declared.tag == "func" or declared.tag == "typeobject")) then
+            derivedmembers.appendField(spec, field, position, nominal.fieldDefaults and nominal.fieldDefaults[field])
+        end
+    end
+    for index, entry in ipairs(constructors.plan(nominal)) do
+        spec.constructors[index] = {min = entry.min, max = entry.max}
+    end
+
+    return spec
+end
+
+-- Gives struct table `class`, the declaration `stat` made, to the struct
+-- provider's `declare`, at the callsite programgraph issued for it, when
+-- the program carries the provider: a table Lua calls to build one, and
+-- whose instances' fields Lua reads and writes by name through the type id
+-- beside their bytes. Answers false once the program stopped.
+export function declare(ctx: any, stat: any, class: any): boolean
+    local site = taggedvalues.catalog(ctx).structDeclares[stat]
+    if site == nil then
+        return true
+    end
+    need(site.owner == ctx.fn.id, "a struct declaration's callsite belongs to another owner")
+    local spec = ctx.hold(derivedmembers.plainData(ctx, stat, described(stat)))
+    local name = ctx.emit(stat, "K", {pool(ctx, "str", MODULE)}, "tagged")
+    local module = ctx.emit(stat, "LibCall", {corelibrary.id("MODULE_REQUIRE"), name}, "tagged")
+    local member = ctx.emit(stat, "K", {pool(ctx, "str", "declare")}, "tagged")
+    local callee = ctx.hold(ctx.emit(stat, "GetIdx", {module, member}, "tagged"))
+    local args: {integer} = {ctx.readHeld(class) as integer, ctx.readHeld(spec) as integer}
+    local value = ctx.readHeld(callee)
+    ctx.release(callee)
+    ctx.release(spec)
+    ctx.invoke(stat, value, args, graphcalls.dynamicInvokeContract(site.node, 1), false)
+
+    return ctx.block ~= nil
 end

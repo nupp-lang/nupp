@@ -164,6 +164,18 @@ local function factory(ctx: any, node: any, member: string, spec: any): integer
     return taggedvalues.landed(ctx, node, answer)
 end
 
+-- The result `value` of a foreign call whose checked signature is
+-- `signature`: a struct it returns is its bytes, given the type id of the
+-- struct the signature names.
+export function result(ctx: any, node: any, signature: any, value: integer): integer
+    local declared = taggedstructs.origin(signature.rets[1])
+    if declared == nil then
+        return value
+    end
+
+    return taggedstructs.typed(ctx, node, declared, value)
+end
+
 export function declare(ctx: any, stat: any): integer
     need(not stat.nativeLibraryProblem, tostring(stat.nativeLibraryProblem))
     local value = ctx.hold(

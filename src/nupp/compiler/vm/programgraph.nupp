@@ -652,6 +652,9 @@ export function describe(modules: {any}, entryModule: string, options: any?): an
         -- a stored fixed vector field is read and written by, by key
         -- (taggedstructs.vectorSites).
         laneStorage = {},
+        -- By struct declaration, the callsite of the struct provider's
+        -- `declare` (taggedstructs.declare).
+        structDeclares = {},
         classCells = {},
         -- Executable references the checker resolved to no declaration.
         unresolved = {},
@@ -1938,6 +1941,20 @@ export function describe(modules: {any}, entryModule: string, options: any?): an
                 plan.loader.recordFactory = plan
             end
         end
+        -- A struct's declaration hands its table to the struct provider,
+        -- which makes it callable from Lua and gives its instances the
+        -- metatable a field is read by name through, at a callsite of its
+        -- own (taggedstructs.declare).
+        if taggedstructs.declaration(node) and (p.chunk or moduleNames[taggedstructs.MODULE]) then
+            local anchor = need(cst.firstToken(node), "a struct declaration needs a source position")
+            local exprs = {}
+            for index = 1, 2 do
+                exprs[index] = {kind = "nil", token = anchor, inferredType = {tag = "any"}, anchor}
+            end
+            local call = {kind = "call", args = {kind = "args", exprs = exprs}, anchor}
+            local item = {id = #p.calls, owner = owner.id, node = call, dynamic = true, structDeclaration = node}
+            p.calls[#p.calls + 1], p.callByNode[call], p.structDeclares[node] = item, item, item
+        end
         if derivedrecipes.derived(node) then
             local plan = derivedrecipes.prepare(p, node, owner)
             p.derives[node] = plan
@@ -2947,6 +2964,14 @@ export function verify(p: any): boolean
                 and node.kind == "call"
                 and item.definition == nil,
                 "struct provider callsite identity mismatch"
+            )
+        elseif item.structDeclaration then
+            need(
+                p.structDeclares[item.structDeclaration] == item
+                and p.callByNode[node] == item
+                and node.kind == "call"
+                and item.definition == nil,
+                "struct declaration callsite identity mismatch"
             )
         elseif item.laneStorage then
             local sites = p.laneStorage[item.laneStorage]
