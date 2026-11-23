@@ -346,36 +346,15 @@ local function scalarwitness(ctx: any, node: any): any
     return described and described.witnesses[node] or nil
 end
 
--- `tostring(x)` of a uint64, whose 64 bits the core holds as an integer:
--- its unsigned decimal. A negative integer is 2^64 more than it reads, so
--- its digits are those of q = (x >>> 1) // 5, the unsigned quotient by ten,
--- then the remainder x - 10q, which wraps back into 0 through 9. Any further
--- arguments are still evaluated, though tostring ignores them.
+-- `tostring(x)` of a uint64: its unsigned text (taggedcalls.unsignedtext).
+-- Any further arguments are still evaluated, though tostring ignores them.
 local function unsignedText(ctx: any, node: any, arguments: {any}): integer?
     local operands = taggedOperands(ctx, arguments)
     if operands == nil then
         return nil
     end
-    local value = ctx.hold(operands[1])
 
-    local function integer(n: integer): integer
-        return ctx.emit(node, "K", {pool(ctx, "int64", tostring(n))}, "tagged") as integer
-    end
-
-    local function call(name: string, args: {integer}): integer
-        return ctx.emit(node, "LibCall", {corelibrary.id(name), table.unpack(args)}, "tagged") as integer
-    end
-
-    local signed = call("TOSTRING", {ctx.readHeld(value)})
-    local half = call("SHR", {ctx.readHeld(value), integer(1)})
-    local quotient = call("FLOOR_DIVIDE", {half, integer(5)})
-    local tens = ctx.emit(node, "Mul", {quotient, integer(10)}, "tagged")
-    local remainder = ctx.emit(node, "Sub", {ctx.readHeld(value), tens}, "tagged")
-    local unsigned = call("CONCAT2", {call("TOSTRING", {quotient}), call("TOSTRING", {remainder})})
-    local negative = ctx.emit(node, "Lt", {ctx.readHeld(value), integer(0)}, "tagged")
-    ctx.release(value)
-
-    return ctx.select(node, negative, unsigned, signed)
+    return taggedcalls.unsignedtext(ctx, node, operands[1])
 end
 
 export function initializeModule(fn: any, options: any): any
