@@ -34,6 +34,7 @@ and the hosts that provide it.
 
 | Builtin | Modules | C library | Hosts |
 | --- | --- | --- | --- |
+| `sqlite` | [`sqlite`](../runtime/data/sqlite.md) and its provider | `nupp_sqlite`, the SQLite amalgamation, with its public-domain notice | the native core |
 | `xml` | `serde.xml` and `serde.xml.*` | none | the native core and the browser |
 | `yaml` | `serde.yaml`, `serde.yaml.*` and `nupp.runtime.core.yamlcodec` | libyaml 0.2.6 as `nupp_yaml`, with `libyaml-LICENSE.txt` | the native core |
 

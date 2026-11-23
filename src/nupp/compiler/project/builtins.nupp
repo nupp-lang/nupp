@@ -13,20 +13,11 @@ This module is data. Nothing here loads a builtin's provider to learn about
 it, and it requires nothing at load, so the build reads it before checking a
 line.
 
-An entry is shaped like this one, which is not registered:
-
-    sqlite = {
-        -- What a program requires. `sqlite.*` is every module under `sqlite`.
-        modules = {"sqlite", "sqlite.*"},
-        -- The internal modules only the builtin's own modules require.
-        owned = {"nupp.runtime.provider.nativesqlite", "nupp.runtime.core.sqlitecodec"},
-        -- Each logical library its modules bind with `cdef ... from "NAME"`:
-        -- `file` is its `libraries.STANDARD` base name, and `notices` the
-        -- license files staged beside it.
-        libraries = {{name = "nuppsqlite", file = "nupp_sqlite", notices = {"sqlite-PUBLIC-DOMAIN.txt"}}},
-        -- The hosts that can provide it.
-        hosts = {"native"},
-    },
+An entry names what a program requires (`modules`, where `name.*` is every
+module under `name`), the internal modules only those require (`owned`), each
+logical library they bind with `cdef ... from "NAME"` (`file` is its
+`libraries.STANDARD` base name, and `notices` the license files staged beside
+it), and the hosts that can provide it.
 
 `tests/tools/repository/builtinregistrytest.lua` holds every entry to the
 standard library's module lists and to `libraries.STANDARD`, and refuses a
@@ -51,6 +42,13 @@ export type Builtin = {
 
 --- Every registered builtin, by the name `--without` takes.
 export const REGISTRY: {[string]: Builtin} = {
+    -- SQLite, over the pinned amalgamation (`native/sqlite`).
+    sqlite = {
+        modules = {"sqlite"},
+        owned = {"sqlite.internal.contracts", "nupp.runtime.provider.nativesqlite", "nupp.runtime.core.sqlitecodec"},
+        libraries = {{name = "nuppsqlite", file = "nupp_sqlite", notices = {"sqlite-PUBLIC-DOMAIN.txt"}}},
+        hosts = {"native"},
+    },
     -- Written in Nupp, so it binds no library and runs wherever serde does.
     xml = {modules = {"serde.xml", "serde.xml.*"}, owned = {}, libraries = {}, hosts = {"native", "browser"}},
     -- serde.yaml over the pinned libyaml (native/yaml).
