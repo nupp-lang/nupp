@@ -209,6 +209,42 @@ function M.scopedOwnersDropOnRaisedAndReturnedExits()
     testAssert.eq(calls, "re")
 end
 
+-- A constructor that raises lands in the function owning affine values as
+-- any call does: nothing after the construction runs, and the owner closes
+-- before the error goes on.
+function M.aRaisingConstructorDropsOwnersAndRaisesAgain()
+    local chunk = compile(
+        PRELUDE .. table.concat(
+            {
+                "",
+                "local record Checked",
+                "   id: integer",
+                "   constructor(self, id: integer)",
+                "      if id < 0 then error('negative', 0) end",
+                "      self.id = id",
+                "   end",
+                "end",
+                "local function note(text: string): nil",
+                "   calls = calls .. text",
+                "end",
+                "local function constructing(id: integer): integer",
+                "   local value = open_resource('c')",
+                "   local made = Checked(id = id)",
+                "   note('reached')",
+                "   return made.id + #value.name",
+                "end",
+                "local ok, problem = pcall(constructing, -1)",
+                "return ok, problem, calls",
+            },
+            "\n"
+        )
+    )
+    local ok, problem, calls = chunk()
+    testAssert.eq(ok, false)
+    testAssert.eq(problem, "negative")
+    testAssert.eq(calls, "c")
+end
+
 function M.scopedOwnersCanBeReborrowedExclusively()
     local chunk = compile(
         PRELUDE
