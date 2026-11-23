@@ -1357,12 +1357,8 @@ export function coreLibraryField(node: any): string?
     return nil
 end
 
-export function coreLibraryCall(call: any): string?
-    -- A chunk's guarded call, lowered as the call of what its environment
-    -- holds (nupp.compiler.vm.taggedprofile), is no library call there.
-    if call and call.chunkDynamic then
-        return nil
-    end
+-- The library function a call names, whether or not it is lowered as one.
+local function libraryName(call: any): string?
     if dynamicRequire(call) then
         return "require.dynamic"
     end
@@ -1425,6 +1421,16 @@ export function coreLibraryCall(call: any): string?
     end
 
     return name and coreLibrary[name] and name or nil
+end
+
+export function coreLibraryCall(call: any): string?
+    -- A chunk's guarded call, lowered as the call of what its environment
+    -- holds (nupp.compiler.vm.taggedprofile), is no library call there.
+    if call and call.chunkDynamic then
+        return nil
+    end
+
+    return libraryName(call)
 end
 
 -- The library calls with several results, which answer them as a pack.
@@ -1629,13 +1635,19 @@ end
 
 -- Whether `expr` is select(n, ...) with an index rather than "#": it
 -- gives every value from the index on.
+-- Whether select call `expr` takes an index rather than "#".
+local function selectsByIndex(expr: any): boolean
+    local first = expr.args and expr.args.exprs and expr.args.exprs[1]
+
+    return first ~= nil and not (first.kind == "string" and lexer.stringValue(first.token.text) == "#")
+end
+
 export function selectsValues(expr: any): boolean
     if expr == nil or expr.kind ~= "call" or coreLibraryCall(expr) ~= "select" then
         return false
     end
-    local first = expr.args and expr.args.exprs and expr.args.exprs[1]
 
-    return first ~= nil and not (first.kind == "string" and lexer.stringValue(first.token.text) == "#")
+    return selectsByIndex(expr)
 end
 
 -- Whether a call last in a list gives other than exactly one result, a fixed
@@ -1650,6 +1662,19 @@ export function expandsResults(expr: any): boolean
     local library = expr ~= nil and expr.kind == "call" and coreLibraryCall(expr) or nil
     if library == "pcall" or library == "xpcall" or selectsValues(expr) then
         return true
+    end
+    -- A chunk's guarded library call calls what its environment holds, and
+    -- gives every result that gives: what the library function gives while
+    -- it is still the one, as `select(2, pcall(f))` does.
+    if expr ~= nil and expr.kind == "call" and expr.chunkDynamic then
+        local guarded = libraryName(expr)
+        if guarded == "pcall"
+            or guarded == "xpcall"
+            or guarded == "select" and selectsByIndex(expr)
+            or packedlibrary[guarded or ""]
+        then
+            return true
+        end
     end
     -- A library call with several results gives them all, as Lua's do.
     if packedcall(expr) then
