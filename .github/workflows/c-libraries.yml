@@ -16,6 +16,7 @@ on:
       - 'native/crc/**'
       - 'native/markdown/**'
       - 'native/yaml/**'
+      - 'native/sqlite/**'
       - 'tests/fixtures/markdown/**'
       - 'tests/fixtures/c-libraries/**'
       - 'tests/fixtures/libuv/**'
@@ -88,7 +89,7 @@ jobs:
       - uses: actions/cache@v4
         with:
           path: .nupp-c-library-cache
-          key: c-libraries-${{ matrix.target }}-${{ hashFiles('scripts/toolchain.pins', 'scripts/native-libraries', 'scripts/c-libraries/**', 'native/markdown/**', 'notices/cmark-gfm-LICENSE.txt') }}
+          key: c-libraries-${{ matrix.target }}-${{ hashFiles('scripts/toolchain.pins', 'scripts/native-libraries', 'scripts/c-libraries/**', 'native/markdown/**', 'native/sqlite/**', 'notices/cmark-gfm-LICENSE.txt', 'notices/sqlite-PUBLIC-DOMAIN.txt') }}
       - name: Build and verify upstream C artifacts without Rust
         shell: bash
         env:
@@ -116,6 +117,7 @@ jobs:
             build/c-libraries/abi.json
             build/c-libraries/timing.json
             build/c-libraries/*.identity
+            build/c-libraries/sqlite.json
             build/libuv/abi.json
             build/libuv/timing.json
             build/libuv/libuv.identity
@@ -191,7 +193,7 @@ jobs:
       - uses: actions/cache@v4
         with:
           path: .nupp-c-library-cache
-          key: c-libraries-aarch64-pc-windows-gnullvm-${{ hashFiles('scripts/toolchain.pins', 'scripts/native-libraries', 'scripts/host-machine', 'scripts/c-libraries/**', 'native/crc/**', 'native/markdown/**', 'native/yaml/**', 'notices/*LICENSE*') }}
+          key: c-libraries-aarch64-pc-windows-gnullvm-${{ hashFiles('scripts/toolchain.pins', 'scripts/native-libraries', 'scripts/host-machine', 'scripts/c-libraries/**', 'native/crc/**', 'native/markdown/**', 'native/yaml/**', 'native/sqlite/**', 'notices/*LICENSE*', 'notices/sqlite-PUBLIC-DOMAIN.txt') }}
       - name: Build the pinned libraries and the core bridge without Rust
         shell: bash
         env:
@@ -206,6 +208,12 @@ jobs:
           export PATH="$PWD/build/no-rust-tools:$PATH"
           [ "$(sh scripts/host-machine | cut -d: -f2)" = aarch64 ] || { echo 'host is not ARM64' >&2; exit 1; }
           [ "$(sh scripts/stage0-runtime --host)" = aarch64-pc-windows-gnullvm ]
-          sh scripts/native-libraries zlib libuv openssl libcurl libffi isal cmark libyaml
+          sh scripts/native-libraries zlib libuv openssl libcurl libffi isal cmark libyaml sqlite
           sh scripts/core-bridge --test
           llvm-objdump -f build/c-core-bridge/nupp-core.exe | grep -q aarch64
+          # SQLite is a DLL exporting its API, and answers as pinned.
+          sqlite=$(sh scripts/native-libraries sqlite)
+          llvm-objdump -p "$sqlite/bin/nupp_sqlite.dll" | grep -q sqlite3_open_v2
+          cmake -S tests/fixtures/c-libraries/sqlite -B build/sqlite-probe -G Ninja -DCMAKE_BUILD_TYPE=Release -DNUPP_SQLITE="$sqlite"
+          cmake --build build/sqlite-probe
+          PATH="$sqlite/bin:$PATH" build/sqlite-probe/sqlite-probe.exe

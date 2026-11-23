@@ -102,6 +102,12 @@ zlib() {
         "zlib-$ZLIB_VERSION"
 }
 
+# The SQLite amalgamation, named by its release number as its URL is.
+sqlite() {
+    sqlite_asset=${SQLITE_URL##*/}
+    unpack "$sqlite_asset" "$SQLITE_URL" "$SQLITE_SHA256" "${sqlite_asset%.tar.gz}"
+}
+
 # Most of OpenSSL's public headers are generated from templates.
 openssl() {
     tree=$(unpack "openssl-$OPENSSL_VERSION.tar.gz" "$OPENSSL_URL" \
@@ -241,6 +247,7 @@ flags() {
             echo "-isystem $(zlib) -isystem $(openssl)/include -isystem $(libcurl)/include" \
                 "'-DNUPP_EXPECT_TARGET=\\\"lint\\\"'"
             ;;
+        tests/fixtures/c-libraries/sqlite/probe.c) echo "-isystem $(sqlite)" ;;
         scripts/c-libraries/libffiprobe.c) echo "-isystem $(libffi)" ;;
         scripts/c-libraries/libyamlprobe.c) echo "-isystem $(libyaml)/include" ;;
         tests/fixtures/wgpu/abi.c) echo "-isystem $(wgpu)" ;;

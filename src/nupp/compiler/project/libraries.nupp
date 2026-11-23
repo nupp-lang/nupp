@@ -60,6 +60,12 @@ export const STANDARD: {[string]: {
         notices = {"ISA-L-LICENSE.txt", "ISA-L-CRC-LICENSE.txt"}
     },
     nuppyaml = {name = "nupp_yaml", env = "NUPP_YAML_LIBRARY", pins = {"LIBYAML_"}, notices = {"libyaml-LICENSE.txt"}},
+    nuppsqlite = {
+        name = "nupp_sqlite",
+        env = "NUPP_SQLITE_LIBRARY",
+        pins = {"SQLITE_"},
+        notices = {"sqlite-PUBLIC-DOMAIN.txt"}
+    },
 }
 
 -- The path `scripts/c-library-paths` printed for a variable, or why it named

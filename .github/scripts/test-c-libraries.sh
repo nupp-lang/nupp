@@ -47,3 +47,12 @@ for component in zlib openssl libcurl; do
     cp "$prefix/identity" "$OUT/$component.identity"
 done
 cat "$OUT/abi.json"
+# SQLite: its own probe, against the one prefix the core binds.
+sqlite=$(./scripts/toolchain sqlite)
+cmake -S tests/fixtures/c-libraries/sqlite -B "$OUT/sqlite-probe" -DCMAKE_BUILD_TYPE=Release -DNUPP_SQLITE="$sqlite"
+cmake --build "$OUT/sqlite-probe" --config Release --parallel 2
+program="$OUT/sqlite-probe/sqlite-probe"
+if [ -f "$OUT/sqlite-probe/Release/sqlite-probe.exe" ]; then program="$OUT/sqlite-probe/Release/sqlite-probe.exe"; fi
+PATH="$sqlite/bin:$PATH" "$program" > "$OUT/sqlite.json"
+cp "$sqlite/identity" "$OUT/sqlite.identity"
+cat "$OUT/sqlite.json"
