@@ -196,6 +196,7 @@ end
 local SHARED_CORE = {
     ["src/nupp/runtime/core/compressioncodec.nupp"] = true,
     ["src/nupp/runtime/core/crccodec.nupp"] = true,
+    ["src/nupp/runtime/core/yamlcodec.nupp"] = true,
 }
 
 -- The runner's sources name the trees beside the native core one by one, so a
