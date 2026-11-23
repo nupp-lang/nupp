@@ -121,9 +121,13 @@ function M.completedTestBuildReusesTheArtifactAndChecksItsBytes()
         os.remove(dir .. "/src/added.lua")
         assert(not build().testBuildReused)
         assert(build().testBuildReused)
-        os.remove(dir .. "/out/.nupp-vm-program.payload")
-        assert(not build().testBuildReused)
+        -- The retained program the record names: the VM's payload, or the
+        -- core's bundle.
         local statePath = dir .. "/out/.nupp-state.json"
+        local kept = require("nupp.tools.build.testbuild").located(fixture.json.decode(read(statePath)).testBuild, dir)
+        assert(exists(kept.payload), "the test build retains its program: " .. tostring(kept.payload))
+        os.remove(kept.payload)
+        assert(not build().testBuildReused)
         local state = fixture.json.decode(read(statePath))
         state.testBuild.effects = {invalid = {}}
         fixture.write(statePath, fixture.json.encode(state))
@@ -192,9 +196,10 @@ function M.completedTestBuildRefreshesNativeInputsAndRejectsChangesDuringBuild()
     local original, version, calls, during = stage.refresh, "first", 0, false
     stage.refresh = function(...)
         calls = calls + 1
-        local available = select(2, ...)
+        local record, available = ...
+        -- The VM's program payload, or the core's bundle.
         assert(
-            type(available) == "table" and available[dir .. "/out/.nupp-vm-program.payload"] == true,
+            type(available) == "table" and type(record.payload) == "string" and available[record.payload] == true,
             "native refresh receives the compiled runtime closure on cold and reused builds"
         )
         local host, why = original(...)

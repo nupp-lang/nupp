@@ -687,7 +687,19 @@ local function buildOne(root: string?, opts: project.BuildOptions?): integer
         newState.nativeLibraries = cache.jsonArray(usedLibraries)
         testHost = host
         if testInput ~= nil then
-            local hostBytes = assert(readFile(host))
+            -- A test build names the runtime its refresh answers, as a reused
+            -- one is checked against (testbuild.refresh), cold or reused alike.
+            local available = {}
+            for path in pairs(newState.outputs) do
+                available[path] = true
+            end
+            local refreshed, refreshErr = testBuild.refresh(testRuntime, available)
+            if not refreshed then
+                say(opts, "NUPP0004", "nupp: " .. tostring(refreshErr) .. "\n")
+                return 1
+            end
+            testHost = refreshed
+            local hostBytes = assert(readFile(refreshed as string))
             testHostHash = contentDigest(hostBytes)
         end
         if #unreachable > 0 then
