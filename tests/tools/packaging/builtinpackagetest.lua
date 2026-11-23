@@ -135,7 +135,7 @@ function M.aBundleThatBindsNothingStagesNoneOfIt()
 end
 
 function M.theReportFieldsAreInTheSchema()
-    local text = capture("env NUPP_RUNTIME=core " .. quote(ROOT .. "/bin/nupp") .. " build --schema")
+    local text = capture(quote(ROOT .. "/bin/nupp") .. " build --schema")
     local schema = json.decode(text)
     assert(schema.properties.builtins and schema.properties.builtins.items.required, "builtins is documented")
     assert(schema.properties.without and schema.properties.without.items.type == "string", "without is documented")
