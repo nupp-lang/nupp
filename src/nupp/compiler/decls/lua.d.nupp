@@ -865,6 +865,16 @@ const table: {
     --- @return the selected elements
     unpack: @nosuspend function<T>(t: const{T}, i: number?, j: number?): ...T,
 
+    --- Returns a new table holding its arguments at keys 1 through `n`, with their
+    --- count, nils included, in the field `n`.
+    ---
+    --- @param ... the values to pack
+    --- @return the table of values and their count
+    pack: @nosuspend function(...: any): {
+        n: integer,
+        [integer]: any
+    },
+
     --- Returns the largest positive numeric key of `t`, or 0 when it has none.
     --- Deprecated, and unlike `#t` it also sees keys past a hole.
     ---

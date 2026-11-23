@@ -786,6 +786,7 @@ local coreLibrary: {[string]: boolean} = {
     ["table.insert"] = true,
     ["table.remove"] = true,
     ["table.unpack"] = true,
+    ["table.pack"] = true,
     ["table.sort"] = true,
     ["table.move"] = true,
     ["table.freeze"] = true,
@@ -863,6 +864,7 @@ local libraryValues: {[string]: boolean} = {
     ["table.concat"] = true,
     ["table.insert"] = true,
     ["table.unpack"] = true,
+    ["table.pack"] = true,
     -- The prelude's `unpack` is `table.unpack`, as a call of it is.
     unpack = true,
     -- LuaJIT's `jit` library, which the core does not have: as a value it
@@ -912,10 +914,10 @@ local libraryValues: {[string]: boolean} = {
 -- The library values whose core forms take a `...` or a call's results last
 -- as a pack: select's, string.format's packed call, and the coroutine calls'
 -- value packs.
-const packsLast: {
-    [string]: boolean
-} = {
+const packsLast: {[string]: boolean} = {
     select = true,
+    -- table.pack takes them all, as the pack its table is made from.
+    ["table.pack"] = true,
     ["string.format"] = true,
     ["coroutine.create"] = true,
     ["coroutine.resume"] = true,
