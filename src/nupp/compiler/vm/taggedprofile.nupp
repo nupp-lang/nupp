@@ -2412,6 +2412,14 @@ export function forVersion(version: integer): any
                 local value = ctx.emit(node, "LibCall", {corelibrary.id("SELECT"), pack, ctx.readHeld(held)}, "tagged")
                 ctx.release(held)
                 return value as integer
+            elseif library == "table.pack" then
+                -- table.pack(...): a fresh table of its values, their count
+                -- as `n`, which is a named vararg's own table (PACK_NAMED).
+                local pack = taggedcalls.valuespack(ctx, node, node.args.exprs or {})
+                if pack == nil or ctx.block == nil then
+                    return nil
+                end
+                return ctx.emit(node, "LibCall", {corelibrary.id("PACK_NAMED"), pack}, "tagged") as integer
             elseif library == "setmetatable"
                 or library == "getmetatable"
                 or library == "rawget"
