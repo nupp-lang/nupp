@@ -161,6 +161,31 @@ local function benchmarkProgram(name)
         -- process.
         local path = directory .. "/src/" .. name .. ".nupp"
         local env = require("nupp.compiler.project.env").new(directory)
+        if rawget(_G, "__nupp_load_image") == nil then
+            -- The core has no VM image to load: its chunk compiler makes the
+            -- program a binary chunk, which `load` runs in the child's own
+            -- compiler, as `nupp run` runs a source program.
+            local compiler = require("nupp.compiler.vm.corechunk")
+            compiler.useEnvironment(env)
+            local chunk = assert(compiler.compileProgram(source, path, "@" .. path, name, true))
+            file = assert(io.open(directory .. "/out/benchmark.chunk", "wb"))
+            file:write(chunk)
+            file:close()
+            file = assert(io.open(directory .. "/out/benchmark.lua", "wb"))
+            file:write([[local source = debug.getinfo(1, "S").source:gsub("\\", "/")
+        local root = assert(source:match("^@(.*)/[^/]+$"))
+        local file = assert(io.open(root .. "/benchmark.chunk", "rb"))
+        local chunk = file:read("*a")
+        file:close()
+        local _, failure = load(chunk, "@" .. root .. "/benchmark.nupp", "b")
+        if failure ~= nil then
+            error(failure, 0)
+        end
+        ]])
+            file:close()
+
+            return "out/benchmark.lua"
+        end
         local diagnostics = {}
         local image = require("nupp.tools.cli.compile").image(path, env, name, diagnostics)
         for _, diagnostic in ipairs(diagnostics) do
