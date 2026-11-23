@@ -38,8 +38,10 @@ local function named(value: any, what: string, level: integer): string
     if type(value) == "string" then
         return value as string
     end
+    -- Any table with a tostring method is a path here, a Path or not, so the
+    -- method is the one the value holds.
     if type(value) == "table" and (value as any).tostring ~= nil then
-        return (value as paths.Path):tostring()
+        return (value as any):tostring() as string
     end
     error("nupp: os " .. what .. " must be a path or a string", level)
 end
