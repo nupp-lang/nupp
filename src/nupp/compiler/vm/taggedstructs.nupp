@@ -178,6 +178,19 @@ local function pointer(t: any): boolean
     return t.tag == "ptr" or t.tag == "cstring" or t.tag == "voidptr" or t.tag == "func" and t.foreign == true
 end
 
+-- The struct a pointer type points at, nullable or not, or nil.
+local function pointee(t: any): any
+    local subject = bare(t)
+    if subject and subject.tag == "union" and subject.hasNil and #(subject.members or {}) == 2 then
+        subject = bare(subject.members[1].tag == "nil" and subject.members[2] or subject.members[1])
+    end
+    if subject and subject.tag == "ptr" then
+        return origin(subject.elem)
+    end
+
+    return nil
+end
+
 -- The storage kind of a scalar or pointer of `size` bytes, or nil.
 local function scalarKind(t: any, size: integer): integer?
     if pointer(t) then
@@ -221,6 +234,7 @@ local function member(declared: any, name: string): any
     reached.boolean = t.tag == "boolean"
     reached.pointer = pointer(t)
     reached.nullablePointer = t.tag == "union" and t.hasNil and reached.pointer
+    reached.pointee = reached.pointer and pointee(t) or nil
     if placed.bitWidth ~= nil then
         reached.kind = need(UNSIGNED_KINDS[placed.size], "a bitfield has no storage kind")
         reached.bitWidth, reached.bitOffset = placed.bitWidth, placed.bitOffset
@@ -264,6 +278,17 @@ local function view(ctx: any, node: any, object: integer, kind: integer, offset:
     return ctx.emit(node, "LibCall", {id, object, k, at, n}, "tagged") as integer
 end
 
+-- The struct `declared` at the address `address` holds, a view owning
+-- nothing, or nil for the null address.
+local function structAt(ctx: any, node: any, declared: any, address: integer): integer
+    local size = layout(declared).size
+    local kind = integerConstant(ctx, node, blockKind(size))
+    local count = integerConstant(ctx, node, size == 0 and 0 or 1)
+    local name = ctx.emit(node, "K", {pool(ctx, "str", declarationkey(declared))}, "tagged")
+
+    return ctx.emit(node, "LibCall", {corelibrary.id("STRUCT_AT"), address, kind, count, name}, "tagged") as integer
+end
+
 -- The element of `kind` at byte `offset` of `object`, read in place.
 local function fetch(ctx: any, node: any, object: integer, kind: integer, offset: integer): integer
     local id = corelibrary.id("STORAGE_LOAD")
@@ -290,11 +315,13 @@ local function present(t: any, optional: boolean): any
     return subject
 end
 
--- The field the access `node` reaches when its receiver is a struct.
+-- The field the access `node` reaches when its receiver is a struct, or a
+-- pointer to one, which reads as the struct it points at (STRUCT_AT).
 export function access(node: any): any
-    local declared = (node.kind == "dotIndex" or node.kind == "safeIndex")
+    local subject = (node.kind == "dotIndex" or node.kind == "safeIndex")
         and node.name
-        and origin(present(node.obj.inferredType, node.kind == "safeIndex"))
+        and present(node.obj.inferredType, node.kind == "safeIndex")
+    local declared = subject and (origin(subject) or pointee(subject))
     if not declared then
         return nil
     end
@@ -390,6 +417,10 @@ local function load(ctx: any, node: any, object: integer, field: any): integer
     if field.boolean then
         local zero = ctx.emit(node, "Eq", {value, integerConstant(ctx, node, 0)}, "tagged")
         return ctx.emit(node, "Not", {zero}, "tagged") as integer
+    elseif field.pointee then
+        -- A pointer to a struct reads as the struct it points at, as C
+        -- dereferences one; the null pointer reads as nil.
+        return structAt(ctx, node, field.pointee, value)
     elseif field.nullablePointer then
         local zero = integerConstant(ctx, node, 0)
         local absent = ctx.emit(node, "Eq", {value, zero}, "tagged")

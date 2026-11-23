@@ -12,6 +12,11 @@ module nupp.runtime.core.corestorage
 -- growth cannot leave retained views pointing into a released block. A view keeps its
 -- original extent and element kind; callers must preserve those bounds when changing an
 -- owner beyond reserve-only backing growth.
+--
+-- A foreign view owns nothing: its first body word is nil and its offset is the
+-- raw address of its bytes, as a C pointer names them (newforeignview). Nothing
+-- keeps those bytes alive or bounds them but the view's own extent, so only
+-- unchecked code makes one.
 const native = require("nupp.runtime.vm.intrinsics")
 const heap = require("nupp.runtime.vm.heap")
 const collector = require("nupp.runtime.vm.collector")
@@ -233,6 +238,9 @@ export function storagebase(object: uint64): uint64
         if o.kind as uint64 == heap.KIND_CORE_VIEW then
             local view = native.pointer(object + heap.HEADER_BYTES) as View*
             local owner = view.owner & values.PAYLOAD
+            if owner == 0ULL then
+                return view.offset
+            end
             local source = native.pointer(owner) as heap.Header*
             if source.kind as uint64 == heap.KIND_STR then
                 return source.auxPtr + view.offset
@@ -254,7 +262,8 @@ export function bytelength(object: uint64): uint64
     return elementcount(object) * elementwidth(elementkind(object))
 end
 
--- An owner is reached through at most one normalized view.
+-- An owner is reached through at most one normalized view; a foreign view's
+-- is 0.
 export function ownerof(object: uint64): uint64
     @unsafe do
         local o = native.pointer(object) as heap.Header*
@@ -283,6 +292,9 @@ export function readable(object: uint64, offset: uint64, count: uint64): boolean
             return false
         end
         local owner = ownerof(object)
+        if owner == 0ULL then
+            return true
+        end
         local o = native.pointer(owner) as heap.Header*
         if o.kind as uint64 ~= heap.KIND_CORE_STORAGE then
             return true
@@ -309,10 +321,14 @@ export function readable(object: uint64, offset: uint64, count: uint64): boolean
     end
 end
 
--- String views and unleased Buffer owners never lend writable bytes.
+-- String views and unleased Buffer owners never lend writable bytes; a
+-- foreign view's bytes are as writable as C's.
 export function iswritable(object: uint64): boolean
     @unsafe do
         local owner = ownerof(object)
+        if owner == 0ULL then
+            return true
+        end
         if (native.pointer(owner) as heap.Header*).kind as uint64 ~= heap.KIND_CORE_STORAGE then
             return false
         end
@@ -338,6 +354,7 @@ export function copyreadable(source: uint64, destination: uint64, count: uint64)
     @unsafe do
         if not iswritable(destination)
             or (native.pointer(source) as heap.Header*).kind as uint64 ~= heap.KIND_CORE_VIEW
+            or ownerof(source) == 0ULL
             or ownerof(source) ~= ownerof(destination)
         then
             return false
@@ -378,7 +395,13 @@ export function newview(h: heap.Heap*, source: uint64, kind: uint64, offset: uin
         if from.kind as uint64 == heap.KIND_CORE_VIEW then
             local parent = native.pointer(source + heap.HEADER_BYTES) as View*
             owner = parent.owner & values.PAYLOAD
-            if offset > MAX_STORAGE_BYTES - parent.offset then
+            -- A foreign view's offset is an address, bounded by the address
+            -- space rather than by storage.
+            local limit = MAX_STORAGE_BYTES
+            if owner == 0ULL then
+                limit = MAXIMUM
+            end
+            if offset > limit - parent.offset then
                 return 0ULL
             end
             absolute = parent.offset + offset
@@ -394,12 +417,41 @@ export function newview(h: heap.Heap*, source: uint64, kind: uint64, offset: uin
         end
         local o = collector.allocate(h, heap.KIND_CORE_VIEW, native.sizeOf<View>())
         local body = native.pointer(native.address(o as voidptr) + heap.HEADER_BYTES) as View*
-        body.owner = values.TAG_OBJ | owner
+        body.owner = values.NIL
+        if owner ~= 0ULL then
+            body.owner = values.TAG_OBJ | owner
+        end
         body.offset = absolute
         body.generation = generation
         body.lease = lease
         body.prepared = 0ULL
         body.typeid = inherited
+        native.store32(o as voidptr, native.fieldOffset<heap.Header>("aux"), native.index(kind))
+        o.auxPtr = 0ULL
+        o.auxLen = n
+        collector.initialized(h, o)
+
+        return native.address(o as voidptr)
+    end
+end
+
+-- A view of `n` elements of `kind` at raw `address`, owning nothing (a
+-- foreign view), or zero for no kind, the null address or an extent past the
+-- end of the address space.
+export function newforeignview(h: heap.Heap*, address: uint64, kind: uint64, n: uint64): uint64
+    local width = elementwidth(kind)
+    if width == 0ULL or address == 0ULL or n > (MAXIMUM - address) // width then
+        return 0ULL
+    end
+    @unsafe do
+        local o = collector.allocate(h, heap.KIND_CORE_VIEW, native.sizeOf<View>())
+        local body = native.pointer(native.address(o as voidptr) + heap.HEADER_BYTES) as View*
+        body.owner = values.NIL
+        body.offset = address
+        body.generation = 0ULL
+        body.lease = 0ULL
+        body.prepared = 0ULL
+        body.typeid = 0ULL
         native.store32(o as voidptr, native.fieldOffset<heap.Header>("aux"), native.index(kind))
         o.auxPtr = 0ULL
         o.auxLen = n

@@ -527,7 +527,12 @@ local subjectrows: {Subject} = {
             {name = "STRUCT_NEW", id = 231, call = "storagecalls.struct", min = 3, max = 3},
             {name = "STRUCT_TYPED", id = 232, call = "storagecalls.typed", min = 2, max = 2},
             {name = "STRUCT_IS", id = 233},
-            {name = "STRUCT_DECLARE", id = 234, call = "storagecalls.declare", min = 2, max = 2}
+            {name = "STRUCT_DECLARE", id = 234, call = "storagecalls.declare", min = 2, max = 2},
+            -- The struct a pointer field names: at(address, kind, count, key)
+            -- views `count` elements of `kind` at the address, a struct of
+            -- the declaration `key` names, owning nothing; nil for the null
+            -- address.
+            {name = "STRUCT_AT", id = 235}
         }
     },
     {

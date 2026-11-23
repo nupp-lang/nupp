@@ -501,6 +501,36 @@ export function typed(ctx: voidptr, value: uint64, key: uint64): uint64
     return value
 end
 
+-- The struct a pointer field names (STRUCT_AT): `count` elements of
+-- `kind` at the address `address` holds, a foreign view of them typed as a
+-- struct of the declaration `key` names, or nil for the null address. The
+-- view keeps nothing alive: as in C, the memory is the program's to keep.
+export function structat(ctx: voidptr, address: uint64, kind: uint64, count: uint64, key: uint64): uint64
+    if not ints.isInteger(address) then
+        texts.argumentError(ctx, 1ULL, librarytexts.TEXT_NUMBER, 0ULL, address)
+    end
+    if not ints.isInteger(kind) or corestorage.elementwidth(ints.bitsOf(kind)) == 0ULL then
+        texts.argumentError(ctx, 2ULL, librarytexts.TEXT_NUMBER, 0ULL, kind)
+    end
+    local n = countargument(ctx, count, 3ULL, 1ULL)
+    local at = ints.bitsOf(address)
+    if at == 0ULL then
+        return values.NIL
+    end
+    local id = structid(ctx, key)
+    @unsafe do
+        local h = guestvalues.guestheap(ctx)
+        local made = corestorage.newforeignview(h, at, ints.bitsOf(kind), n)
+        if made == 0ULL then
+            error("nupp: a struct pointer names no addressable bytes")
+        end
+        corestorage.settypeid(made, id)
+        tables.drain(h)
+
+        return values.TAG_OBJ | made
+    end
+end
+
 -- Whether `value` is a struct of the declaration `key` names (STRUCT_IS):
 -- the type id beside its bytes is that declaration's. The bytes are not
 -- read, so two declarations of the same layout are told apart.
