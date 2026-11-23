@@ -34,6 +34,31 @@ The native runtime cannot make the function that table would print through
 when it lands the error, so it keeps the failure the program raised, which
 is the one it is most likely to test for.
 
+## Control flow
+
+### goto
+
+The native runtime admits a `goto` only to a label that ends the body of a
+loop enclosing it: the `continue` that Lua programs write as
+`goto continue`. The loop may be an outer one, so a `goto` can leave an inner
+loop for the next iteration of the loop around it:
+
+```lua
+for _, row in ipairs({{1, 2}, {3, 4}}) do
+    for _, cell in ipairs(row) do
+        if cell == 2 then
+            goto nextrow
+        end
+    end
+    ::nextrow::
+end
+```
+
+A `goto` to any other label, backward or forward within a block, fails to
+compile. The compiler builds each loop with one entry and fixed exits, and
+a `goto` to the end of a loop body is one of those exits. A jump to any
+other place in a function is not.
+
 ## The debug library
 
 The native runtime provides `debug.getinfo` and `debug.traceback`. The rest of
