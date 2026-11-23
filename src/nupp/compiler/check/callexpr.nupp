@@ -1571,33 +1571,37 @@ function callexpr.install(c: state.Checker): state.ExprHandlers
             node.aotGuardBuiltin = "error"
         end
         if stableGlobal and calleeName == "select" and node.argumentPack then
-            local source = node.argumentPack
             local selector = argExprs[1]
             local selectorToken = selector
                 and (selector.kind == "string" or selector.kind == "number")
                 and selector.token
                 or nil
             local selectorText = selectorToken and selectorToken.text or ""
-            if selector and selector.kind == "string" and (selectorText == '"#"' or selectorText == "'#'") then
-                pack = T.pack({T.integer})
-                local discarded = {}
-                for j = 2, #source.head do
-                    discarded[#discarded + 1] = source.head[j]
-                end
-                c.checkPackDiscard(T.pack(discarded, source.tail), 1, node)
-            else
-                local selected: integer? = nil
-                if selector and selector.kind == "number" then
-                    selected = tonumber((selectorText:gsub("_", ""))) as integer
-                elseif selector
-                    and selector.kind == "unop"
-                    and selector.op
-                    and selector.op.kind == "-"
-                    and selector.operand
-                    and selector.operand.kind == "number"
-                    and selector.operand.token
-                then
-                    selected = -(assert(tonumber((selector.operand.token.text:gsub("_", "")))) as integer)
+            local counts = selector and selector.kind == "string" and (selectorText == '"#"' or selectorText == "'#'")
+            local selected: integer? = nil
+            if selector and selector.kind == "number" then
+                selected = tonumber((selectorText:gsub("_", ""))) as integer
+            elseif selector
+                and selector.kind == "unop"
+                and selector.op
+                and selector.op.kind == "-"
+                and selector.operand
+                and selector.operand.kind == "number"
+                and selector.operand.token
+            then
+                selected = -(assert(tonumber((selector.operand.token.text:gsub("_", "")))) as integer)
+            end
+
+            -- What select answers for one argument pack, and whether its known
+            -- index lies outside that pack.
+            local function selectFrom(source: T.Pack): (T.Pack, boolean)
+                if counts then
+                    local discarded = {}
+                    for j = 2, #source.head do
+                        discarded[#discarded + 1] = source.head[j]
+                    end
+                    c.checkPackDiscard(T.pack(discarded, source.tail), 1, node)
+                    return T.pack({T.integer}), false
                 end
                 local values: {Type} = {}
                 for j = 2, #source.head do
@@ -1606,9 +1610,7 @@ function callexpr.install(c: state.Checker): state.ExprHandlers
                 local valuePack = T.pack(values, source.tail)
                 if selected then
                     local start = selected < 0 and #values + selected + 1 or selected
-                    if not source.tail and (selected == 0 or start < 1 or start > #values) then
-                        c.diag("NUPP2010", selector, "select index is outside its statically known argument pack")
-                    end
+                    local outside = not source.tail and (selected == 0 or start < 1 or start > #values)
                     local discarded = {}
                     for j = 1, math.max(start - 1, 0) do
                         discarded[#discarded + 1] = values[j]
@@ -1622,19 +1624,35 @@ function callexpr.install(c: state.Checker): state.ExprHandlers
                     for j = math.max(start, 1), #values do
                         sliced[#sliced + 1] = values[j]
                     end
-                    pack = T.pack(sliced, valuePack.tail)
-                else
-                    local members = {}
-                    for _, value in ipairs(values) do
-                        members[#members + 1] = value
-                    end
-                    if source.tail and source.tail.type then
-                        members[#members + 1] = source.tail.type
-                    end
-                    pack = T.pack({}, {kind = "homogeneous", type = #members > 0 and T.union(members) or T.any})
-                    c.checkPackDiscard(valuePack, 1, selector or node)
+                    return T.pack(sliced, valuePack.tail), outside
                 end
+                local members = {}
+                for _, value in ipairs(values) do
+                    members[#members + 1] = value
+                end
+                if source.tail and source.tail.type then
+                    members[#members + 1] = source.tail.type
+                end
+                c.checkPackDiscard(valuePack, 1, selector or node)
+
+                return T.pack({}, {kind = "homogeneous", type = #members > 0 and T.union(members) or T.any}), false
             end
+
+            -- Arguments with alternatives (`select(2, pcall(f))`) select from
+            -- each: the answer is theirs, and an index is outside only when it
+            -- is outside every one.
+            local sources = node.argumentPack.alternatives or {node.argumentPack}
+            local answers: {T.Pack} = {}
+            local outside = true
+            for j, source in ipairs(sources) do
+                local answer, beyond = selectFrom(source)
+                answers[j] = answer
+                outside = outside and beyond
+            end
+            if outside and #sources > 0 then
+                c.diag("NUPP2010", selector, "select index is outside its statically known argument pack")
+            end
+            pack = #answers == 1 and answers[1] or T.packUnion(answers)
             first, rets = T.packAt(pack, 1) or T.nil_, pack.head
         end
         if stableGlobal and calleeName == "unpack" and node.argumentPack then
