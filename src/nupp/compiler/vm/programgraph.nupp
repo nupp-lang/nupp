@@ -666,10 +666,10 @@ export function describe(modules: {any}, entryModule: string, options: any?): an
         end
         local parsed = need(input.parsed, "checked parse required")
         need(parsed.root and parsed.symbols and parsed.moduleName == input.name, "checked module identity required")
-        if p.chunk then
-            for _, witness in ipairs(typewitness.collect(parsed.root, parsed.moduleExports).ordered) do
-                p.reflected[witness.node] = true
-            end
+        -- A record passed where a `Type<T>` is taken (`serde.binding(Show)`)
+        -- carries its reflection blueprint, in a module as in a chunk.
+        for _, witness in ipairs(typewitness.collect(parsed.root, parsed.moduleExports).ordered) do
+            p.reflected[witness.node] = true
         end
         -- Once per check of a tree: a project shares its trees across
         -- programs, and checking one again declares its names anew.
