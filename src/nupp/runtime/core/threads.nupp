@@ -534,7 +534,7 @@ local function start(ctx: voidptr, thread: uint64, t: voidptr, args: uint64): ui
             )
         )
         local declared = native.load64(signature, native.fieldOffset<catalog.Signature>("parameterCount"))
-        local variadic = native.load64(signature, native.fieldOffset<catalog.Signature>("variadic")) == 1ULL
+        local variadic = native.load64(signature, native.fieldOffset<catalog.Signature>("variadic")) ~= 0ULL
         local fixed = declared
         if variadic then
             fixed = declared - 1ULL

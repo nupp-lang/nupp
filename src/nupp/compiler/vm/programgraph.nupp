@@ -975,8 +975,11 @@ export function describe(modules: {any}, entryModule: string, options: any?): an
             local params = parameters(body)
             for index, parameter in ipairs(params) do
                 -- A `...` last is a hidden parameter holding the pack of extra
-                -- arguments (a table with its count at key 0). A named one is a
-                -- local the function binds from it on entry.
+                -- arguments: a table with its count at key 0, or a word naming
+                -- where its caller staged them (guestscope.framepack), which
+                -- the code reads only through select, spreads and the pack
+                -- library calls. A named one is a local the function binds
+                -- from it on entry.
                 if parameter.vararg and index == #params then
                     child.variadic = true
                     child.paramKinds[index] = "value"

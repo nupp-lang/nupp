@@ -253,6 +253,7 @@ end
 scopes.xmlconformancetest = "integration"
 scopes.tracebacktest = "component"
 scopes.resultliststest = "integration"
+scopes.varargstest = "integration"
 scopes.handlerordertest = "integration"
 scopes.luaparitytest = "integration"
 scopes.unsignedtexttest = "integration"

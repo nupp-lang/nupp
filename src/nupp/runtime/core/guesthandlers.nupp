@@ -2126,7 +2126,8 @@ export function CallK(pc: voidptr, regs: voidptr, ints: voidptr, floats: voidptr
         ops.failure(ctx, ops.INVALID)
         return native.fail()
     end
-    if ops.packVarargs(ctx, frame, native.pointer(child), native.word(base), native.word(nargs)) ~= 1ULL then
+    -- The callee's `...` stays where this frame staged it.
+    if ops.packVarargs(ctx, frame, native.pointer(child), native.word(base), native.word(nargs), 1ULL) ~= 1ULL then
         ops.failure(ctx, ops.INVALID)
         return native.fail()
     end
@@ -2519,12 +2520,16 @@ export function CallV(pc: voidptr, regs: voidptr, ints: voidptr, floats: voidptr
         ops.fail(ctx, frame, pc, ops.INVALID)
         return native.fail()
     end
-    local pack = slots.readValue(frame, regs, packSlot) & values.PAYLOAD
-    local extra = wide.bitsOf(tables.get(pack, values.TAG_INTEGER))
+    local spread = slots.readValue(frame, regs, packSlot)
+    local extra = guestscope.packcount(spread)
     -- A spread past what a call stages stages its first values, and its
     -- callee's `...` takes the rest from the pack, which this frame roots
-    -- past them meanwhile (ops.appendSpread).
+    -- past them meanwhile (ops.appendSpread): a table, made of a frame pack.
     local overflow: uint64 = 0ULL
+    if native.word(nargs) + extra > ops.CALL_ARGUMENTS and guestscope.inframe(spread) then
+        spread = guestscope.packtable(ctx, spread)
+    end
+    local pack = spread & values.PAYLOAD
     if native.word(nargs) + extra > ops.CALL_ARGUMENTS then
         if native.word(nargs) >= ops.SPREAD_STAGED then
             ops.fail(ctx, frame, pc, ops.RESOURCE)
@@ -2536,12 +2541,7 @@ export function CallV(pc: voidptr, regs: voidptr, ints: voidptr, floats: voidptr
     end
     local k: uint64 = 0ULL
     while k < extra do
-        slots.writeValue(
-            frame,
-            regs,
-            base + nargs + 1 + native.index(k),
-            tables.get(pack, values.TAG_INTEGER | (k + 1ULL))
-        )
+        slots.writeValue(frame, regs, base + nargs + 1 + native.index(k), guestscope.packvalue(ctx, spread, k + 1ULL))
         k = k + 1ULL
     end
     local total = native.word(nargs) + extra
@@ -2636,7 +2636,12 @@ export function CallV(pc: voidptr, regs: voidptr, ints: voidptr, floats: voidptr
         ops.failure(ctx, ops.INVALID)
         return native.fail()
     end
-    if ops.packVarargs(ctx, frame, native.pointer(child), native.word(base), total) ~= 1ULL then
+    -- With every argument staged, the callee's `...` stays where they are.
+    local staged: uint64 = 0ULL
+    if overflow == 0ULL then
+        staged = 1ULL
+    end
+    if ops.packVarargs(ctx, frame, native.pointer(child), native.word(base), total, staged) ~= 1ULL then
         ops.failure(ctx, ops.INVALID)
         return native.fail()
     end
@@ -2712,7 +2717,7 @@ export function RetV(pc: voidptr, regs: voidptr, ints: voidptr, floats: voidptr,
         ops.fail(ctx, frame, pc, ops.INVALID)
         return native.fail()
     end
-    local pack = slots.readValue(frame, regs, packSlot) & values.PAYLOAD
+    local pack = slots.readValue(frame, regs, packSlot)
     -- A caller taking every result as one pack gets them all, past sixteen,
     -- as does a coroutine's resumer.
     local kind = native.load64(frame, native.fieldOffset<frames.Frame>("resultKind"))
@@ -2727,8 +2732,8 @@ export function RetV(pc: voidptr, regs: voidptr, ints: voidptr, floats: voidptr,
         local first = values.NIL
         if fixed > 0 then
             first = slots.readValue(frame, regs, src)
-        elseif wide.bitsOf(tables.get(pack, values.TAG_INTEGER)) > 0ULL then
-            first = tables.get(pack, values.TAG_INTEGER | 1ULL)
+        elseif guestscope.packcount(pack) > 0ULL then
+            first = guestscope.packvalue(ctx, pack, 1ULL)
         end
         if ops.result(ctx, frame, pc, first) ~= 1ULL then
             ops.fail(ctx, frame, pc, ops.INVALID)
@@ -2769,11 +2774,11 @@ export function RetV(pc: voidptr, regs: voidptr, ints: voidptr, floats: voidptr,
         access.refresh(state, active, ctx)
         return native.dispatch(activePC, activeValues, activeIntegers, activeFloats, ctx, active)
     end
-    local extra = wide.bitsOf(tables.get(pack, values.TAG_INTEGER))
+    local extra = guestscope.packcount(pack)
     local count = native.word(fixed)
     local k: uint64 = 0ULL
     while k < extra and count < frames.MAX_RESULTS do
-        slots.writeValue(frame, regs, src + native.index(count), tables.get(pack, values.TAG_INTEGER | (k + 1ULL)))
+        slots.writeValue(frame, regs, src + native.index(count), guestscope.packvalue(ctx, pack, k + 1ULL))
         count = count + 1ULL
         k = k + 1ULL
     end
@@ -2910,8 +2915,8 @@ export function PCall(pc: voidptr, regs: voidptr, ints: voidptr, floats: voidptr
             ops.fail(ctx, frame, pc, ops.INVALID)
             return native.fail()
         end
-        local pack = slots.readValue(frame, regs, packed - 1) & values.PAYLOAD
-        local extra = wide.bitsOf(tables.get(pack, values.TAG_INTEGER))
+        local pack = slots.readValue(frame, regs, packed - 1)
+        local extra = guestscope.packcount(pack)
         if native.word(nargs) + extra > 63ULL then
             ops.fail(ctx, frame, pc, ops.RESOURCE)
             return native.fail()
@@ -2922,7 +2927,7 @@ export function PCall(pc: voidptr, regs: voidptr, ints: voidptr, floats: voidptr
                 frame,
                 regs,
                 base + nargs + 1 + native.index(index),
-                tables.get(pack, values.TAG_INTEGER | (index + 1ULL))
+                guestscope.packvalue(ctx, pack, index + 1ULL)
             )
             index = index + 1ULL
         end
@@ -3038,7 +3043,7 @@ export function PCall(pc: voidptr, regs: voidptr, ints: voidptr, floats: voidptr
         ops.failure(ctx, ops.INVALID)
         return native.fail()
     end
-    if ops.packVarargs(ctx, frame, native.pointer(child), native.word(base), native.word(nargs)) ~= 1ULL then
+    if ops.packVarargs(ctx, frame, native.pointer(child), native.word(base), native.word(nargs), 1ULL) ~= 1ULL then
         ops.failure(ctx, ops.INVALID)
         return native.fail()
     end

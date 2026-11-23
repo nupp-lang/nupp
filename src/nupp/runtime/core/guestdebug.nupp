@@ -276,6 +276,9 @@ local function parameters(ctx: voidptr, record: uint64, vararg: boolean): uint64
         )
     )
     local variadic = native.load64(signature, native.fieldOffset<catalog.Signature>("variadic"))
+    if variadic ~= 0ULL then
+        variadic = 1ULL
+    end
     if vararg then
         if variadic == 1ULL then
             return values.TRUE
