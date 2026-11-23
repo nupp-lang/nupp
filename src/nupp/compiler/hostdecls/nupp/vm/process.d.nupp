@@ -1,0 +1,26 @@
+local types = require("io.internal.process.types")
+const {type Path} = require("io.internal.files.path")
+-- Frozen host spawn descriptor, distinct from the public process.Options names.
+local type SpawnOptions = {
+    args: {string},
+    cwd: Path?,
+    env: {[string]: string}?,
+    clearEnv: boolean?,
+    stdin: types.StreamMode?,
+    stdout: types.StreamMode?,
+    stderr: types.ErrorMode?,
+    timeoutMs: integer?
+}
+local record Host
+    -- Older hosts omit the optional platform error code.
+    spawn: function(options: SpawnOptions): (any?, any?, any?, any?, integer, string?, integer?)
+    -- Older hosts omit the optional terminating signal.
+    poll: function(child: any): (integer?, boolean, integer?)
+    kill: function(child: any, force: boolean): nil
+    read: function(stream: any, count: integer): string?
+    write: function(stream: any, bytes: string): (integer, boolean)
+    closeStream: function(stream: any): (boolean, string?)
+    reap: function(child: any): (boolean, string?)
+    waitReady: function(interest: types.Interest, milliseconds: number): integer
+end
+return Host

@@ -1,0 +1,44 @@
+-- The HTTP primitives the VM's HTTP transport is written over. Handles are
+-- numbers; nothing here blocks, and readiness sleeps are `nupp.vm.net`'s.
+local record Host
+    clientCreate: function(
+        connectTimeoutMs: integer,
+        maxRedirects: integer,
+        maxPendingRequests: integer,
+        maxConnections: integer,
+        maxConnectionsPerHost: integer,
+        compressed: boolean,
+        hasInsecureHosts: boolean,
+        proxyMode: integer,
+        proxy: string,
+        noProxySet: boolean,
+        noProxy: string,
+        proxyCredentials: string
+    ): (integer?, string?)
+    clientRelease: function(client: integer): nil
+    clientPending: function(client: integer): integer
+    clientSend: function(
+        client: integer,
+        url: string,
+        method: string,
+        headers: {{string}},
+        body: string?,
+        bodyKind: integer,
+        bodyLength: integer?,
+        timeoutMs: integer,
+        stallTimeoutMs: integer,
+        maxBytes: integer,
+        insecure: boolean
+    ): (integer?, string?, boolean?)
+    -- Fills `into` with transfer, tokens pairs; answers how many pairs.
+    clientPoll: function(client: integer, into: {integer}): (integer?, string?)
+    transferCancel: function(transfer: integer): nil
+    transferRelease: function(transfer: integer): boolean
+    -- 1 accepted, 0 backpressure, -1 closed.
+    transferOffer: function(transfer: integer, bytes: string?, count: integer, finished: boolean): integer
+    transferHead: function(transfer: integer): (string, integer?, integer?, string?, string?, string?)
+    transferTakeBody: function(transfer: integer): (integer?, string?)
+    bodyArm: function(body: integer): boolean
+    bodyRead: function(body: integer, count: integer): (string, string?, string?)
+end
+return Host

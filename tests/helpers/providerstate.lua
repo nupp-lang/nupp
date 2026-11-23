@@ -56,6 +56,7 @@ local function vmModule(name)
         checkEnv = envMod.new(root)
         table.insert(checkEnv.roots, 1, root .. "/native/crates/vm/lib")
         table.insert(checkEnv.roots, 1, root .. "/native/crates/vm/decls")
+        table.insert(checkEnv.roots, 1, root .. "/src/nupp/compiler/hostdecls")
     end
     local path = envMod.findRuntimeModulePath(checkEnv, name)
     if not path then

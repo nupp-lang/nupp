@@ -150,7 +150,7 @@ function M.unverifiablePrivateInputsDisableKernelReuse()
             "src/nupp/core",
             "src/nupp/runtime/vm",
             "src/nupp/compiler/decls",
-            "native/crates/vm/decls",
+            "src/nupp/compiler/hostdecls",
             "tests/core/units"
         }) do
             assert(fs.mkdir(root .. "/" .. path))

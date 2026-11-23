@@ -136,6 +136,7 @@ export function install(
             local roots = assert((made as any).roots) as {string}
             table.insert(roots, 1, root .. "/native/crates/vm/lib")
             table.insert(roots, 1, root .. "/native/crates/vm/decls")
+            table.insert(roots, 1, root .. "/src/nupp/compiler/hostdecls")
             vmEnv = made
         end
 

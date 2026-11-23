@@ -45,6 +45,7 @@ local function installSourceModules(loadImage)
     local root = envMod.compilerRoot() or "."
     table.insert(env.roots, 1, root .. "/native/crates/vm/lib")
     table.insert(env.roots, 1, root .. "/native/crates/vm/decls")
+    table.insert(env.roots, 1, root .. "/src/nupp/compiler/hostdecls")
     require("nupp.compiler.runtime").install(
         env,
         function(modulePath, e, name, source)

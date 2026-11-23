@@ -153,6 +153,7 @@ local function coroutineContext()
     })
     table.insert(env.roots, 1, ROOT .. "/native/crates/vm/lib")
     table.insert(env.roots, 1, ROOT .. "/native/crates/vm/decls")
+    table.insert(env.roots, 1, ROOT .. "/src/nupp/compiler/hostdecls")
 
     return env
 end

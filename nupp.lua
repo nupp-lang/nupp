@@ -517,12 +517,31 @@ end
 for _, relative in ipairs(TEMPLATE_FILES) do
     RESOURCES[#RESOURCES + 1] = {source = "templates/" .. relative, output = "nupp/compiler/templates/" .. relative,}
 end
--- What the VM supplies natively, declared beside its crate: a compiler with no
--- checkout behind it types `nupp.vm.*` from these copies.
+-- What the runtime supplies natively, declared under the compiler's sources: a
+-- compiler with no checkout behind it types `nupp.vm.*` from these copies.
+for _, relative in ipairs({
+    "nupp/compiler/nativecdecl.d.nupp",
+    "nupp/vm/clock.d.nupp",
+    "nupp/vm/cryptobinding.d.nupp",
+    "nupp/vm/files.d.nupp",
+    "nupp/vm/foreign.d.nupp",
+    "nupp/vm/http.d.nupp",
+    "nupp/vm/net.d.nupp",
+    "nupp/vm/persist.d.nupp",
+    "nupp/vm/process.d.nupp",
+    "nupp/vm/storagebinding.d.nupp",
+    "nupp/vm/systembinding.d.nupp",
+    "nupp/vm/tasks.d.nupp",
+    "nupp/vm/uri.d.nupp",
+}) do
+    RESOURCES[
+        #RESOURCES + 1
+    ] = {source = "src/nupp/compiler/hostdecls/" .. relative, output = "nupp/compiler/hostdecls/" .. relative,}
+end
+-- What only the Rust VM supplies, declared beside its crate and deleted with it.
 for _, relative in ipairs({
     "nupp/cli/internal/terminalhost.d.nupp",
     "nupp/compiler/hostpid.d.nupp",
-    "nupp/compiler/nativecdecl.d.nupp",
     "nupp/compiler/nativehash.d.nupp",
     "nupp/digest/internal/sha256.d.nupp",
     "nupp/generator.d.nupp",
@@ -530,22 +549,10 @@ for _, relative in ipairs({
     "nupp/tasks.d.nupp",
     "nupp/tools/bytecodecache.d.nupp",
     "nupp/vm.d.nupp",
-    "nupp/vm/clock.d.nupp",
     "nupp/vm/coroutine.d.nupp",
-    "nupp/vm/files.d.nupp",
-    "nupp/vm/foreign.d.nupp",
-    "nupp/vm/http.d.nupp",
-    "nupp/vm/net.d.nupp",
     "nupp/vm/ownedCoroutine.d.nupp",
-    "nupp/vm/persist.d.nupp",
-    "nupp/vm/process.d.nupp",
-    "nupp/vm/storagebinding.d.nupp",
-    "nupp/vm/cryptobinding.d.nupp",
-    "nupp/vm/systembinding.d.nupp",
     "nupp/vm/snapshot.d.nupp",
     "nupp/vm/taskScope.d.nupp",
-    "nupp/vm/tasks.d.nupp",
-    "nupp/vm/uri.d.nupp",
 }) do
     RESOURCES[
         #RESOURCES + 1

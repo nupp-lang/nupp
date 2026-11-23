@@ -1,0 +1,3 @@
+const {type SystemProvider as Provider} = require("nupp.runtime.contracts")
+
+return Provider

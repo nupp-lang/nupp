@@ -186,8 +186,10 @@ local function programKey(
     for _, name in ipairs(names) do
         parts[#parts + 1] = name .. "=" .. tostring((modules[name] as any).sourceHash)
     end
-    for _, directory in ipairs({"lib", "decls"}) do
-        local files = fs.listFiles(compilerRoot .. "/native/crates/vm/" .. directory)
+    -- What the VM's image builder resolves before the project: the VM's own
+    -- implementations and the declarations of what the runtime supplies.
+    for _, directory in ipairs({"native/crates/vm/lib", "native/crates/vm/decls", "src/nupp/compiler/hostdecls"}) do
+        local files = fs.listFiles(compilerRoot .. "/" .. directory)
         table.sort(files)
         for _, path in ipairs(files) do
             parts[#parts + 1] = path .. "=" .. digest(fs.readFile(path) or "")

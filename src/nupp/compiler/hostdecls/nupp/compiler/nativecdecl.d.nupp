@@ -1,0 +1,4 @@
+local record NativeCDeclarations
+    request: function(input: string): string
+end
+return NativeCDeclarations

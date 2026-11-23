@@ -99,8 +99,10 @@ local function checkoutRoot(): string?
 end
 
 --- Where a carried file was copied from. The build writes the declarations under
---- `src/nupp/compiler/decls` beside the compiled modules as `/decls`, the VM's
---- own under `native/crates/vm/decls` as `/vmdecls`, the project templates from
+--- `src/nupp/compiler/decls` beside the compiled modules as `/decls`, and those
+--- of the modules the runtime supplies natively under
+--- `src/nupp/compiler/hostdecls` as `/hostdecls`; those only the Rust VM
+--- supplies, under `native/crates/vm/decls`, as `/vmdecls`; the project templates from
 --- the checkout's `templates` as `/templates`, the documentation theme as
 --- `/doc/theme.css`, and the test runner and its cache come from `tests`.
 --- Everything else it carries keeps the path it has under `src`.
@@ -116,7 +118,7 @@ local function sourcePath(root: string, relative: string): string
     elseif relative == "/doc/theme.css" then
         return root .. "/src/nupp/tools/doc/theme.css"
     end
-    if relative:sub(1, 7) == "/decls/" then
+    if relative:sub(1, 7) == "/decls/" or relative:sub(1, 11) == "/hostdecls/" then
         return root .. "/src/nupp/compiler" .. relative
     end
     if relative:sub(1, 9) == "/vmdecls/" then

@@ -168,6 +168,7 @@ local function emitProject(
     -- implementations the tree does not.
     table.insert(assert(env.roots), 1, compilerRoot .. "/native/crates/vm/lib")
     table.insert(assert(env.roots), 1, compilerRoot .. "/native/crates/vm/decls")
+    table.insert(assert(env.roots), 1, compilerRoot .. "/src/nupp/compiler/hostdecls")
     -- A separate project still executes the compiler-carried library sources.
     -- Keep project roots first so an explicitly supplied module wins. They are
     -- the library a LuaJIT build finds by name, not the project's own files, so

@@ -1,0 +1,47 @@
+-- The filesystem primitives the VM's files provider is written over.
+local type RawInfo = {
+    kind: string,
+    size: integer,
+    modified: number,
+    readOnly: boolean
+}
+local type RawEntry = {
+    name: string,
+    kind: string
+}
+local record Host
+    info: function(path: string, follow: boolean): (RawInfo?, string?)
+    readLink: function(path: string): (string?, string?)
+    createSymlink: function(target: string, link: string, directory: boolean): (boolean, string?)
+    setReadOnly: function(path: string, readOnly: boolean): (boolean, string?)
+    createDirectory: function(path: string): (boolean, string?)
+    remove: function(path: string, recursive: boolean): (boolean, string?)
+    rename: function(from: string, to: string): (boolean, string?)
+    list: function(path: string): ({RawEntry}?, string?)
+    glob: function(pattern: string): ({string}?, string?)
+    read: function(path: string): (string?, string?)
+    write: function(path: string, bytes: string): (boolean, string?)
+    append: function(path: string, bytes: string): (boolean, string?)
+    writeAtomic: function(path: string, bytes: string): (boolean, string?)
+    copy: function(from: string, to: string): (boolean, string?)
+    open: function(path: string, mode: string): (integer?, string?)
+    fileRead: function(file: integer, count: integer): (string?, string?)
+    fileWrite: function(file: integer, bytes: string): (integer?, string?)
+    fileSeek: function(file: integer, offset: integer, origin: string): (integer?, string?)
+    filePosition: function(file: integer): (integer?, string?)
+    fileSize: function(file: integer): (integer?, string?)
+    fileFlush: function(file: integer): (boolean, string?)
+    fileClose: function(file: integer): nil
+    currentDirectory: function(): (string?, string?)
+    canonicalize: function(path: string): (string?, string?)
+    userFolder: function(which: integer): (string?, string?)
+    applicationBase: function(which: integer): (string?, string?)
+    executablePath: function(): (string?, string?)
+    createTemporary: function(
+        directory: string,
+        prefix: string,
+        suffix: string,
+        isDirectory: boolean
+    ): (string?, string?)
+end
+return Host
