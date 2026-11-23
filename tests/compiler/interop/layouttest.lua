@@ -441,6 +441,31 @@ return value
     testAssert.eq(value, 2, "the link is a real pointer to a real struct")
 end
 
+function M.aLinkWrittenThroughAPointerReachesTheStruct()
+    -- What a pointer reaches is the struct itself, not a copy: a field
+    -- written through the link is read back from the struct linked to, and a
+    -- link never set is the null pointer, nil.
+    local value = runs(
+        [[
+local struct Node
+    next: Node*?
+    value: int32
+end
+
+local head = Node(nil, 1)
+local tail = Node(nil, 2)
+head.next = tail
+local unset = tail.next == nil
+@unsafe do
+    head.next.value = 5
+end
+return unset and tail.value or -1
+]],
+        "through"
+    )
+    testAssert.eq(value, 5, "a write through the pointer lands in the struct it names")
+end
+
 function M.aStructCannotContainItselfByValue()
     local found = nil
     for _, d in ipairs(diagnostics([[

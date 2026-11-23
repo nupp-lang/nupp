@@ -139,6 +139,11 @@ Rust VM's structs (LuaJIT FFI cdata) behave differently:
   declared runs.
 - `getmetatable` of a struct answers the table its declaration gives its
   instances, where LuaJIT answers `"ffi"`.
+- A pointer field to a struct reads as the struct it points at: a view of
+  those bytes, which keeps nothing alive, so a write through it lands in the
+  struct linked to. The null pointer reads as nil, where LuaJIT answers a
+  NULL cdata that only compares equal to nil. A pointer to anything else
+  reads as its address, an integer.
 - Bytes that reach a program without a struct's type, such as storage cast
   from a raw pointer, carry no type id: `is` answers false for them, and Lua
   cannot name their fields.

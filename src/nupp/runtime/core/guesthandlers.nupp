@@ -1855,6 +1855,8 @@ export function LibCall(
         slots.writeValue(frame, regs, dst, gueststorage.istype(ctx, a, b))
     elseif libraryId == storagelibrary.STRUCT_DECLARE then
         slots.writeValue(frame, regs, dst, gueststorage.declarestruct(ctx, a, b))
+    elseif libraryId == storagelibrary.STRUCT_AT then
+        slots.writeValue(frame, regs, dst, gueststorage.structat(ctx, a, b, c, d))
     elseif libraryId == librarycalls.TABLE_NEWARRAY then
         slots.writeValue(
             frame,
