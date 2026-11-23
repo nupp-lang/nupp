@@ -7,5 +7,5 @@ export const STORAGE_ALLOCBYTES: uint64 = 94ULL
 export const STORAGE_ALLOCATE: uint64 = 95ULL
 export const STORAGE_ALIGNED: uint64 = 204ULL
 export const STORAGE_STORE_POINTER: uint64 = 227ULL
-export const STORAGE_LOAD: uint64 = 228ULL
-export const STORAGE_STORE: uint64 = 229ULL
+export const STORAGE_LOAD: uint64 = 229ULL
+export const STORAGE_STORE: uint64 = 230ULL
