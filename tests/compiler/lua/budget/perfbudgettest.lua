@@ -262,9 +262,12 @@ end
 -- at ten modules and 1.3 MB at forty when these were set; quadratic growth would be
 -- four times the per-module figure at forty, and linear growth is none.
 -- The VM counts its own object layout -- a 32-byte header per object, tables carrying
--- their insertion order -- so the same work measures about 2.5 MB a module there; its
--- budget keeps the same headroom over what it measures. The growth bound is the same.
-local ALLOCATION_PER_MODULE = (rawget(_G, "__nupp_load_image") and 3.75 or 2) * 1024 * 1024
+-- their insertion order -- so the same work measures about 2.5 MB a module there. The
+-- native core's objects are larger again (an empty table is 144 bytes, a short string
+-- 80): it measures about 1.9 MB a module at ten modules and 2.1 MB at forty. Each
+-- budget keeps the same headroom over what its runtime measures. The growth bound is
+-- the same.
+local ALLOCATION_PER_MODULE = (rawget(_G, "__nupp_load_image") and 3.75 or 3.25) * 1024 * 1024
 local ALLOCATION_GROWTH = 1.6
 
 function M.theCheckerAllocatesPerModuleNotPerProject()
