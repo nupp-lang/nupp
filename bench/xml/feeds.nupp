@@ -1,0 +1,192 @@
+--[[
+The feed bar: a synthetic 1 MiB Torznab search response and an RSS 2.0 feed
+with `content:encoded`, read with `namespaces = true`, both as a tree and
+through a typed codec.
+
+    nupp run bench/xml/feeds.nupp [OUT.json]
+]]
+local xml = require("serde.xml")
+local json = require("serde.json")
+
+const TARGET_BYTES = 1048576
+const REPEATS = 5
+const TORZNAB = "http://torznab.com/schemas/2015/feed"
+const CONTENT = "http://purl.org/rss/1.0/modules/content/"
+
+local function torznabFeed(): string
+    local parts: {
+        string
+    } = {
+        "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<rss version=\"2.0\" xmlns:atom=\"http://www.w3.org/2005/Atom\""
+        .. " xmlns:torznab=\""
+        .. TORZNAB
+        .. "\">\n<channel>\n<title>Indexer</title>\n",
+    }
+    local size: integer = #parts[1]
+    local index: integer = 0
+    while size < TARGET_BYTES do
+        index = index + 1
+        local item = "<item>\n  <title>Show.S01E" .. tostring(
+            index
+        ) .. ".1080p.WEB</title>\n  <guid>https://indexer.example/details/" .. tostring(
+            index
+        ) .. "</guid>\n  <link>https://indexer.example/download/" .. tostring(
+            index
+        ) .. "?apikey=x&amp;file=a</link>\n  <pubDate>Sat, 21 Nov 2026 10:00:00 +0000</pubDate>\n  <size>" .. tostring(
+            index * 1000003
+        )
+            .. "</size>\n  <torznab:attr name=\"category\" value=\"5040\"/>\n"
+            .. "  <torznab:attr name=\"seeders\" value=\""
+            .. tostring(
+                index % 97
+            ) .. "\"/>\n" .. "  <torznab:attr name=\"peers\" value=\"" .. tostring(index % 131) .. "\"/>\n</item>\n"
+        parts[#parts + 1] = item
+        size = size + #item
+    end
+    parts[#parts + 1] = "</channel>\n</rss>\n"
+
+    return table.concat(parts)
+end
+
+local function rssFeed(): string
+    local parts: {
+        string
+    } = {
+        "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<rss version=\"2.0\" xmlns:content=\""
+        .. CONTENT
+        .. "\">\n<channel>\n<title>Blog</title>\n",
+    }
+    local size: integer = #parts[1]
+    local index: integer = 0
+    while size < TARGET_BYTES do
+        index = index + 1
+        local item = "<item>\n  <title>Post " .. tostring(
+            index
+        ) .. "</title>\n  <link>https://blog.example/" .. tostring(
+            index
+        )
+            .. "</link>\n  <description>Summary &amp; more</description>\n  <content:encoded><![CDATA[<p>Body "
+            .. tostring(
+                index
+            ) .. " with <b>markup</b> and enough text to look like a post.</p>]]></content:encoded>\n</item>\n"
+        parts[#parts + 1] = item
+        size = size + #item
+    end
+    parts[#parts + 1] = "</channel>\n</rss>\n"
+
+    return table.concat(parts)
+end
+
+local record Attr
+    name: string
+    value: string
+end
+
+local record Item
+    title: string
+    guid: string?
+    size: integer?
+    attrs: {Attr} = {}
+end
+
+local record Channel
+    title: string
+    items: {Item} = {}
+end
+
+local record Rss
+    channel: Channel
+end
+
+local torznab = xml.codec(Rss, {
+    name = "rss",
+    namespaces = true,
+    records = {
+        Channel = {items = xml.FieldOptions(flattened = true, name = "item")},
+        Item = {attrs = xml.FieldOptions(flattened = true, name = "torznab:attr", namespace = TORZNAB)},
+        Attr = {name = xml.FieldOptions(attribute = true), value = xml.FieldOptions(attribute = true)},
+    },
+    declarations = {Channel, Item, Attr},
+})
+
+local record Post
+    title: string
+    encoded: string?
+end
+
+local record PostChannel
+    title: string
+    posts: {Post} = {}
+end
+
+local record Blog
+    channel: PostChannel
+end
+
+local blogs = xml.codec(Blog, {
+    name = "rss",
+    namespaces = true,
+    records = {
+        PostChannel = {posts = xml.FieldOptions(flattened = true, name = "item")},
+        Post = {encoded = xml.FieldOptions(namespace = CONTENT)},
+    },
+    declarations = {PostChannel, Post},
+})
+
+local function measure(name: string, bytes: integer, run: function(): nil): {[string]: any}
+    run()
+    local samples: {number} = {}
+    for index = 1, REPEATS do
+        local started = os.clock()
+        run()
+        samples[index] = 1 / (os.clock() - started)
+    end
+    table.sort(samples)
+    print(
+        string.format(
+            "%-28s %8.2f ops/s %7.2f MB/s  (min %.2f, max %.2f)",
+            name,
+            samples[3],
+            samples[3] * bytes / 1e6,
+            samples[1],
+            samples[REPEATS]
+        )
+    )
+
+    return {
+        case = name,
+        bytes = bytes,
+        ops_per_sec = {median = samples[3], min = samples[1], max = samples[REPEATS], samples = samples}
+    }
+end
+
+local torznabText = torznabFeed()
+local rssText = rssFeed()
+assert(#torznab:decode(torznabText).channel.items > 1000)
+assert(#blogs:decode(rssText).channel.posts > 1000)
+local results: {any} = {
+    measure("torznab_tree", #torznabText, function(): nil
+        local feed = xml.parse(torznabText, {namespaces = true})
+        for item in (feed:child("channel") as xml.Element):children("item") do
+            item:find("attr", TORZNAB, {name = "seeders"})
+        end
+    end),
+    measure("torznab_codec", #torznabText, function(): nil
+        torznab:decode(torznabText)
+    end),
+    measure("rss_tree", #rssText, function(): nil
+        local feed = xml.parse(rssText, {namespaces = true})
+        for item in (feed:child("channel") as xml.Element):children("item") do
+            item:child("encoded", CONTENT)
+        end
+    end),
+    measure("rss_codec", #rssText, function(): nil
+        blogs:decode(rssText)
+    end),
+}
+local arguments: {string} = (rawget(_G, "arg") or {}) as {string}
+if arguments[1] ~= nil then
+    local file = assert(io.open(arguments[1], "wb"))
+    file:write(json.encodevalue({runtime = "nupp core", repeats = REPEATS, results = results}))
+    file:close()
+end

@@ -1,0 +1,273 @@
+--[[
+The Nupp side of the XML bar: typed decode and encode of smithy-java's
+serde-benchmark payloads on the native core.
+
+Run from the repository root:
+
+    nupp run bench/xml/codec.nupp [PAYLOADS] [OUT.json] [MODE...]
+
+PAYLOADS is the directory `bench/xml/smithy/run.sh payloads DIR` wrote,
+which checks every fixture's digest; it defaults to `NUPP_XML_PAYLOADS`. Each
+case runs a warmup and then REPEATS samples of about SAMPLE_SECONDS each, and
+reports the median, minimum and maximum ops/s. Modes are `default`,
+`namespaces`, `strict`, `utf16` and `cp1252` (the payloads re-encoded and
+read with `encoding = true`), and `chunks` (read from 16 KiB chunks); encode
+cases run in the default mode. The JSON is shaped like `bench/xml/baseline`'s, so
+`bench/xml/compare.nupp` prints the ratios.
+]]
+local model = require("bench.xml.model")
+local json = require("serde.json")
+
+const REPEATS = 5
+const SAMPLE_SECONDS = 0.5
+
+local record Case
+    name: string
+    kind: "decode" | "encode"
+    fixture: string
+    run: function(): nil
+    bytes: integer
+end
+
+local function slurp(path: string): string
+    local file = assert(io.open(path, "rb"))
+    local data = file:read("a") as string
+    file:close()
+
+    return data
+end
+
+local function sample(run: function(): nil, iterations: integer): number
+    local started = os.clock()
+    for _ = 1, iterations do
+        run()
+    end
+
+    return iterations / (os.clock() - started)
+end
+
+--- Times a case: a calibration run sizes each sample, then the samples run.
+local function measure(case: Case): {[string]: any}
+    local run = case.run
+    run()
+    local iterations: integer = 1
+    while true do
+        local started = os.clock()
+        for _ = 1, iterations do
+            run()
+        end
+        local elapsed = os.clock() - started
+        if elapsed >= SAMPLE_SECONDS / 4 then
+            iterations = math.max(1, math.floor(iterations * SAMPLE_SECONDS / elapsed)) as integer
+            break
+        end
+        iterations = iterations * 4
+    end
+    local samples: {number} = {}
+    for index = 1, REPEATS do
+        samples[index] = sample(run, iterations)
+    end
+    table.sort(samples)
+
+    return {
+        case = case.name,
+        kind = case.kind,
+        bytes = case.bytes,
+        iterations = iterations,
+        ops_per_sec = {
+            median = samples[(REPEATS + 1) // 2],
+            min = samples[1],
+            max = samples[REPEATS],
+            samples = samples,
+        },
+    }
+end
+
+local function decodeCase(name: string, codec: any, document: string, check: function(value: any): boolean): Case
+    local value = codec:decode(document)
+    assert(check(value), name .. ": decoded the wrong value")
+    local again = codec:decode(codec:encode(value))
+    assert(codec:encode(again) == codec:encode(value), name .. ": does not round trip")
+
+    return Case(name = name, kind = "decode", fixture = name .. ".xml", bytes = #document, run = function(): nil
+        codec:decode(document)
+    end)
+end
+
+local function encodeCase(name: string, codec: any, expected: string): Case
+    local value = codec:decode(expected)
+    local text = codec:encode(value)
+    assert(codec:encode(codec:decode(text)) == text, name .. ": does not round trip")
+
+    return Case(name = name, kind = "encode", fixture = name .. ".expected.xml", bytes = #text, run = function(): nil
+        codec:encode(value)
+    end)
+end
+
+--- UTF-8 text as UTF-16LE with a byte-order mark.
+local function utf16(textValue: string): string
+    local out: {string} = {"\255\254"}
+    local at: integer = 1
+    while at <= #textValue do
+        local codepoint, nextAt = utf8.decodeat(textValue, at)
+        local value = codepoint as integer
+        if value >= 0x10000 then
+            local offset = value - 0x10000
+            local high = 0xD800 + (offset >> 10)
+            local low = 0xDC00 + (offset & 0x3FF)
+            out[#out + 1] = string.char(high & 0xFF, high >> 8, low & 0xFF, low >> 8)
+        else
+            out[#out + 1] = string.char(value & 0xFF, value >> 8)
+        end
+        at = nextAt
+    end
+
+    return table.concat(out)
+end
+
+--- A document's input in a mode: re-encoded for `utf16` and `cp1252`.
+local function input(mode: string, document: string): string
+    if mode == "utf16" then
+        return utf16(document)
+    elseif mode == "cp1252" then
+        local body = document:gsub("^<%?xml[^>]*%?>", "")
+        return "<?xml version=\"1.0\" encoding=\"windows-1252\"?>" .. body
+    end
+
+    return document
+end
+
+local function cases(directory: string, mode: string): {Case}
+    local codecs = model.codecs(mode == "namespaces", mode == "strict", mode == "utf16" or mode == "cp1252")
+
+    local function read(name: string): string
+        return slurp(directory .. "/" .. name)
+    end
+
+    local function results(count: integer): function(value: any): boolean
+        return function(value: any): boolean
+            return #(value.MetricDataResults or {}) == count
+        end
+    end
+
+    local function wide(value: any): boolean
+        return value.stringA == "alpha" and value.integerA == 101
+    end
+
+    local function copy(value: any): boolean
+        return value.ETag == "\"9bb58f26192e4ba00f01e2e7b136bbd8\"" and value.LastModified == 1609459200
+    end
+
+    local function decodeIn(name: string, codec: any, check: function(value: any): boolean): Case
+        if mode == "chunks" then
+            -- The same codec, read through the window in 16 KiB chunks.
+            local inner = codec
+            codec = {
+                decode = function(_: any, document: string): any
+                    local at: integer = 1
+                    return inner:decode(function(): string?
+                        if at > #document then
+                            return nil
+                        end
+                        local piece = document:sub(at, at + 16383)
+                        at = at + 16384
+
+                        return piece
+                    end)
+                end,
+                encode = function(_: any, value: any): string
+                    return inner:encode(value)
+                end,
+            }
+        end
+
+        return decodeCase(name, codec, input(mode, read(name .. ".xml")), check)
+    end
+
+    local list: {Case} = {
+        decodeIn("awsQuery_GetMetricDataResponse_L", codecs.GetMetricData, results(87)),
+        decodeIn(
+            "awsQuery_GetMetricDataResponse_OutOfOrder",
+            codecs.GetMetricData,
+            function(value: any): boolean
+                return #(value.MetricDataResults or {}) > 0
+            end
+        ),
+    }
+    for _, size in ipairs({"S", "M", "L"}) do
+        list[#list + 1] = decodeIn("restXml_WideTypesResponse_" .. size, codecs.WideTypesResponse, wide)
+    end
+    list[#list + 1] = decodeIn("restXml_CopyObjectOutput_M", codecs.CopyObjectResponse, copy)
+    list[#list + 1] = decodeIn("restXml_CopyObjectOutput_OutOfOrder", codecs.CopyObjectResponse, copy)
+    if mode == "default" then
+        for _, size in ipairs({"S", "M", "L"}) do
+            local name = "restXml_WideTypesRequest_" .. size
+            list[#list + 1] = encodeCase(name, codecs.WideTypesRequest, read(name .. ".expected.xml"))
+        end
+        list[
+            #list + 1
+        ] = encodeCase(
+            "restXml_CopyObjectRequest_M_AllMembersAsBody",
+            codecs.CopyObjectBody,
+            read("restXml_CopyObjectRequest_M_AllMembersAsBody.expected.xml")
+        )
+    end
+
+    return list
+end
+
+local function loadavg(): string
+    local pipe = io.popen("sysctl -n vm.loadavg 2>/dev/null")
+    if pipe == nil then
+        return ""
+    end
+    local text = pipe:read("a") as string
+    pipe:close()
+
+    return (text:gsub("%s+$", ""))
+end
+
+local arguments: {string} = (rawget(_G, "arg") or {}) as {string}
+local directory = arguments[1] or os.getenv("NUPP_XML_PAYLOADS")
+if directory == nil then
+    error("pass the payload directory written by bench/xml/smithy/run.sh payloads, or set NUPP_XML_PAYLOADS", 0)
+end
+local output = arguments[2]
+local modes: {string} = {}
+for index = 3, #arguments do
+    modes[#modes + 1] = arguments[index]
+end
+if #modes == 0 then
+    modes = {"default"}
+end
+local started = loadavg()
+local measured: {any} = {}
+for _, mode in ipairs(modes) do
+    for _, case in ipairs(cases(directory as string, mode)) do
+        local result = measure(case)
+        result.mode = mode
+        measured[#measured + 1] = result
+        print(
+            string.format(
+                "%-10s %-46s %10.1f ops/s  (min %.1f, max %.1f)",
+                mode,
+                case.name,
+                result.ops_per_sec.median,
+                result.ops_per_sec.min,
+                result.ops_per_sec.max
+            )
+        )
+    end
+end
+local report = {
+    runtime = "nupp core",
+    repeats = REPEATS,
+    sample_seconds = SAMPLE_SECONDS,
+    loadavg = {start = started, finish = loadavg()},
+    results = measured,
+}
+if output ~= nil then
+    local file = assert(io.open(output, "wb"))
+    file:write(json.encodevalue(report))
+    file:close()
+end

@@ -1,0 +1,326 @@
+--[[
+Nupp records mirroring smithy-java's serde-benchmark shapes for the XML
+cases: awsQuery GetMetricData, restXml WideTypes and CopyObject.
+
+Field names are the model's member names, so the default mapping writes the
+same elements smithy-java does. Timestamps are epoch seconds in `number`
+fields mapped as date-times, and blobs are byte strings mapped as base64.
+The upstream model is described in bench/xml/smithy/README.md.
+]]
+module bench.xml.model
+
+const xml = require("serde.xml")
+
+export record MessageData
+    Code: string?
+    Value: string?
+end
+
+export record MetricDataResult
+    Id: string?
+    Label: string?
+    Timestamps: {number}?
+    Values: {number}?
+    StatusCode: ("Complete" | "InternalError" | "PartialData" | "Forbidden")?
+    Messages: {MessageData}?
+end
+
+export record GetMetricDataOutput
+    MetricDataResults: {MetricDataResult}?
+    NextToken: string?
+    Messages: {MessageData}?
+end
+
+export record WideTypesNested
+    label: string?
+    count: integer?
+    active: boolean?
+    ratio: number?
+end
+
+--- A union: one member is set.
+export record WideTypesChoice
+    text: string?
+    number: integer?
+    nested: WideTypesNested?
+end
+
+export record WideTypesInput
+    stringA: string
+    integerA: integer
+    longA: integer
+    booleanA: boolean
+    doubleA: number
+    floatA: number
+    byteA: integer
+    shortA: integer
+    bigIntegerA: string
+    bigDecimalA: string
+    blobA: string
+    timestampA: number
+    modeA: "ALPHA" | "BRAVO" | "CHARLIE" | "DELTA"
+    stringsA: {string}
+    integersA: {[string]: integer}
+    nestedA: WideTypesNested
+    choiceA: WideTypesChoice
+    stringB: string?
+    integerB: integer?
+    longB: integer?
+    booleanB: boolean?
+    doubleB: number?
+    floatB: number?
+    byteB: integer?
+    shortB: integer?
+    bigIntegerB: string?
+    bigDecimalB: string?
+    blobB: string?
+    timestampB: number?
+    modeB: ("ALPHA" | "BRAVO" | "CHARLIE" | "DELTA")?
+    stringsB: {string}?
+    integersB: {[string]: integer}?
+    nestedB: WideTypesNested?
+    choiceB: WideTypesChoice?
+    stringC: string?
+    integerC: integer?
+    longC: integer?
+    booleanC: boolean?
+    doubleC: number?
+    floatC: number?
+    byteC: integer?
+    shortC: integer?
+    bigIntegerC: string?
+    bigDecimalC: string?
+    blobC: string?
+    timestampC: number?
+    modeC: ("ALPHA" | "BRAVO" | "CHARLIE" | "DELTA")?
+    stringsC: {string}?
+    integersC: {[string]: integer}?
+    nestedC: WideTypesNested?
+    choiceC: WideTypesChoice?
+    stringD: string?
+    integerD: integer?
+    longD: integer?
+    booleanD: boolean?
+    doubleD: number?
+    floatD: number?
+    byteD: integer?
+    shortD: integer?
+    bigIntegerD: string?
+    bigDecimalD: string?
+    blobD: string?
+    timestampD: number?
+    modeD: ("ALPHA" | "BRAVO" | "CHARLIE" | "DELTA")?
+    stringsD: {string}?
+    integersD: {[string]: integer}?
+    nestedD: WideTypesNested?
+    choiceD: WideTypesChoice?
+end
+
+export record WideTypesOutput
+    stringA: string
+    integerA: integer
+    longA: integer
+    booleanA: boolean
+    doubleA: number
+    floatA: number
+    byteA: integer
+    shortA: integer
+    bigIntegerA: string
+    bigDecimalA: string
+    blobA: string
+    timestampA: number
+    modeA: "ALPHA" | "BRAVO" | "CHARLIE" | "DELTA"
+    stringsA: {string}
+    integersA: {[string]: integer}
+    nestedA: WideTypesNested
+    choiceA: WideTypesChoice
+    stringB: string?
+    integerB: integer?
+    longB: integer?
+    booleanB: boolean?
+    doubleB: number?
+    floatB: number?
+    byteB: integer?
+    shortB: integer?
+    bigIntegerB: string?
+    bigDecimalB: string?
+    blobB: string?
+    timestampB: number?
+    modeB: ("ALPHA" | "BRAVO" | "CHARLIE" | "DELTA")?
+    stringsB: {string}?
+    integersB: {[string]: integer}?
+    nestedB: WideTypesNested?
+    choiceB: WideTypesChoice?
+    stringC: string?
+    integerC: integer?
+    longC: integer?
+    booleanC: boolean?
+    doubleC: number?
+    floatC: number?
+    byteC: integer?
+    shortC: integer?
+    bigIntegerC: string?
+    bigDecimalC: string?
+    blobC: string?
+    timestampC: number?
+    modeC: ("ALPHA" | "BRAVO" | "CHARLIE" | "DELTA")?
+    stringsC: {string}?
+    integersC: {[string]: integer}?
+    nestedC: WideTypesNested?
+    choiceC: WideTypesChoice?
+    stringD: string?
+    integerD: integer?
+    longD: integer?
+    booleanD: boolean?
+    doubleD: number?
+    floatD: number?
+    byteD: integer?
+    shortD: integer?
+    bigIntegerD: string?
+    bigDecimalD: string?
+    blobD: string?
+    timestampD: number?
+    modeD: ("ALPHA" | "BRAVO" | "CHARLIE" | "DELTA")?
+    stringsD: {string}?
+    integersD: {[string]: integer}?
+    nestedD: WideTypesNested?
+    choiceD: WideTypesChoice?
+end
+
+export record CopyObjectOutput
+    ETag: string?
+    LastModified: number?
+    ChecksumType: string?
+    ChecksumCRC32: string?
+    ChecksumCRC32C: string?
+    ChecksumCRC64NVME: string?
+    ChecksumSHA1: string?
+    ChecksumSHA256: string?
+end
+
+--- CopyObjectRequest with every member written in the body, a case of ours:
+--- upstream binds each member to a header or the URI.
+export record CopyObjectRequest
+    Bucket: string?
+    CopySource: string?
+    Key: string?
+    ACL: string?
+    CacheControl: string?
+    ChecksumAlgorithm: string?
+    ContentDisposition: string?
+    ContentEncoding: string?
+    ContentLanguage: string?
+    ContentType: string?
+    CopySourceIfMatch: string?
+    CopySourceIfModifiedSince: number?
+    CopySourceIfNoneMatch: string?
+    CopySourceIfUnmodifiedSince: number?
+    Expires: number?
+    GrantFullControl: string?
+    GrantRead: string?
+    GrantReadACP: string?
+    GrantWriteACP: string?
+    IfMatch: string?
+    IfNoneMatch: string?
+    MetadataDirective: string?
+    TaggingDirective: string?
+    ServerSideEncryption: string?
+    StorageClass: string?
+    WebsiteRedirectLocation: string?
+    SSECustomerAlgorithm: string?
+    SSECustomerKey: string?
+    SSEKMSKeyId: string?
+    SSEKMSEncryptionContext: string?
+    BucketKeyEnabled: boolean?
+    CopySourceSSECustomerAlgorithm: string?
+    CopySourceSSECustomerKey: string?
+    RequestPayer: string?
+    Tagging: string?
+    ObjectLockMode: string?
+    ObjectLockRetainUntilDate: number?
+    ObjectLockLegalHoldStatus: string?
+    ExpectedBucketOwner: string?
+    ExpectedSourceBucketOwner: string?
+end
+
+local WIDE_FIELDS: {
+    [string]: xml.FieldOptions
+} = {
+    blobA = xml.FieldOptions(base64 = true),
+    timestampA = xml.FieldOptions(timestamp = "datetime"),
+    blobB = xml.FieldOptions(base64 = true),
+    timestampB = xml.FieldOptions(timestamp = "datetime"),
+    blobC = xml.FieldOptions(base64 = true),
+    timestampC = xml.FieldOptions(timestamp = "datetime"),
+    blobD = xml.FieldOptions(base64 = true),
+    timestampD = xml.FieldOptions(timestamp = "datetime"),
+}
+
+local WIDE_DECLARATIONS: {any} = {WideTypesNested, WideTypesChoice}
+
+const COPY_FIELDS: {
+    [string]: xml.FieldOptions
+} = {
+    CopySourceIfModifiedSince = xml.FieldOptions(timestamp = "datetime"),
+    CopySourceIfUnmodifiedSince = xml.FieldOptions(timestamp = "datetime"),
+    Expires = xml.FieldOptions(timestamp = "datetime"),
+    ObjectLockRetainUntilDate = xml.FieldOptions(timestamp = "datetime"),
+}
+
+--- The namespace the awsQuery response is written in.
+export const AWS_QUERY_NAMESPACE = "https://awsquerydataplane.amazonaws.com"
+
+--- The codecs each case decodes or encodes with, built with the options a
+--- benchmark mode adds: `namespaces`, `strict` or `encoding`.
+export record Codecs
+    GetMetricData: xml.Codec<GetMetricDataOutput>
+    WideTypesResponse: xml.Codec<WideTypesOutput>
+    WideTypesRequest: xml.Codec<WideTypesInput>
+    CopyObjectResponse: xml.Codec<CopyObjectOutput>
+    CopyObjectBody: xml.Codec<CopyObjectRequest>
+end
+
+export function codecs(namespaces: boolean, strict: boolean, encoding: boolean): Codecs
+    return Codecs(
+        GetMetricData = xml.codec(GetMetricDataOutput, {
+            name = "GetMetricDataResponse",
+            namespace = namespaces and AWS_QUERY_NAMESPACE or nil,
+            wrappers = {"GetMetricDataResult"},
+            records = {MetricDataResult = {Timestamps = xml.FieldOptions(timestamp = "datetime")}},
+            declarations = {MetricDataResult, MessageData},
+            namespaces = namespaces,
+            strict = strict,
+            encoding = encoding,
+        }),
+        WideTypesResponse = xml.codec(WideTypesOutput, {
+            fields = WIDE_FIELDS,
+            declarations = WIDE_DECLARATIONS,
+            namespaces = namespaces,
+            strict = strict,
+            encoding = encoding,
+        }),
+        WideTypesRequest = xml.codec(WideTypesInput, {
+            fields = WIDE_FIELDS,
+            declarations = WIDE_DECLARATIONS,
+            namespaces = namespaces,
+            strict = strict,
+            encoding = encoding,
+        }),
+        CopyObjectResponse = xml.codec(CopyObjectOutput, {
+            name = "CopyObjectResult",
+            fields = {LastModified = xml.FieldOptions(timestamp = "datetime")},
+            namespaces = namespaces,
+            strict = strict,
+            encoding = encoding,
+        }),
+        CopyObjectBody = xml.codec(CopyObjectRequest, {
+            fields = COPY_FIELDS,
+            namespaces = namespaces,
+            strict = strict,
+            encoding = encoding,
+        })
+    )
+end
+
+--- The default mode's codecs.
+export const defaults: Codecs = codecs(false, false, false)

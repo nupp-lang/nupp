@@ -66,6 +66,12 @@ restores its previous contents if serialization fails; `json.decodebuffer`
 decodes the text one holds. `json.codec(policy)`
 makes a codec with a model-owned policy and its own bounded cache.
 
+## XML
+
+[XML](xml.md) covers `serde.xml`: a typed codec that decodes elements straight
+into records and takes a binding made here, a pull reader, an element tree and
+a writer, and the options that cost speed.
+
 ## Schema-free JSON
 
 `serde.json.encode` and `serde.json.decode` use a binding. Use

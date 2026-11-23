@@ -1,0 +1,44 @@
+--[[
+Prints Nupp-to-smithy-java ratios per case.
+
+    nupp run bench/xml/compare.nupp NUPP.json [BASELINE.json]
+
+NUPP.json is what `bench/xml/codec.nupp` wrote. The baseline defaults to
+`bench/xml/baseline/smithy-java.json`, and the bar is its codec-only score.
+]]
+local json = require("serde.json")
+
+local function load(path: string): any
+    local file = assert(io.open(path, "rb"))
+    local text = file:read("a") as string
+    file:close()
+
+    local decoded: any = json.decodevalue(text)
+
+    return decoded
+end
+
+local arguments: {string} = (rawget(_G, "arg") or {}) as {string}
+local nupp = load((assert(arguments[1], "pass the JSON bench/xml/codec.nupp wrote")))
+local baseline = load(arguments[2] or "bench/xml/baseline/smithy-java.json")
+
+local bars: {[string]: number} = {}
+for _, run in ipairs(baseline.codec_only) do
+    bars[run.case] = run.ops_per_sec.score
+end
+
+print(string.format("%-48s %-8s %12s %12s %10s", "case", "mode", "nupp ops/s", "smithy", "ratio"))
+for _, result in ipairs(nupp.results) do
+    local bar = bars[result.case]
+    local median = result.ops_per_sec.median as number
+    print(
+        string.format(
+            "%-48s %-8s %12.1f %12s %10s",
+            result.case,
+            result.mode,
+            median,
+            bar and string.format("%.0f", bar) or "-",
+            bar and string.format("%.4f", median / bar) or "-"
+        )
+    )
+end
