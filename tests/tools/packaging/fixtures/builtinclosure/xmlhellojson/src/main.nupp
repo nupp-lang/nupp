@@ -1,0 +1,3 @@
+local json = require("serde.json")
+
+print(json.encodevalue({greeting = "hello"}))

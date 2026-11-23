@@ -1,0 +1,3 @@
+local feed = require("app.feed")
+
+print(feed.title())

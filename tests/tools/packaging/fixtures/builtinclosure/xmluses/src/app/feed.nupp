@@ -1,0 +1,10 @@
+module app.feed
+
+local xml = require("serde.xml")
+
+export function title(): string
+    local root = xml.parse("<feed><title>hello</title></feed>")
+    local child = root:child("title")
+
+    return child ~= nil and child:text() or ""
+end

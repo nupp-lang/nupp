@@ -50,7 +50,10 @@ export type Builtin = {
 }
 
 --- Every registered builtin, by the name `--without` takes.
-export const REGISTRY: {[string]: Builtin} = {}
+export const REGISTRY: {[string]: Builtin} = {
+    -- Written in Nupp, so it binds no library and runs wherever serde does.
+    xml = {modules = {"serde.xml", "serde.xml.*"}, owned = {}, libraries = {}, hosts = {"native", "browser"}},
+}
 
 --- The variable naming a JSON file of further entries, in the registry's
 --- shape, that a test registers for one process: how a fixture builtin is

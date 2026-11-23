@@ -41,4 +41,34 @@ function M.aFixtureBuiltinIsCarriedOnlyWhereItIsReached()
     )
 end
 
+-- serde.xml is a builtin with no C library: a program that does not reach it,
+-- serde.json's included, carries none of its modules, and one that does carries
+-- them and is refused when built --without xml.
+function M.xmlIsCarriedOnlyWhereItIsReached()
+    local why = closure.unavailable()
+    if why then
+        return require("assert").suite.skip(why)
+    end
+    for _, hello in ipairs({FIXTURES .. "/hello", FIXTURES .. "/xmlhellojson"}) do
+        local result = closure.run({
+            name = "xml",
+            hello = hello,
+            uses = FIXTURES .. "/xmluses",
+            reaches = {"serde.xml", "serde.xml.internal.cursor", "serde.xml.internal.tree"},
+            chain = {"src/main.nupp", "src/app/feed.nupp"},
+            record = os.getenv("NUPP_BUILTIN_CLOSURE_RECORD"),
+        })
+        assert(#result.problems == 0, "the closure harness found:\n  " .. table.concat(result.problems, "\n  "))
+        assert(result.sizes.uses > result.sizes.hello, "uses carries more than hello")
+        io.stderr:write(
+            ("builtin closure: %s %d bytes, xml uses %d bytes, serde.xml %d bytes\n"):format(
+                hello:match("([^/]+)$"),
+                result.sizes.hello,
+                result.sizes.uses,
+                result.sizes.difference
+            )
+        )
+    end
+end
+
 return M
