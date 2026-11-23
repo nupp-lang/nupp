@@ -74,12 +74,22 @@ local record Input<M is core.Member> is aggregates.Reader<M>, own.Closeable
 
     function consume(exclusive self, kind: core.Kind): nil
         self:live()
-        assert2(self.value.kind == kind, "document kind does not match the binding")
+        -- Named by its member, so a caller can say which of its values it was.
+        if self.value.kind ~= kind then
+            assert2(
+                false,
+                (
+                    "document kind does not match the binding: member %s is %s where %s is read"
+                ):format(self.plan.description.member.name, self.value.kind, kind)
+            )
+        end
         self.used = true
     end
 
     function readnull(exclusive self, member: M): nil
-        assert2(self.plan.description.nullable or self.plan.description.kind == "null", "binding does not admit null")
+        if not (self.plan.description.nullable or self.plan.description.kind == "null") then
+            assert2(false, "binding does not admit null: member " .. self.plan.description.member.name)
+        end
         self:consume("null")
     end
 
