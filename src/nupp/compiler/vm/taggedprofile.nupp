@@ -1673,6 +1673,16 @@ export function forVersion(version: integer): any
             while target and target.tag == "literal" do
                 target = target.base
             end
+            -- A struct the checker could not settle from the value's static
+            -- type is the one the type id beside its bytes names.
+            local struct = taggedstructs.origin(target)
+            if struct then
+                local value = ctx.expression(need(node.expr, "a type test lacks its value"), "tagged")
+                if value == nil then
+                    return nil as any
+                end
+                return taggedstructs.test(ctx, node, struct, value)
+            end
             local tag = target and target.tag
             -- int64 is the integer: its test is the number's subtype.
             local id: integer = 32
@@ -1685,20 +1695,6 @@ export function forVersion(version: integer): any
                 answer = t.primitiveTest
             elseif t.kind == "tfunc" then
                 answer = "function"
-            end
-            -- A struct's instance is its bytes, which carry no type: a test
-            -- the checker could not settle from the value's static type has
-            -- nothing to ask when the program runs.
-            local struct = taggedstructs.origin(target)
-            if answer == nil and struct then
-                error(
-                    "tagged graph: a type test against struct " .. tostring(
-                        struct.name
-                    )
-                    .. " needs the value's static type to settle it: a struct on the core is its bytes, with no"
-                    .. " runtime type to test",
-                    0
-                )
             end
             if answer == nil then
                 error(
@@ -1828,6 +1824,12 @@ export function forVersion(version: integer): any
             -- A derive recipe's members, after the declaration's own, as main
             -- makes them.
             if not derivedmembers.emit(ctx, stat, held) or not recordcallables.emit(ctx, stat, held) then
+                ctx.release(held)
+                return nil
+            end
+            -- A struct's table, once it holds its members, is the struct
+            -- provider's to make callable from Lua (taggedstructs.declare).
+            if stat.declKind == "struct" and not taggedstructs.declare(ctx, stat, held) then
                 ctx.release(held)
                 return nil
             end

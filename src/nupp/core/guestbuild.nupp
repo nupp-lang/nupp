@@ -14,6 +14,7 @@ local environment: any = require("nupp.compiler.project.env")
 local cst = require("nupp.compiler.syntax.cst")
 local programgraph = require("nupp.compiler.vm.programgraph")
 local recordcallables = require("nupp.compiler.vm.recordcallables")
+local taggedstructs = require("nupp.compiler.vm.taggedstructs")
 local scalartypeof = require("nupp.compiler.vm.scalartypeof")
 local ownedcallables = require("nupp.compiler.vm.ownedcallables")
 local forwardedexports = require("nupp.compiler.vm.forwardedexports")
@@ -875,6 +876,10 @@ local function requiredmodules(root: any, source: string, follow: boolean): ({st
         end
         if ownedcallables.taking(node) then
             add(ownedcallables.MODULE, false)
+        end
+        -- A struct's declaration gives its table to the struct provider.
+        if taggedstructs.declaration(node) then
+            add(taggedstructs.MODULE, false)
         end
         if recordcallables.record(node) then
             add(recordcallables.MODULE, false)

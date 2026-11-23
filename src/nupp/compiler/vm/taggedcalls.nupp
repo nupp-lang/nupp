@@ -248,6 +248,9 @@ local function foreigncall(ctx: any, node: any, signature: any, count: integer?,
             "tagged"
         )
     )
+    if value ~= nil and ctx.block ~= nil then
+        value = taggedforeign.result(ctx, node, signature, value)
+    end
     if count then
         local results = {value}
         while #results < count do

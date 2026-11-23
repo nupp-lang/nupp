@@ -3,7 +3,7 @@ module nupp.runtime.provider.corestructs
 
 --[[
 Structs as the storage library sees them on the native core, where a struct
-instance is its bytes in C layout and has no metatable to find a field by
+instance is its bytes in C layout, with no table to find a field in by
 name. `ffi.typeof<T>()` of a struct is the descriptor `descriptor` makes from
 the layout the struct's declaration table holds: callable for a zeroed
 instance, its scalar fields each with the storage descriptor of its kind, and
@@ -11,6 +11,10 @@ instance, its scalar fields each with the storage descriptor of its kind, and
 a view of its bytes, as the generated code does by offset. A columnar
 allocation and its layout are main's `table.Array` operations given that
 descriptor, the field specification the checker measured from it.
+
+A struct's declaration hands its table to `declare`, which makes the table
+callable from Lua, `S(...)`, and gives the struct's instances the metatable
+their type id finds, through which Lua reads and writes a field by name.
 ]]
 
 const storage = require("nupp.runtime.storagecalls")
@@ -19,6 +23,9 @@ const heap = require("nupp.runtime.provider.heapstorage")
 const _ARRAY_REQUIRES = "@requires-dynamically nupp.array"
 
 const LAYOUT_KEY = "\0nupp:structLayout"
+-- The key that names the declaration of the struct a table is
+-- (`declare`), which its instances' type ids are given by.
+const STRUCT_KEY = "\0nupp:structKey"
 -- The widest field alignment the columnar layout accepts.
 const MAX_FIELD_ALIGNMENT = 8
 const signedKind: {[integer]: string} = {[4] = "int32", [8] = "int64"}
@@ -42,13 +49,21 @@ end
 
 local descriptors: {[any]: any} = setmetatable({}, {__mode = "k"})
 
--- A zeroed instance: one block of the struct's bytes (heapstorage.block).
+-- A zeroed instance: one block of the struct's bytes (heapstorage.block),
+-- its type id the declaration's once the struct is declared.
 local DESCRIPTOR: any = {
     __call = function(self: any): any
+        local made: any = nil
         if self.size == 0 then
-            return storage.allocbytes(0)
+            made = storage.allocbytes(0)
+        else
+            made = storage.allocate(heap.block(self.size), 1)
         end
-        return storage.allocate(heap.block(self.size), 1)
+        if self.key ~= nil then
+            storage.typed(made, self.key)
+        end
+
+        return made
     end
 }
 
@@ -83,6 +98,7 @@ export function descriptor(class: any): any
             fields = fields,
             byname = byName,
             class = class,
+            key = rawget(class, STRUCT_KEY),
             readfield = readfield,
             writefield = writefield
         },
@@ -127,6 +143,82 @@ export function writefield(element: any, value: any, name: string, given: any): 
         return
     end
     cell[0] = given
+end
+
+-- The metatable every instance of struct `class` shares, found by the type
+-- id beside its bytes: a field Lua reads or writes by name, where no static
+-- type gave its offset, is reached through the layout as `readfield` and
+-- `writefield` reach it, and any other name is the struct's member.
+local function instances(class: any): any
+    return {
+        __index = function(self: any, name: any): any
+            local element = descriptor(class)
+            if type(name) == "string" and element.byname[name] ~= nil then
+                return readfield(element, self, name)
+            end
+
+            return class[name]
+        end,
+        __newindex = function(self: any, name: any, value: any): nil
+            writefield(descriptor(class), self, name, value)
+        end
+    }
+end
+
+-- A struct built from Lua, `S(...)`: its zeroed bytes, each field its
+-- argument by position when the struct declares no constructor, else its
+-- default, and then the constructor whose arity admits the arguments.
+local function constructor(class: any, spec: any): any
+    return function(_: any, ...: any): any
+        local count = select("#", ...)
+        local chosen = 0
+        for index, entry in ipairs(spec.constructors) do
+            if chosen == 0 and count >= entry.min and count <= entry.max then
+                chosen = index
+            end
+        end
+        if #spec.constructors > 0 and chosen == 0 then
+            error("no constructor accepts these arguments", 2)
+        end
+        local element = descriptor(class)
+        local instance = element()
+        for index, field in ipairs(spec.fields) do
+            local value: any = nil
+            if chosen == 0 and index <= count then
+                value = (select(index, ...))
+            end
+            if value == nil and spec.defaulted[index] then
+                value = spec.defaults[index]
+            end
+            if value ~= nil then
+                writefield(element, instance, field, value)
+            end
+        end
+        if chosen > 0 then
+            class["\0new" .. tostring(chosen)](instance, ...)
+        end
+
+        return instance
+    end
+end
+
+--- Declares struct table `class` from what its declaration is (`spec`: its
+--- key, stored fields, defaults and constructors' arities, which the
+--- compiler writes): Lua calls the table to build one, and reads and writes
+--- an instance's fields by name through the metatable its type id finds.
+export function declare(class: any, spec: any): nil
+    rawset(class, STRUCT_KEY, spec.key)
+    local known = descriptors[class]
+    if known ~= nil then
+        known.key = spec.key
+    end
+    storage.declare(spec.key, instances(class))
+    local meta = getmetatable(class)
+    if meta == nil then
+        setmetatable(class, {__call = constructor(class, spec)})
+    elseif type(meta) == "table" and rawget(meta, "__call") == nil then
+        rawset(meta, "__call", constructor(class, spec))
+    end
 end
 
 -- main's layout facts for the checker's field specification `raw` of the

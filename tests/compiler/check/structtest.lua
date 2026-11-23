@@ -422,6 +422,73 @@ function M.structConstructorRunsUnderNew()
     testAssert.eq(isInstance, true, "the constructor hands back an instance of that struct")
 end
 
+-- A default an interface of another module gives a struct is that
+-- interface's one body, which reads and writes the struct's fields by name:
+-- on the core, through the metatable the struct's type id finds.
+function M.anInterfaceDefaultFromAnotherModuleReachesTheStructByName()
+    if program.onVm() then
+        return
+    end
+    local sized = table.concat(
+        {
+            "module structsized",
+            "export interface Sized",
+            "   w: float64",
+            "   h: float64",
+            "   function area(self): number",
+            "      return self.w * self.h",
+            "   end",
+            "   function grow(self, by: float64): nil",
+            "      self.w = self.w + by",
+            "   end",
+            "end",
+        },
+        "\n"
+    )
+    -- The interface's module, where the core's chunk compiler finds it, and
+    -- what `require` answers for it.
+    local root = os.tmpname()
+    os.remove(root)
+    assert(os.execute("mkdir -p '" .. root .. "'"))
+    local file = assert(io.open(root .. "/structsized.nupp", "wb"))
+    file:write(sized)
+    file:close()
+    require("nupp.compiler.vm.corechunk").checkingRoot(root)
+    local interface = compile(sized, "structsized.nupp", "structsized")
+    local preloaded = package.preload.structsized
+    package.preload.structsized = function()
+        return program.run(interface, "structsized")
+    end
+    local consumerEnv = envMod.new(HERE .. "/..", {memoryOnly = true, cache = false, nativeCompilerServices = false})
+    consumerEnv.loaded.structsized = {type = require("nupp.compiler.types").any, exports = interface.moduleExports}
+    local source = table.concat(
+        {
+            "local {type Sized} = require(\"structsized\")",
+            "local struct Box is Sized",
+            "   w: float64",
+            "   h: float64",
+            "end",
+            "local box = Box(3, 4)",
+            "local before = box:area()",
+            "box:grow(1)",
+            "return before, box:area(), box.w",
+        },
+        "\n"
+    )
+    local parsed = parser.parse(source, "structsizedbox.nupp")
+    testAssert.eq(#parsed.errors, 0, "syntax errors")
+    local diags = check.check(parsed, "structsizedbox.nupp", consumerEnv, {moduleName = "structsizedbox"})
+    testAssert.eq(#diags, 0, "check diagnostics" .. (diags[1] and (": " .. diags[1].msg) or ""))
+    local ok, before, after, w = pcall(program.run, parsed, "structsizedbox")
+    package.preload.structsized = preloaded
+    package.loaded.structsized = nil
+    os.execute("rm -rf '" .. root .. "'")
+    assert(ok, before)
+    testAssert.eq(before, 12, "the default reads each field the struct has")
+    testAssert.eq(after, 16, "and writes one by name")
+    testAssert.eq(w, 4, "the struct's own read sees the default's write")
+end
+
 function M.dottedStructConstructorReachesItsMetatable()
     local m, x = run(
         table.concat(
