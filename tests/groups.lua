@@ -303,6 +303,8 @@ scopes.builtinpackagetest = "delivery"
 scopes.builtinwithouttest = "integration"
 scopes.builtinclosuretest = "delivery"
 scopes.builtinyamltest = "delivery"
+-- SQLite's binding against the pinned header.
+scopes.sqliteheadertest = "integration"
 scopes.compressionnativeprovidertest = "integration"
 scopes.nativeforeignmodetest = "integration"
 scopes.nativecodecabittest = "integration"
