@@ -10,6 +10,11 @@ local values = require("nupp.compiler.vm.taggedvalues")
 local graphcalls = require("nupp.compiler.vm.graphcalls")
 local need = values.need
 
+-- The results of the factory's `create` (a cell) and `recover` (an alias and
+-- its problem).
+const CREATED = 1
+const RECOVERED = 2
+
 local function constant(ctx: any, node: any, kind: string, value: any): integer
     return ctx.emit(node, "K", {values.pool(ctx, kind, value)}, "tagged")
 end
@@ -39,6 +44,27 @@ cleanupItem = function(ctx: any, node: any, cleanup: any): integer
     return made
 end
 
+-- The factory module: the program's own, or in a chunk, which holds none,
+-- the running program's, required by name.
+local function factory(ctx: any, node: any): integer
+    if values.catalog(ctx).chunk then
+        local name = constant(ctx, node, "str", managedcalls.MODULE)
+        return ctx.emit(node, "LibCall", {corelibrary.id("MODULE_REQUIRE"), name}, "tagged")
+    end
+
+    return ctx.emit(node, "Require", {values.pool(ctx, "str", managedcalls.MODULE)}, "tagged")
+end
+
+-- The contract plan's factory call is made against: its checked member, or
+-- in a chunk, a call through a value giving `count` results.
+local function contract(p: any, plan: any, count: integer): any
+    if p.chunk then
+        return graphcalls.dynamicInvokeContract(plan.call, count)
+    end
+
+    return graphcalls.invokeContract(plan.target, plan.call)
+end
+
 --- The managed cell of `own.manage` call `node`, or nil when the block ended.
 export function make(ctx: any, node: any): integer?
     local p = values.catalog(ctx)
@@ -62,10 +88,13 @@ export function make(ctx: any, node: any): integer?
     end
     field(ctx, node, spec, "cleanups", ctx.readHeld(list))
     ctx.release(list)
-    local module = ctx.emit(node, "Require", {values.pool(ctx, "str", managedcalls.MODULE)}, "tagged")
-    local callee = ctx.emit(node, "GetIdx", {module, constant(ctx, node, "str", managedcalls.MEMBER)}, "tagged")
-    local contract = graphcalls.invokeContract(plan.target, plan.call)
-    local answer = ctx.invoke(node, callee, {ctx.readHeld(owned), ctx.readHeld(spec)}, contract, true)
+    local callee = ctx.emit(
+        node,
+        "GetIdx",
+        {factory(ctx, node), constant(ctx, node, "str", managedcalls.MEMBER)},
+        "tagged"
+    )
+    local answer = ctx.invoke(node, callee, {ctx.readHeld(owned), ctx.readHeld(spec)}, contract(p, plan, CREATED), true)
     ctx.release(spec)
     ctx.release(owned)
     if answer == nil or ctx.block == nil then
@@ -83,7 +112,7 @@ export function recover(ctx: any, node: any, keepResult: boolean, count: integer
     local plan = need(p.manages[node], "own.recoveralias lacks its factory plan")
     managedcalls.verify(p, plan)
     need(plan.owner == ctx.fn.id and plan.member == managedcalls.RECOVER, "own.recoveralias plan differs")
-    local module = ctx.emit(node, "Require", {values.pool(ctx, "str", managedcalls.MODULE)}, "tagged")
+    local module = factory(ctx, node)
     local callee = ctx.hold(ctx.emit(node, "GetIdx", {module, constant(ctx, node, "str", plan.member)}, "tagged"))
     local args = node.args and node.args.exprs or {}
     local value = args[1] and ctx.expression(args[1], "tagged")
@@ -97,10 +126,10 @@ export function recover(ctx: any, node: any, keepResult: boolean, count: integer
     value = ctx.readHeld(held)
     ctx.release(held)
     ctx.release(callee)
-    local contract = graphcalls.invokeContract(plan.target, plan.call)
+    local agreed = contract(p, plan, RECOVERED)
     if count then
-        return values.landed(ctx, node, ctx.invokeMany(node, target, {value, none}, contract, count))
+        return values.landed(ctx, node, ctx.invokeMany(node, target, {value, none}, agreed, count))
     end
 
-    return values.landed(ctx, node, ctx.invoke(node, target, {value, none}, contract, keepResult, nil, open))
+    return values.landed(ctx, node, ctx.invoke(node, target, {value, none}, agreed, keepResult, nil, open))
 end

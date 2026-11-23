@@ -1982,14 +1982,16 @@ export function describe(modules: {any}, entryModule: string, options: any?): an
                 id = #p.calls,
                 owner = owner.id,
                 node = plan.call,
-                definition = plan.target.definition,
+                definition = plan.target and plan.target.definition,
                 managed = plan
             }
             p.calls[#p.calls + 1], p.callByNode[plan.call] = site, site
-            local load = {kind = "qualifiedLoad", qualifiedModule = managedcalls.MODULE, cst.firstToken(node)}
-            local module = need(moduleNames[managedcalls.MODULE], "managed cell module is missing")
-            plan.loader = qualifiedload(owner, module, load)
-            plan.loader.managed = plan
+            if not p.chunk then
+                local load = {kind = "qualifiedLoad", qualifiedModule = managedcalls.MODULE, cst.firstToken(node)}
+                local module = need(moduleNames[managedcalls.MODULE], "managed cell module is missing")
+                plan.loader = qualifiedload(owner, module, load)
+                plan.loader.managed = plan
+            end
         end
         if recordcallables.record(node)
             and materializedRecords[node]
