@@ -785,6 +785,33 @@ export function closure(ctx: any, node: any, expected: string?): integer
     return value
 end
 
+-- The loaders' module, whose `require` is Lua's: the image's modules, then a
+-- file on `package.path`, then a module's source.
+const LOADERS = "nupp.runtime.luaload"
+
+-- `require(name)` of a computed name as Lua's `require`: the loaders'
+-- `require` called with it, through the callsite the program graph issued
+-- for it (programgraph.searchesFiles).
+local function searchingRequire(ctx: any, node: any, site: any): integer?
+    local loaders = ctx.emit(
+        node,
+        "LibCall",
+        {corelibrary.id("MODULE_REQUIRE"), stringConstant(ctx, node, LOADERS)},
+        "tagged"
+    )
+    local functions = ctx.emit(node, "GetIdx", {loaders, stringConstant(ctx, node, "functions")}, "tagged")
+    local callee = ctx.hold(ctx.emit(node, "GetIdx", {functions, stringConstant(ctx, node, "require")}, "tagged"))
+    local name = ctx.expression(node.args.exprs[1], "tagged")
+    if name == nil or ctx.block == nil then
+        ctx.release(callee)
+        return nil
+    end
+    local loader = ctx.readHeld(callee)
+    ctx.release(callee)
+
+    return landed(ctx, node, ctx.invoke(node, loader, {name}, graph.dynamicInvokeContract(site.node, 1), true))
+end
+
 export function call(ctx: any, node: any, expected: string?): integer?
     need(expected == nil or expected == "tagged", "call requires tagged destination")
     if node.runtimeLoader == "require" then
@@ -2325,9 +2352,14 @@ export function forVersion(version: integer): any
                 end
                 return results[1]
             end
-            -- `require` of a computed name: the module the image holds by it.
+            -- `require` of a computed name: the module the image holds by it,
+            -- then, as Lua's searchers do, one on `package.path`.
             if graph.dynamicRequire(node) then
                 need(#(node.args.exprs or {}) == 1, "require takes one module name")
+                local searched = (catalog(ctx).searchedRequires or {})[node]
+                if searched ~= nil then
+                    return searchingRequire(ctx, node, searched)
+                end
                 return libraryCall(ctx, node, corelibrary.id("MODULE_REQUIRE"), node.args.exprs)
             end
             if node.runtimeLoader == "require" then

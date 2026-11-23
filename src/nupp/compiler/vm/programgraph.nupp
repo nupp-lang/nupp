@@ -637,6 +637,23 @@ local function assignForwardLocals(root: any, replaced: {[any]: any}): nil
     end)
 end
 
+-- The loaders, whose `require` is Lua's: the image's modules, then a file on
+-- `package.path`, then a module's source. The runtime's own modules, which the
+-- loaders are built on, require from the image alone.
+const LOADERS = "nupp.runtime.luaload"
+const RUNTIME_PREFIX = "nupp.runtime."
+
+-- Whether a computed require in function `owner` searches past the image:
+-- in a program, not a chunk, that carries the loaders, outside the runtime.
+local function searchesFiles(p: any, owner: any, moduleNames: {[string]: any}): boolean
+    local module = owner.scope and owner.scope.name
+
+    return not p.chunk
+        and moduleNames[LOADERS] ~= nil
+        and type(module) == "string"
+        and (module as string):sub(1, #RUNTIME_PREFIX) ~= RUNTIME_PREFIX
+end
+
 -- `options.chunk` describes a chunk Lua's `load` compiles (nupp.compiler.vm.corechunk):
 -- a name no declaration binds is a global, a field of the running program's
 -- `_G`, and every module it requires is the running program's, by name.
@@ -752,7 +769,10 @@ export function describe(modules: {any}, entryModule: string, options: any?): an
         -- (nupp.compiler.vm.stubmodules).
         stubs = {},
         -- The modules a require cycle can re-enter, by name.
-        cyclic = {}
+        cyclic = {},
+        -- Each computed require that searches past the image, to the call
+        -- through the loaders' `require` it makes (taggedprofile).
+        searchedRequires = {}
     }
     local moduleNames, topLevel, sourcePaths = {}, {}, {}
     -- Function statements' own names, which name the locals they assign.
@@ -2151,6 +2171,17 @@ export function describe(modules: {any}, entryModule: string, options: any?): an
         local loader = node.kind == "call" and node.runtimeLoader == "require" and not graph.dynamicRequire(node)
         if graph.dynamicRequire(node) then
             p.dynamicRequires = true
+            if searchesFiles(p, owner, moduleNames) then
+                local argument = {kind = "nil", inferredType = {tag = "any"}}
+                local through = {
+                    kind = "call",
+                    token = cst.firstToken(node),
+                    args = {kind = "args", exprs = {argument}}
+                }
+                local site = {id = #p.calls, owner = owner.id, node = through, searched = node, dynamic = true}
+                p.calls[#p.calls + 1], p.callByNode[through] = site, site
+                p.searchedRequires[node] = site
+            end
         end
         if loader then
             local scalarImport = p.scalartypes.imports[node]
@@ -3000,7 +3031,17 @@ export function verify(p: any): boolean
     for index, item in ipairs(p.calls) do
         local node = item.node
         need(item.id == index - 1 and p.owners[item.owner + 1], "invalid callsite owner")
-        if item.indexed then
+        if item.searched then
+            need(
+                node.kind == "call"
+                and p.callByNode[node] == item
+                and p.searchedRequires[item.searched] == item
+                and graph.dynamicRequire(item.searched)
+                and item.definition == nil
+                and #node.args.exprs == 1,
+                "searched require callsite identity mismatch"
+            )
+        elseif item.indexed then
             local access = item.indexed
             need(
                 p.indexedByNode[access.node] == access
