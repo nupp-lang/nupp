@@ -546,6 +546,14 @@ local function callsWithin(p: any, node: any): boolean
         return false
     elseif node.kind == "call" or node.kind == "methodCall" then
         return true
+    elseif node.kind == "dotIndex" and node.qualifiedModule ~= nil
+        or type(node.indexedAccess) == "table"
+        or scalarlanes.call(node) ~= nil
+    then
+        -- So is what lowers to one: a qualified path (`io.cli.args`), which
+        -- requires its module where it is read, an indexed span's access
+        -- (`bytes[1]`) and an operation on a vector or a mask.
+        return true
     end
     for _, child in ipairs(node) do
         if callsWithin(p, child) then
