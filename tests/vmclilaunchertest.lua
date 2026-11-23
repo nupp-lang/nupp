@@ -106,6 +106,12 @@ local function plantedTree()
         file:close()
     end
 
+    -- The tree starts before the flip, whichever hosts the real pins list; the
+    -- cases about a flipped host list theirs (`flippedTree`).
+    plant(
+        "scripts/toolchain.pins",
+        (assert(readFile(dir .. "/scripts/toolchain.pins")):gsub("\nSTAGE0_CORE_HOSTS=[^\n]*", "\nSTAGE0_CORE_HOSTS="))
+    )
     plant("scripts/generation.py", GENERATION)
     plant("scripts/vm-cli", FAKE_VM_CLI)
     assert(os.execute(("chmod +x '%s/scripts/vm-cli'"):format(dir)) == 0)
