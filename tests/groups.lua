@@ -903,6 +903,15 @@ hotreloadtest/cliWatchCommitsAndKeepsTheLastGoodGeneration
 hotreloadtest/cliWatchPatchesUnderARunningLoop
 hotreloadtest/cliWatchRequiresRestartForMappedNativeReplacement
 ]])
+requires("core", "the GPU providers, which bind their libraries only on the core", [[
+gpudevicetest
+]])
+requires("core", "table.pack, the failing frame under a handler and unsigned text, which only the core has", [[
+handlerordertest/theHandlerSeesTheFailingFrame
+luaparitytest/tablePackCountsItsValuesNilsIncluded
+luaparitytest/tableUnpackGivesItsRange
+unsignedtexttest
+]])
 requires("core", "serde.yaml's libyaml codec, which writes through the core's C bridge", [[
 yamlbindingtest
 ]])

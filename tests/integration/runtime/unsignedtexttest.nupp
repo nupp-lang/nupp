@@ -4,7 +4,7 @@
 local test = require("assert")
 local M = {}
 
-function M.aUint64WritesItsUnsignedDecimal()
+function M.aUint64WritesItsUnsignedDecimal(): nil
     local largest: uint64 = 18446744073709551615ULL
     local small: uint64 = 42ULL
     test.eq(tostring(largest), "18446744073709551615")
