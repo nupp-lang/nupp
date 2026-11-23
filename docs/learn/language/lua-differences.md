@@ -34,6 +34,26 @@ The native runtime cannot make the function that table would print through
 when it lands the error, so it keeps the failure the program raised, which
 is the one it is most likely to test for.
 
+### Messages that do not name the variable
+
+Lua adds the variable a failed operation read to its message, such as
+`attempt to call a nil value (method 'missing')` or `attempt to index a nil
+value (global 'config')`. The native runtime's message stops before the
+parenthesis:
+
+```lua
+local ok, problem = pcall(function()
+    local box = {}
+    return box:missing()
+end)
+-- problem ends "attempt to call a nil value"
+```
+
+Lua finds that name by reading the bytecode around the failed instruction.
+The native runtime keeps no such description of its instructions, so a
+message names only the kind of value. Match a message by its prefix rather
+than by the whole text.
+
 ## Control flow
 
 ### goto
