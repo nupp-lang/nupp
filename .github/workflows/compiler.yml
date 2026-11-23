@@ -928,7 +928,22 @@ jobs:
       - name: Check out the repository
         uses: actions/checkout@v5
 
+      # The wgpu provider runs on the native core only, through its C bridge
+      # (`nupp.runtime.foreigncalls`); the VM no longer can. On a host the pins
+      # have not flipped (`scripts/stage0-runtime`) the job says so and runs
+      # nothing else.
+      - name: Check the host runs the native core
+        id: runtime
+        shell: bash
+        run: |
+          runtime=$(sh scripts/stage0-runtime)
+          echo "runtime=$runtime" >> "$GITHUB_OUTPUT"
+          if [ "$runtime" != core ]; then
+            echo "::notice::GPU conformance skipped: the wgpu provider runs only on the native core, and this host runs the Rust VM"
+          fi
+
       - name: Restore the provisioned toolchain
+        if: steps.runtime.outputs.runtime == 'core'
         uses: actions/cache@v4
         with:
           path: .nupp-cache/toolchain
@@ -939,6 +954,7 @@ jobs:
             nupp-toolchain-${{ runner.os }}-${{ runner.arch }}-
 
       - name: Install the software Vulkan adapter
+        if: steps.runtime.outputs.runtime == 'core'
         run: |
           sudo apt-get update
           sudo apt-get install -y libvulkan1 mesa-vulkan-drivers
@@ -947,6 +963,7 @@ jobs:
           printf 'NUPP_GPU_ICD=%s\n' "$icd" >> "$GITHUB_ENV"
 
       - name: Restore compiled GPU test modules
+        if: steps.runtime.outputs.runtime == 'core'
         uses: actions/cache@v4
         with:
           path: build/cache
@@ -961,11 +978,12 @@ jobs:
             nupp-wgpu-modules-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('scripts/bootstrap-seeds.json') }}-
 
       - name: Run exact GPU dispatch and readback
+        if: steps.runtime.outputs.runtime == 'core'
         id: gpu_conformance
         run: .github/scripts/test-gpu-conformance.sh
 
       - name: Upload GPU conformance receipt
-        if: always()
+        if: always() && steps.runtime.outputs.runtime == 'core'
         uses: actions/upload-artifact@v4
         with:
           name: wgpu-conformance-${{ runner.os }}-${{ runner.arch }}
@@ -982,7 +1000,22 @@ jobs:
       - name: Check out the repository
         uses: actions/checkout@v5
 
+      # The wgpu provider runs on the native core only, through its C bridge
+      # (`nupp.runtime.foreigncalls`); the VM no longer can. On a host the pins
+      # have not flipped (`scripts/stage0-runtime`) the job says so and runs
+      # nothing else.
+      - name: Check the host runs the native core
+        id: runtime
+        shell: bash
+        run: |
+          runtime=$(sh scripts/stage0-runtime)
+          echo "runtime=$runtime" >> "$GITHUB_OUTPUT"
+          if [ "$runtime" != core ]; then
+            echo "::notice::GPU conformance skipped: the wgpu provider runs only on the native core, and this host runs the Rust VM"
+          fi
+
       - name: Restore the provisioned toolchain
+        if: steps.runtime.outputs.runtime == 'core'
         uses: actions/cache@v4
         with:
           path: .nupp-cache/toolchain
@@ -995,6 +1028,7 @@ jobs:
       # Adapter absence is a failure: Vulkan cannot silently substitute for
       # the retained Windows DX12 contract.
       - name: Restore compiled GPU test modules
+        if: steps.runtime.outputs.runtime == 'core'
         uses: actions/cache@v4
         with:
           path: build/cache
@@ -1009,12 +1043,13 @@ jobs:
             nupp-wgpu-modules-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('scripts/bootstrap-seeds.json') }}-
 
       - name: Run exact DX12 dispatch and readback
+        if: steps.runtime.outputs.runtime == 'core'
         id: gpu_conformance
         shell: bash
         run: .github/scripts/test-gpu-conformance-windows.sh
 
       - name: Upload GPU conformance receipt
-        if: always()
+        if: always() && steps.runtime.outputs.runtime == 'core'
         uses: actions/upload-artifact@v4
         with:
           name: wgpu-conformance-${{ runner.os }}-${{ runner.arch }}
