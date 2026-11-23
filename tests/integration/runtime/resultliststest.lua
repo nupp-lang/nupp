@@ -88,6 +88,29 @@ function M.selectGivesEveryValueFromItsIndexOn()
     assert(tostring(problem):find("bad argument #1 to 'select'", 1, true), tostring(problem))
 end
 
+-- select over pcall's results: the checker types each of pcall's answers,
+-- and a chunk calls select through its environment because its arguments
+-- make a call, so every list still takes all it gives.
+function M.selectOverPcallGivesEveryValueInEveryList()
+    test.eq(count(select(2, pcall(three))), 3)
+    test.eq(select("#", select(2, pcall(three))), 3)
+    test.eq(select("#", pcall(three)), 4)
+    local t = {select(2, pcall(three))}
+    test.eq(#t, 3)
+    test.eq(t[3], 3)
+    test.eq(string.format("%s %s %s", select(2, pcall(three))), "1 2 3")
+    local a, b, c = select(2, pcall(three))
+    test.eq(a, 1)
+    test.eq(b, 2)
+    test.eq(c, 3)
+    local protected = pcall
+    test.eq(count(select(2, protected(three))), 3)
+    local failed = {select(2, pcall(error, "boom", 0))}
+    test.eq(#failed, 1)
+    test.eq(failed[1], "boom")
+    test.eq(select(-1, pcall(three)), 3)
+end
+
 function M.assignmentsAndReturnsTakeEverySelectedValue()
     local a, b = select(2, three())
     test.eq(a, 2)
