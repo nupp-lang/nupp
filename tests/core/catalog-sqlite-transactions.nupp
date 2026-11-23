@@ -1,0 +1,167 @@
+module nupp.core.catalogsqlitetransactions
+
+-- Scoped transactions and open options of the sqlite library on the core:
+-- commit on return, rollback and the same error again on a raise, nested
+-- savepoints, a second coroutine refused while a transaction is open, and
+-- readonly, create, WAL with a reader beside a writer, a busy timeout and
+-- foreign keys. Each check is a bit of the score.
+const provider = require("nupp.runtime.provider.nativesqlite")
+
+local score = 0
+local bit = 1
+
+local function check(ok: boolean): nil
+    if ok then
+        score = score | bit
+    end
+    bit = bit << 1
+end
+
+local function raised(borrows body: function(): nil): unknown
+    local ok, problem = pcall(body)
+    if ok then
+        return nil
+    end
+
+    return problem
+end
+
+local directory = assert(os.getenv("NUPP_GUEST_TEMP"), "NUPP_GUEST_TEMP names a directory")
+os.execute("mkdir -p '" .. directory .. "'")
+-- Unique to this run: the guard runs the program beside the bridge, and two
+-- writers of one file are refused with SQLITE_BUSY.
+local unique = os.tmpname()
+os.remove(unique)
+local path = directory .. "/sqlite-transactions-" .. string.sub(unique, -6) .. ".db"
+os.remove(path)
+os.remove(path .. "-wal")
+os.remove(path .. "-shm")
+
+local function count(borrows db: sqlite.Connection): integer
+    local row = db:first("select count(*) as n from items")
+    return row ~= nil and row.n as integer or -1
+end
+
+do
+    local db = sqlite.open(path, {journal = "wal", busytimeout = 100})
+    db:exec("create table items (id integer primary key, name text not null)")
+
+    -- Commit on return, answering what the body returned.
+    local made = db:transaction(function(borrows connection: sqlite.Connection): integer
+        local _ = connection:run("insert into items (name) values (?)", "one")
+        return 41 + 1
+    end)
+    check(made == 42 and count(db) == 1)
+
+    -- Rollback on a raise, and the same error raised again.
+    local original = {}
+    local problem = raised(function(): nil
+        db:transaction(
+            function(borrows connection: sqlite.Connection): nil
+                local _ = connection:run("insert into items (name) values (?)", "two")
+                error(original)
+            end,
+            "immediate"
+        )
+    end)
+    check(problem == original and count(db) == 1)
+
+    -- Savepoints nest at any depth, and an inner rollback keeps the outer work.
+    db:transaction(function(borrows outer: sqlite.Connection): nil
+        local _ = outer:run("insert into items (name) values (?)", "outer")
+        local inner = raised(function(): nil
+            outer:transaction(function(borrows middle: sqlite.Connection): nil
+                local _ = middle:run("insert into items (name) values (?)", "middle")
+                middle:transaction(function(borrows deepest: sqlite.Connection): nil
+                    local _ = deepest:run("insert into items (name) values (?)", "deepest")
+                end)
+                error("undo the middle")
+            end)
+        end)
+        check(tostring(inner):find("undo the middle", 1, true) ~= nil)
+    end)
+    check(count(db) == 2 and db:first("select name from items where name = 'middle'") == nil)
+
+    -- Another coroutine is refused while a transaction is open. The two share
+    -- the connection through a managed cell, as anything sharing an owner
+    -- across coroutines does. The owner cannot suspend inside the body: the
+    -- checker refuses a suspension while the borrowed connection is live.
+    do
+        local cell = own.manage(sqlite.open(":memory:"))
+        local shared = cell:alias()
+        local other = coroutine.create(function(): nil
+            local _ = shared:with(function(borrows value: sqlite.Connection): nil
+                local _ = count(value)
+            end)
+        end)
+        local _ = shared:with(function(borrows value: sqlite.Connection): nil
+            value:exec("create table items (name text)")
+            value:transaction(function(borrows connection: sqlite.Connection): nil
+                local _ = connection:run("insert into items (name) values (?)", "first")
+                local resumed, refused = coroutine.resume(other)
+                check(not resumed and tostring(refused):find("another coroutine", 1, true) ~= nil)
+            end)
+            check(count(value) == 1)
+        end)
+        -- Once it has ended, the other coroutine is let in.
+        local again = coroutine.create(function(): nil
+            local _ = shared:with(function(borrows value: sqlite.Connection): nil
+                local _ = count(value)
+            end)
+        end)
+        check((coroutine.resume(again)))
+    end
+
+    -- WAL: a second connection reads while the first holds a write open, and
+    -- a second writer waits out its busy timeout and fails as busy.
+    do
+        local reader = sqlite.open(path, {readonly = true})
+        local other = sqlite.open(path, {busytimeout = 50})
+        db:transaction(
+            function(borrows connection: sqlite.Connection): nil
+                local _ = connection:run("insert into items (name) values (?)", "pending")
+                check(count(reader) == 2)
+                local busy = raised(function(): nil
+                    local _ = other:run("insert into items (name) values (?)", "blocked")
+                end)
+                check(getmetatable(busy) == sqlite.Error and (busy as sqlite.Error).primary == sqlite.BUSY)
+            end,
+            "immediate"
+        )
+        check(count(reader) == 3)
+        -- A read-only connection cannot write.
+        local readonly = raised(function(): nil
+            local _ = reader:run("insert into items (name) values (?)", "nope")
+        end)
+        check(getmetatable(readonly) == sqlite.Error and (readonly as sqlite.Error).primary == sqlite.READONLY)
+    end
+
+    -- Foreign keys are on by default, and off when asked.
+    db:exec("create table tags (item integer not null references items (id))")
+    local orphan = raised(function(): nil
+        local _ = db:run("insert into tags (item) values (?)", 999)
+    end)
+    check(getmetatable(orphan) == sqlite.Error and (orphan as sqlite.Error).name == "SQLITE_CONSTRAINT_FOREIGNKEY")
+    do
+        local loose = sqlite.open(path, {foreignkeys = false})
+        check(loose:run("insert into tags (item) values (?)", 999) == 1)
+    end
+end
+
+-- create = false refuses a file that is not there; an option it does not
+-- take is refused.
+local missing = raised(function(): nil
+    local _ = sqlite.open(directory .. "/sqlite-missing.db", {create = false})
+end)
+check(getmetatable(missing) == sqlite.Error and (missing as sqlite.Error).primary == sqlite.CANTOPEN)
+local unknown = raised(function(): nil
+    local _ = sqlite.open(":memory:", {journals = "wal"} as any)
+end)
+check(tostring(unknown):find("no option", 1, true) ~= nil)
+
+check(provider.openhandles() == 0)
+os.remove(path)
+os.remove(path .. "-wal")
+os.remove(path .. "-shm")
+
+export const result = score

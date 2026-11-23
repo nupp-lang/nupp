@@ -1,0 +1,8 @@
+-- A statement kept past the connection it was prepared on, which the checker
+-- refuses: the statement borrows the connection.
+local function escape(): sqlite.Statement
+    local db = sqlite.open(":memory:")
+    return db:prepare("select 1")
+end
+
+return escape

@@ -412,8 +412,11 @@ local CASES: {[string]: {
     yamlsuite = {fixture = "catalog-yaml-suite", version = 8, follow = true},
     -- A generic for that holds and closes the owner its header made.
     forheaderowners = {fixture = "catalog-for-header-owners", version = 8},
-    -- SQLite on the core: its checked binding.
+    -- SQLite on the core: its checked binding, then the library over it.
     sqlitecodec = {fixture = "catalog-sqlite-codec", version = 8, follow = true},
+    sqliteapi = {fixture = "catalog-sqlite-api", version = 8, follow = true},
+    sqlitetransactions = {fixture = "catalog-sqlite-transactions", version = 8, follow = true},
+    sqliterecords = {fixture = "catalog-sqlite-records", version = 8, follow = true},
     -- Library behaviors the test runner's suites lean on.
     runnersmall = {fixture = "catalog-runner-small", version = 8},
     -- A plain Lua chunk the host compiles, as the runner's suites are.

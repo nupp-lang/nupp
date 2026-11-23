@@ -1,0 +1,270 @@
+@!internal
+--[[
+What the `sqlite` library asks of the provider that binds SQLite on a host,
+and the error both raise. The native core's is
+`nupp.runtime.provider.nativesqlite`.
+
+A provider raises an [](Error) for a call SQLite failed, copies every value
+out of SQLite's memory before answering it, and counts the connections and
+statements it holds open. Columns and parameters are numbered as SQLite
+numbers them here: columns from zero, parameters from one.
+]]
+module sqlite.internal.contracts
+
+--- A storage class, as SQLite names the five.
+export type StorageClass = "integer" | "float" | "text" | "blob" | "null"
+
+--- A value a column holds: nil for NULL.
+export type Column = integer | number | string
+
+--- A failed SQLite call.
+export record Error
+    --- SQLite's extended result code, such as 2067 for
+    --- `SQLITE_CONSTRAINT_UNIQUE`.
+    @readonly code: integer
+
+    --- The primary result code, `code & 0xff`: 19 for any constraint.
+    @readonly primary: integer
+
+    --- The symbolic name of `code`, such as `SQLITE_CONSTRAINT_UNIQUE`.
+    @readonly name: string
+
+    --- SQLite's message.
+    @readonly message: string
+
+    --- The SQL text the failing call was given, when there was one.
+    @readonly sql: string?
+
+    --- The byte offset into `sql`, from zero, of the token SQLite failed
+    --- at, when it reports one.
+    @readonly offset: integer?
+
+    --- Failures raised while handling this one, such as a rollback that
+    --- failed after it.
+    @readonly suppressed: const{unknown} = {}
+
+    --- Renders the name, the message, and the offset when there is one, as in
+    --- `SQLITE_ERROR: near "frm": syntax error (at byte 9)`.
+    metamethod __tostring: function(self): string
+end
+
+Error.__tostring = function(self: Error): string
+    local at = self.offset ~= nil and " (at byte " .. tostring(self.offset) .. ")" or ""
+    local suppressed = #self.suppressed > 0 and " (suppressed " .. tostring(#self.suppressed) .. " later failure)" or ""
+    return self.name .. ": " .. self.message .. at .. suppressed
+end
+
+-- The documented result codes, primary and extended, by number.
+local NAMES: {
+    [integer]: string
+} = {
+    [0] = "SQLITE_OK",
+    [1] = "SQLITE_ERROR",
+    [2] = "SQLITE_INTERNAL",
+    [3] = "SQLITE_PERM",
+    [4] = "SQLITE_ABORT",
+    [5] = "SQLITE_BUSY",
+    [6] = "SQLITE_LOCKED",
+    [7] = "SQLITE_NOMEM",
+    [8] = "SQLITE_READONLY",
+    [9] = "SQLITE_INTERRUPT",
+    [10] = "SQLITE_IOERR",
+    [11] = "SQLITE_CORRUPT",
+    [12] = "SQLITE_NOTFOUND",
+    [13] = "SQLITE_FULL",
+    [14] = "SQLITE_CANTOPEN",
+    [15] = "SQLITE_PROTOCOL",
+    [16] = "SQLITE_EMPTY",
+    [17] = "SQLITE_SCHEMA",
+    [18] = "SQLITE_TOOBIG",
+    [19] = "SQLITE_CONSTRAINT",
+    [20] = "SQLITE_MISMATCH",
+    [21] = "SQLITE_MISUSE",
+    [22] = "SQLITE_NOLFS",
+    [23] = "SQLITE_AUTH",
+    [24] = "SQLITE_FORMAT",
+    [25] = "SQLITE_RANGE",
+    [26] = "SQLITE_NOTADB",
+    [27] = "SQLITE_NOTICE",
+    [28] = "SQLITE_WARNING",
+    [100] = "SQLITE_ROW",
+    [101] = "SQLITE_DONE",
+    [256] = "SQLITE_OK_LOAD_PERMANENTLY",
+    [257] = "SQLITE_ERROR_MISSING_COLLSEQ",
+    [261] = "SQLITE_BUSY_RECOVERY",
+    [262] = "SQLITE_LOCKED_SHAREDCACHE",
+    [264] = "SQLITE_READONLY_RECOVERY",
+    [266] = "SQLITE_IOERR_READ",
+    [267] = "SQLITE_CORRUPT_VTAB",
+    [270] = "SQLITE_CANTOPEN_NOTEMPDIR",
+    [275] = "SQLITE_CONSTRAINT_CHECK",
+    [279] = "SQLITE_AUTH_USER",
+    [283] = "SQLITE_NOTICE_RECOVER_WAL",
+    [284] = "SQLITE_WARNING_AUTOINDEX",
+    [512] = "SQLITE_OK_SYMLINK",
+    [513] = "SQLITE_ERROR_RETRY",
+    [516] = "SQLITE_ABORT_ROLLBACK",
+    [517] = "SQLITE_BUSY_SNAPSHOT",
+    [518] = "SQLITE_LOCKED_VTAB",
+    [520] = "SQLITE_READONLY_CANTLOCK",
+    [522] = "SQLITE_IOERR_SHORT_READ",
+    [523] = "SQLITE_CORRUPT_SEQUENCE",
+    [526] = "SQLITE_CANTOPEN_ISDIR",
+    [531] = "SQLITE_CONSTRAINT_COMMITHOOK",
+    [539] = "SQLITE_NOTICE_RECOVER_ROLLBACK",
+    [769] = "SQLITE_ERROR_SNAPSHOT",
+    [773] = "SQLITE_BUSY_TIMEOUT",
+    [776] = "SQLITE_READONLY_ROLLBACK",
+    [778] = "SQLITE_IOERR_WRITE",
+    [779] = "SQLITE_CORRUPT_INDEX",
+    [782] = "SQLITE_CANTOPEN_FULLPATH",
+    [787] = "SQLITE_CONSTRAINT_FOREIGNKEY",
+    [795] = "SQLITE_NOTICE_RBU",
+    [1025] = "SQLITE_ERROR_RESERVESIZE",
+    [1032] = "SQLITE_READONLY_DBMOVED",
+    [1034] = "SQLITE_IOERR_FSYNC",
+    [1038] = "SQLITE_CANTOPEN_CONVPATH",
+    [1043] = "SQLITE_CONSTRAINT_FUNCTION",
+    [1281] = "SQLITE_ERROR_KEY",
+    [1288] = "SQLITE_READONLY_CANTINIT",
+    [1290] = "SQLITE_IOERR_DIR_FSYNC",
+    [1294] = "SQLITE_CANTOPEN_DIRTYWAL",
+    [1299] = "SQLITE_CONSTRAINT_NOTNULL",
+    [1537] = "SQLITE_ERROR_UNABLE",
+    [1544] = "SQLITE_READONLY_DIRECTORY",
+    [1546] = "SQLITE_IOERR_TRUNCATE",
+    [1550] = "SQLITE_CANTOPEN_SYMLINK",
+    [1555] = "SQLITE_CONSTRAINT_PRIMARYKEY",
+    [1802] = "SQLITE_IOERR_FSTAT",
+    [1811] = "SQLITE_CONSTRAINT_TRIGGER",
+    [2058] = "SQLITE_IOERR_UNLOCK",
+    [2067] = "SQLITE_CONSTRAINT_UNIQUE",
+    [2314] = "SQLITE_IOERR_RDLOCK",
+    [2323] = "SQLITE_CONSTRAINT_VTAB",
+    [2570] = "SQLITE_IOERR_DELETE",
+    [2579] = "SQLITE_CONSTRAINT_ROWID",
+    [2826] = "SQLITE_IOERR_BLOCKED",
+    [2835] = "SQLITE_CONSTRAINT_PINNED",
+    [3082] = "SQLITE_IOERR_NOMEM",
+    [3091] = "SQLITE_CONSTRAINT_DATATYPE",
+    [3338] = "SQLITE_IOERR_ACCESS",
+    [3594] = "SQLITE_IOERR_CHECKRESERVEDLOCK",
+    [3850] = "SQLITE_IOERR_LOCK",
+    [4106] = "SQLITE_IOERR_CLOSE",
+    [4362] = "SQLITE_IOERR_DIR_CLOSE",
+    [4618] = "SQLITE_IOERR_SHMOPEN",
+    [4874] = "SQLITE_IOERR_SHMSIZE",
+    [5130] = "SQLITE_IOERR_SHMLOCK",
+    [5386] = "SQLITE_IOERR_SHMMAP",
+    [5642] = "SQLITE_IOERR_SEEK",
+    [5898] = "SQLITE_IOERR_DELETE_NOENT",
+    [6154] = "SQLITE_IOERR_MMAP",
+    [6410] = "SQLITE_IOERR_GETTEMPPATH",
+    [6666] = "SQLITE_IOERR_CONVPATH",
+    [6922] = "SQLITE_IOERR_VNODE",
+    [7178] = "SQLITE_IOERR_AUTH",
+    [7434] = "SQLITE_IOERR_BEGIN_ATOMIC",
+    [7690] = "SQLITE_IOERR_COMMIT_ATOMIC",
+    [7946] = "SQLITE_IOERR_ROLLBACK_ATOMIC",
+    [8202] = "SQLITE_IOERR_DATA",
+    [8458] = "SQLITE_IOERR_CORRUPTFS",
+    [8714] = "SQLITE_IOERR_IN_PAGE",
+    [8970] = "SQLITE_IOERR_BADKEY",
+    [9226] = "SQLITE_IOERR_CODEC",
+}
+
+--- The symbolic name of a result code: its own when SQLite documents it,
+--- else its primary code's with the number, as in `SQLITE_IOERR(4874)`.
+export function codename(code: integer): string
+    local name = NAMES[code]
+    if name ~= nil then
+        return name
+    end
+    local primary = NAMES[code & 0xff]
+    if primary ~= nil then
+        return primary .. "(" .. tostring(code) .. ")"
+    end
+
+    return "SQLITE_UNKNOWN(" .. tostring(code) .. ")"
+end
+
+--- The error for a failed call: its extended code, SQLite's message, the SQL
+--- text it was given, and the offset SQLite reported in that text, when any.
+export function failure(code: integer, message: string, sql: string?, offset: integer?): Error
+    return Error(
+        code = code,
+        primary = code & 0xff,
+        name = codename(code),
+        message = message,
+        sql = sql,
+        offset = offset
+    )
+end
+
+--- A prepared statement. Closing it finalizes it.
+export interface Statement is own.Closeable
+    close: function(takes self: Statement): nil
+
+    --- How many parameters it takes.
+    parametercount: function(self: Statement): integer
+
+    --- The index of a parameter named with its prefix (`:name`), or zero.
+    parameterindex: function(self: Statement, name: string): integer
+
+    --- The name of a parameter, with its prefix, or nil for a positional one.
+    parametername: function(self: Statement, index: integer): string?
+
+    bindnull: function(exclusive self: Statement, index: integer): nil
+    bindinteger: function(exclusive self: Statement, index: integer, value: integer): nil
+    bindfloat: function(exclusive self: Statement, index: integer, value: number): nil
+    bindtext: function(exclusive self: Statement, index: integer, value: string): nil
+    bindblob: function(exclusive self: Statement, index: integer, value: string): nil
+
+    --- Steps it: true while a row is ready, false once it is done.
+    step: function(exclusive self: Statement): boolean
+
+    reset: function(exclusive self: Statement): nil
+    clearbindings: function(exclusive self: Statement): nil
+
+    --- How many columns a row has.
+    columncount: function(self: Statement): integer
+
+    columnname: function(self: Statement, index: integer): string
+    columntype: function(self: Statement, index: integer): StorageClass
+
+    --- The column's value in the current row, copied: an integer, a float,
+    --- the exact bytes of text or a blob, or nil for NULL.
+    column: function(self: Statement, index: integer): Column?
+end
+
+--- An open connection. Closing it closes SQLite's once every statement
+--- prepared on it is finalized.
+export interface Database is own.Closeable
+    close: function(takes self: Database): nil
+
+    --- Prepares the first statement of `sql` from byte `offset`, from zero,
+    --- and answers it, or nil when the rest is only whitespace and comments,
+    --- and how many bytes from `offset` it consumed. A failure's offset is
+    --- into the whole of `sql`.
+    prepare: function(self: Database, sql: string, offset: integer): (Statement?, integer)
+
+    changes: function(self: Database): integer
+    totalchanges: function(self: Database): integer
+    lastrowid: function(self: Database): integer
+
+    --- Whether no transaction is open.
+    autocommit: function(self: Database): boolean
+end
+
+--- Binds SQLite on a host.
+export interface Provider
+    --- Opens a connection, writable or not, creating the file or not, that
+    --- waits up to `busytimeout` milliseconds for a lock.
+    open: function(path: string, readonly: boolean, create: boolean, busytimeout: integer): Database
+
+    --- The library's version text.
+    version: function(): string
+
+    --- How many connections and statements are open.
+    openhandles: function(): integer
+end

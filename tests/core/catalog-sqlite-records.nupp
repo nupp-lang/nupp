@@ -1,0 +1,101 @@
+module nupp.core.catalogsqliterecords
+
+-- Rows decoded into records, and parameters bound from them, through serde
+-- bindings on the core: members met by their declared names whatever a
+-- binding's options rename them to, defaults honored, a missing column and a
+-- storage class the field cannot take refused naming the column, and named
+-- parameters of every prefix bound from members. Each check is a bit of the
+-- score.
+const provider = require("nupp.runtime.provider.nativesqlite")
+
+local score = 0
+local bit = 1
+
+local function check(ok: boolean): nil
+    if ok then
+        score = score | bit
+    end
+    bit = bit << 1
+end
+
+local function raised(borrows body: function(): nil): unknown
+    local ok, problem = pcall(body)
+    if ok then
+        return nil
+    end
+
+    return problem
+end
+
+local record Show
+    id: integer
+    title: string
+    rating: number = 0.5
+    art: string?
+end
+
+local record Renamed
+    identifier: integer
+    name: string
+end
+
+local shows = serde.binding(Show)
+local renamed = serde.binding(
+    Renamed,
+    serde.Options(fields = {identifier = serde.FieldOptions(name = "id"), name = serde.FieldOptions(name = "title")})
+)
+
+do
+    local db = sqlite.open(":memory:")
+    db:exec("create table shows (id integer primary key, title text not null, rating real, art blob)")
+
+    -- Named parameters of every prefix, from the members of a record.
+    do
+        local insert = db:prepare("insert into shows (id, title, rating, art) values (:id, @title, $rating, :art)")
+        insert:bindrecord(shows, Show(id = 1, title = "Severance", rating = 9.5, art = "\0png"))
+        check(not insert:step() and db:changes() == 1)
+        insert:reset()
+        insert:bindrecord(shows, Show(id = 2, title = "Andor"))
+        check(not insert:step())
+    end
+
+    -- Rows decoded through a binding, defaults and nil members included.
+    local found: {Show} = {}
+    for show in db:rowsas(shows, "select id, title, rating, art from shows order by id") do
+        found[#found + 1] = show
+    end
+    check(#found == 2 and found[1].title == "Severance" and found[1].rating == 9.5 and found[1].art == "\0png")
+    check(found[2].rating == 0.5 and found[2].art == nil)
+    -- A column the query leaves out takes the field's default.
+    local partial = db:firstas(shows, "select id, title from shows where id = ?", 1)
+    check(partial ~= nil and partial.rating == 0.5)
+
+    -- Columns meet members by their declared names, which a binding's
+    -- options leave alone: its wire names are a codec's.
+    local named = db:firstas(renamed, "select id as identifier, title as name from shows where id = ?", 2)
+    check(named ~= nil and named.identifier == 2 and named.name == "Andor")
+    check(db:firstas(shows, "select id, title from shows where id = ?", 99) == nil)
+
+    -- A missing column without a default, and a storage class the field
+    -- cannot take, each name the column.
+    local missing = raised(function(): nil
+        local _ = db:firstas(shows, "select id from shows where id = 1")
+    end)
+    check(tostring(missing):find("title", 1, true) ~= nil)
+    local mismatched = raised(function(): nil
+        local _ = db:firstas(shows, "select title as id, title from shows where id = 1")
+    end)
+    check(tostring(mismatched):find("id", 1, true) ~= nil)
+
+    -- A parameter no member is named for is refused, naming it.
+    local unnamed = raised(function(): nil
+        local insert = db:prepare("insert into shows (id, title) values (:id, :name)")
+        insert:bindrecord(shows, Show(id = 3, title = "x"))
+    end)
+    check(tostring(unnamed):find(":name", 1, true) ~= nil)
+    check(provider.openhandles() == 1)
+end
+
+check(provider.openhandles() == 0)
+
+export const result = score
