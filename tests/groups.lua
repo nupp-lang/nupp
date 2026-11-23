@@ -248,6 +248,7 @@ scopes.tracebacktest = "component"
 scopes.resultliststest = "integration"
 scopes.handlerordertest = "integration"
 scopes.luaparitytest = "integration"
+scopes.unsignedtexttest = "integration"
 scopes.testcachetest = "integration"
 scopes.sharedcachetest = "integration"
 for name in (
