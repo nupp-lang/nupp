@@ -56,6 +56,64 @@ local function protectedcall(expr: any): boolean
     return library == "pcall" or library == "xpcall"
 end
 
+-- Whether `expr` is a checked uint64, whose text is its unsigned decimal.
+local function unsignedword(expr: any): boolean
+    return expr ~= nil and expr.kind ~= "vararg" and taggedvalues.typeKind(expr.inferredType) == "uint64"
+end
+
+-- The text of uint64 `operand`, whose 64 bits the core holds as an integer:
+-- its unsigned decimal. A negative integer is 2^64 more than it reads, so
+-- its digits are those of q = (x >>> 1) // 5, the unsigned quotient by ten,
+-- then the remainder x - 10q, which wraps back into 0 through 9.
+export function unsignedtext(ctx: any, node: any, operand: integer): integer
+    local value = ctx.hold(operand)
+
+    local function integer(n: integer): integer
+        return ctx.emit(node, "K", {pool(ctx, "int64", tostring(n))}, "tagged") as integer
+    end
+
+    local function call(name: string, args: {integer}): integer
+        return ctx.emit(node, "LibCall", {corelibrary.id(name), table.unpack(args)}, "tagged") as integer
+    end
+
+    local signed = call("TOSTRING", {ctx.readHeld(value)})
+    local half = call("SHR", {ctx.readHeld(value), integer(1)})
+    local quotient = call("FLOOR_DIVIDE", {half, integer(5)})
+    local tens = ctx.emit(node, "Mul", {quotient, integer(10)}, "tagged")
+    local remainder = ctx.emit(node, "Sub", {ctx.readHeld(value), tens}, "tagged")
+    local unsigned = call("CONCAT2", {call("TOSTRING", {quotient}), call("TOSTRING", {remainder})})
+    local negative = ctx.emit(node, "Lt", {ctx.readHeld(value), integer(0)}, "tagged")
+    ctx.release(value)
+
+    return ctx.select(node, negative, unsigned, signed)
+end
+
+-- `operands`, the values of `exprs`, with each checked uint64 among them
+-- replaced by its unsigned text, as `..` and print write one. The others
+-- are held across the branch each text takes.
+local function unsignedtexts(ctx: any, exprs: {any}, operands: {integer}): nil
+    local found = false
+    for index = 1, #operands do
+        found = found or unsignedword(exprs[index])
+    end
+    if not found then
+        return
+    end
+    local held = {}
+    for index, operand in ipairs(operands) do
+        held[index] = ctx.hold(operand)
+    end
+    for index, handle in ipairs(held) do
+        if unsignedword(exprs[index]) then
+            ctx.write(handle, unsignedtext(ctx, exprs[index], ctx.readHeld(handle)))
+        end
+    end
+    for index, handle in ipairs(held) do
+        operands[index] = ctx.readHeld(handle)
+        ctx.release(handle)
+    end
+end
+
 -- Evaluate fixed arguments before a final expanding call or vararg pack.
 -- The caller holds its callee (and any handler) across this evaluation.
 local function callOperands(ctx: any, node: any, first: integer): (any, integer?)
@@ -206,6 +264,10 @@ export function libraryCall(ctx: any, node: any, id: integer, arguments: any): i
     local operands = ctx.operands(arguments, kinds)
     if operands == nil then
         return nil
+    end
+    -- `..` writes a checked uint64 as its unsigned text.
+    if id == corelibrary.id("CONCAT2") then
+        unsignedtexts(ctx, arguments, operands)
     end
     -- A call in method form (`s:rep(n)`) says so, so its errors count
     -- arguments from the one after self, as Lua's do.
@@ -688,8 +750,9 @@ export function valuespack(ctx: any, node: any, exprs: any, texts: boolean?): in
         end
     end
     if texts then
+        unsignedtexts(ctx, fixed, operands)
         for index, operand in ipairs(operands) do
-            if mayhavemeta(fixed[index].inferredType) then
+            if not unsignedword(fixed[index]) and mayhavemeta(fixed[index].inferredType) then
                 operands[index] = ctx.emit(node, "LibCall", {corelibrary.id("TOSTRING"), operand}, "tagged")
             end
         end

@@ -1,0 +1,18 @@
+-- A checked uint64 writes its unsigned decimal wherever text is made of it:
+-- tostring and `..` on either side. Erased to `any`, it is the integer its
+-- 64 bits read as.
+local test = require("assert")
+local M = {}
+
+function M.aUint64WritesItsUnsignedDecimal()
+    local largest: uint64 = 18446744073709551615ULL
+    local small: uint64 = 42ULL
+    test.eq(tostring(largest), "18446744073709551615")
+    test.eq("v" .. largest, "v18446744073709551615")
+    test.eq(largest .. "!", "18446744073709551615!")
+    test.eq("v" .. small .. "/" .. largest, "v42/18446744073709551615")
+    local erased: any = largest
+    test.eq("v" .. erased, "v-1")
+end
+
+return M
