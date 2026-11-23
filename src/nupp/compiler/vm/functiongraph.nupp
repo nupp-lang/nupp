@@ -1427,11 +1427,19 @@ local function compileOwner(fn: any, options: any, profile: any, site: any): any
             block = nil
             return
         end
-        -- A goto ends only the current iteration, at the enclosing loop's label.
-        need(
-            exit ~= "gotoStmt" or node.name ~= nil and loop.label == node.name.text,
-            "goto is admitted only to a label ending its enclosing loop's body"
-        )
+        -- A goto ends the current iteration of the loop whose body its label
+        -- ends: the innermost such loop, which may enclose the one the goto
+        -- stands in, as `goto nextmode` leaves a `while` for its `for`.
+        if exit == "gotoStmt" then
+            local target = nil
+            for index = #loops, 1, -1 do
+                if node.name ~= nil and loops[index].label == node.name.text then
+                    target = loops[index]
+                    break
+                end
+            end
+            loop = need(target, "goto is admitted only to a label ending an enclosing loop's body")
+        end
         local target = exit == "breakStmt" and loop.exit or loop.continueTo
         need(target ~= nil, "loop transfer has no target")
         if cleanupEnabled then
