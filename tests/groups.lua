@@ -862,5 +862,8 @@ hotreloadtest/cliWatchCommitsAndKeepsTheLastGoodGeneration
 hotreloadtest/cliWatchPatchesUnderARunningLoop
 hotreloadtest/cliWatchRequiresRestartForMappedNativeReplacement
 ]])
+requires("core", "serde.yaml's libyaml codec, which writes through the core's C bridge", [[
+yamlbindingtest
+]])
 
 return groups, {scopes = scopes, packages = packages, runtimes = runtimes}
