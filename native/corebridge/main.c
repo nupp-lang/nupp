@@ -180,6 +180,108 @@ int32_t nupp_core_errno (void) {
   return errno;
 }
 
+/* A growable byte buffer C writes into on Nupp's behalf, as a write handler
+ * whose data pointer it is: its bytes, how many are used and how many fit,
+ * and nonzero `failed` once an append could not be kept. Nupp allocates it
+ * in C memory, reads it once the call that wrote it has returned, and
+ * releases it (nupp.runtime.core.yamlcodec). */
+typedef struct {
+  unsigned char *data;
+  uint64_t used;
+  uint64_t capacity;
+  uint64_t failed;
+} ByteSink;
+
+/* The capacity a sink's first append allocates, at least. */
+enum { SINK_FIRST_BYTES = 256 };
+
+/* The capacity that holds `needed` bytes: `capacity` doubled until it does,
+ * or 0 when no size_t can hold it. */
+static uint64_t sinkcapacity (uint64_t capacity, uint64_t needed) {
+  uint64_t grown = capacity < SINK_FIRST_BYTES ? SINK_FIRST_BYTES : capacity;
+
+  while (grown < needed) {
+    if (grown > SIZE_MAX / 2) {
+      grown = needed;
+      break;
+    }
+
+    grown *= 2;
+  }
+
+  return grown > SIZE_MAX ? 0 : grown;
+}
+
+/* Appends `size` bytes to `sink`, growing it by doubling with realloc. Its
+ * signature is libyaml's yaml_write_handler_t, so a C library that can only
+ * write through a callback writes here, and no managed code runs. Answers 1,
+ * or 0 with `failed` set when the bytes cannot be kept: an allocation or a
+ * size that fails, or an earlier failure. */
+#ifdef _WIN32
+__declspec(dllexport)
+#endif
+int nuppappendbytes (void *sink, unsigned char *bytes, size_t size) {
+  ByteSink *buffer = sink;
+
+  if (!buffer) {
+    return 0;
+  }
+
+  if (buffer->failed) {
+    return 0;
+  }
+
+  if (!size) {
+    return 1;
+  }
+
+  if (!bytes || size > UINT64_MAX - buffer->used) {
+    buffer->failed = 1;
+
+    return 0;
+  }
+
+  uint64_t needed = buffer->used + size;
+
+  if (needed > buffer->capacity) {
+    uint64_t capacity = sinkcapacity(buffer->capacity, needed);
+    unsigned char *grown =
+        capacity ? realloc(buffer->data, (size_t)capacity) : NULL;
+
+    if (!grown) {
+      buffer->failed = 1;
+
+      return 0;
+    }
+
+    buffer->data = grown;
+    buffer->capacity = capacity;
+  }
+
+  memcpy(buffer->data + buffer->used, bytes, size);
+  buffer->used = needed;
+
+  return 1;
+}
+
+/* Frees what `sink` holds and leaves it empty, ready for another use. */
+#ifdef _WIN32
+__declspec(dllexport)
+#endif
+void nuppreleasebytes (void *sink) {
+  ByteSink *buffer = sink;
+
+  if (!buffer) {
+    return;
+  }
+
+  free(buffer->data);
+  buffer->data = NULL;
+  buffer->used = 0;
+  buffer->capacity = 0;
+  buffer->failed = 0;
+}
+
 /* snprintf at fixed arities: one double, or an int then a double. The
  * runtime's number text calls these rather than snprintf itself, because
  * generated calls place variadic arguments by one ABI, and Apple, AAPCS64

@@ -132,6 +132,61 @@ static void abiprobe (void) {
          report[1] == (CLOBBERED_X19 | CLOBBERED_D8));
 }
 
+/* How many appends the growth contract makes, and how many bytes each. */
+enum { SINK_APPENDS = 1000, SINK_CHUNK = 37 };
+
+/* The byte sink: an empty append keeps nothing, many appends grow it by
+ * doubling and keep every byte in order, a size the buffer cannot count is
+ * refused without aborting and stays refused, and release empties it. */
+static void bytesink (void) {
+  ByteSink sink = {NULL, 0, 0, 0};
+  unsigned char chunk[SINK_CHUNK];
+
+  for (size_t i = 0; i < sizeof(chunk); ++i) {
+    chunk[i] = (unsigned char)i;
+  }
+
+  assert(nuppappendbytes(&sink, chunk, 0) == 1);
+  assert(nuppappendbytes(&sink, NULL, 0) == 1);
+  assert(sink.used == 0 && sink.capacity == 0 && !sink.data && !sink.failed);
+  assert(nuppappendbytes(NULL, chunk, sizeof(chunk)) == 0);
+  uint64_t capacity = 0;
+  unsigned grew = 0;
+
+  for (unsigned i = 0; i < SINK_APPENDS; ++i) {
+    chunk[0] = (unsigned char)i;
+    assert(nuppappendbytes(&sink, chunk, sizeof(chunk)) == 1);
+
+    if (sink.capacity != capacity) {
+      assert(!capacity || sink.capacity == capacity * 2);
+      capacity = sink.capacity;
+      grew += 1;
+    }
+  }
+
+  assert(sink.used == (uint64_t)SINK_APPENDS * SINK_CHUNK && !sink.failed);
+  assert(sink.capacity >= sink.used && grew < SINK_APPENDS / 10);
+
+  for (unsigned i = 0; i < SINK_APPENDS; ++i) {
+    const unsigned char *at = sink.data + (size_t)i * SINK_CHUNK;
+    assert(at[0] == (unsigned char)i);
+    assert(memcmp(at + 1, chunk + 1, SINK_CHUNK - 1) == 0);
+  }
+
+  uint64_t used = sink.used;
+  assert(nuppappendbytes(&sink, chunk, SIZE_MAX) == 0);
+  assert(sink.failed && sink.used == used);
+  assert(nuppappendbytes(&sink, chunk, 1) == 0 && sink.used == used);
+  nuppreleasebytes(&sink);
+  assert(!sink.data && !sink.used && !sink.capacity && !sink.failed);
+  assert(nuppappendbytes(&sink, NULL, 1) == 0 && sink.failed);
+  nuppreleasebytes(&sink);
+  assert(nuppappendbytes(&sink, chunk, sizeof(chunk)) == 1);
+  assert(sink.used == sizeof(chunk) && sink.capacity == SINK_FIRST_BYTES);
+  nuppreleasebytes(&sink);
+  nuppreleasebytes(NULL);
+}
+
 void nupp_test_uv (void);
 void nupp_process_contracts (void);
 
@@ -139,6 +194,7 @@ int main (void) {
   abiprobe();
   malformed();
   codereadonly();
+  bytesink();
   nupp_test_uv();
   nupp_process_contracts();
 #if defined(NUPP_CORE_HTTP) || defined(__linux__)
