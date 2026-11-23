@@ -584,6 +584,25 @@ function M.selectTransformsPacksWithoutAny()
     testAssert.eq(codes("local value = select(0, 1, 2)"), "NUPP2010")
 end
 
+-- pcall's results are alternatives, its success's and its failure's, which
+-- bind select's pack differently: select takes each, and answers either:
+-- a result of the function, or the error, which is unknown.
+function M.selectChoosesFromEachAlternativeOfAProtectedCall()
+    local prefix = "local function three(): (integer, integer, integer) return 1, 2, 3 end\n"
+    clean(
+        prefix .. table.concat(
+            {
+                "local first = select(2, pcall(three))",
+                "local either: integer | unknown = first",
+                "local count: integer = select('#', pcall(three))",
+                "local last = select(-1, pcall(three))",
+            },
+            "\n"
+        )
+    )
+    testAssert.eq(codes(prefix .. "local beyond = select(6, pcall(three))"), "NUPP2010")
+end
+
 function M.unpackPreservesTupleAndArrayElementTypes()
     clean(
         table.concat(

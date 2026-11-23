@@ -445,6 +445,44 @@ local function probeArm(ft: T.Func, argPack: T.Pack, cdefCall: boolean?, control
     return specialized
 end
 
+-- The alternatives of `argPack` as one pack: each position the union of what
+-- every alternative holds there, nil where one has ended, and a tail where
+-- any has one. Nil when a tail is generic or computed.
+local function collapsedPack(argPack: T.Pack): T.Pack?
+    local width = 0
+    local tails: {Type} = {}
+    local unknown, ended = false, false
+    for _, arm in ipairs(argPack.alternatives or {}) do
+        if #arm.head > width then
+            width = #arm.head
+        end
+        local tail = arm.tail
+        if tail == nil then
+            ended = true
+        elseif tail.kind == "unknown" then
+            unknown = true
+        elseif tail.kind == "homogeneous" and tail.type then
+            tails[#tails + 1] = tail.type
+        else
+            return nil
+        end
+    end
+    local head: {Type} = {}
+    for j = 1, width do
+        head[j] = T.packAt(argPack, j) or T.nil_
+    end
+    if unknown then
+        return T.pack(head, {kind = "unknown", type = T.any})
+    elseif #tails > 0 then
+        if ended then
+            tails[#tails + 1] = T.nil_
+        end
+        return T.pack(head, {kind = "homogeneous", type = T.union(tails)})
+    end
+
+    return T.pack(head)
+end
+
 local function probeSignature(ft: T.Func, argPack: T.Pack, cdefCall: boolean?, control: any?): T.Func?, string?
     if not argPack.alternatives then
         return probeArm(ft, argPack, cdefCall, control)
@@ -456,7 +494,15 @@ local function probeSignature(ft: T.Func, argPack: T.Pack, cdefCall: boolean?, c
             return nil, ("argument-pack alternative %d: %s"):format(armIndex, why or "mismatch")
         end
         if selected and selected.id ~= specialized.id then
-            return nil, "argument-pack alternatives require different generic specializations"
+            -- The alternatives bind the generic parameters differently, as
+            -- `select(2, pcall(f))` binds A... to pcall's success and to its
+            -- failure: one specialization over each position's union admits
+            -- them all.
+            local collapsed = collapsedPack(argPack)
+            if not collapsed then
+                return nil, "argument-pack alternatives require different generic specializations"
+            end
+            return probeArm(ft, collapsed, cdefCall, control)
         end
         selected = specialized
     end
