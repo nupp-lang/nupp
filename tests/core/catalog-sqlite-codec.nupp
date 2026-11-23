@@ -1,0 +1,93 @@
+module nupp.core.catalogsqlitecodec
+
+-- The checked SQLite binding on the core (nupp.runtime.core.sqlitecodec),
+-- over the pinned library: the version and compile-option check, an
+-- in-memory database, statements prepared one at a time across a text's
+-- tail with the bytes each consumed, every storage class bound and read
+-- back byte for byte, a syntax error's offset, and every handle let go.
+-- Each check is a bit of the score.
+const codec = require("nupp.runtime.core.sqlitecodec")
+
+local score = 0
+local bit = 1
+
+local function check(ok: boolean): nil
+    if ok then
+        score = score | bit
+    end
+    bit = bit << 1
+end
+
+local CREATE = "create table t (i integer, r real, s text, b blob, n);"
+local INSERT = "  insert into t values (?, ?, ?, ?, ?);"
+local TRAILER = "  -- nothing more\n"
+local TEXT = "a\0b\255"
+local BLOB = "\0\1\255\0"
+local SMALLEST = math.mininteger
+
+-- The library is the pinned one, with the options the provider needs.
+check(codec.problem() == nil)
+check(codec.versionnumber() == 3054001 and codec.version() == "3.54.1")
+check(codec.sourceid():sub(1, 10) == "2026-10-16")
+check(codec.compileoption("ENABLE_FTS5") and not codec.compileoption("ENABLE_LOAD_EXTENSION"))
+
+do
+    local status, database = codec.open(":memory:", codec.OPEN_READWRITE | codec.OPEN_CREATE)
+    check(status == codec.OK and database ~= nil and codec.openhandles() == 1)
+    if database ~= nil then
+        -- Three statements' worth of text, prepared from each tail in turn.
+        local sql = CREATE .. INSERT .. TRAILER
+        local first, created, consumed = database:prepare(sql, 0)
+        check(first == codec.OK and created ~= nil and consumed == #CREATE)
+        if created ~= nil then
+            check(created:step() == codec.DONE)
+            created:close()
+        end
+        local second, inserting, insertconsumed = database:prepare(sql, #CREATE)
+        check(second == codec.OK and inserting ~= nil and insertconsumed == #INSERT)
+        local third, nothing, rest = database:prepare(sql, #CREATE + #INSERT)
+        check(third == codec.OK and nothing == nil and rest == #TRAILER)
+        if nothing ~= nil then
+            nothing:close()
+        end
+        if inserting ~= nil then
+            -- Every storage class, with text and a blob that hold NULs.
+            check(inserting:parametercount() == 5)
+            local bound = inserting:bindinteger(1, SMALLEST) == codec.OK
+                and inserting:bindfloat(2, 2.0) == codec.OK
+                and inserting:bindtext(3, TEXT) == codec.OK
+                and inserting:bindblob(4, BLOB) == codec.OK
+                and inserting:bindnull(5) == codec.OK
+            check(bound and inserting:step() == codec.DONE and database:changes() == 1)
+            inserting:close()
+        end
+        local status, reading = database:prepare("select i, r, s, b, n from t", 0)
+        check(status == codec.OK and reading ~= nil)
+        if reading ~= nil then
+            check(reading:step() == codec.ROW and reading:columncount() == 5 and reading:columnname(2) == "s")
+            check(reading:columntype(0) == codec.INTEGER and reading:columninteger(0) == SMALLEST)
+            local real = reading:columnfloat(1)
+            check(reading:columntype(1) == codec.FLOAT and real == 2.0 and math.type(real) == "float")
+            check(reading:columntype(2) == codec.TEXT and reading:columntext(2) == TEXT)
+            check(reading:columntype(3) == codec.BLOB and reading:columnblob(3) == BLOB)
+            check(reading:columntype(4) == codec.NULL and reading:columnblob(4) == "")
+            check(reading:step() == codec.DONE)
+            reading:close()
+        end
+        -- A syntax error in the second statement of a text, at its offset
+        -- from where preparing began.
+        local broken = "select 1;\nselect 1 frm t"
+        local failed, none = database:prepare(broken, 10)
+        check(failed == 1 and none == nil and database:erroroffset() == 13)
+        check(database:errcode() == 1 and database:errmsg():find("syntax error", 1, true) ~= nil)
+        if none ~= nil then
+            none:close()
+        end
+        database:close()
+    end
+end
+
+-- Nothing it opened is still open.
+check(codec.openhandles() == 0)
+
+export const result = score

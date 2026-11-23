@@ -309,6 +309,8 @@ scopes.yamlbindingtest = "component"
 scopes.builtinpackagetest = "delivery"
 scopes.builtinwithouttest = "integration"
 scopes.builtinclosuretest = "delivery"
+-- SQLite's binding against the pinned header.
+scopes.sqliteheadertest = "integration"
 scopes.compressionnativeprovidertest = "integration"
 scopes.nativeforeignmodetest = "integration"
 scopes.nativecodecabittest = "integration"

@@ -289,6 +289,8 @@ local CASES = {
     {"yamlsuite", 0x7FFF00000000000F},
     -- A generic for closing the owner its header made, on every exit.
     {"forheaderowners", 0x7FFF000000000007},
+    -- SQLite: the checked binding.
+    {"sqlitecodec", 0x7FFF0000003FFFFF},
     {"runnersmall", 0x7FFF00000000001F},
     {"runnerchunks", 0x7FFF00000000007F},
     -- The packaged test runner over real suites, its loadfile and dofile

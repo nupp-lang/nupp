@@ -1,0 +1,474 @@
+@!internal
+--[[
+The checked subset of SQLite's C API the native core binds, over the pinned
+amalgamation (`native/sqlite`, `nuppsqlite`), with no C of Nupp's own between.
+
+Every handle is opaque, so no struct of SQLite's crosses the boundary and the
+declarations are the same on every target. The only structs here are one-word
+slots SQLite writes an output pointer into, and the address a pointer holds,
+which `memcpy` copies out of a slot: that is how a statement's tail becomes a
+count of the bytes `prepare` consumed.
+
+A connection and a statement are owned records whose cleanup closes or
+finalizes them, and the codec counts the ones open, so a test can show that
+everything it opened was let go. Every read copies out of SQLite's memory
+before it returns: text and blobs byte for byte, and SQLite's own strings with
+`tostring`.
+
+`problem` says whether the library is the one this binding was written for:
+its version, and the compile options the provider relies on.
+]]
+module nupp.runtime.core.sqlitecodec
+
+const span = require("bytes.span")
+const storage = require("nupp.runtime.storage")
+
+-- An output slot SQLite writes a handle into.
+cdef struct Slot
+    value: voidptr?
+end
+
+-- An output slot SQLite writes a pointer into the caller's SQL text into, or
+-- the pointer the caller handed it.
+cdef struct TextSlot
+    value: const uint8*?
+end
+
+-- The address a text slot holds, as `memcpy` copies its bytes out.
+cdef struct Address
+    value: uint64
+end
+
+cdef function sqlite3_libversion(): cstring from"nuppsqlite"
+cdef function sqlite3_libversion_number(): int32 from"nuppsqlite"
+cdef function sqlite3_sourceid(): cstring from"nuppsqlite"
+cdef function sqlite3_compileoption_used(name: string): int32 from"nuppsqlite"
+cdef function sqlite3_open_v2(
+    filename: string,
+    exclusive database: Slot*,
+    flags: int32,
+    borrows vfs: voidptr?
+): int32 from"nuppsqlite"
+cdef function sqlite3_close_v2(takes database: voidptr): int32 from"nuppsqlite"
+cdef function sqlite3_extended_result_codes(borrows database: voidptr, on: int32): int32 from"nuppsqlite"
+cdef function sqlite3_db_config(borrows database: voidptr, option: int32, ...): int32 from"nuppsqlite"
+cdef function sqlite3_busy_timeout(borrows database: voidptr, milliseconds: int32): int32 from"nuppsqlite"
+cdef function sqlite3_errmsg(borrows database: voidptr): cstring from"nuppsqlite"
+cdef function sqlite3_extended_errcode(borrows database: voidptr): int32 from"nuppsqlite"
+cdef function sqlite3_error_offset(borrows database: voidptr): int32 from"nuppsqlite"
+cdef function sqlite3_errstr(code: int32): cstring from"nuppsqlite"
+cdef function sqlite3_prepare_v3(
+    borrows database: voidptr,
+    borrows sql: const uint8*,
+    bytes: int32,
+    flags: uint32,
+    exclusive statement: Slot*,
+    exclusive tail: TextSlot*
+): int32 from"nuppsqlite"
+cdef function sqlite3_finalize(takes statement: voidptr): int32 from"nuppsqlite"
+cdef function sqlite3_reset(borrows statement: voidptr): int32 from"nuppsqlite"
+cdef function sqlite3_clear_bindings(borrows statement: voidptr): int32 from"nuppsqlite"
+cdef function sqlite3_step(borrows statement: voidptr): int32 from"nuppsqlite"
+cdef function sqlite3_bind_parameter_count(borrows statement: voidptr): int32 from"nuppsqlite"
+cdef function sqlite3_bind_parameter_index(borrows statement: voidptr, name: string): int32 from"nuppsqlite"
+cdef function sqlite3_bind_parameter_name(borrows statement: voidptr, index: int32): cstring? from"nuppsqlite"
+cdef function sqlite3_bind_null(borrows statement: voidptr, index: int32): int32 from"nuppsqlite"
+cdef function sqlite3_bind_int64(borrows statement: voidptr, index: int32, value: int64): int32 from"nuppsqlite"
+cdef function sqlite3_bind_double(borrows statement: voidptr, index: int32, value: float64): int32 from"nuppsqlite"
+-- The destructor is SQLITE_TRANSIENT, `(sqlite3_destructor_type)-1`, passed
+-- in the word a pointer is passed in on every target the core runs on.
+-- SQLite copies the bytes before the call returns, so nothing of Nupp's is
+-- held past it. The encoding is C's `unsigned char`, which the core's foreign
+-- call passes as the 32-bit integer the register holds it in.
+cdef function sqlite3_bind_text64(
+    borrows statement: voidptr,
+    index: int32,
+    text: string,
+    bytes: uint64,
+    destructor: int64,
+    encoding: int32
+): int32 from"nuppsqlite"
+cdef function sqlite3_bind_blob64(
+    borrows statement: voidptr,
+    index: int32,
+    data: string,
+    bytes: uint64,
+    destructor: int64
+): int32 from"nuppsqlite"
+cdef function sqlite3_column_count(borrows statement: voidptr): int32 from"nuppsqlite"
+cdef function sqlite3_column_name(borrows statement: voidptr, index: int32): cstring? from"nuppsqlite"
+cdef function sqlite3_column_type(borrows statement: voidptr, index: int32): int32 from"nuppsqlite"
+cdef function sqlite3_column_int64(borrows statement: voidptr, index: int32): int64 from"nuppsqlite"
+cdef function sqlite3_column_double(borrows statement: voidptr, index: int32): float64 from"nuppsqlite"
+cdef function sqlite3_column_text(borrows statement: voidptr, index: int32): voidptr? from"nuppsqlite"
+cdef function sqlite3_column_blob(borrows statement: voidptr, index: int32): voidptr? from"nuppsqlite"
+cdef function sqlite3_column_bytes(borrows statement: voidptr, index: int32): int32 from"nuppsqlite"
+cdef function sqlite3_changes64(borrows database: voidptr): int64 from"nuppsqlite"
+cdef function sqlite3_total_changes64(borrows database: voidptr): int64 from"nuppsqlite"
+cdef function sqlite3_last_insert_rowid(borrows database: voidptr): int64 from"nuppsqlite"
+cdef function sqlite3_get_autocommit(borrows database: voidptr): int32 from"nuppsqlite"
+cdef function sqlite3_db_handle(borrows statement: voidptr): voidptr from"nuppsqlite"
+-- The C library's: the address in a text slot, and SQLite's bytes into a
+-- string's storage.
+cdef function memcpy(exclusive target: Address*, borrows source: TextSlot*, bytes: uint64): voidptr
+cdef function memmove(exclusive target: voidptr, borrows source: voidptr, bytes: uint64): voidptr
+
+--- The release this binding was written against, as `sqlite3_libversion_number`
+--- reports it: 3.54.1. A later release is accepted, since SQLite keeps its API.
+export const VERSION_NUMBER: int32 = 3054001
+
+--- The compile options the provider relies on, without their `SQLITE_` prefix.
+export const REQUIRED_OPTIONS: {string} = {"OMIT_LOAD_EXTENSION", "ENABLE_FTS5", "THREADSAFE=1", "DQS=0"}
+
+--- Result codes, as SQLite numbers them.
+export const OK: int32 = 0
+
+export const ROW: int32 = 100
+export const DONE: int32 = 101
+
+--- Open flags.
+export const OPEN_READONLY: int32 = 0x00000001
+
+export const OPEN_READWRITE: int32 = 0x00000002
+export const OPEN_CREATE: int32 = 0x00000004
+export const OPEN_EXRESCODE: int32 = 0x02000000
+
+--- The `sqlite3_db_config` option that refuses SQL able to corrupt a file.
+export const DBCONFIG_DEFENSIVE: int32 = 1010
+
+--- The storage classes `columntype` answers.
+export const INTEGER: int32 = 1
+
+export const FLOAT: int32 = 2
+export const TEXT: int32 = 3
+export const BLOB: int32 = 4
+export const NULL: int32 = 5
+
+-- SQLITE_TRANSIENT, and SQLITE_UTF8 for bound text.
+const TRANSIENT: int64 = -1
+const UTF8 = 1
+
+-- How many connections and statements are open.
+local live: integer = 0
+
+-- What the loaded library lacks once it has been checked: "" for nothing.
+local mismatch: string? = nil
+
+--- Why the loaded library is not one this binding can use, or nil: a version
+--- older than the one it was written against, or a compile option it relies
+--- on that it was built without. Checked once.
+export function problem(): string?
+    if mismatch == nil then
+        local found: {string} = {}
+        if sqlite3_libversion_number() < VERSION_NUMBER then
+            found[#found + 1] = "version " .. tostring(sqlite3_libversion()) .. " is older than 3.54.1"
+        end
+        for _, option in ipairs(REQUIRED_OPTIONS) do
+            if sqlite3_compileoption_used(option) == 0 then
+                found[#found + 1] = "it was built without SQLITE_" .. option
+            end
+        end
+        mismatch = table.concat(found, "; ")
+    end
+
+    return mismatch ~= "" and mismatch or nil
+end
+
+--- The library's version text.
+export function version(): string
+    return tostring(sqlite3_libversion())
+end
+
+--- The library's version number.
+export function versionnumber(): integer
+    return sqlite3_libversion_number()
+end
+
+--- The check-in the library was built from.
+export function sourceid(): string
+    return tostring(sqlite3_sourceid())
+end
+
+--- Whether the library was built with a compile option, named without its
+--- `SQLITE_` prefix.
+export function compileoption(name: string): boolean
+    return sqlite3_compileoption_used(name) ~= 0
+end
+
+--- The English text of a result code.
+export function errstr(code: integer): string
+    return tostring(sqlite3_errstr(math.i32.wrap(code)))
+end
+
+--- How many connections and statements are open.
+export function openhandles(): integer
+    return live
+end
+
+-- Copies `count` bytes of SQLite's memory at `source` into a string.
+local function copied(borrows source: voidptr?, count: integer): string
+    if source == nil or count <= 0 then
+        return ""
+    end
+    local buffer = storage.allocateBytes(count)
+    local into = span.writecarray(buffer, count)
+    do
+        local target, room = into:ref()
+        @unsafe do
+            local _ = memmove(target as voidptr, source, room as uint64)
+        end
+    end
+    own.drop(into)
+
+    return storage.string(buffer, count)
+end
+
+--- A prepared statement, finalized when it is closed or dropped.
+export record Statement is own.Closeable
+    @private handle: voidptr?
+
+    function close(takes self): nil
+        local handle = self.handle
+        if handle ~= nil then
+            self.handle = nil
+            live = live - 1
+            local _ = sqlite3_finalize(handle)
+        end
+    end
+
+    --- Whether it is still prepared.
+    function prepared(self): boolean
+        return self.handle ~= nil
+    end
+
+    function step(self): int32
+        return sqlite3_step((assert(self.handle, "statement is finalized")))
+    end
+
+    --- The extended code of its connection's last failure.
+    function errcode(self): integer
+        return sqlite3_extended_errcode(sqlite3_db_handle((assert(self.handle, "statement is finalized"))))
+    end
+
+    --- Its connection's message for the last failure.
+    function errmsg(self): string
+        return tostring(sqlite3_errmsg(sqlite3_db_handle((assert(self.handle, "statement is finalized")))))
+    end
+
+    function reset(self): int32
+        return sqlite3_reset((assert(self.handle, "statement is finalized")))
+    end
+
+    function clearbindings(self): int32
+        return sqlite3_clear_bindings((assert(self.handle, "statement is finalized")))
+    end
+
+    function parametercount(self): integer
+        return sqlite3_bind_parameter_count((assert(self.handle, "statement is finalized")))
+    end
+
+    function parameterindex(self, name: string): integer
+        return sqlite3_bind_parameter_index((assert(self.handle, "statement is finalized")), name)
+    end
+
+    function parametername(self, index: integer): string?
+        local name = sqlite3_bind_parameter_name((assert(self.handle, "statement is finalized")), math.i32.wrap(index))
+        return name ~= nil and tostring(name) or nil
+    end
+
+    function bindnull(self, index: integer): int32
+        return sqlite3_bind_null((assert(self.handle, "statement is finalized")), math.i32.wrap(index))
+    end
+
+    function bindinteger(self, index: integer, value: integer): int32
+        return sqlite3_bind_int64((assert(self.handle, "statement is finalized")), math.i32.wrap(index), value)
+    end
+
+    function bindfloat(self, index: integer, value: number): int32
+        return sqlite3_bind_double((assert(self.handle, "statement is finalized")), math.i32.wrap(index), value)
+    end
+
+    function bindtext(self, index: integer, value: string): int32
+        return sqlite3_bind_text64(
+            assert(self.handle, "statement is finalized"),
+            math.i32.wrap(index),
+            value,
+            #value as uint64,
+            TRANSIENT,
+            UTF8
+        )
+    end
+
+    function bindblob(self, index: integer, value: string): int32
+        return sqlite3_bind_blob64(
+            assert(self.handle, "statement is finalized"),
+            math.i32.wrap(index),
+            value,
+            #value as uint64,
+            TRANSIENT
+        )
+    end
+
+    function columncount(self): integer
+        return sqlite3_column_count((assert(self.handle, "statement is finalized")))
+    end
+
+    function columnname(self, index: integer): string
+        local name = sqlite3_column_name((assert(self.handle, "statement is finalized")), math.i32.wrap(index))
+        return name ~= nil and tostring(name) or ""
+    end
+
+    function columntype(self, index: integer): int32
+        return sqlite3_column_type((assert(self.handle, "statement is finalized")), math.i32.wrap(index))
+    end
+
+    function columninteger(self, index: integer): integer
+        return sqlite3_column_int64((assert(self.handle, "statement is finalized")), math.i32.wrap(index))
+    end
+
+    function columnfloat(self, index: integer): number
+        return sqlite3_column_double((assert(self.handle, "statement is finalized")), math.i32.wrap(index))
+    end
+
+    -- Text and blobs are read before their length, as SQLite asks: reading
+    -- may convert the value, and the length is of what it became.
+    function columntext(self, index: integer): string
+        local handle = assert(self.handle, "statement is finalized")
+        local at = math.i32.wrap(index)
+        local text = sqlite3_column_text(handle, at)
+        return copied(text, sqlite3_column_bytes(handle, at))
+    end
+
+    function columnblob(self, index: integer): string
+        local handle = assert(self.handle, "statement is finalized")
+        local at = math.i32.wrap(index)
+        local blob = sqlite3_column_blob(handle, at)
+        return copied(blob, sqlite3_column_bytes(handle, at))
+    end
+end
+
+--- An open connection, closed when it is closed or dropped. A statement still
+--- prepared on it keeps SQLite's connection until the statement is finalized.
+export record Database is own.Closeable
+    @private handle: voidptr?
+
+    function close(takes self): nil
+        local handle = self.handle
+        if handle ~= nil then
+            self.handle = nil
+            live = live - 1
+            local _ = sqlite3_close_v2(handle)
+        end
+    end
+
+    --- Whether it is still open.
+    function opened(self): boolean
+        return self.handle ~= nil
+    end
+
+    function errcode(self): integer
+        return sqlite3_extended_errcode((assert(self.handle, "connection is closed")))
+    end
+
+    function errmsg(self): string
+        return tostring(sqlite3_errmsg((assert(self.handle, "connection is closed"))))
+    end
+
+    --- The byte offset of the token the last error was found at, from the
+    --- start of the text last prepared, or -1.
+    function erroroffset(self): integer
+        return sqlite3_error_offset((assert(self.handle, "connection is closed")))
+    end
+
+    function busytimeout(self, milliseconds: integer): int32
+        return sqlite3_busy_timeout((assert(self.handle, "connection is closed")), math.i32.wrap(milliseconds))
+    end
+
+    function changes(self): integer
+        return sqlite3_changes64((assert(self.handle, "connection is closed")))
+    end
+
+    function totalchanges(self): integer
+        return sqlite3_total_changes64((assert(self.handle, "connection is closed")))
+    end
+
+    function lastrowid(self): integer
+        return sqlite3_last_insert_rowid((assert(self.handle, "connection is closed")))
+    end
+
+    function autocommit(self): boolean
+        return sqlite3_get_autocommit((assert(self.handle, "connection is closed"))) ~= 0
+    end
+
+    --- Prepares the first statement of `sql` from byte `offset` (zero-based):
+    --- SQLite's status, the statement, nil when the rest holds only
+    --- whitespace and comments or on failure, and how many bytes from
+    --- `offset` it consumed.
+    function prepare(self, sql: string, offset: integer): (int32, Statement?, integer)
+        local handle = assert(self.handle, "connection is closed")
+        assert(offset >= 0 and offset <= #sql, "prepare offset is outside the text")
+        local made = Slot()
+        local start = TextSlot()
+        local tail = TextSlot()
+        local from = Address()
+        local to = Address()
+        local status: int32 = 0
+        do
+            local text = span.fromstring(sql)
+            local base, count = text:ref()
+            @unsafe do
+                start.value = (base as const uint8*) + offset
+            end
+            status = sqlite3_prepare_v3(handle, assert(start.value), math.i32.wrap(count - offset), 0, made, tail)
+            local _ = memcpy(from, start, 8ULL)
+            local _ = memcpy(to, tail, 8ULL)
+            @unsafe do
+                start.value = nil
+                tail.value = nil
+            end
+        end
+        local consumed: integer = 0
+        if to.value ~= 0ULL then
+            consumed = (to.value - from.value) as integer
+        end
+        local value = made.value
+        if value == nil then
+            return status, nil, consumed
+        end
+        @unsafe do
+            made.value = nil
+        end
+        live = live + 1
+        local statement = Statement(handle = nil)
+        @unsafe do
+            statement.handle = value
+        end
+
+        return status, statement, consumed
+    end
+end
+
+--- Opens a connection with `flags`: SQLite's status and the connection. One
+--- SQLite could not open is still answered when SQLite made it, so its
+--- message can be read; closing it releases what SQLite allocated. Extended
+--- result codes and defensive mode are on.
+export function open(path: string, flags: int32): (int32, Database?)
+    local made = Slot()
+    local status = sqlite3_open_v2(path, made, flags | OPEN_EXRESCODE, nil)
+    local value = made.value
+    if value == nil then
+        return status, nil
+    end
+    @unsafe do
+        made.value = nil
+    end
+    live = live + 1
+    local database = Database(handle = nil)
+    @unsafe do
+        database.handle = value
+    end
+    local _ = sqlite3_extended_result_codes(value, 1)
+    local _ = sqlite3_db_config(value, DBCONFIG_DEFENSIVE, 1 as int32, nil as voidptr?)
+
+    return status, database
+end
