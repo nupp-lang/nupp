@@ -856,6 +856,35 @@ bytestest
 requires("vm", "a Cargo crate built as a dependency", [[
 projectcargotest
 ]])
+requires("vm", "programs loaded through the VM's image loader (`__nupp_load_image`)", [[
+builtinextensiontest
+cliargtest/theTypedFacadeKeepsProvidersAliasesAndShadowing
+]])
+requires("vm", "an embedded VM host with no argument table", [[
+cliargtest/embeddedHostsGetAnEmptyArgumentTable
+]])
+requires("vm", "the VM project loader's package loaders and carried implementations", [[
+runtimetest/carriedImplementationsFollowProjectPreloadAndCompiledModules
+runtimetest/cliRunRefusesALuaDependencyThatBreaksItsContract
+runtimetest/declinesRequiresIssuedWhileCompiling
+runtimetest/loadsInitModulesOnlyOnce
+runtimetest/loadsLjppFromProjectRoots
+runtimetest/loadsUncompiledCarriedImplementationsOnce
+runtimetest/preservesPreloadAndPlainLuaLoaders
+runtimetest/preservesRequireCycleErrors
+]])
+requires("vm", "a LuaJIT process restoring the prelude cache", [[
+preludecachetest/aStoredPreludeFromAnotherIdentityIsNotRestored
+preludecachetest/aStoredPreludeIsNotRestoredOverAnotherIdentity
+preludecachetest/theNextCommandReadsWhatThisOneWrote
+]])
+requires("vm", "the VM's frozen provider tables and their standard-table projection", [[
+spirepresentationtest/canonicalStorageBindingRetainsTheFrozenProviderAndOperations
+spirepresentationtest/nativeAllocationConsumersUseCanonicalProviderOperations
+]])
+requires("vm", "a LuaJIT process resolving Lunajson", [[
+jsonfacadedefaulttest/anOrdinaryJsonRequireLoadsLunajsonAndNoAotDecoder
+]])
 requires("vm", "a VM image loader or the VM-built compiler tree", [[
 apishortnamestest/lowercaseBuilderFunctionsAndLenKeepRuntimeValues
 publicclitest/derivedMetadataNamesInterfacesStably
