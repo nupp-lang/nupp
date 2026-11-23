@@ -118,6 +118,7 @@ local UNITS = {
                 {"growth", {0, 257}, 0},
                 {"growth", {0, 1025}, 0},
                 {"growth", {0, 4096}, 0},
+                {"growth", {0, 5000}, 0},
                 {"arrayGrowth", {0}, 0},
                 {"terminalGuard", {0}, 0}
             }
