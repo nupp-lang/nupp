@@ -586,7 +586,14 @@ export function construct(ctx: any, node: any, origin: any, instantiate: any?): 
     table.insert(args, 1, first)
     local value = ctx.readHeld(callee)
     ctx.release(callee)
-    ctx.invoke(call, value, args, contract, false, pack)
+    -- A constructor that raises lands here, as any call does, so a function
+    -- owning affine values destroys them and raises it again rather than
+    -- going on with the instance it never finished.
+    landed(ctx, call, ctx.invoke(call, value, args, contract, false, pack))
+    if ctx.block == nil then
+        ctx.release(instance)
+        return nil
+    end
     local result = ctx.readHeld(instance)
     ctx.release(instance)
 
