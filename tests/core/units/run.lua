@@ -1346,7 +1346,10 @@ do
     for name in pairs(only) do
         assert(known[name], "unknown core unit selection: " .. name)
     end
-    assert(arg[1] == nil or arg[1] == "all" or arg[1] == "normal" or arg[1] == "spill", "unknown unit mode: " .. arg[1])
+    assert(
+        arg[1] == nil or arg[1] == "all" or arg[1] == "normal" or arg[1] == "spill" or arg[1] == "generate",
+        "unknown unit mode: " .. arg[1]
+    )
 end
 
 -- The core library's call and text ids are generated from their one
