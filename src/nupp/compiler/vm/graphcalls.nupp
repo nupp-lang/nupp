@@ -1612,12 +1612,14 @@ export function dynamicInvokeContract(call: any, count: integer?): any
     -- A call through `any`, or through a value its metatable's __call makes
     -- callable, is checked against the call itself.
     -- One the checker could not type (a plain Lua chunk's, which compiles
-    -- whatever its checking found) is a call through `any` too.
+    -- whatever its checking found) is a call through `any` too, and so is a
+    -- `cdef function` held as a value: the foreign value factory's function.
     local called = call.calleeType
     -- A library call passing fewer arguments than its function requires
     -- passes exactly those, which the function counts (spreadsLibrary).
     if called == nil
         or called.tag ~= "func"
+        or called.foreign
         or alternativeresults(called)
         or call.chunkDynamic
         or not fitsArity(called, call)
