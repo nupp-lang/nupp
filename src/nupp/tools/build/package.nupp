@@ -749,9 +749,15 @@ function package_.coreBinary(root: string, config: Config, target: Target, outDi
         carried = found
     end
 
+    -- The library modules the program carries (a builtin's codec among them)
+    -- are checked beside the project, and bind what they load as `@lib/FILE`
+    -- too, so the bundle names no path of this machine and the files it
+    -- names are staged beside it.
+    local guestbuild = require("nupp.core.guestbuild")
+    guestbuild.packageLibraries()
     local bytes = require("nupp.core.guestprogramproducer").projectBundle(name, path, inc, embedded, inspect)
     local bindings = (config as any)._nativeLibraryBindings or {}
-    local libraries, notices = require("nupp.core.guestbuild").packagedLibraryFiles(bytes, bindings)
+    local libraries, notices = guestbuild.packagedLibraryFiles(bytes, bindings)
     local staged: {[string]: string} = {}
     for relative, source in pairs(libraries) do
         staged[relative] = source

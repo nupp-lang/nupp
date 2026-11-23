@@ -1199,8 +1199,12 @@ end
 --- Binds the native libraries of every program this process builds beside
 --- its bundle, as `@lib/FILE`, where the core loads them relative to the
 --- bundle, so the bundle names no path of the machine that built it. Chosen
---- before the first build; `packagedLibraries` names the files to stage.
+--- before the first build, and asking again after it changes nothing;
+--- `packagedLibraries` names the files to stage.
 export function packageLibraries(): nil
+    if packagedLibraries then
+        return
+    end
     assert(sharedProject == nil, "native libraries are packaged before the first guest build")
     packagedLibraries = true
 end
