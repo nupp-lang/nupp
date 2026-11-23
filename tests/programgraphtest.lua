@@ -1259,7 +1259,9 @@ return box.R(4):copy().value
     local compiled = program.compile(p, tagged.forVersion(8))
     local copy = owner(p, "copy")
     test.eq(#copy.captures, 1)
-    test.eq(copy.captures[1].definition.name, "R")
+    -- `record box.R` is stored in the table `box` names, and `box.R(...)`
+    -- reads it through `box`.
+    test.eq(copy.captures[1].definition.name, "box")
     test.eq(copy.captures[1].storage, "cell")
     require("nupp.compiler.vm.coregraphexecutable").fromChecked(compiled, 8)
 end
