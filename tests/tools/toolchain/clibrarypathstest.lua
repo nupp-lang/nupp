@@ -67,7 +67,7 @@ if grep -qx "$1" "$here/failing" 2>/dev/null; then
 fi
 prefix="$here/artifacts/$1"
 mkdir -p "$prefix/lib" "$prefix/notices"
-for base in z nupp_crc; do
+for base in z nupp_crc nupp_yaml; do
     : > "$prefix/lib/lib$base.dylib"
     : > "$prefix/lib/lib$base.so"
 done
@@ -114,8 +114,8 @@ function M.noVariableKeepsPrintingEveryLibrary()
     end
     local directory = checkout()
     local text = capture("sh " .. quote(directory .. "/scripts/c-library-paths"))
-    assert(text:find("NUPP_ZLIB_LIBRARY=", 1, true) and text:find("NUPP_CRC_LIBRARY=", 1, true), text)
-    assert(calls(directory) == "zlib,isal", calls(directory))
+    assert(text:find("NUPP_ZLIB_LIBRARY=", 1, true) and text:find("NUPP_CRC_LIBRARY=", 1, true) and text:find("NUPP_YAML_LIBRARY=", 1, true), text)
+    assert(calls(directory) == "zlib,isal,libyaml", calls(directory))
     run("rm -rf " .. quote(directory))
 end
 

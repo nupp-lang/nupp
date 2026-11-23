@@ -168,6 +168,10 @@ build() (
             version=$CMARK_REV; sourceHash=$CMARK_SHA256; url=$CMARK_URL; asset="cmark-gfm-$version.tar.gz"; sourceName="cmark-gfm-$version"; notice=cmark-gfm-LICENSE.txt
             dependencies=$(for file in "$ROOT"/native/markdown/* "$ROOT/notices/cmark-gfm-LICENSE.txt"; do filehash "$file"; done | hash)
             ;;
+        libyaml)
+            version=$LIBYAML_VERSION; sourceHash=$LIBYAML_SHA256; url=$LIBYAML_URL; asset="yaml-$version.tar.gz"; sourceName="yaml-$version"; notice=libyaml-LICENSE.txt
+            dependencies=$(for file in "$ROOT"/native/yaml/* "$ROOT/scripts/c-libraries/libyamlprobe.c" "$ROOT/notices/libyaml-LICENSE.txt"; do filehash "$file"; done | hash)
+            ;;
         libcurl)
             version=$LIBCURL_VERSION; sourceHash=$LIBCURL_SHA256; url=$LIBCURL_URL; asset="curl-$version.tar.xz"; sourceName="curl-$version"; notice=libcurl-LICENSE.txt
             zlib=$(sh "$ROOT/scripts/native-libraries" zlib) || die 'zlib provisioning failed'
@@ -234,5 +238,5 @@ build() (
     valid "$destination" "$key" || die 'installed artifact verification failed'
     printf '%s\n' "$destination"
 )
-[ "$#" -gt 0 ] || die 'usage: scripts/native-libraries zlib|openssl|libcurl|libffi|libuv|isal|cmark ...'
+[ "$#" -gt 0 ] || die 'usage: scripts/native-libraries zlib|openssl|libcurl|libffi|libuv|isal|cmark|libyaml ...'
 for component in "$@"; do build "$component"; done

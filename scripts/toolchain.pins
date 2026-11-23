@@ -109,3 +109,9 @@ LIBUV_URL=https://dist.libuv.org/dist/v1.53.0/libuv-v1.53.0.tar.gz
 CMARK_REV=27d942c8b0a62d192f616e5bf3578f4b6a89e180
 CMARK_SHA256=f8710b90b90a503240c920c6922367e700bb9895bb02018d6448d2f812fc7968
 CMARK_URL=https://codeload.github.com/github/cmark-gfm/tar.gz/27d942c8b0a62d192f616e5bf3578f4b6a89e180
+
+# libyaml 0.2.6 (GitHub release of 2026-11-20, tag 0.2.6 at fc96aa68), which
+# limits nesting depth (CVE-2026-44842); built as nupp_yaml by native/yaml.
+LIBYAML_VERSION=0.2.6
+LIBYAML_SHA256=43b393a117bd4fe39812fddc94e3d654359a3ae05653dcf0110a1122d1747e61
+LIBYAML_URL=https://github.com/yaml/libyaml/releases/download/0.2.6/yaml-0.2.6.tar.gz

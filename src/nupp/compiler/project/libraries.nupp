@@ -59,6 +59,7 @@ export const STANDARD: {[string]: {
         pins = {"ISAL_"},
         notices = {"ISA-L-LICENSE.txt", "ISA-L-CRC-LICENSE.txt"}
     },
+    nuppyaml = {name = "nupp_yaml", env = "NUPP_YAML_LIBRARY", pins = {"LIBYAML_"}, notices = {"libyaml-LICENSE.txt"}},
 }
 
 -- The path `scripts/c-library-paths` printed for a variable, or why it named

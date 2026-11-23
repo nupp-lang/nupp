@@ -117,7 +117,33 @@ license="$source/COPYING"
   assert.notEqual(refused.status, 0);
   assert.match(refused.stderr, /notice differs/);
 });
-test('a redirected loader alias is refused', {skip: process.platform === 'win32'}, t => {
+test('libyaml build, probe and notice bytes participate in its artifact key', t => {
+  const f = fixture(t);
+  f.write('source/yaml-0.0.1/License', 'test notice\n');
+  const archive = 'archives/yaml-0.0.1.tar.gz';
+  const packed = spawnSync('tar', ['-czf', archive, '-C', 'source', 'yaml-0.0.1'], {cwd: f.directory, encoding: 'utf8'});
+  assert.equal(packed.status, 0, packed.stderr);
+  f.write('scripts/toolchain.pins', `LIBYAML_VERSION=0.0.1\nLIBYAML_SHA256=${digest(path.join(f.directory, archive))}\nLIBYAML_URL=https://invalid.example/yaml.tar.gz\n`);
+  f.write('scripts/c-libraries/libyaml.sh', `cmake -S "$source" -B "$staged/build" -DCMAKE_INSTALL_PREFIX="$install"
+license="$source/License"
+`);
+  f.write('notices/libyaml-LICENSE.txt', 'test notice\n');
+  f.write('native/yaml/CMakeLists.txt', 'synthetic build version 1\n');
+  f.write('scripts/c-libraries/libyamlprobe.c', 'synthetic probe version 1\n');
+  f.args[1] = 'libyaml';
+  const prefix = f.success(f.run());
+  assert.equal(f.success(f.run()), prefix);
+  f.write('native/yaml/CMakeLists.txt', 'synthetic build version 2\n');
+  const rebuilt = f.success(f.run());
+  assert.notEqual(rebuilt, prefix);
+  f.write('scripts/c-libraries/libyamlprobe.c', 'synthetic probe version 2\n');
+  assert.notEqual(f.success(f.run()), rebuilt);
+  f.write('notices/libyaml-LICENSE.txt', 'wrong notice\n');
+  const refused = f.run();
+  assert.notEqual(refused.status, 0);
+  assert.match(refused.stderr, /notice differs/);
+});
+test('a redirected loader alias is refused',{skip: process.platform === 'win32'}, t => {
   const f = fixture(t);
   const tool = fs.readFileSync(path.join(f.directory, 'tools/cmake'), 'utf8');
   f.write('tools/cmake', tool.replace("echo 'test library, never loaded' > \"$install/lib/libz.so\"",

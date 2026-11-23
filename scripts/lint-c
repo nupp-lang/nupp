@@ -140,6 +140,12 @@ libffi() {
     dirname "$header"
 }
 
+# libyaml's one public header is in its release tree as shipped.
+libyaml() {
+    unpack "yaml-$LIBYAML_VERSION.tar.gz" "$LIBYAML_URL" "$LIBYAML_SHA256" \
+        "yaml-$LIBYAML_VERSION"
+}
+
 # The pinned WebGPU headers, as the GPU conformance job fetches them.
 wgpu() {
     library=$(python3 "$ROOT/scripts/wgpu-native") || die 'cannot fetch wgpu-native'
@@ -236,6 +242,7 @@ flags() {
                 "'-DNUPP_EXPECT_TARGET=\\\"lint\\\"'"
             ;;
         scripts/c-libraries/libffiprobe.c) echo "-isystem $(libffi)" ;;
+        scripts/c-libraries/libyamlprobe.c) echo "-isystem $(libyaml)/include" ;;
         tests/fixtures/wgpu/abi.c) echo "-isystem $(wgpu)" ;;
         *) echo "" ;;
     esac

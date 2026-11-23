@@ -10,7 +10,7 @@
 # library's sources.
 set -eu
 ROOT=$(CDPATH= cd -- "$(dirname "$0")/.." && pwd)
-VARIABLES='NUPP_ZLIB_LIBRARY NUPP_CRC_LIBRARY'
+VARIABLES='NUPP_ZLIB_LIBRARY NUPP_CRC_LIBRARY NUPP_YAML_LIBRARY'
 die() {
     printf 'c-library-paths: %s\n' "$*" >&2
     exit 1
@@ -61,6 +61,7 @@ for variable in "$@"; do
     case "$variable" in
         NUPP_ZLIB_LIBRARY) path=$(library zlib z '*z*.dll') ;;
         NUPP_CRC_LIBRARY) path=$(library isal nupp_crc '*nupp_crc.dll') ;;
+        NUPP_YAML_LIBRARY) path=$(library libyaml nupp_yaml '*nupp_yaml.dll') ;;
         *) die "no pinned library is named $variable; known: $VARIABLES" ;;
     esac
     printf '%s=%s\n' "$variable" "$path"

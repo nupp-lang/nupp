@@ -15,6 +15,7 @@ on:
       - 'scripts/test-libffi'
       - 'native/crc/**'
       - 'native/markdown/**'
+      - 'native/yaml/**'
       - 'tests/fixtures/markdown/**'
       - 'tests/fixtures/c-libraries/**'
       - 'tests/fixtures/libuv/**'
@@ -190,7 +191,7 @@ jobs:
       - uses: actions/cache@v4
         with:
           path: .nupp-c-library-cache
-          key: c-libraries-aarch64-pc-windows-gnullvm-${{ hashFiles('scripts/toolchain.pins', 'scripts/native-libraries', 'scripts/host-machine', 'scripts/c-libraries/**', 'native/crc/**', 'native/markdown/**', 'notices/*LICENSE*') }}
+          key: c-libraries-aarch64-pc-windows-gnullvm-${{ hashFiles('scripts/toolchain.pins', 'scripts/native-libraries', 'scripts/host-machine', 'scripts/c-libraries/**', 'native/crc/**', 'native/markdown/**', 'native/yaml/**', 'notices/*LICENSE*') }}
       - name: Build the pinned libraries and the core bridge without Rust
         shell: bash
         env:
@@ -205,6 +206,6 @@ jobs:
           export PATH="$PWD/build/no-rust-tools:$PATH"
           [ "$(sh scripts/host-machine | cut -d: -f2)" = aarch64 ] || { echo 'host is not ARM64' >&2; exit 1; }
           [ "$(sh scripts/stage0-runtime --host)" = aarch64-pc-windows-gnullvm ]
-          sh scripts/native-libraries zlib libuv openssl libcurl libffi isal cmark
+          sh scripts/native-libraries zlib libuv openssl libcurl libffi isal cmark libyaml
           sh scripts/core-bridge --test
           llvm-objdump -f build/c-core-bridge/nupp-core.exe | grep -q aarch64

@@ -7,6 +7,16 @@ OUT=${NUPP_C_LIBRARY_EVIDENCE:-"$ROOT/build/c-libraries"}
 mkdir -p "$OUT"
 node --test tests/tools/toolchain/clibraries.test.mjs
 sh .github/scripts/test-crc-isal.sh
+# libyaml serves only the native core, which runs on ARM64; its recipe runs the
+# layout probe (scripts/c-libraries/libyamlprobe.c) before publishing.
+case "$(sh scripts/host-machine)" in
+    Linux:aarch64|Linux:arm64|Darwin:arm64)
+        yaml=$(./scripts/toolchain libyaml)
+        reused=$(NUPP_HOST_OFFLINE=1 ./scripts/toolchain libyaml 2> "$OUT/libyaml-reuse.log")
+        [ "$reused" = "$yaml" ] && [ ! -s "$OUT/libyaml-reuse.log" ] || { echo "libyaml warm reuse rebuilt" >&2; exit 1; }
+        cp "$yaml/identity" "$OUT/libyaml.identity"
+        ;;
+esac
 began=$(date +%s)
 zlib=$(./scripts/toolchain zlib)
 openssl=$(./scripts/toolchain openssl)
