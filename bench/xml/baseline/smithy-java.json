@@ -1,0 +1,743 @@
+{
+  "smithy_java": {
+    "repository": "https://github.com/smithy-lang/smithy-java",
+    "commit": "b14888c6977925248b9b0a90bb052062e684fed0"
+  },
+  "machine": {
+    "model": "Mac17,9",
+    "chip": "Apple M5 Pro",
+    "logical_cpus": 18,
+    "os": "macOS 26.6 (25G72)"
+  },
+  "jvm": {
+    "java.runtime.version": "25.0.5.1+2-LTS",
+    "java.vm.name": "OpenJDK 64-Bit Server VM",
+    "java.vm.vendor": "Eclipse Adoptium",
+    "path": "/Volumes/bigbertha/workspaces/core-builtins-xml-gradle/jdks/eclipse_adoptium-25-aarch64-os_x.2/jdk-25.0.5.1+2/Contents/Home/bin/java"
+  },
+  "jmh": {
+    "version": "1.37",
+    "mode": "thrpt",
+    "time_unit": "s",
+    "threads": 1,
+    "forks": 3,
+    "warmup_iterations": 5,
+    "warmup_time": "2 s",
+    "measurement_iterations": 5,
+    "measurement_time": "5 s",
+    "force_gc": true,
+    "jvm_args": [
+      "-Xms1g",
+      "-Xmx1g",
+      "-XX:+UseG1GC",
+      "-XX:+AlwaysPreTouch"
+    ],
+    "profiler": "software.amazon.smithy.java.benchmarks.OpsPerCpuSecondProfiler",
+    "priority": "nice -n 19"
+  },
+  "runs": [
+    {
+      "run": "protocol:AwsQueryDeserializeBenchmark",
+      "load_average_start": [
+        7.75,
+        8.46,
+        10.23
+      ],
+      "load_average_end": [
+        8.07,
+        8.72,
+        9.93
+      ],
+      "load_average_note": "sysctl vm.loadavg: 1, 5 and 15 minute averages"
+    },
+    {
+      "run": "protocol:RestXmlDeserializeBenchmark",
+      "load_average_start": [
+        7.81,
+        8.31,
+        9.33
+      ],
+      "load_average_end": [
+        7.09,
+        7.10,
+        8.13
+      ],
+      "load_average_note": "sysctl vm.loadavg: 1, 5 and 15 minute averages"
+    },
+    {
+      "run": "protocol:RestXmlSerializeBenchmark",
+      "load_average_start": [
+        7.09,
+        7.10,
+        8.13
+      ],
+      "load_average_end": [
+        9.62,
+        9.04,
+        8.59
+      ],
+      "load_average_note": "sysctl vm.loadavg: 1, 5 and 15 minute averages"
+    },
+    {
+      "run": "codec",
+      "load_average_start": [
+        7.96,
+        8.71,
+        8.54
+      ],
+      "load_average_end": [
+        9.78,
+        9.11,
+        8.70
+      ],
+      "load_average_note": "sysctl vm.loadavg: 1, 5 and 15 minute averages"
+    }
+  ],
+  "codec_only": [
+    {
+      "case": "awsQuery_GetMetricDataResponse_L",
+      "benchmark": "CodecOnlyBenchmark.decode",
+      "kind": "codec_only",
+      "ops_per_sec": {
+        "score": 21353.85593143444,
+        "error": 974.7471348014312,
+        "confidence_99_9": [
+          20379.10879663301,
+          22328.603066235868
+        ],
+        "min_iteration": 20141.268717895542,
+        "max_iteration": 22904.588612617812,
+        "iterations": 15
+      },
+      "ops_per_cpu_sec": {
+        "score": 21239.449674460644,
+        "error": null,
+        "note": "operations / process CPU time (all threads: benchmark, JIT, GC, JMH), totalled over every fork and measurement iteration, so it is one value with no error"
+      }
+    },
+    {
+      "case": "awsQuery_GetMetricDataResponse_OutOfOrder",
+      "benchmark": "CodecOnlyBenchmark.decode",
+      "kind": "codec_only",
+      "ops_per_sec": {
+        "score": 208526.2844495391,
+        "error": 5351.855162437035,
+        "confidence_99_9": [
+          203174.42928710204,
+          213878.13961197613
+        ],
+        "min_iteration": 201871.58116273675,
+        "max_iteration": 215704.88379890774,
+        "iterations": 15
+      },
+      "ops_per_cpu_sec": {
+        "score": 207282.01082703623,
+        "error": null,
+        "note": "operations / process CPU time (all threads: benchmark, JIT, GC, JMH), totalled over every fork and measurement iteration, so it is one value with no error"
+      }
+    },
+    {
+      "case": "restXml_WideTypesResponse_S",
+      "benchmark": "CodecOnlyBenchmark.decode",
+      "kind": "codec_only",
+      "ops_per_sec": {
+        "score": 576061.4154408191,
+        "error": 22815.44266002351,
+        "confidence_99_9": [
+          553245.9727807957,
+          598876.8581008426
+        ],
+        "min_iteration": 549439.8357663245,
+        "max_iteration": 618304.8442680547,
+        "iterations": 15
+      },
+      "ops_per_cpu_sec": {
+        "score": 573730.0003809511,
+        "error": null,
+        "note": "operations / process CPU time (all threads: benchmark, JIT, GC, JMH), totalled over every fork and measurement iteration, so it is one value with no error"
+      }
+    },
+    {
+      "case": "restXml_WideTypesResponse_M",
+      "benchmark": "CodecOnlyBenchmark.decode",
+      "kind": "codec_only",
+      "ops_per_sec": {
+        "score": 257971.6777772192,
+        "error": 6747.245018667244,
+        "confidence_99_9": [
+          251224.43275855196,
+          264718.92279588646
+        ],
+        "min_iteration": 247067.81731486562,
+        "max_iteration": 271484.6139350182,
+        "iterations": 15
+      },
+      "ops_per_cpu_sec": {
+        "score": 256880.0761698031,
+        "error": null,
+        "note": "operations / process CPU time (all threads: benchmark, JIT, GC, JMH), totalled over every fork and measurement iteration, so it is one value with no error"
+      }
+    },
+    {
+      "case": "restXml_WideTypesResponse_L",
+      "benchmark": "CodecOnlyBenchmark.decode",
+      "kind": "codec_only",
+      "ops_per_sec": {
+        "score": 147817.07086157057,
+        "error": 4031.6526656991664,
+        "confidence_99_9": [
+          143785.4181958714,
+          151848.72352726973
+        ],
+        "min_iteration": 141181.0871010702,
+        "max_iteration": 153720.49067688087,
+        "iterations": 15
+      },
+      "ops_per_cpu_sec": {
+        "score": 147198.56474001825,
+        "error": null,
+        "note": "operations / process CPU time (all threads: benchmark, JIT, GC, JMH), totalled over every fork and measurement iteration, so it is one value with no error"
+      }
+    },
+    {
+      "case": "restXml_CopyObjectOutput_M",
+      "benchmark": "CodecOnlyBenchmark.decode",
+      "kind": "codec_only",
+      "ops_per_sec": {
+        "score": 2673229.297714113,
+        "error": 94528.41539993085,
+        "confidence_99_9": [
+          2578700.882314182,
+          2767757.7131140437
+        ],
+        "min_iteration": 2550258.998193358,
+        "max_iteration": 2839037.030808375,
+        "iterations": 15
+      },
+      "ops_per_cpu_sec": {
+        "score": 2645382.128400069,
+        "error": null,
+        "note": "operations / process CPU time (all threads: benchmark, JIT, GC, JMH), totalled over every fork and measurement iteration, so it is one value with no error"
+      }
+    },
+    {
+      "case": "restXml_CopyObjectOutput_OutOfOrder",
+      "benchmark": "CodecOnlyBenchmark.decode",
+      "kind": "codec_only",
+      "ops_per_sec": {
+        "score": 1477385.8566893525,
+        "error": 138030.7352824051,
+        "confidence_99_9": [
+          1339355.1214069475,
+          1615416.5919717576
+        ],
+        "min_iteration": 1082103.2930923495,
+        "max_iteration": 1559914.96433246,
+        "iterations": 15
+      },
+      "ops_per_cpu_sec": {
+        "score": 1481902.7161968905,
+        "error": null,
+        "note": "operations / process CPU time (all threads: benchmark, JIT, GC, JMH), totalled over every fork and measurement iteration, so it is one value with no error"
+      }
+    },
+    {
+      "case": "restXml_WideTypesRequest_S",
+      "benchmark": "CodecOnlyBenchmark.encode",
+      "kind": "codec_only",
+      "ops_per_sec": {
+        "score": 1634253.8845149754,
+        "error": 127712.25618514905,
+        "confidence_99_9": [
+          1506541.6283298263,
+          1761966.1407001244
+        ],
+        "min_iteration": 1242376.470323048,
+        "max_iteration": 1735306.458289406,
+        "iterations": 15
+      },
+      "ops_per_cpu_sec": {
+        "score": 1638371.4726402105,
+        "error": null,
+        "note": "operations / process CPU time (all threads: benchmark, JIT, GC, JMH), totalled over every fork and measurement iteration, so it is one value with no error"
+      }
+    },
+    {
+      "case": "restXml_WideTypesRequest_M",
+      "benchmark": "CodecOnlyBenchmark.encode",
+      "kind": "codec_only",
+      "ops_per_sec": {
+        "score": 747060.3031793142,
+        "error": 59506.8322583924,
+        "confidence_99_9": [
+          687553.4709209219,
+          806567.1354377066
+        ],
+        "min_iteration": 637784.6480439202,
+        "max_iteration": 829414.6512002185,
+        "iterations": 15
+      },
+      "ops_per_cpu_sec": {
+        "score": 755487.967841021,
+        "error": null,
+        "note": "operations / process CPU time (all threads: benchmark, JIT, GC, JMH), totalled over every fork and measurement iteration, so it is one value with no error"
+      }
+    },
+    {
+      "case": "restXml_WideTypesRequest_L",
+      "benchmark": "CodecOnlyBenchmark.encode",
+      "kind": "codec_only",
+      "ops_per_sec": {
+        "score": 370052.16987670964,
+        "error": 26422.78565156562,
+        "confidence_99_9": [
+          343629.384225144,
+          396474.9555282753
+        ],
+        "min_iteration": 312640.60334981704,
+        "max_iteration": 395535.0416839242,
+        "iterations": 15
+      },
+      "ops_per_cpu_sec": {
+        "score": 372959.0172155671,
+        "error": null,
+        "note": "operations / process CPU time (all threads: benchmark, JIT, GC, JMH), totalled over every fork and measurement iteration, so it is one value with no error"
+      }
+    },
+    {
+      "case": "restXml_CopyObjectRequest_M_AllMembersAsBody",
+      "benchmark": "CodecOnlyBenchmark.encode",
+      "kind": "codec_only",
+      "ops_per_sec": {
+        "score": 958919.8315672893,
+        "error": 37958.95073012325,
+        "confidence_99_9": [
+          920960.8808371661,
+          996878.7822974125
+        ],
+        "min_iteration": 850752.1359719964,
+        "max_iteration": 994142.2133143328,
+        "iterations": 15
+      },
+      "ops_per_cpu_sec": {
+        "score": 962371.0389072141,
+        "error": null,
+        "note": "operations / process CPU time (all threads: benchmark, JIT, GC, JMH), totalled over every fork and measurement iteration, so it is one value with no error"
+      }
+    }
+  ],
+  "protocol": [
+    {
+      "case": "awsQuery_GetMetricDataResponse_L",
+      "benchmark": "AwsQueryDeserializeBenchmark.deserialize",
+      "kind": "protocol",
+      "ops_per_sec": {
+        "score": 21561.419419309874,
+        "error": 505.51440948712786,
+        "confidence_99_9": [
+          21055.905009822745,
+          22066.933828797002
+        ],
+        "min_iteration": 20709.392948045952,
+        "max_iteration": 22135.35956773737,
+        "iterations": 15
+      },
+      "ops_per_cpu_sec": {
+        "score": 21435.427233131944,
+        "error": null,
+        "note": "operations / process CPU time (all threads: benchmark, JIT, GC, JMH), totalled over every fork and measurement iteration, so it is one value with no error"
+      }
+    },
+    {
+      "case": "awsQuery_GetMetricDataResponse_OutOfOrder",
+      "benchmark": "AwsQueryDeserializeBenchmark.deserialize",
+      "kind": "protocol",
+      "ops_per_sec": {
+        "score": 219878.0102343135,
+        "error": 9628.317507940686,
+        "confidence_99_9": [
+          210249.6927263728,
+          229506.3277422542
+        ],
+        "min_iteration": 203348.22957740072,
+        "max_iteration": 231585.05036288177,
+        "iterations": 15
+      },
+      "ops_per_cpu_sec": {
+        "score": 217769.55599679612,
+        "error": null,
+        "note": "operations / process CPU time (all threads: benchmark, JIT, GC, JMH), totalled over every fork and measurement iteration, so it is one value with no error"
+      }
+    },
+    {
+      "case": "restXml_WideTypesResponse_S",
+      "benchmark": "RestXmlDeserializeBenchmark.deserialize",
+      "kind": "protocol",
+      "ops_per_sec": {
+        "score": 537393.2370030142,
+        "error": 31047.44065937621,
+        "confidence_99_9": [
+          506345.796343638,
+          568440.6776623904
+        ],
+        "min_iteration": 496415.1010088201,
+        "max_iteration": 569312.4795334404,
+        "iterations": 15
+      },
+      "ops_per_cpu_sec": {
+        "score": 534693.4230656081,
+        "error": null,
+        "note": "operations / process CPU time (all threads: benchmark, JIT, GC, JMH), totalled over every fork and measurement iteration, so it is one value with no error"
+      }
+    },
+    {
+      "case": "restXml_WideTypesResponse_M",
+      "benchmark": "RestXmlDeserializeBenchmark.deserialize",
+      "kind": "protocol",
+      "ops_per_sec": {
+        "score": 269606.1599824743,
+        "error": 11687.66950696406,
+        "confidence_99_9": [
+          257918.49047551022,
+          281293.8294894383
+        ],
+        "min_iteration": 247268.29935603857,
+        "max_iteration": 281009.23861553724,
+        "iterations": 15
+      },
+      "ops_per_cpu_sec": {
+        "score": 268552.03078656754,
+        "error": null,
+        "note": "operations / process CPU time (all threads: benchmark, JIT, GC, JMH), totalled over every fork and measurement iteration, so it is one value with no error"
+      }
+    },
+    {
+      "case": "restXml_WideTypesResponse_L",
+      "benchmark": "RestXmlDeserializeBenchmark.deserialize",
+      "kind": "protocol",
+      "ops_per_sec": {
+        "score": 146933.9364417301,
+        "error": 11777.479452884192,
+        "confidence_99_9": [
+          135156.4569888459,
+          158711.4158946143
+        ],
+        "min_iteration": 127910.03493220128,
+        "max_iteration": 163106.68897500978,
+        "iterations": 15
+      },
+      "ops_per_cpu_sec": {
+        "score": 146279.5033486551,
+        "error": null,
+        "note": "operations / process CPU time (all threads: benchmark, JIT, GC, JMH), totalled over every fork and measurement iteration, so it is one value with no error"
+      }
+    },
+    {
+      "case": "restXml_CopyObjectOutput_M",
+      "benchmark": "RestXmlDeserializeBenchmark.deserialize",
+      "kind": "protocol",
+      "ops_per_sec": {
+        "score": 2072198.8703440728,
+        "error": 91192.03949114842,
+        "confidence_99_9": [
+          1981006.8308529244,
+          2163390.9098352212
+        ],
+        "min_iteration": 1953956.00848501,
+        "max_iteration": 2208482.4573876057,
+        "iterations": 15
+      },
+      "ops_per_cpu_sec": {
+        "score": 2053859.1742452194,
+        "error": null,
+        "note": "operations / process CPU time (all threads: benchmark, JIT, GC, JMH), totalled over every fork and measurement iteration, so it is one value with no error"
+      }
+    },
+    {
+      "case": "restXml_CopyObjectOutput_OutOfOrder",
+      "benchmark": "RestXmlDeserializeBenchmark.deserialize",
+      "kind": "protocol",
+      "ops_per_sec": {
+        "score": 1329695.6915371935,
+        "error": 7403.161952638962,
+        "confidence_99_9": [
+          1322292.5295845545,
+          1337098.8534898325
+        ],
+        "min_iteration": 1316052.4853955556,
+        "max_iteration": 1340123.5385530065,
+        "iterations": 15
+      },
+      "ops_per_cpu_sec": {
+        "score": 1320390.5565545266,
+        "error": null,
+        "note": "operations / process CPU time (all threads: benchmark, JIT, GC, JMH), totalled over every fork and measurement iteration, so it is one value with no error"
+      }
+    },
+    {
+      "case": "restXml_WideTypesRequest_S",
+      "benchmark": "RestXmlSerializeBenchmark.serialize",
+      "kind": "protocol",
+      "ops_per_sec": {
+        "score": 1273658.950365077,
+        "error": 25236.828926886345,
+        "confidence_99_9": [
+          1248422.1214381906,
+          1298895.7792919634
+        ],
+        "min_iteration": 1244113.634515325,
+        "max_iteration": 1309833.1943328655,
+        "iterations": 15
+      },
+      "ops_per_cpu_sec": {
+        "score": 1263746.344963546,
+        "error": null,
+        "note": "operations / process CPU time (all threads: benchmark, JIT, GC, JMH), totalled over every fork and measurement iteration, so it is one value with no error"
+      }
+    },
+    {
+      "case": "restXml_WideTypesRequest_M",
+      "benchmark": "RestXmlSerializeBenchmark.serialize",
+      "kind": "protocol",
+      "ops_per_sec": {
+        "score": 674651.0549702974,
+        "error": 49049.98382625795,
+        "confidence_99_9": [
+          625601.0711440394,
+          723701.0387965554
+        ],
+        "min_iteration": 607147.8976698889,
+        "max_iteration": 722382.2171231436,
+        "iterations": 15
+      },
+      "ops_per_cpu_sec": {
+        "score": 671241.0089775588,
+        "error": null,
+        "note": "operations / process CPU time (all threads: benchmark, JIT, GC, JMH), totalled over every fork and measurement iteration, so it is one value with no error"
+      }
+    },
+    {
+      "case": "restXml_WideTypesRequest_L",
+      "benchmark": "RestXmlSerializeBenchmark.serialize",
+      "kind": "protocol",
+      "ops_per_sec": {
+        "score": 305761.77377248794,
+        "error": 4787.01359044083,
+        "confidence_99_9": [
+          300974.7601820471,
+          310548.7873629288
+        ],
+        "min_iteration": 292959.0932934924,
+        "max_iteration": 314915.36146809463,
+        "iterations": 15
+      },
+      "ops_per_cpu_sec": {
+        "score": 305179.6011149431,
+        "error": null,
+        "note": "operations / process CPU time (all threads: benchmark, JIT, GC, JMH), totalled over every fork and measurement iteration, so it is one value with no error"
+      }
+    },
+    {
+      "case": "restXml_CopyObjectRequest_M",
+      "benchmark": "RestXmlSerializeBenchmark.serialize",
+      "kind": "protocol",
+      "ops_per_sec": {
+        "score": 1760199.91725723,
+        "error": 9247.62518948491,
+        "confidence_99_9": [
+          1750952.2920677452,
+          1769447.5424467148
+        ],
+        "min_iteration": 1746183.6206832242,
+        "max_iteration": 1772961.7050445024,
+        "iterations": 15
+      },
+      "ops_per_cpu_sec": {
+        "score": 1731677.2630277947,
+        "error": null,
+        "note": "operations / process CPU time (all threads: benchmark, JIT, GC, JMH), totalled over every fork and measurement iteration, so it is one value with no error"
+      }
+    }
+  ],
+  "not_applicable": [
+    {
+      "case": "restXml_CopyObjectRequest_M",
+      "kind": "codec_only",
+      "reason": "every CopyObjectRequest member is an HTTP header or label, so restXml sends no body and never calls the XML codec; restXml_CopyObjectRequest_M_AllMembersAsBody serializes the whole input as XML elements instead"
+    }
+  ],
+  "payloads": [
+    {
+      "file": "GetMetricDataResponseLarge.xml",
+      "bytes": 56872,
+      "sha256": "85ab8137af0898d7051def12c30eab6de597af201d4d5ddbf0bff0360bf8d6bb"
+    },
+    {
+      "file": "awsQuery_GetMetricDataResponse_L.params.json",
+      "bytes": 34584,
+      "sha256": "3be0acf9db24941751b68a87e4ccbecba5da9882b92533b6a6ba1e977f978e97"
+    },
+    {
+      "file": "awsQuery_GetMetricDataResponse_L.xml",
+      "bytes": 56873,
+      "sha256": "0f2bd18a5b4e12da2ea0576d6adcb569fcbc0c7da2e3f5011de92e95d02ac29e"
+    },
+    {
+      "file": "awsQuery_GetMetricDataResponse_OutOfOrder.params.json",
+      "bytes": 3231,
+      "sha256": "222e1117e6070332a0af74bda112e5e982c96ff60c63fc6610da673c555f7727"
+    },
+    {
+      "file": "awsQuery_GetMetricDataResponse_OutOfOrder.xml",
+      "bytes": 5483,
+      "sha256": "b7f1667d0e66caafc61046618f8297738160f75658671b3a505cbba17ed4dcef"
+    },
+    {
+      "file": "restXml_CopyObjectOutput_M.params.json",
+      "bytes": 3,
+      "sha256": "ca3d163bab055381827226140568f3bef7eaac187cebd76878e0b63e9e442356"
+    },
+    {
+      "file": "restXml_CopyObjectOutput_M.xml",
+      "bytes": 454,
+      "sha256": "2633423fbc8721702ef90299bb397c8c96bd4751200b53962af1cbd3b98c8b7f"
+    },
+    {
+      "file": "restXml_CopyObjectOutput_OutOfOrder.params.json",
+      "bytes": 3,
+      "sha256": "ca3d163bab055381827226140568f3bef7eaac187cebd76878e0b63e9e442356"
+    },
+    {
+      "file": "restXml_CopyObjectOutput_OutOfOrder.xml",
+      "bytes": 745,
+      "sha256": "124454dd476439e3c890a133c25706df2e217838bd4d87ef8b818eb2eaf92a8b"
+    },
+    {
+      "file": "restXml_CopyObjectRequest_M_AllMembersAsBody.expected.xml",
+      "bytes": 2291,
+      "sha256": "e5df15ce855681d6b871fc1c783bc7b4d501acae3a9c6122712758a6c96139b5"
+    },
+    {
+      "file": "restXml_CopyObjectRequest_M_AllMembersAsBody.params.json",
+      "bytes": 1833,
+      "sha256": "4eb414a1443d4253aa7e246da1f375794373df9d1b1923ed5229a082c5479d12"
+    },
+    {
+      "file": "restXml_WideTypesRequest_L.expected.xml",
+      "bytes": 3248,
+      "sha256": "723027039d4ba597bee2a0b41f5ede413d3ca0597000dec6ab5ac724dec45a36"
+    },
+    {
+      "file": "restXml_WideTypesRequest_L.params.json",
+      "bytes": 2950,
+      "sha256": "219eca169e9d98c48f18a8cb2ff7f93c3cae9091b672af124f381ed709f5284d"
+    },
+    {
+      "file": "restXml_WideTypesRequest_M.expected.xml",
+      "bytes": 1586,
+      "sha256": "79250f5e0e3c238416d978e89ea11b371b00792318dc2c655afd55d7c836afc4"
+    },
+    {
+      "file": "restXml_WideTypesRequest_M.params.json",
+      "bytes": 1443,
+      "sha256": "fc2163ff858156420a3f05561a2f8ee51f5b406a2c3c7b8330dd3fadf0ff02b9"
+    },
+    {
+      "file": "restXml_WideTypesRequest_S.expected.xml",
+      "bytes": 811,
+      "sha256": "3eeb2b252b2e1928ed50da736365bfe8daf1bb355f39332af0150b4212cf6eb3"
+    },
+    {
+      "file": "restXml_WideTypesRequest_S.params.json",
+      "bytes": 770,
+      "sha256": "ad475bd5781cbcd8df6ffdec2387582de39bd1a03c80c0851bc818154b70287a"
+    },
+    {
+      "file": "restXml_WideTypesResponse_L.params.json",
+      "bytes": 2901,
+      "sha256": "186b8eec92879d82d01b77ed5254816aef10ae0621744c1157606f24668aface"
+    },
+    {
+      "file": "restXml_WideTypesResponse_L.xml",
+      "bytes": 3251,
+      "sha256": "3a757e98d31896db08a0f12dfb6fc377edd75df38d27400253f9754fa9449379"
+    },
+    {
+      "file": "restXml_WideTypesResponse_M.params.json",
+      "bytes": 1394,
+      "sha256": "36dbfdc28f0b455e3b7c4b02e2dddbdc069da03d3b36b70ae8240caa2f91f07c"
+    },
+    {
+      "file": "restXml_WideTypesResponse_M.xml",
+      "bytes": 1589,
+      "sha256": "5b5293319098c84371f6ef6848491b1770d45b4d6a79274b79e16532ace1c76a"
+    },
+    {
+      "file": "restXml_WideTypesResponse_S.params.json",
+      "bytes": 721,
+      "sha256": "8c837d02874e9782dc8334a04a9effc3f9a84fe7ea12f30c999565133e1dc5ed"
+    },
+    {
+      "file": "restXml_WideTypesResponse_S.xml",
+      "bytes": 814,
+      "sha256": "df9550724431b164194fe238b2cd2d417f976e4e1164f9af6b9fc8ee18652660"
+    }
+  ],
+  "upstream_files": [
+    {
+      "path": "benchmarks/serde-benchmarks/model/operations/GetMetricData.smithy",
+      "bytes": 143591,
+      "sha256": "df29e95b9f269577ddada99dbfd8e7c07a32bcf073be048c1c955507323475b9"
+    },
+    {
+      "path": "benchmarks/serde-benchmarks/model/operations/WideTypes.smithy",
+      "bytes": 80462,
+      "sha256": "ba3de324bd284828a7ea802ba297e8f751016ff56e88ccdbf9d2b7552d99001d"
+    },
+    {
+      "path": "benchmarks/serde-benchmarks/model/operations/CopyObject.smithy",
+      "bytes": 17632,
+      "sha256": "6c2a46b4d17bea57eb5309d6540d0ecacdb8aace4f8429744977bc3d52182bb9"
+    },
+    {
+      "path": "benchmarks/serde-benchmarks/model/structures/MetricData.smithy",
+      "bytes": 1682,
+      "sha256": "b8b7b346a37cb4fda3baf65c0000b3d7c11509878ca6b35a67e94a6fe722524b"
+    },
+    {
+      "path": "benchmarks/serde-benchmarks/model/structures/MetricDataQuery.smithy",
+      "bytes": 1418,
+      "sha256": "fa84b811db69627132a422c2b8db65d100488e78138ca880da4dee69721fc2be"
+    },
+    {
+      "path": "benchmarks/serde-benchmarks/model/resources/CloudWatchMetric.smithy",
+      "bytes": 152,
+      "sha256": "2dd280157e4e8c5c681e1e000d2e18783bd4f394f3aff026cafc56d832ce6090"
+    },
+    {
+      "path": "benchmarks/serde-benchmarks/model/resources/S3Object.smithy",
+      "bytes": 174,
+      "sha256": "d8f29b16af9e4cc9907f625648a51e5686141725152b5c8d07197e97a87a68f2"
+    },
+    {
+      "path": "benchmarks/serde-benchmarks/model/AwsQueryDataPlane.smithy",
+      "bytes": 479,
+      "sha256": "e2f26f9a19b9dffe69cfaf515729e3b48fccd1bd5bfeb39dac2407a6079ad3d0"
+    },
+    {
+      "path": "benchmarks/serde-benchmarks/model/AwsRestXmlDataPlane.smithy",
+      "bytes": 484,
+      "sha256": "ecabfc51e96acdf3793b696e437f5704b0b772a9d5f2e0df88c6aaa3badfc9f7"
+    },
+    {
+      "path": "benchmarks/serde-benchmarks/model/main.smithy",
+      "bytes": 568,
+      "sha256": "c9502b482ce2e61a54bebefe9c4cdb4aa8a93903818a9c9a9c1a75d0a8cb40df"
+    },
+    {
+      "path": "benchmarks/serde-benchmarks/model/payloads/GetMetricDataResponseLarge.xml",
+      "bytes": 56872,
+      "sha256": "85ab8137af0898d7051def12c30eab6de597af201d4d5ddbf0bff0360bf8d6bb"
+    }
+  ]
+}
