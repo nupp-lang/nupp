@@ -9,6 +9,9 @@ const values = require("nupp.runtime.vm.values")
 
 const LEDGER: uint64 = 256ULL
 const SAMPLE: uint64 = 41ULL
+-- The record count the ledger once stopped at, which a long-running process
+-- holding that many large backings reached.
+const OLD_CEILING: uint64 = 4096ULL
 
 local function recordWrong(scope: voidptr, wrong: uint64): uint64
     native.store64(scope, native.index(native.sizeOf<servicescope.ServiceScope>()), wrong)
@@ -107,13 +110,22 @@ export function growth(scope: voidptr, count: uint64): uint64
     end
     wrong += native.asWord(pages.unmapOwned(base, 65537ULL) ~= 0ULL)
     wrong += native.asWord(pages.unmapOwned(base, ((count + 1ULL) << 16) | 1ULL) ~= 1ULL)
-    if count == 4096ULL then
-        local extra = pages.map(base, os.pageSize())
-        if extra == nil then
-            error("mapping units: final slot refill refused")
+    if count > OLD_CEILING then
+        -- Past the ledger's former ceiling: a freed slot is the next one taken,
+        -- and with every slot in use the next comes after the last.
+        local refill = pages.map(base, os.pageSize())
+        if refill == nil then
+            error("mapping units: freed slot refill refused")
         end
-        wrong += native.asWord(pages.map(base, os.pageSize()) ~= nil)
-        wrong += native.asWord(native.load64(base, native.fieldOffset<pages.Scope>("issued")) ~= count + 2ULL)
+        wrong += native.asWord(pages.unmapOwned(base, ((count + 2ULL) << 16) | 1ULL) ~= 1ULL)
+        refill = pages.map(base, os.pageSize())
+        local after = pages.map(base, os.pageSize())
+        if refill == nil or after == nil then
+            error("mapping units: grown slot refused")
+        end
+        wrong += native.asWord(pages.unmapOwned(base, ((count + 4ULL) << 16) | (count + 1ULL)) ~= 1ULL)
+        wrong += native.asWord(native.load64(base, native.fieldOffset<pages.Scope>("issued")) ~= count + 4ULL)
+        wrong += native.asWord(native.load64(base, native.fieldOffset<pages.Scope>("live")) ~= count)
     end
     wrong += native.asWord(pages.close(base) ~= 1ULL)
     wrong += native.asWord(native.load64(base, native.fieldOffset<pages.Scope>("live")) ~= 0ULL)

@@ -20,6 +20,8 @@ end
 local struct Growth
     maximum: uint64
     ownedRecords: uint64
+    -- The first record slot that may be free: every one below it is in use.
+    free: uint64
 end
 
 export struct Mapping
@@ -74,7 +76,8 @@ const WORD_MASK: uint64 = 7ULL
 
 const LIMIT: uint64 = 281474976710656ULL
 const MAXIMUM: uint64 = 0xffffffffffffffffULL
-const MAX_RECORDS: uint64 = 4096ULL
+-- A token carries its record's index plus one in its low 16 bits.
+export const MAX_RECORDS: uint64 = 65535ULL
 const ACTIVE: uint64 = 1ULL
 const OWNED_ACTIVE: uint64 = 4ULL
 
@@ -383,7 +386,7 @@ export function enableGrowth(scope: voidptr, scopeBytes: uint64): uint64
     end
     @unsafe do
         local extra = growth(scope)
-        if extra.maximum ~= 0ULL or extra.ownedRecords ~= 0ULL then
+        if extra.maximum ~= 0ULL or extra.ownedRecords ~= 0ULL or extra.free ~= 0ULL then
             return 0ULL
         end
         extra.maximum = MAX_RECORDS
@@ -434,6 +437,29 @@ local function grow(scope: voidptr): uint64
     return 1ULL
 end
 
+-- Where a growable ledger's search for a free record starts (Growth.free);
+-- a fixed ledger is small and searched from its first.
+local function firstFree(scope: voidptr): uint64
+    if native.load64(scope, native.fieldOffset<Scope>("phase")) ~= OWNED_ACTIVE then
+        return 0ULL
+    end
+    @unsafe local free = growth(scope).free
+
+    return free
+end
+
+-- Record `index` is free again, so a search may start there.
+local function freed(scope: voidptr, index: uint64): nil
+    if native.load64(scope, native.fieldOffset<Scope>("phase")) == OWNED_ACTIVE then
+        @unsafe do
+            local extra = growth(scope)
+            if index < extra.free then
+                extra.free = index
+            end
+        end
+    end
+end
+
 local function reserve(scope: voidptr, bytes: uint64): uint64
     if not valid(scope) then
         return 0ULL
@@ -443,7 +469,7 @@ local function reserve(scope: voidptr, bytes: uint64): uint64
         return 0ULL
     end
     local count = native.load64(scope, native.fieldOffset<Scope>("capacity"))
-    local index: uint64 = 0ULL
+    local index = firstFree(scope)
     while index < MAX_RECORDS do
         if index == count then
             if grow(scope) ~= 1ULL then
@@ -459,6 +485,9 @@ local function reserve(scope: voidptr, bytes: uint64): uint64
             native.store64(record, native.fieldOffset<Mapping>("serial"), serial)
             native.store64(record, native.fieldOffset<Mapping>("state"), 1ULL)
             native.store64(scope, native.fieldOffset<Scope>("issued"), serial)
+            if native.load64(scope, native.fieldOffset<Scope>("phase")) == OWNED_ACTIVE then
+                @unsafe growth(scope).free = index + 1ULL
+            end
             return (serial << 16) | (index + 1ULL)
         end
         index = index + 1ULL
@@ -504,6 +533,7 @@ export function unmapOwned(scope: voidptr, token: uint64): uint64
     end
     native.store64(record, native.fieldOffset<Mapping>("state"), 0ULL)
     native.store64(record, native.fieldOffset<Mapping>("base"), 0ULL)
+    freed(scope, (token & 65535ULL) - 1ULL)
     native.store64(
         scope,
         native.fieldOffset<Scope>("live"),
@@ -535,6 +565,7 @@ export function map(scope: voidptr, bytes: uint64): voidptr?
     local address = hostpages.mapPages(rounded)
     if address == 0ULL then
         native.store64(record, native.fieldOffset<Mapping>("state"), 0ULL)
+        freed(scope, (token & 65535ULL) - 1ULL)
         return nil
     end
     local base = address
