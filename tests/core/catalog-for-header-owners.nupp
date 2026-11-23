@@ -1,0 +1,58 @@
+module nupp.core.catalogforheaderowners
+
+-- A generic `for` whose header makes a fresh owner: the loop holds the
+-- iterator state it was given and closes it once, when the loop runs out, when
+-- it is left by break, and when a raise leaves it. Each check is a bit of the
+-- score.
+local score = 0
+local bit = 1
+
+local function check(ok: boolean): nil
+    if ok then
+        score = score | bit
+    end
+    bit = bit << 1
+end
+
+local closed = 0
+
+local record Cursor is own.Closeable
+    left: integer
+
+    function close(takes self): nil
+        closed = closed + 1
+    end
+end
+
+local function step(exclusive cursor: Cursor, _previous: integer?): integer?
+    if cursor.left == 0 then
+        return nil
+    end
+    cursor.left = cursor.left - 1
+
+    return cursor.left
+end
+
+local function count(from: integer): (function(exclusive cursor: Cursor, previous: integer?): integer?, Cursor, nil)
+    return step, Cursor(left = from), nil
+end
+
+local seen = 0
+for _ in count(3) do
+    seen = seen + 1
+end
+check(seen == 3 and closed == 1)
+
+for _ in count(3) do
+    break
+end
+check(closed == 2)
+
+local ok = pcall(function(): nil
+    for _ in count(3) do
+        error("leave")
+    end
+end)
+check(not ok and closed == 3)
+
+export const result = score

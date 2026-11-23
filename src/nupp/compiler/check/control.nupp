@@ -2214,6 +2214,17 @@ export function install(c: state.Checker): state.StatHandlers
             for key, value in pairs(stat) do
                 original[key] = value
             end
+            -- Each read of a hidden name has a token of its own: the declaring
+            -- token is the local's, and a catalog that walks both would take
+            -- the read for a second declaration.
+            local uses: {any} = {}
+            for slot, name in ipairs(hiddenNames) do
+                local reference: any = {}
+                for key, value in pairs(name) do
+                    reference[key] = value
+                end
+                uses[slot] = {kind = "name", token = reference, reference}
+            end
             local rewritten: {any} = {}
             local inHeader, afterHeader = false, false
             for _, child in ipairs(original) do
@@ -2222,8 +2233,7 @@ export function install(c: state.Checker): state.StatHandlers
                     if cst.isToken(child) and child.kind == "in" then
                         inHeader = true
                         for slot, name in ipairs(hiddenNames) do
-                            local use = {kind = "name", token = name, name}
-                            rewritten[#rewritten + 1] = use
+                            rewritten[#rewritten + 1] = uses[slot]
                             if slot < 3 then
                                 local comma: any = {}
                                 for key, value in pairs(name) do
@@ -2242,8 +2252,8 @@ export function install(c: state.Checker): state.StatHandlers
                 end
             end
             original.exprs = {}
-            for slot, name in ipairs(hiddenNames) do
-                original.exprs[slot] = {kind = "name", token = name, name}
+            for slot in ipairs(hiddenNames) do
+                original.exprs[slot] = uses[slot]
             end
             for index, child in ipairs(rewritten) do
                 original[index] = child
