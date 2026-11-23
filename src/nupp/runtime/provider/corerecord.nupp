@@ -84,16 +84,19 @@ export function create(owner: any, spec: any): any
     if blueprint ~= nil then
         owner["\0nupp:reflection"] = {blueprint = blueprint, references = spec.references}
         -- The declaration's `reflect` member answers its descriptor, as the
-        -- VM's witness registration gives it one (typewitness).
-        rawset(owner, "reflect", function(): any
-            local namespace = reflectionNamespace()
-            require("nupp.compiler.runtime.typewitness").install(namespace)
-            if namespace.__reflect.get == nil then
-                require("nupp.compiler.runtime.reflect").install(namespace)
-            end
+        -- VM's witness registration gives it one (typewitness), unless the
+        -- record declares a `reflect` of its own.
+        if rawget(owner, "reflect") == nil then
+            rawset(owner, "reflect", function(): any
+                local namespace = reflectionNamespace()
+                require("nupp.compiler.runtime.typewitness").install(namespace)
+                if namespace.__reflect.get == nil then
+                    require("nupp.compiler.runtime.reflect").install(namespace)
+                end
 
-            return namespace.__reflect.get(owner)
-        end)
+                return namespace.__reflect.get(owner)
+            end)
+        end
     end
     if spec.declarationKey ~= nil then
         -- The declaration's cell holds its table, and the cells of the
