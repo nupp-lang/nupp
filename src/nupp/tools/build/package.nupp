@@ -749,6 +749,11 @@ function package_.coreBinary(root: string, config: Config, target: Target, outDi
         carried = found
     end
 
+    -- The library modules the program carries bind their C libraries beside
+    -- the bundle too, as `@lib/FILE`, as its own modules do: a builtin's
+    -- library is then staged from the bindings below, and the package names
+    -- no path of the machine that built it.
+    require("nupp.core.guestbuild").packageLibraries()
     local bytes = require("nupp.core.guestprogramproducer").projectBundle(name, path, inc, embedded, inspect)
     local bindings = (config as any)._nativeLibraryBindings or {}
     local libraries, notices = require("nupp.core.guestbuild").packagedLibraryFiles(bytes, bindings)
