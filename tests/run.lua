@@ -1444,6 +1444,18 @@ do
         io.stderr:write("nupp: --scope requires scope definitions in tests/groups.lua\n")
         os.exit(2)
     end
+    -- A requirement naming a suite that no longer exists would quietly stop
+    -- meaning anything, as a group member would.
+    for key, requirement in pairs(repositoryPolicy and repositoryPolicy.runtimes or {}) do
+        local suiteName = key:match("^[^/]+")
+        if not byName[suiteName] then
+            io.stderr:write(("nupp: tests/groups.lua requires a runtime of %s, which names no suite\n"):format(key))
+            os.exit(2)
+        elseif requirement.runtime ~= "vm" and requirement.runtime ~= "core" or type(requirement.reason) ~= "string" then
+            io.stderr:write(("nupp: tests/groups.lua requires vm or core of %s, with a reason\n"):format(key))
+            os.exit(2)
+        end
+    end
 
     for _, name in ipairs(chosenGroups) do
         chosenSet = chosenSet or {}
@@ -3056,6 +3068,39 @@ if lane then
     suites = kept
 end
 
+--- Why the suite or case KEY cannot run on this engine, or nil when it can.
+--- tests/groups.lua names what runs on one runtime only: `vm` is the Rust VM's
+--- (or LuaJIT's) and does not run on the native core, and `core` runs only there.
+local function unavailableHere(key)
+    local requirement = repositoryPolicy and repositoryPolicy.runtimes and repositoryPolicy.runtimes[key]
+    if requirement == nil or (requirement.runtime == "core") == (engine == "core") then
+        return nil
+    end
+
+    return ("needs the %s: %s"):format(requirement.runtime == "vm" and "Rust VM" or "native core", requirement.reason)
+end
+
+-- Suites held back whole, reported as not executed rather than loaded: loading
+-- one is often what fails on the other runtime.
+local unavailableSuites = {}
+do
+    local kept = {}
+    for _, suiteInfo in ipairs(suites) do
+        local reason = unavailableHere(suiteInfo.name)
+        if reason then
+            unavailableSuites[#unavailableSuites + 1] = {name = suiteInfo.name, reason = reason}
+            for id in pairs(chosenCases) do
+                if id:match("^[^/]+") == suiteInfo.name then
+                    seenCaseIds[id] = true
+                end
+            end
+        else
+            kept[#kept + 1] = suiteInfo
+        end
+    end
+    suites = kept
+end
+
 if listing == "suites" then
     for _, info in ipairs(suites) do
         io.stdout:write(info.name .. "\n")
@@ -3114,6 +3159,15 @@ if chosenCaseCount > 0 then
         io.stderr:write("nupp: no test case named " .. table.concat(missing, ", ") .. "\n")
         os.exit(2)
     end
+end
+
+-- A suite held back whole is one not-executed record, made once by the process
+-- that selected it.
+for _, unavailable in ipairs(unavailableSuites) do
+    rawset(_G, "__NUPP_TEST_CASE_CONTEXT", {facts = {}, metrics = {}, capabilities = {}, fixtures = {}})
+    local _, problem = pcall(test.suite.notexecuted, unavailable.reason)
+    rawset(_G, "__NUPP_TEST_CASE_CONTEXT", nil)
+    recordResult(unavailable.name, "<runtime>", nil, false, problem, "", "", 0)
 end
 
 -- What the packer said each phase could not finish under, kept so the report can
@@ -3879,6 +3933,15 @@ local function runSuite(suiteInfo, slices)
     else
         for _, name in ipairs(cases) do
             local case = suite[name]
+            local caseHooks = hooks
+            local unavailable = unavailableHere(suiteInfo.name .. "/" .. name)
+            if unavailable then
+                -- Nothing of it runs, beforeEach and afterEach included.
+                case = function()
+                    test.suite.notexecuted(unavailable)
+                end
+                caseHooks = {}
+            end
             if workerReportPath or sharedProgressStream or traceCases then
                 io.stderr:write("__case__:", name, "\n")
             end
@@ -3889,7 +3952,7 @@ local function runSuite(suiteInfo, slices)
             local caseContext = {facts = {}, metrics = {}, capabilities = {}, fixtures = {}, fixture = resolveFixture,}
             local ok, err, stdout, stderr = capture(function()
                 rawset(_G, "__NUPP_TEST_CASE_CONTEXT", caseContext)
-                local ran, problem = pcall(runCase, hooks, case)
+                local ran, problem = pcall(runCase, caseHooks, case)
                 rawset(_G, "__NUPP_TEST_CASE_CONTEXT", nil)
                 if not ran then
                     error(problem, 0)
@@ -3901,7 +3964,7 @@ local function runSuite(suiteInfo, slices)
             if caseElapsed > slowestCaseMs then
                 slowestCase, slowestCaseMs = name, caseElapsed
             end
-            recordResult(suiteInfo.name, name, case, ok, err, stdout, stderr, caseElapsed, caseContext)
+            recordResult(suiteInfo.name, name, suite[name], ok, err, stdout, stderr, caseElapsed, caseContext)
         end
     end
     local after = now()

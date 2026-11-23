@@ -817,4 +817,50 @@ nupp/test
 ]])
 packages["."] = {cache = false, reason = "Native compiler, core ABI and external C oracle inputs share this package."}
 
-return groups, {scopes = scopes, packages = packages}
+-- Suites and cases that run on one runtime only, keyed by suite name or by
+-- SUITE/CASE. On any other the runner reports them as not executed, with the
+-- reason, rather than running them: a whole suite is not even loaded, since
+-- loading it is often what fails. `vm` ones exercise only the Rust VM, LuaJIT
+-- or Cargo; they keep running on hosts the pins have not flipped and go when
+-- the VM is deleted. `core` ones need what only the native core provides.
+local runtimes = {}
+
+local function requires(runtime, reason, names)
+    for name in names:gmatch("%S+") do
+        assert(runtimes[name] == nil, name .. " is required of a runtime twice")
+        runtimes[name] = {runtime = runtime, reason = reason}
+    end
+end
+
+requires("vm", "the VM's image cache, call contracts and standard-root loader", [[
+vmimagecachetest vmpredicatecalltest vmsimdbindingtest vmstandardrootloadertest
+]])
+requires("vm", "the Rust VM's CLIF glue (`scripts/vm-cli glue`) and linked runtimes", [[
+nativeclosurestest nativeheaptest nativejittest nativelowertest nativestringstest
+]])
+requires("vm", "LuaJIT's ffi module", [[
+bytestest
+]])
+requires("vm", "a Cargo crate built as a dependency", [[
+projectcargotest
+]])
+requires("vm", "a VM image loader or the VM-built compiler tree", [[
+apishortnamestest/lowercaseBuilderFunctionsAndLenKeepRuntimeValues
+publicclitest/derivedMetadataNamesInterfacesStably
+publicclitest/primitiveLoadingDoesNotPullInHigherLayers
+]])
+requires("vm", "LuaJIT's browser storage path", [[
+bufferapitest/browserLuaJitUsesTheSamePrivateStorage
+]])
+requires("vm", "the VM runner's job and worker hooks", [[
+runnertest/windowsShellUsesArgumentVectorsForNativePipes
+runnertest/workerDurationsIgnoreWallClockAdjustments
+runnertest/workerJobsRefillTheCanonicalArgvBetweenRuns
+]])
+requires("vm", "`nupp run --watch`, which patches a running VM program", [[
+hotreloadtest/cliWatchCommitsAndKeepsTheLastGoodGeneration
+hotreloadtest/cliWatchPatchesUnderARunningLoop
+hotreloadtest/cliWatchRequiresRestartForMappedNativeReplacement
+]])
+
+return groups, {scopes = scopes, packages = packages, runtimes = runtimes}

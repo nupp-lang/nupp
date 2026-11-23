@@ -2055,6 +2055,57 @@ function M.scopesKeepDeliveryExplicitAndRejectUnassignedSuites()
     os.execute(("rm -rf %q"):format(dir))
 end
 
+-- A suite or case tests/groups.lua requires of one runtime is reported as not
+-- executed, with its reason, on the other, and a held-back suite is never
+-- loaded. Whichever runtime runs this, exactly one side of each pair runs, and
+-- here the side that runs fails, to show that it did.
+function M.runtimeRequirementsHoldBackWhatTheEngineCannotRun()
+    local dir = os.tmpname()
+    os.remove(dir)
+    assert(os.execute(("mkdir -p %q"):format(dir .. "/tests")) == 0)
+    write(dir .. "/tests/run.lua", read(ROOT .. "/tests/run.lua"))
+    write(dir .. "/tests/vmonlytest.lua", 'error("a held-back suite was loaded")\n')
+    write(dir .. "/tests/coreonlytest.lua", 'error("a held-back suite was loaded")\n')
+    write(
+        dir .. "/tests/mixedtest.lua",
+        'return {vmcase = function() error("a held-back case ran") end, '
+            .. 'corecase = function() error("a held-back case ran") end, plain = function() end}\n'
+    )
+    write(
+        dir .. "/tests/groups.lua",
+        "return {}, {scopes = {vmonlytest = 'unit', coreonlytest = 'unit', mixedtest = 'unit'}, runtimes = {"
+            .. "vmonlytest = {runtime = 'vm', reason = 'vm reason'}, "
+            .. "coreonlytest = {runtime = 'core', reason = 'core reason'}, "
+            .. "['mixedtest/vmcase'] = {runtime = 'vm', reason = 'vm case'}, "
+            .. "['mixedtest/corecase'] = {runtime = 'core', reason = 'core case'}}}\n"
+    )
+    local json = require("testjson")
+    local report = json.decode(runJson(dir, "--jobs=1 --fresh --json"))
+    local byId = {}
+    for _, record in ipairs(report.tests) do
+        byId[record.id] = record
+    end
+    test.eq(report.notExecuted, 2)
+    test.eq(report.failed, 2)
+    test.eq(byId["mixedtest/plain"].status, "passed")
+    local held = byId["vmonlytest/<runtime>"] and "vm" or "core"
+    local other = held == "vm" and "core" or "vm"
+    test.eq(byId[held .. "onlytest/<runtime>"].status, "not-executed")
+    test.matches(byId[held .. "onlytest/<runtime>"].notExecuted.reason, held .. " reason")
+    test.eq(byId[other .. "onlytest/<runtime>"], nil)
+    test.eq(byId["mixedtest/" .. held .. "case"].status, "not-executed")
+    test.matches(byId["mixedtest/" .. held .. "case"].notExecuted.reason, held .. " case")
+    test.eq(byId["mixedtest/" .. other .. "case"].status, "failed")
+    test.eq(byId[other .. "onlytest/<load>"].status, "failed")
+    write(
+        dir .. "/tests/groups.lua",
+        "return {}, {scopes = {vmonlytest = 'unit', coreonlytest = 'unit', mixedtest = 'unit'}, runtimes = {"
+            .. "gonetest = {runtime = 'vm', reason = 'stale'}}}\n"
+    )
+    test.matches(run(dir, "--list-suites"), "gonetest, which names no suite")
+    os.execute(("rm -rf %q"):format(dir))
+end
+
 function M.workerDurationsIgnoreWallClockAdjustments()
     local source = read(ROOT .. "/tests/run.lua")
     local first = assert(source:find("local now\ndo\n", 1, true))

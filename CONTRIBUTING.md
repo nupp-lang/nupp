@@ -206,7 +206,10 @@ say what a set of suites is for, and are what the workflows ask for:
 ```
 
 `tests/groups.lua` defines the groups. A group member that names no suite is an
-error rather than an empty run.
+error rather than an empty run. It also lists the suites and cases that run on
+one runtime only, with the reason: those that exercise only the Rust VM,
+LuaJIT or Cargo are reported as not executed on the native core, and still run
+on VM hosts.
 
 ## What CI asks of a change
 
