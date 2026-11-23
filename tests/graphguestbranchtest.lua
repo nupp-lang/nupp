@@ -1301,8 +1301,9 @@ export const result = (block == 123):any()
 ]],
         "required-vector.nupp"
     )
-    test.eq(bytes, nil)
-    assert(tostring(problem):find("boolean result required", 1, true), tostring(problem))
+    -- A required vector is kept and, with no vector unit, runs on the scalar
+    -- core through simd.lane rather than being refused.
+    assert(bytes, problem)
 end
 
 return M
