@@ -720,6 +720,7 @@ local coreLibrary: {[string]: boolean} = {
     ["storagecalls.aligned"] = true,
     ["storagecalls.allocbytes"] = true,
     ["storagecalls.view"] = true,
+    ["storagecalls.store"] = true,
     ["storagecalls.cast"] = true,
     ["storagecalls.copy"] = true,
     ["storagecalls.fill"] = true,
