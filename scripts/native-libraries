@@ -72,15 +72,15 @@ msys2() {
     MSYSTEM=CLANGARM64 CHERE_INVOKING=1 MSYS2_PATH_TYPE=minimal "$root/usr/bin/bash.exe" \
         -lc "export LDFLAGS='${LDFLAGS:-}'; $1"
 }
-# The VM's ISA-L and zlib and checkout docs' Markdown can be provisioned with
-# MinGW. The C SDK lane uses MSVC.
+# The VM's ISA-L and zlib, checkout docs' Markdown and serde.yaml's libyaml
+# can be provisioned with MinGW. The C SDK lane uses MSVC.
 if [ "$SYSTEM" = windows ] && [ "${NUPP_NATIVE_TARGET:-}" = x86_64-pc-windows-gnu ]; then
     CC=${NUPP_CC:-gcc}
     case "$("$CC" -dumpmachine)" in *mingw*) ;; *) die 'Windows GNU needs a MinGW C compiler' ;; esac
 fi
 if [ "$TARGET" = x86_64-pc-windows-msvc ] && "$CC" -dumpmachine 2>/dev/null | grep -q mingw; then
     TARGET=x86_64-pc-windows-gnu
-    case "$*" in isal|cmark|zlib) ;; *) die 'GNU Windows is supported here only for ISA-L, zlib and Markdown' ;; esac
+    case "$*" in isal|cmark|zlib|libyaml) ;; *) die 'GNU Windows is supported here only for ISA-L, zlib, Markdown and libyaml' ;; esac
 fi
 [ "${NUPP_NATIVE_TARGET:-$TARGET}" = "$TARGET" ] || die 'cross compilation needs an explicit target toolchain; refusing host output for another target'
 command -v "$CC" >/dev/null 2>&1 || die "missing C compiler: $CC"
