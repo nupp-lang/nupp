@@ -245,6 +245,30 @@ function M.aRaisingConstructorDropsOwnersAndRaisesAgain()
     testAssert.eq(calls, "c")
 end
 
+-- assert under another name is the builtin: the owner it is given is the one
+-- its result holds, closed once where that result's scope ends.
+function M.anAssertAliasPassesItsOwnerToItsResult()
+    local chunk = compile(
+        PRELUDE .. table.concat(
+            {
+                "",
+                "const check = require('assert')",
+                "local function keep(): string",
+                "   local held = check(open_resource('a'))",
+                "   calls = calls .. '+'",
+                "   return held.name",
+                "end",
+                "local name = keep()",
+                "return name, calls",
+            },
+            "\n"
+        )
+    )
+    local name, calls = chunk()
+    testAssert.eq(name, "a")
+    testAssert.eq(calls, "+a")
+end
+
 function M.scopedOwnersCanBeReborrowedExclusively()
     local chunk = compile(
         PRELUDE

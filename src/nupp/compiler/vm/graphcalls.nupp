@@ -1375,6 +1375,10 @@ local function libraryName(call: any): string?
         name = "coroutine." .. call.name.text
     elseif call and call.kind == "call" and preludeName(call.obj) then
         name = call.obj.token.text
+    elseif call and call.kind == "call" and call.aotGuardBuiltin == "assert" then
+        -- The checker proved the callee is assert under another name
+        -- (`require("assert")`), whose call is the builtin's.
+        name = "assert"
     elseif call
         and call.kind == "call"
         and call.obj
