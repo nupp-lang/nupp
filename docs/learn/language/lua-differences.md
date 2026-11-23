@@ -79,6 +79,29 @@ compile. The compiler builds each loop with one entry and fixed exits, and
 a `goto` to the end of a loop body is one of those exits. A jump to any
 other place in a function is not.
 
+## Modules
+
+### require's searchers
+
+`require` on the native runtime looks where Lua's searchers look, in the same
+order: `package.loaded`, `package.preload`, the modules the program was built
+with, then a Lua file `package.path` names. Only a program that carries Lua's
+loaders, one that calls `load`, `loadfile` or `dofile`, looks on
+`package.path`; any other finds only the modules it was built with. None looks
+on `package.cpath`, and `package.searchers`, `package.searchpath` and
+`package.loadlib` are nil, so a program cannot add a searcher of its own:
+
+```lua:fragment
+package.path = "plugins/?.lua;" .. package.path
+local plugin = require(name)          -- found as Lua finds it, with the loaders
+print(package.searchers)              -- nil
+```
+
+The runtime has no C module loader to search `package.cpath` with: native
+code reaches a program through `cdef` and a project's C dependencies instead.
+The loaders bring the runtime's file and process layers with them, which a
+program that never loads a chunk does not otherwise carry.
+
 ## The debug library
 
 The native runtime provides `debug.getinfo` and `debug.traceback`. The rest of
