@@ -663,6 +663,7 @@ stdlib/serde/contract/documents
 stdlib/serde/contract/protocol
 stdlib/serde/json
 stdlib/serde/xml
+stdlib/serde/yaml
 stdlib/string
 stdlib/table
 stdlib/types
