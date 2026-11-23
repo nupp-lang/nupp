@@ -505,6 +505,14 @@ export const functions: {[string]: any} = {
     unpack = function(t: any, i: integer?, j: integer?): ...any
         return table.unpack(t, i, j)
     end,
+    -- Made here as a named vararg is rather than by the core's own form,
+    -- which a compiler that does not declare table.pack yet cannot check.
+    ["table.pack"] = function(...: any): any
+        local packed: any = {...}
+        packed.n = select("#", ...)
+
+        return packed
+    end,
     ["table.insert"] = function(t: {any}, position: any, value: any): nil
         if value == nil then
             t[#t + 1] = position
