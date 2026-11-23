@@ -24,6 +24,11 @@ local loadProcess: function(string): ProcessHost = require
 
 local process = {}
 
+--- Where launching a child reads the environment. A test standing in an environment
+--- replaces `getenv` here: the core calls `os.getenv` itself wherever a module names
+--- it, so replacing that global reaches no compiled module.
+process.environment = {getenv = os.getenv} as {getenv: function(string): string?}
+
 --- Where a command runs and what it runs with.
 ---
 --- `cwd` and `env` are folded into the command line rather than handed to a spawn
@@ -98,7 +103,9 @@ end
 -- on a host the pins have not flipped, the Rust VM: one command would mix
 -- compilers. Nil when this compiler is not on the core.
 local function coreArgs(argv: {string}): {string}?
-    local runtime, compiler = os.getenv("NUPP_CORE_RUNTIME"), os.getenv("NUPP_CORE_COMPILER")
+    local runtime, compiler = process.environment.getenv(
+        "NUPP_CORE_RUNTIME"
+    ), process.environment.getenv("NUPP_CORE_COMPILER")
     if runtime == nil or runtime == "" or compiler == nil or compiler == "" then
         return nil
     end
@@ -120,7 +127,7 @@ local function launchArgs(argv: {string}): {string}
     if core ~= nil then
         return core
     end
-    local testBash = windows and (rawget(_G, "__NUPP_TEST_BASH") or os.getenv("NUPP_TEST_BASH")) or nil
+    local testBash = windows and (rawget(_G, "__NUPP_TEST_BASH") or process.environment.getenv("NUPP_TEST_BASH")) or nil
     if not testBash or not tostring(argv[1]):gsub("\\", "/"):match("/bin/nupp$") then
         return argv
     end
@@ -141,8 +148,10 @@ end
 -- launcher like any other command.
 local function isolatedArgs(argv: {string}): {string}
     if windows and tostring(argv[1]):gsub("\\", "/"):match("/bin/nupp$") then
-        local runtime, image = os.getenv("NUPP_VM_BINARY"), os.getenv("NUPP_VM_CLI_IMAGE")
-        local entry = os.getenv("NUPP_VM_CLI_ENTRY")
+        local runtime, image = process.environment.getenv(
+            "NUPP_VM_BINARY"
+        ), process.environment.getenv("NUPP_VM_CLI_IMAGE")
+        local entry = process.environment.getenv("NUPP_VM_CLI_ENTRY")
         if runtime and runtime ~= "" and image and image ~= "" and entry and entry ~= "" then
             local launched = {runtime, "exec", image, entry}
             for index = 2, #argv do
