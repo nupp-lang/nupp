@@ -636,6 +636,34 @@ local function assignForwardLocals(root: any, replaced: {[any]: any}): nil
     end)
 end
 
+-- The reflection facade. A program that carries it can reflect on a record
+-- at run time (`types.reflect.runtime`), and so can the serde codecs and
+-- `io.cli`, which reflect through it on the records they are handed.
+const REFLECTION = "types.reflect"
+
+-- Whether program `modules` carries the reflection facade.
+local function reachesReflection(modules: {any}): boolean
+    for _, input in ipairs(modules) do
+        if input.name == REFLECTION then
+            return true
+        end
+    end
+
+    return false
+end
+
+-- Whether `path` is one of the compiler's own sources, under its checkout's
+-- src/.
+local function compilerSource(path: string): boolean
+    local root = os.getenv("NUPP_COMPILER_ROOT")
+    if root == nil or root == "" then
+        return false
+    end
+    local prefix = (root as string):gsub("\\", "/"):gsub("/+$", "") .. "/src/"
+
+    return path:gsub("\\", "/"):sub(1, #prefix) == prefix
+end
+
 -- The loaders, whose `require` is Lua's: the image's modules, then a file on
 -- `package.path`, then a module's source. The runtime's own modules, which the
 -- loaders are built on, require from the image alone.
@@ -769,6 +797,7 @@ export function describe(modules: {any}, entryModule: string, options: any?): an
     local moduleNames, topLevel, sourcePaths = {}, {}, {}
     -- Function statements' own names, which name the locals they assign.
     local forwardNames: {[any]: any} = {}
+    local reflecting = p.chunk or reachesReflection(modules)
     for _, input in ipairs(modules) do
         need(type(input.name) == "string" and type(input.path) == "string", "module source required")
         need(not moduleNames[input.name], "duplicate module " .. input.name)
@@ -779,9 +808,14 @@ export function describe(modules: {any}, entryModule: string, options: any?): an
         local parsed = need(input.parsed, "checked parse required")
         need(parsed.root and parsed.symbols and parsed.moduleName == input.name, "checked module identity required")
         -- A record passed where a `Type<T>` is taken (`serde.binding(Show)`)
-        -- carries its reflection blueprint, in a module as in a chunk.
-        for _, witness in ipairs(typewitness.collect(parsed.root, parsed.moduleExports).ordered) do
-            p.reflected[witness.node] = true
+        -- carries its reflection blueprint: in a chunk, in every module; in a
+        -- program that can reflect, in each module but the compiler's own,
+        -- whose records nothing reflects on and which the compiler's own
+        -- program could not hold blueprints for within its bounds.
+        if reflecting and (p.chunk or not compilerSource(input.path)) then
+            for _, witness in ipairs(typewitness.collect(parsed.root, parsed.moduleExports).ordered) do
+                p.reflected[witness.node] = true
+            end
         end
         positionalArguments(parsed.root)
         -- Once per check of a tree: a project shares its trees across
