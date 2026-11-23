@@ -81,8 +81,10 @@ STAGE0_IMAGE_URL='https://github.com/nupp-lang/nupp/releases/download/${STAGE0_I
 # published and pinned; core compiler generations are shared across worktrees
 # by their sources (scripts/core-cli), so a fresh worktree or a rebase that
 # changes no compiler source builds nothing; and `nupp test` and `nupp run`
-# work on the core. Until then NUPP_RUNTIME=core opts a command in.
-STAGE0_CORE_HOSTS=
+# work on the core. Until then NUPP_RUNTIME=core opts a command in. macOS
+# ARM64 is listed; Linux ARM64 and Windows ARM64 follow, and x64 hosts keep the
+# VM until the core has an x64 encoder.
+STAGE0_CORE_HOSTS=aarch64-apple-darwin
 
 # The core seed for each host: the compiler and C bridge pair `nupp fixpoint
 # --runtime core --package-seed` packages, as the release that publishes it

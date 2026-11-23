@@ -105,15 +105,19 @@ A failed rebuild leaves the previous generation selected and says so, with the
 log in `.nupp/vm-cli/rebuild.log`; later commands do not try again until
 another source changes. `scripts/vm-cli build` rebuilds explicitly.
 
-On ARM64, `NUPP_RUNTIME=core` runs every command on the native core instead,
-through the C bridge, until the pins flip the host there for good. The core
-compiler is installed under `.nupp/core-cli`, built from these sources by the
-VM compiler with `nupp __core-compiler`, and rebuilt the same way when a
-compiler source changes by content; the log is `.nupp/core-cli/build.log`.
-`scripts/core-smoke` runs each everyday command once on it, with its time.
+macOS ARM64 runs every command on the native core instead, through the C
+bridge: `STAGE0_CORE_HOSTS` in `scripts/toolchain.pins` lists it, so there
+`bin/nupp` builds and runs no Rust VM and starts no Cargo. The core compiler
+is installed under `.nupp/core-cli`, built from these sources by the pinned
+core seed, and rebuilt by the installed one when a compiler source changes by
+content; the log is `.nupp/core-cli/build.log`. On Linux and Windows ARM64,
+which the pins have not flipped yet, `NUPP_RUNTIME=core` opts a command in,
+and the VM compiler builds the first core compiler (`nupp __core-compiler`).
+x64 hosts stay on the VM. `scripts/core-smoke` runs each everyday command once
+on the core, with its time.
 
 ```bash
-NUPP_RUNTIME=core ./bin/nupp check
+NUPP_RUNTIME=core ./bin/nupp check    # Linux or Windows ARM64, before their flip
 ```
 
 ### Shared toolchain cache
