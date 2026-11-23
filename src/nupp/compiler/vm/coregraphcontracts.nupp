@@ -76,8 +76,8 @@ local function empty(value: any, description: string): nil
 end
 
 local function scalar(value: any, numeric: boolean, dynamic: boolean?): string
-    -- An owned value passes as the value it owns, and a literal or const
-    -- one as its base type's.
+    -- An owned value passes as the value it owns, and a literal, const or
+    -- refined one as its base type's.
     while dynamic
         and value
         and (
@@ -85,9 +85,10 @@ local function scalar(value: any, numeric: boolean, dynamic: boolean?): string
             or value.tag == "borrowed"
             or value.tag == "pinned"
             or value.tag == "literal"
+            or value.tag == "constrained"
             or value.tag == "const"
         ) do
-        value = value.tag == "literal" and value.base or value.inner
+        value = (value.tag == "literal" or value.tag == "constrained") and value.base or value.inner
     end
     need(value and value.tag ~= "literal" and value.tag ~= "const", "qualified scalar signatures are unsupported")
     -- v8 passes strings, tables and functions as dynamic values, checked where
