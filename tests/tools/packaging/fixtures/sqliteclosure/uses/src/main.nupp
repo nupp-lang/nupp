@@ -1,0 +1,3 @@
+local store = require("app.store")
+
+print(store.titles())

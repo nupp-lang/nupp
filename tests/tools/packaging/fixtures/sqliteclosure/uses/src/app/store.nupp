@@ -1,0 +1,16 @@
+module app.store
+
+local sqlite = require("sqlite")
+
+--- The titles an in-memory database holds, through the SQLite builtin.
+export function titles(): string
+    local db = sqlite.open(":memory:")
+    db:exec("create table shows (title text not null)")
+    local _ = db:run("insert into shows (title) values (?)", "Severance")
+    local found: {string} = {}
+    for row in db:rows("select title from shows") do
+        found[#found + 1] = tostring(row.title)
+    end
+
+    return table.concat(found, ",")
+end

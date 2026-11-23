@@ -28,10 +28,11 @@ strip.
 
 ## The builtins
 
-None is registered yet. The registry is
-`src/nupp/compiler/project/builtins.nupp`; each library that becomes a builtin
-lists here its name, the modules it carries, its C library and the hosts that
-provide it.
+The registry is `src/nupp/compiler/project/builtins.nupp`.
+
+| Builtin | Modules | C library | Hosts |
+| --- | --- | --- | --- |
+| `sqlite` | [`sqlite`](../runtime/data/sqlite.md) and its provider | `nupp_sqlite`, the SQLite amalgamation, with its public-domain notice | native |
 
 ## Stripping a builtin
 
