@@ -133,3 +133,9 @@ CMARK_URL=https://codeload.github.com/github/cmark-gfm/tar.gz/27d942c8b0a62d192f
 LIBYAML_VERSION=0.2.6
 LIBYAML_SHA256=43b393a117bd4fe39812fddc94e3d654359a3ae05653dcf0110a1122d1747e61
 LIBYAML_URL=https://github.com/yaml/libyaml/releases/download/0.2.6/yaml-0.2.6.tar.gz
+
+# The SQLite amalgamation (sqlite-autoconf). sqlite.org publishes a SHA3-256
+# per archive; this SHA-256 was taken after the archive matched it.
+SQLITE_VERSION=3.54.1
+SQLITE_SHA256=926ef8d3eab93fbf6e06011901273eec076b25594a4e1cdadd50c987f4f6d64e
+SQLITE_URL=https://www.sqlite.org/2026/sqlite-autoconf-3540100.tar.gz

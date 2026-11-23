@@ -143,6 +143,32 @@ license="$source/License"
   assert.notEqual(refused.status, 0);
   assert.match(refused.stderr, /notice differs/);
 });
+test('SQLite\'s build file and notice participate in its artifact key', t => {
+  const f = fixture(t);
+  const blessing = '** The author disclaims copyright to this source code.  In place of\n' +
+    '** a legal notice, here is a blessing:\n**\n**    May you do good and not evil.\n' +
+    '**    May you find forgiveness for yourself and forgive others.\n' +
+    '**    May you share freely, never taking more than you give.\n';
+  f.write('source/sqlite-autoconf-fixture/sqlite3.c', `/* amalgamation */\n/*\n${blessing}**\n*/\n`);
+  const archive = 'archives/sqlite-autoconf-fixture.tar.gz';
+  const packed = spawnSync('tar', ['-czf', archive, '-C', 'source', 'sqlite-autoconf-fixture'], {cwd: f.directory, encoding: 'utf8'});
+  assert.equal(packed.status, 0, packed.stderr);
+  f.write('scripts/toolchain.pins', `SQLITE_VERSION=fixture\nSQLITE_SHA256=${digest(path.join(f.directory, archive))}\n` +
+    'SQLITE_URL=https://invalid.example/2026/sqlite-autoconf-fixture.tar.gz\n');
+  f.write('scripts/c-libraries/sqlite.sh', fs.readFileSync(path.join(root, 'scripts/c-libraries/sqlite.sh')));
+  f.write('notices/sqlite-PUBLIC-DOMAIN.txt', blessing);
+  f.write('native/sqlite/CMakeLists.txt', 'synthetic build file version 1\n');
+  f.args[1] = 'sqlite';
+  const prefix = f.success(f.run());
+  assert.equal(fs.readFileSync(path.join(prefix, 'notices/sqlite-PUBLIC-DOMAIN.txt'), 'utf8'), blessing);
+  assert.equal(f.success(f.run()), prefix);
+  f.write('native/sqlite/CMakeLists.txt', 'synthetic build file version 2\n');
+  assert.notEqual(f.success(f.run()), prefix);
+  f.write('notices/sqlite-PUBLIC-DOMAIN.txt', 'wrong notice\n');
+  const refused = f.run();
+  assert.notEqual(refused.status, 0);
+  assert.match(refused.stderr, /notice differs/);
+});
 test('a redirected loader alias is refused',{skip: process.platform === 'win32'}, t => {
   const f = fixture(t);
   const tool = fs.readFileSync(path.join(f.directory, 'tools/cmake'), 'utf8');
