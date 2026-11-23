@@ -34,7 +34,31 @@ local function compileLibrary(dir, extra)
     testAssert.eq(code, 0, output)
 end
 
-function M.logicalLibrariesTravelWithVmBinariesAndSurviveBothCaches()
+-- Where a binary keeps its program and its libraries. The VM stamps the program
+-- onto its runtime and keeps it beside the build; the core's launcher names a
+-- generation directory holding the runtime, the program bundle and the
+-- libraries, one for each set of their contents.
+local onCore = rawget(_G, "__nupp_load_image") == nil
+
+local function generation(dir)
+    local launcher = fixture.read(dir .. "/dist/app")
+    return dir .. "/dist/" .. assert(launcher:match("bundle=\"%$here\"/'?([^'\n]+)'?"), launcher)
+end
+
+local function programImage(dir)
+    if onCore then
+        return fixture.read(generation(dir) .. "/app.bundle")
+    end
+    assert(fixture.read(dir .. "/out/.nupp-vm-program.libraries"):find("physics", 1, true))
+
+    return fixture.read(dir .. "/out/.nupp-vm-program.image")
+end
+
+local function libraryDirectory(dir)
+    return onCore and generation(dir) .. "/lib/" or dir .. "/dist/lib/"
+end
+
+function M.logicalLibrariesTravelWithBinariesAndSurviveBothCaches()
     local dir = tempProject({
         [
             "nupp.lua"
@@ -58,19 +82,18 @@ export function add(a: int32, b: int32): int32 return physics_add(a, b) end
     if not fixture.exists(executable) then
         executable = dir .. "/dist/app"
     end
-    assert(fixture.exists(dir .. "/dist/lib/" .. fixture.libraryName("physics")))
+    assert(fixture.exists(libraryDirectory(dir) .. fixture.libraryName("physics")))
     local code, output = process.capture({executable}, {cwd = dir})
     testAssert.eq(code, 0, output)
     testAssert.eq(output, "5\n")
 
     fixture.write(dir .. "/src/main.nupp", 'local binding = require("binding")\nprint(tonumber(binding.add(3, 3)))\n')
     testAssert.eq(fixture.project.build(dir), 0)
-    local cached = fixture.read(dir .. "/out/.nupp-vm-program.image")
-    assert(fixture.read(dir .. "/out/.nupp-vm-program.libraries"):find("physics", 1, true))
+    local cached = programImage(dir)
     compileLibrary(dir, "1")
     testAssert.eq(fixture.project.build(dir), 0)
     testAssert.eq(
-        fixture.read(dir .. "/out/.nupp-vm-program.image"),
+        programImage(dir),
         cached,
         "a native body edit keeps the program image"
     )
