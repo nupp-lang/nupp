@@ -25,6 +25,7 @@ local recordcallables = require("nupp.compiler.vm.recordcallables")
 local recordruntime = require("nupp.runtime.provider.corerecord")
 local deriveruntime = require("nupp.runtime.provider.corederive")
 local foreignruntime = require("nupp.runtime.provider.coreforeignvalue")
+local managedruntime = require("nupp.runtime.provider.coremanaged")
 local fs = require("nupp.compiler.fs")
 local builtinextensions = require("nupp.compiler.builtinextensions")
 
@@ -505,6 +506,7 @@ export function describeModule(
     local diagnostics = checked(tree, path, name as string, true)
     assert(type(deriveruntime.register) == "function", "derive factory implementation missing")
     assert(type(foreignruntime.bind) == "function", "foreign factory implementation missing")
+    assert(type(managedruntime.create) == "function", "managed cell factory implementation missing")
     for _, diagnostic in ipairs(diagnostics) do
         if diagnostic.severity == "error" then
             return nil, positioned(display, diagnostic.line, diagnostic.msg)

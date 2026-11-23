@@ -72,6 +72,18 @@ export function prepare(p: any, node: any, owner: any): any
             checkCleanup(cleanup)
         end
     end
+    local token = cst.firstToken(node)
+    if p.chunk then
+        -- A chunk holds no factory declaration: it calls the running
+        -- program's factory module, found by name, through its value.
+        local args = {{kind = "nil", inferredType = {tag = "any"}}, {kind = "nil", inferredType = {tag = "any"}}}
+        return {
+            node = node,
+            owner = owner.id,
+            member = name,
+            call = {kind = "call", token = token, args = {kind = "args", exprs = args}}
+        }
+    end
     local target = ownedcallables.checkedFactory(p, MODULE, name, RESULTS[name])
 
     return {
@@ -79,7 +91,7 @@ export function prepare(p: any, node: any, owner: any): any
         owner = owner.id,
         member = name,
         target = target,
-        call = ownedcallables.factoryCall(target, cst.firstToken(node))
+        call = ownedcallables.factoryCall(target, token)
     }
 end
 
@@ -87,6 +99,23 @@ end
 export function verify(p: any, plan: any): nil
     local node, call = plan.node, plan.call
     need(p.manages[node] == plan and member(node) == plan.member, "managed call changed")
+    if p.chunk then
+        local site = p.callByNode[call]
+        need(
+            plan.target == nil
+            and plan.loader == nil
+            and call.kind == "call"
+            and call.token == cst.firstToken(node)
+            and #call.args.exprs == 2
+            and site
+            and p.calls[site.id + 1] == site
+            and site.managed == plan
+            and site.owner == plan.owner
+            and site.definition == nil,
+            "managed chunk call lacks its issued callsite"
+        )
+        return
+    end
     need(
         plan.target == ownedcallables.checkedFactory(p, MODULE, plan.member, RESULTS[plan.member]),
         "managed factory changed"
