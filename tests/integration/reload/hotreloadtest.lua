@@ -1181,10 +1181,18 @@ end
 
 -- `nupp run --watch` itself, through the launcher. The launcher runs the VM CLI
 -- when one is installed or named by `NUPP_VM_CLI_IMAGE`; otherwise it refuses
--- `--watch`, and these cases have nothing to run.
+-- `--watch`, and these cases have nothing to run. On the core, watching itself
+-- is not the gap: a hot session polls its inputs. What the core lacks is
+-- replacing a running function's body by its id (Decision 18, the port of
+-- hotpatch.rs), which a watch generation commits through, so `nupp run --watch`
+-- refuses there until it lands.
 local HERE = debug.getinfo(1, "S").source:sub(2):match("^(.*)[/\\]") or "."
 local ROOT = HERE:sub(1, 1) == "/" and (HERE .. "/../../..")
     or ((os.getenv("PWD") or ".") .. "/" .. HERE .. "/../../..")
+
+-- Why these cases have nothing to run here.
+local WATCH_UNAVAILABLE = "--watch needs the VM CLI, and none is installed: the core cannot "
+    .. "replace a running function's body by its id yet"
 
 local function watchCommand()
     local installed = io.open(ROOT .. "/.nupp/vm-cli/current", "rb")
@@ -1220,7 +1228,7 @@ end
 function M.cliWatchCommitsAndKeepsTheLastGoodGeneration()
     local nupp = watchCommand()
     if not nupp then
-        return require("assert").suite.skip("--watch runs on the VM CLI, and none is installed")
+        return require("assert").suite.skip(WATCH_UNAVAILABLE)
     end
 
     local function watched(body)
@@ -1282,7 +1290,7 @@ end
 function M.cliWatchPatchesUnderARunningLoop()
     local nupp = watchCommand()
     if not nupp then
-        return require("assert").suite.skip("--watch runs on the VM CLI, and none is installed")
+        return require("assert").suite.skip(WATCH_UNAVAILABLE)
     end
 
     local function program(message, nextVersion)
@@ -1326,7 +1334,7 @@ end
 function M.cliWatchRequiresRestartForMappedNativeReplacement()
     local nupp = watchCommand()
     if not nupp then
-        return require("assert").suite.skip("--watch runs on the VM CLI, and none is installed")
+        return require("assert").suite.skip(WATCH_UNAVAILABLE)
     end
     local windows = package.config:sub(1, 1) == "\\"
     if windows or os.execute("cc --version >/dev/null 2>&1") ~= 0 then
