@@ -772,10 +772,10 @@ export function describe(modules: {any}, entryModule: string, options: any?): an
             parsed.coreDefaultsSymbols = parsed.symbols
             structdefaults.specialize(parsed)
         end
-        if p.chunk then
-            for _, witness in ipairs(typewitness.collect(parsed.root, parsed.moduleExports).ordered) do
-                p.reflected[witness.node] = true
-            end
+        -- A record passed where a `Type<T>` is taken (`serde.binding(Show)`)
+        -- carries its reflection blueprint, in a module as in a chunk.
+        for _, witness in ipairs(typewitness.collect(parsed.root, parsed.moduleExports).ordered) do
+            p.reflected[witness.node] = true
         end
         positionalArguments(parsed.root)
         -- Once per check of a tree: a project shares its trees across
