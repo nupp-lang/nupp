@@ -751,10 +751,21 @@ globals.nupp = {}
 functions._G = globals
 
 -- Reuse the portable implementations for operations without a core call.
-local binary32 = require("nupp.compiler.runtime.math").binary32
+local portablemath = require("nupp.compiler.runtime.math")
+local binary32 = portablemath.binary32
 for name, implementation in pairs(binary32) do
     if float32Members[name] == nil then
         float32Members[name] = implementation
+    end
+end
+-- And the portable math members the core has none of (`math.lerp`,
+-- `math.vec2`), as the VM's bootstrap installs them into `math`. The
+-- fixed-width families the core answers keep its own members.
+local portable: {[string]: any} = {}
+portablemath.install(portable)
+for name, member in pairs(portable) do
+    if mathmembers[name] == nil then
+        mathmembers[name] = member
     end
 end
 
