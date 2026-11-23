@@ -353,6 +353,36 @@ local function beforecall(ctx: any, node: any, value: integer, args: any, pack: 
     return value, args, pack
 end
 
+-- Whether `callee` reads a foreign function the core has no value for: one
+-- reached through `ffi` (its `C` namespace, however the program bound it) or
+-- out of a C aggregate. A `cdef function` a module exports, or a local holds,
+-- is the function the foreign value factory made
+-- (nupp.runtime.provider.coreforeignvalue), called as any function value is.
+local function absentForeign(callee: any): boolean
+    local base = callee
+    local indexed = false
+    while base ~= nil and (base.kind == "dotIndex" or base.kind == "index") do
+        local inner = base.obj
+        local held = inner and inner.inferredType
+        if held ~= nil and (held.tag == "ptr" or held.tag == "nominal" and held.cdefKind ~= nil) then
+            return true
+        end
+        base, indexed = inner, true
+    end
+    if base == nil or base.kind ~= "name" or base.token == nil then
+        return true
+    end
+    local definition = base.token.definition
+    local module = definition and definition.requiredModule
+    if module == "ffi" or base.token.text == "ffi" then
+        return true
+    end
+
+    -- A field is a held value only of a module the program requires.
+
+    return indexed and module == nil
+end
+
 -- A checked call. With `count`, it keeps that many results and answers them
 -- as a list.
 -- With `open`, it keeps every result as one pack.
@@ -393,7 +423,7 @@ export function invoke(
     if target == nil and called ~= nil and called.foreign and node.cdefIdentity ~= nil then
         return foreigncall(ctx, node, called, count, open)
     end
-    if target == nil and called ~= nil and called.foreign and count == nil then
+    if target == nil and called ~= nil and called.foreign and count == nil and absentForeign(node.obj) then
         -- A foreign function that no `cdef function` declares (one of an
         -- `ffi` binding the core does not have) raises where it runs, as
         -- calling through that absent binding would.
