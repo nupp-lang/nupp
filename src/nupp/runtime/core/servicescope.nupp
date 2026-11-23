@@ -72,7 +72,7 @@ export function initialize(scope: voidptr, scopeBytes: uint64, ledger: voidptr, 
     end
     local records = native.load64(ledger, native.fieldOffset<pages.Scope>("records"))
     local capacity = native.load64(ledger, native.fieldOffset<pages.Scope>("capacity"))
-    if records == 0ULL or capacity == 0ULL or capacity > 4096ULL then
+    if records == 0ULL or capacity == 0ULL or capacity > pages.MAX_RECORDS then
         return 0ULL
     end
     local recordBytes = capacity * native.sizeOf<pages.Mapping>()
