@@ -1,0 +1,100 @@
+-- Classifies the W3C XML Conformance Test Suite for xmlconformancetest and
+-- writes conformance-manifest.json:
+--
+--     nupp run tests/stdlib/serde/xml/classify.nupp "$(sh scripts/toolchain xmlts)"
+--
+-- A case is accepted or rejected by its TYPE, and out of scope for XML 1.1, an
+-- edition before the fifth, an optional error, or what this reader never does:
+-- expand an entity, read an external entity or DTD, or apply a DTD's attribute
+-- defaults and types. Anything else the strict mode gets wrong is printed as
+-- residue, to be fixed rather than classified away.
+local canonical = require("tests.stdlib.serde.xml.canonical")
+local json = require("serde.json")
+local arguments: {string} = (rawget(_G, "arg") or {}) as {string}
+local root = assert(arguments[1], "pass the xmlconf directory scripts/toolchain xmlts prints")
+local output = arguments[2] or "tests/stdlib/serde/xml/conformance-manifest.json"
+local cases = canonical.suite(root)
+print(#cases .. " cases")
+local classes: {[string]: any} = {}
+local residue: {string} = {}
+local tally: {[string]: integer} = {}
+for _, case in ipairs(cases) do
+    local class = (case.type == "valid" or case.type == "invalid") and "accept" or "reject"
+    local reason: string? = nil
+    local recommendation = case.recommendation or ""
+    if case.version == "1.1" or recommendation == "XML1.1" or recommendation == "NS1.1" then
+        class, reason = "out", "XML 1.1"
+    elseif case.edition ~= nil and not (case.edition as string):find("5") then
+        class, reason = "out", "the rules of an edition before the fifth"
+    elseif case.type == "error" then
+        class, reason = "out", "an optional error"
+    end
+    -- Cases whose verdict rests on something this reader never does.
+    local OVERRIDES: {
+        [string]: string
+    } = {
+        [
+            "rmt-ns10-012"
+        ] = "an attribute type declared in the DTD normalizes the value, and DTD attribute types are never applied",
+    }
+    if OVERRIDES[case.id] ~= nil then
+        class, reason = "out", OVERRIDES[case.id]
+    end
+    local document = canonical.read(case.path)
+    if class ~= "out" and document ~= nil then
+        local ok, result = pcall(canonical.canonical, document as string, canonical.namespaced(case))
+        local problem: any = {}
+        if not ok then
+            problem = result
+        end
+        if class == "accept" and not ok then
+            local rule = tostring(problem.rule)
+            if rule == "undeclared-entity" and case.entities ~= "none" then
+                class, reason = "out", "an entity declared in an external DTD, which is never read"
+            elseif rule == "undeclared-entity" then
+                class, reason = "out", "a general entity reference, which is never expanded"
+            else
+                residue[
+                    #residue + 1
+                ] = case.id .. " accept refused " .. rule .. " " .. tostring(
+                    problem.message
+                ) .. " :: " .. case.description
+            end
+        elseif class == "accept" and ok and case.output ~= nil then
+            local expected = canonical.read(case.output as string)
+            if expected ~= nil and canonical.expected(expected as string) ~= result then
+                if case.entities ~= "none" then
+                    class, reason = "out", "the output depends on external DTD declarations, which are never read"
+                elseif (document as string):find("<!ATTLIST") then
+                    class, reason = "out", "the canonical output holds attribute defaults from the DTD, which are never applied"
+                else
+                    residue[#residue + 1] = case.id
+                        .. " canonical differs :: "
+                        .. case.description
+                        .. "\n   got  "
+                        .. (result as string):sub(1, 200)
+                        .. "\n   want "
+                        .. canonical.expected(expected as string):sub(1, 200)
+                end
+            end
+        elseif class == "reject" and ok then
+            if case.entities ~= "none" then
+                class, reason = "out", "the error is in an external entity, which is never read"
+            else
+                residue[#residue + 1] = case.id .. " reject accepted :: " .. case.description
+            end
+        end
+    end
+    tally[class] = (tally[class] or 0) + 1
+    classes[case.id] = reason ~= nil and {class = class, reason = reason} or {class = class}
+end
+for _, line in ipairs(residue) do
+    print(line)
+end
+print("residue", #residue)
+for k, v in pairs(tally) do
+    print(k, v)
+end
+local file = assert(io.open(output, "wb"))
+file:write(json.encodevalue({suite = "xmlts20130923", cases = classes}))
+file:close()

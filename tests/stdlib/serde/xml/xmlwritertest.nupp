@@ -1,0 +1,113 @@
+-- serde.xml.Writer: escaping, the refusals that keep output well formed,
+-- CDATA splitting, and streaming to a sink.
+
+local xml = require("serde.xml")
+local test = require("assert")
+local M = {}
+
+local function refuses(build: function(w: xml.Writer): nil): string
+    local ok, why = pcall(function(): nil
+        local w = xml.writer()
+        build(w)
+        w:finish()
+    end)
+    test(not ok, "expected a refusal")
+
+    return tostring(why)
+end
+
+function M.writesEscapedWellFormedXml(): nil
+    local w = xml.writer(nil, true)
+    w:start("doc", {b = "2", a = "x\"y<z>&\t\n"})
+    w:text("1 < 2 & 3 > 2\r")
+    w:start("empty"):finishelement()
+    w:comment(" note ")
+    w:pi("render", "fast")
+    w:finishelement("doc")
+    test(
+        w:finish() == "<?xml version=\"1.0\" encoding=\"UTF-8\"?><doc a=\"x&quot;y&lt;z&gt;&amp;&#x9;&#xA;\" b=\"2\">"
+        .. "1 &lt; 2 &amp; 3 &gt; 2&#xD;<empty/><!-- note --><?render fast?></doc>"
+    )
+end
+
+function M.splitsCdataAroundItsTerminator(): nil
+    local w = xml.writer()
+    w:start("c"):cdata("a]]>b]]>"):finishelement()
+    local written = w:finish()
+    test(written == "<c><![CDATA[a]]]]><![CDATA[>b]]]]><![CDATA[>]]></c>")
+    test(xml.parse(written):text() == "a]]>b]]>")
+end
+
+function M.refusesWhatWouldNotBeWellFormed(): nil
+    test(
+        refuses(function(w: xml.Writer): nil
+            w:start("a"):finishelement("b")
+        end):find("does not close", 1, true) ~= nil
+    )
+    test(
+        refuses(function(w: xml.Writer): nil
+            w:start("a")
+        end):find("not closed", 1, true) ~= nil
+    )
+    test(
+        refuses(function(w: xml.Writer): nil
+            w:start("1bad")
+        end):find("not an XML name", 1, true) ~= nil
+    )
+    test(
+        refuses(function(w: xml.Writer): nil
+            w:start("a"):text("bell\7"):finishelement()
+        end):find("does not allow", 1, true) ~= nil
+    )
+    test(
+        refuses(function(w: xml.Writer): nil
+            w:start("a"):finishelement():start("b"):finishelement()
+        end):find("one root", 1, true) ~= nil
+    )
+    test(
+        refuses(function(w: xml.Writer): nil
+            w:start("a"):comment("x--y"):finishelement()
+        end):find("comment", 1, true) ~= nil
+    )
+    test(
+        refuses(function(w: xml.Writer): nil
+            w:text("outside")
+        end):find("inside an element", 1, true) ~= nil
+    )
+    test(
+        refuses(function(w: xml.Writer): nil
+            w:finishelement()
+        end):find("no element is open", 1, true) ~= nil
+    )
+    test(
+        refuses(function(w: xml.Writer): nil
+            w:start("a", {["bad name"] = "v"}):finishelement()
+        end):find("not an XML name", 1, true) ~= nil
+    )
+    test(
+        refuses(function(_: xml.Writer): nil
+        end):find("no root", 1, true) ~= nil
+    )
+end
+
+function M.streamsToASink(): nil
+    local chunks: {string} = {}
+    local w = xml.writer(function(chunk: string): nil
+        chunks[#chunks + 1] = chunk
+    end)
+    w:start("list")
+    for index = 1, 2000 do
+        w:start("item"):text(tostring(index)):finishelement("item")
+    end
+    w:finishelement("list")
+    test(w:finish() == "")
+    test(#chunks > 1, "a large document goes out in more than one chunk")
+    local root = xml.parse(table.concat(chunks))
+    local count: integer = 0
+    for _ in root:children("item") do
+        count = count + 1
+    end
+    test(count == 2000)
+end
+
+return M

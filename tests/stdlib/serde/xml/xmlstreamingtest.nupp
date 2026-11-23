@@ -1,0 +1,202 @@
+-- Streamed input: a document read in chunks through the cursor's window
+-- gives the tokens, values and errors a whole string gives, however it is
+-- split.
+
+local xml = require("serde.xml")
+local test = require("assert")
+local M = {}
+
+--- The tokens of a document, or the rule and path of its error.
+local function tokens(source: string | xml.Chunks, options: xml.ReaderOptions?): string
+    local ok, result = pcall(function(): string
+        local r = xml.reader(source, options)
+        local out: {string} = {}
+        while r:next() do
+            local kind = r:kind()
+            if kind == xml.START then
+                local attrs = r:attributes()
+                local keys: {string} = {}
+                for key, value in pairs(attrs) do
+                    keys[#keys + 1] = key .. "=" .. value
+                end
+                table.sort(keys)
+                out[#out + 1] = "<" .. r:name() .. " " .. table.concat(keys, " ") .. ">"
+            elseif kind == xml.END then
+                out[#out + 1] = "</" .. r:name() .. ">"
+            elseif kind == xml.TEXT or kind == xml.COMMENT or kind == xml.PI then
+                out[#out + 1] = tostring(kind) .. "[" .. r:text() .. "]"
+            else
+                out[#out + 1] = "DOCTYPE"
+            end
+        end
+
+        return table.concat(out, "|")
+    end)
+    if ok then
+        return result as string
+    end
+    local problem: any = result
+
+    return "error " .. tostring(problem.rule) .. " " .. tostring(problem.path) .. " " .. tostring(problem.byte)
+end
+
+--- Chunks of `text` cut at `cuts`, ascending byte offsets.
+local function split(text: string, cuts: {integer}): xml.Chunks
+    local index: integer = 0
+    local at: integer = 1
+
+    return function(): string?
+        index = index + 1
+        if at > #text then
+            return nil
+        end
+        local stop = cuts[index] or #text
+        if stop < at then
+            stop = at
+        end
+        local piece = text:sub(at, stop)
+        at = stop + 1
+
+        return piece
+    end
+end
+
+--- Chunks of `size` bytes.
+local function sized(text: string, size: integer): xml.Chunks
+    local cuts: {integer} = {}
+    local at = size
+    while at < #text do
+        cuts[#cuts + 1] = at
+        at = at + size
+    end
+
+    return split(text, cuts)
+end
+
+const CORPUS: {
+    string
+} = {
+    "<a>hi</a>",
+    "<?xml version='1.0' encoding='UTF-8'?>\n<!DOCTYPE a [<!ENTITY x '>'><!-- ' -->]>\n<a x=\"1&amp;2\" y='z'><b/>t&lt;<![CDATA[<raw>]]>&#x20AC;<!--c--><?pi d?>tail</a>\n",
+    "\xef\xbb\xbf<r><é attr='ü'>ünïcödé€😀</é></r>",
+    "<a>\n  <b>x</b>\n  <c><d><e/></d></c>\n</a><!-- trailing --><?pi?>",
+    "<a><b></a>",
+    "<a>&foo;</a>",
+    "<a>\xe2\x82</a>",
+    "<a/><b/>",
+    "<a x='1/>",
+    "<a>unterminated",
+    "<?xml version='1.0' encoding='latin1'?><a/>",
+}
+
+function M.everyByteSplitGivesTheSameTokens(): nil
+    for _, doc in ipairs(CORPUS) do
+        local whole = tokens(doc)
+        for size = 1, 7 do
+            test(tokens(sized(doc, size)) == whole, "chunks of " .. tostring(size) .. ": " .. doc)
+        end
+        for cut = 1, #doc - 1 do
+            test(tokens(split(doc, {cut})) == whole, "cut at " .. tostring(cut) .. ": " .. doc)
+        end
+        test(tokens(sized(doc, 3), {comments = true, pis = true}) == tokens(doc, {comments = true, pis = true}))
+    end
+end
+
+function M.skipAndChildTextWorkAcrossChunks(): nil
+    local doc = "<r><s a='>'><x><y/><!-- > --><![CDATA[</s>]]></x></s><k>v &amp; w</k></r>"
+    for size = 1, 9 do
+        local r = xml.reader(sized(doc, size))
+        r:next()
+        r:next()
+        r:skip()
+        test(r:kind() == xml.END and r:name() == "s")
+        test(r:next() and r:nameis("k") and r:elementtext() == "v & w")
+    end
+end
+
+local record Item
+    id: string
+    price: number
+    tags: {string} = {}
+end
+
+local record Catalog
+    title: string
+    items: {Item} = {}
+end
+
+local catalogs = xml.codec(Catalog, {fields = {title = xml.FieldOptions(attribute = true)}, declarations = {Item},})
+
+--- A large catalog, pretty-printed, so values straddle every window.
+local function bigCatalog(count: integer): string
+    local parts: {string} = {"<Catalog title=\"big\">\n  <items>\n"}
+    for index = 1, count do
+        parts[
+            #parts + 1
+        ] = "    <member>\n      <id>item-" .. tostring(
+            index
+        ) .. "</id>\n      <price>" .. tostring(
+            index * 1.25
+        ) .. "</price>\n      <tags><member>t&amp;" .. tostring(
+            index % 7
+        ) .. "</member><member><![CDATA[c" .. tostring(index) .. "]]></member></tags>\n    </member>\n"
+    end
+    parts[#parts + 1] = "  </items>\n</Catalog>\n"
+
+    return table.concat(parts)
+end
+
+function M.theTypedCodecDecodesStreamsAsItDecodesStrings(): nil
+    local doc = bigCatalog(3000)
+    local whole = catalogs:decode(doc)
+    local seed: integer = 12345
+    for _ = 1, 6 do
+        local cuts: {integer} = {}
+        local at: integer = 0
+        while at < #doc do
+            seed = (seed * 1103515245 + 12345) % 2147483648
+            at = at + seed % 9000 + 1
+            cuts[#cuts + 1] = at
+        end
+        local streamed = catalogs:decode(split(doc, cuts))
+        test(catalogs:encode(streamed) == catalogs:encode(whole))
+    end
+    for _, size in ipairs({1, 2, 13, 4096, 65536}) do
+        test(catalogs:encode(catalogs:decode(sized(doc, size))) == catalogs:encode(whole))
+    end
+end
+
+function M.decodefromReadsAnIoReader(): nil
+    local doc = bigCatalog(200)
+    local value = catalogs:decodefrom(io.Reader.of(doc))
+    test(#value.items == 200 and value.items[200].id == "item-200" and value.items[3].tags[2] == "c3")
+end
+
+function M.streamedErrorsMatchWholeErrors(): nil
+    local doc = bigCatalog(500):gsub("<price>250.0</price>", "<price>oops</price>")
+
+    local function rule(source: string | xml.Chunks): string
+        local ok, problem = pcall(function(): any
+            return catalogs:decode(source)
+        end)
+        test(not ok)
+        local failure: any = problem
+
+        return tostring(
+            failure.rule
+        ) .. " " .. tostring(failure.path) .. " " .. tostring(failure.byte) .. " " .. tostring(failure.line)
+    end
+
+    local whole = rule(doc)
+    test(rule(sized(doc, 777)) == whole, rule(sized(doc, 777)) .. " vs " .. whole)
+end
+
+function M.theWindowIsBoundedByTheTokenLimit(): nil
+    local huge = "<a>" .. string.rep("x", 5000) .. "</a>"
+    local ok, problem = pcall(tokens, sized(huge, 100), {maxtokenbytes = 1000})
+    test(ok)
+    test((problem as string):find("token-limit", 1, true) ~= nil, problem as string)
+    test(tokens(sized(huge, 100), {maxtokenbytes = 10000}) == tokens(huge))
+end
+
+return M

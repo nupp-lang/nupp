@@ -24,7 +24,7 @@ local groups = {
 
     -- Fixtures whose inputs come from outside the repository. Kept nameable
     -- because a configured corpus used to be absent and silently skipped.
-    ["external-corpus"] = {"corpustest", "importctest"},
+    ["external-corpus"] = {"corpustest", "importctest", "xmlconformancetest"},
 
     -- The Rust-native platform boundary: resource owners, the aggregate C ABI,
     -- and C consumers of the executable and embedding SDKs.
@@ -244,6 +244,13 @@ for name in ("pooltest structpooltest randomtest nuppsuitetest"):gmatch("%S+") d
     scopes[name] = "component"
 end
 scopes.serdecheckcontracttest = "component"
+for name in (
+    "xmlreadertest xmlcodecdecodetest xmlcodecencodetest xmlstreamingtest xmlnamespacestest xmlencodingtest"
+    .. " xmltreetest xmlwritertest xmldifferentialtest xmlfeedstest"
+):gmatch("%S+") do
+    scopes[name] = "component"
+end
+scopes.xmlconformancetest = "integration"
 scopes.testcachetest = "integration"
 scopes.sharedcachetest = "integration"
 for name in (
@@ -651,6 +658,7 @@ stdlib/serde/contract/debug
 stdlib/serde/contract/documents
 stdlib/serde/contract/protocol
 stdlib/serde/json
+stdlib/serde/xml
 stdlib/string
 stdlib/table
 stdlib/types

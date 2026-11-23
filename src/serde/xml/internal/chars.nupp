@@ -1,0 +1,129 @@
+--[[
+XML 1.0 (fifth edition) character classes, for the strict mode.
+
+ASCII names are matched with one pattern; only a name holding bytes at or
+above 0x80 is decoded to code points.
+]]
+module serde.xml.internal.chars
+
+local find = string.find
+local byte = string.byte
+
+--- Whether a code point may start a name.
+export function isnamestart(codepoint: integer): boolean
+    if codepoint < 0x80 then
+        return (codepoint >= 0x41 and codepoint <= 0x5A)
+            or (codepoint >= 0x61 and codepoint <= 0x7A)
+            or codepoint == 0x5F
+            or codepoint == 0x3A
+    end
+
+    return (codepoint >= 0xC0 and codepoint <= 0xD6)
+        or (codepoint >= 0xD8 and codepoint <= 0xF6)
+        or (codepoint >= 0xF8 and codepoint <= 0x2FF)
+        or (codepoint >= 0x370 and codepoint <= 0x37D)
+        or (codepoint >= 0x37F and codepoint <= 0x1FFF)
+        or (codepoint >= 0x200C and codepoint <= 0x200D)
+        or (codepoint >= 0x2070 and codepoint <= 0x218F)
+        or (codepoint >= 0x2C00 and codepoint <= 0x2FEF)
+        or (codepoint >= 0x3001 and codepoint <= 0xD7FF)
+        or (codepoint >= 0xF900 and codepoint <= 0xFDCF)
+        or (codepoint >= 0xFDF0 and codepoint <= 0xFFFD)
+        or (codepoint >= 0x10000 and codepoint <= 0xEFFFF)
+end
+
+--- Whether a code point may continue a name.
+export function isnamechar(codepoint: integer): boolean
+    if isnamestart(codepoint) then
+        return true
+    end
+
+    return codepoint == 0x2D
+        or codepoint == 0x2E
+        or (codepoint >= 0x30 and codepoint <= 0x39)
+        or codepoint == 0xB7
+        or (codepoint >= 0x300 and codepoint <= 0x36F)
+        or (codepoint >= 0x203F and codepoint <= 0x2040)
+end
+
+--- Decodes the well-formed UTF-8 sequence at `at`.
+local function decode(value: string, at: integer): (integer, integer)
+    local lead = byte(value, at) as integer
+    if lead < 0x80 then
+        return lead, at + 1
+    elseif lead < 0xE0 then
+        return ((lead & 0x1F) << 6) | ((byte(value, at + 1) as integer) & 0x3F), at + 2
+    elseif lead < 0xF0 then
+        return ((lead & 0x0F) << 12)
+            | (((byte(value, at + 1) as integer) & 0x3F) << 6)
+            | ((byte(value, at + 2) as integer) & 0x3F), at + 3
+    end
+
+    return ((lead & 0x07) << 18)
+        | (((byte(value, at + 1) as integer) & 0x3F) << 12)
+        | (((byte(value, at + 2) as integer) & 0x3F) << 6)
+        | ((byte(value, at + 3) as integer) & 0x3F), at + 4
+end
+
+local function classify(value: string, nametoken: boolean): boolean
+    if value == "" then
+        return false
+    end
+    if not find(value, "[\128-\255]") then
+        if nametoken then
+            return find(value, "^[%w_:%.%-]+$") ~= nil
+        end
+        return find(value, "^[%a_:][%w_:%.%-]*$") ~= nil
+    end
+    local at: integer = 1
+    local first = true
+    while at <= #value do
+        local codepoint, nextAt = decode(value, at)
+        if first and not nametoken then
+            if not isnamestart(codepoint) then
+                return false
+            end
+        elseif not isnamechar(codepoint) then
+            return false
+        end
+        first = false
+        at = nextAt
+    end
+
+    return true
+end
+
+--- Whether `value` is an XML `Name`.
+export function isname(value: string): boolean
+    return classify(value, false)
+end
+
+--- Whether `value` is an XML `Nmtoken`.
+export function isnmtoken(value: string): boolean
+    return classify(value, true)
+end
+
+--- Whether `value` is a `Name` with no colon, or two of them around one.
+export function isqname(value: string): boolean
+    local colon = find(value, ":", 1, true)
+    if colon == nil then
+        return isname(value)
+    end
+
+    return isname(value:sub(1, colon - 1)) and isname(value:sub(colon + 1)) and not find(value, ":", colon + 1, true)
+end
+
+--- The offset of the first byte in `value` that is not an XML `Char`: a C0
+--- control other than tab, newline and carriage return, or U+FFFE or U+FFFF.
+--- Surrogates never reach here, because UTF-8 validation refuses them.
+export function invalidchar(value: string, first: integer?): integer?
+    local control = find(value, "[%z\1-\8\11\12\14-\31]", first ?? 1)
+    local noncharacter = find(value, "\239\191[\190\191]", first ?? 1)
+    if control == nil then
+        return noncharacter
+    elseif noncharacter == nil then
+        return control
+    end
+
+    return math.min(control as integer, noncharacter as integer) as integer
+end

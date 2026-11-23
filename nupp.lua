@@ -251,6 +251,16 @@ local RESOURCES = {
     {source = "src/nupp/io/internal/nativebuffer.lua", output = "nupp/compiler/nupp/io/internal/nativebuffer.lua"},
     {source = "src/serde/document.nupp", output = "nupp/compiler/serde/document.nupp"},
     {source = "src/serde/json/init.nupp", output = "nupp/compiler/serde/json/init.nupp"},
+    {source = "src/serde/xml/init.nupp", output = "nupp/compiler/serde/xml/init.nupp"},
+    {source = "src/serde/xml/internal/cursor.nupp", output = "nupp/compiler/serde/xml/internal/cursor.nupp"},
+    {source = "src/serde/xml/internal/text.nupp", output = "nupp/compiler/serde/xml/internal/text.nupp"},
+    {source = "src/serde/xml/internal/scalars.nupp", output = "nupp/compiler/serde/xml/internal/scalars.nupp"},
+    {source = "src/serde/xml/internal/plan.nupp", output = "nupp/compiler/serde/xml/internal/plan.nupp"},
+    {source = "src/serde/xml/internal/encoding.nupp", output = "nupp/compiler/serde/xml/internal/encoding.nupp"},
+    {source = "src/serde/xml/internal/chars.nupp", output = "nupp/compiler/serde/xml/internal/chars.nupp"},
+    {source = "src/serde/xml/internal/doctype.nupp", output = "nupp/compiler/serde/xml/internal/doctype.nupp"},
+    {source = "src/serde/xml/internal/tree.nupp", output = "nupp/compiler/serde/xml/internal/tree.nupp"},
+    {source = "src/serde/xml/internal/writer.nupp", output = "nupp/compiler/serde/xml/internal/writer.nupp"},
     {
         source = "src/nupp/serde/internal/json/compiled.nupp",
         output = "nupp/compiler/nupp/serde/internal/json/compiled.nupp"

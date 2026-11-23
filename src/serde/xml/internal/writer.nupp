@@ -1,0 +1,276 @@
+--[[
+`serde.xml.Writer`: escaped, well-formed XML into a string or a sink of
+chunks. It tracks the open elements and refuses what would not be well
+formed: a mismatched end, an element left open, an invalid name, or a
+character XML does not allow.
+]]
+module serde.xml.internal.writer
+
+local text = require("serde.xml.internal.text")
+local chars = require("serde.xml.internal.chars")
+local tree = require("serde.xml.internal.tree")
+
+local type Element = tree.Element
+
+local concat = table.concat
+local find = string.find
+local gsub = string.gsub
+
+--- Chunks gathered before the sink is called.
+const FLUSH_PARTS = 512
+
+local function refuse(message: string): never
+    error("serde.xml: " .. message, 3)
+end
+
+local function checkname(name: string): nil
+    if not chars.isname(name) then
+        refuse(string.format("%q is not an XML name", name))
+    end
+end
+
+local function checkchars(value: string, what: string): nil
+    if text.invalidutf8(value, 1) ~= nil then
+        refuse(what .. " is not well-formed UTF-8")
+    end
+    if chars.invalidchar(value, 1) ~= nil then
+        refuse(what .. " holds a character XML does not allow")
+    end
+end
+
+export record Writer
+    @private parts: {string}
+    @private count: integer = 0
+    @private open: {string}
+    @private pendingStart: boolean = false
+    @private sink: (function(chunk: string): nil)?
+    @private wroteRoot: boolean = false
+    @private finished: boolean = false
+
+    function put(self, piece: string): nil
+        local count = self.count + 1
+        self.parts[count] = piece
+        self.count = count
+        if self.sink ~= nil and count >= FLUSH_PARTS then
+            self:flush()
+        end
+    end
+
+    --- Hands what is gathered to the sink, when there is one.
+    function flush(self): nil
+        local sink = self.sink
+        if sink ~= nil and self.count > 0 then
+            local chunk = concat(self.parts, "", 1, self.count)
+            self.parts = {}
+            self.count = 0
+            sink(chunk)
+        end
+    end
+
+    function closeStart(self): nil
+        if self.pendingStart then
+            self:put(">")
+            self.pendingStart = false
+        end
+    end
+
+    function ready(self): nil
+        if self.finished then
+            refuse("the writer is finished")
+        end
+    end
+
+    --- Opens an element.
+    ---
+    --- @param name the qualified name
+    --- @param attributes attribute values by qualified name, written in name order
+    --- @raises string when a name is invalid, a value holds a character XML
+    ---     does not allow, or a second root element is started
+    function start(self, name: string, attributes: {[string]: string}?): Writer
+        self:ready()
+        checkname(name)
+        if #self.open == 0 then
+            if self.wroteRoot then
+                refuse("a document has one root element")
+            end
+            self.wroteRoot = true
+        end
+        self:closeStart()
+        self:put("<" .. name)
+        self.pendingStart = true
+        if attributes ~= nil then
+            local names: {string} = {}
+            for key in pairs(attributes) do
+                names[#names + 1] = key
+            end
+            table.sort(names)
+            for _, key in ipairs(names) do
+                self:attribute(key, attributes[key] as string)
+            end
+        end
+        self.open[#self.open + 1] = name
+        self.pendingStart = true
+
+        return self
+    end
+
+    --- Adds an attribute to the element just opened.
+    ---
+    --- @raises string when no start tag is open for attributes
+    function attribute(self, name: string, value: string): Writer
+        if not self.pendingStart then
+            refuse("an attribute must follow its element's start")
+        end
+        checkname(name)
+        checkchars(value, "attribute " .. name)
+        self:put(" " .. name .. "=\"" .. text.escapeattribute(value) .. "\"")
+
+        return self
+    end
+
+    --- Writes character data, escaped.
+    ---
+    --- @raises string when there is no open element, or the text holds a
+    ---     character XML does not allow
+    function text(self, value: string): Writer
+        self:ready()
+        if #self.open == 0 then
+            refuse("text must be inside an element")
+        end
+        checkchars(value, "text")
+        self:closeStart()
+        if value ~= "" then
+            self:put(text.escapetext(value))
+        end
+
+        return self
+    end
+
+    --- Writes a CDATA section, splitting it where the text holds `]]>`.
+    function cdata(self, value: string): Writer
+        self:ready()
+        if #self.open == 0 then
+            refuse("CDATA must be inside an element")
+        end
+        checkchars(value, "CDATA")
+        self:closeStart()
+        local split = gsub(value, "%]%]>", "]]]]><![CDATA[>")
+        self:put("<![CDATA[" .. split .. "]]>")
+
+        return self
+    end
+
+    --- Writes a comment.
+    ---
+    --- @raises string when the comment holds `--` or ends with `-`
+    function comment(self, value: string): Writer
+        self:ready()
+        checkchars(value, "comment")
+        if find(value, "--", 1, true) or find(value, "-$") then
+            refuse("a comment cannot hold -- or end with -")
+        end
+        self:closeStart()
+        self:put("<!--" .. value .. "-->")
+
+        return self
+    end
+
+    --- Writes a processing instruction.
+    function pi(self, target: string, data: string?): Writer
+        self:ready()
+        checkname(target)
+        if target:lower() == "xml" then
+            refuse("a processing instruction cannot be named xml")
+        end
+        if data ~= nil then
+            checkchars(data as string, "processing instruction")
+            if find(data as string, "?>", 1, true) then
+                refuse("a processing instruction cannot hold ?>")
+            end
+        end
+        self:closeStart()
+        self:put("<?" .. target .. (data ~= nil and data ~= "" and " " .. (data as string) or "") .. "?>")
+
+        return self
+    end
+
+    --- Closes the innermost open element.
+    ---
+    --- @param name the element's name, checked when given
+    --- @raises string when nothing is open or the name is not the open one's
+    function finishelement(self, name: string?): Writer
+        self:ready()
+        local depth = #self.open
+        if depth == 0 then
+            refuse("no element is open")
+        end
+        local open = self.open[depth]
+        if name ~= nil and name ~= open then
+            refuse("</" .. (name as string) .. "> does not close <" .. open .. ">")
+        end
+        self.open[depth] = nil
+        if self.pendingStart then
+            self.pendingStart = false
+            self:put("/>")
+        else
+            self:put("</" .. open .. ">")
+        end
+
+        return self
+    end
+
+    --- Writes an element tree.
+    function element(self, node: Element): Writer
+        local attributes: {[string]: string} = {}
+        for _, attribute in ipairs(node.attributes) do
+            attributes[attribute.name] = attribute.value
+        end
+        self:start(node.name, attributes)
+        for _, child in ipairs(node.nodes) do
+            if type(child) == "string" then
+                self:text(child as string)
+            else
+                self:element(child as Element)
+            end
+        end
+        self:finishelement(node.name)
+
+        return self
+    end
+
+    --- Ends the document.
+    ---
+    --- @return the document, or the empty string when it went to a sink
+    --- @raises string when an element is still open or nothing was written
+    function finish(self): string
+        self:ready()
+        if #self.open > 0 then
+            refuse("<" .. self.open[#self.open] .. "> is not closed")
+        end
+        if not self.wroteRoot then
+            refuse("the document has no root element")
+        end
+        self.finished = true
+        if self.sink ~= nil then
+            self:flush()
+            return ""
+        end
+
+        return concat(self.parts, "", 1, self.count)
+    end
+end
+
+--- Starts a writer.
+---
+--- @param sink receives the document in chunks, or nil to gather it for
+---     `finish`
+--- @param declaration whether to begin with an XML declaration
+--- @return the writer
+export function new(sink: (function(chunk: string): nil)?, declaration: boolean?): Writer
+    local writer = Writer(parts = {}, open = {}, sink = sink)
+    if declaration then
+        writer:put("<?xml version=\"1.0\" encoding=\"UTF-8\"?>")
+    end
+
+    return writer
+end

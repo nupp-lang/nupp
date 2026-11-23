@@ -1,0 +1,1288 @@
+--[[
+The XML cursor: one position moving over a byte string.
+
+A token is integers -- a kind, and offsets into the source -- plus the name
+string the start-tag pattern captured. Text, attribute values and qualified
+name parts become strings only when asked for. Every scan is a call to the
+runtime's pattern functions, which is what keeps the per-byte work out of
+interpreted code.
+]]
+module serde.xml.internal.cursor
+
+local text = require("serde.xml.internal.text")
+local encodings = require("serde.xml.internal.encoding")
+local chars = require("serde.xml.internal.chars")
+local doctypes = require("serde.xml.internal.doctype")
+
+local find = string.find
+local sub = string.sub
+local byte = string.byte
+local lower = string.lower
+local fail = text.fail
+
+--- Token kinds.
+export const START = 1
+
+export const END = 2
+export const TEXT = 3
+export const COMMENT = 4
+export const PI = 5
+export const DOCTYPE = 6
+
+--- The kind before the first token and after the last.
+export const NONE = 0
+
+export const EOF = -1
+
+const LT = 60
+const SLASH = 47
+const BANG = 33
+const QUESTION = 63
+const AMP = 38
+const DEFAULT_MAXDEPTH = 256
+
+export const XML_NAMESPACE = "http://www.w3.org/XML/1998/namespace"
+export const XMLNS_NAMESPACE = "http://www.w3.org/2000/xmlns/"
+
+--- A streamed window drops what it has read once it is past this many bytes.
+const COMPACT_AFTER = 65536
+
+--- A run of name bytes: ASCII name characters, `:`, and bytes of 0x80 and
+--- above. Exact Unicode name rules are the strict mode's.
+export const NAME = "[%w_:%.%-\128-\255]+"
+
+local START_PLAIN = "^<(" .. NAME .. ")(/?)>"
+local START_NAME = "^<(" .. NAME .. ")"
+local END_TAG = "^</(" .. NAME .. ")%s*>"
+local ATTRIBUTE = "^%s+(" .. NAME .. ")%s*=%s*([\"'])"
+local TAG_CLOSE = "^%s*(/?)>"
+local PI_TARGET = "^<%?(" .. NAME .. ")"
+
+--- What a cursor is asked to do beyond the default.
+export record Options
+    --- Report comments as tokens instead of skipping them.
+    @readonly comments: boolean = false
+
+    --- Report processing instructions as tokens instead of skipping them.
+    @readonly pis: boolean = false
+
+    --- The deepest element nesting accepted.
+    @readonly maxdepth: integer = 256
+
+    --- Resolve namespace prefixes.
+    @readonly namespaces: boolean = false
+
+    --- Transcode a document declared or marked as another encoding.
+    @readonly encoding: boolean = false
+
+    --- Check full well-formedness.
+    @readonly strict: boolean = false
+end
+
+export record Cursor
+    src: string
+    len: integer
+    pos: integer
+    kind: integer = 0
+    depth: integer = 0
+
+    --- Open element names, outermost first.
+    names: {string}
+
+    --- The position of each open element among the elements its list loop
+    --- counts, or nil when nothing counts them; used only for error paths.
+    indices: {[integer]: integer}
+
+    --- The name of the current start or end tag, or the target of a PI.
+    tname: string = ""
+
+    selfclosing: boolean = false
+    pendingEnd: boolean = false
+    tstart: integer = 0
+
+    --- Attributes of the current start tag.
+    acount: integer = 0
+
+    anames: {string}
+    avs: {integer}
+    ave: {integer}
+    aref: {boolean}
+
+    --- The current text, comment, PI or doctype span.
+    ts: integer = 0
+
+    te: integer = 0
+    hasref: boolean = false
+    hasmarkup: boolean = false
+
+    comments: boolean = false
+    pis: boolean = false
+    maxdepth: integer = 256
+    rootSeen: boolean = false
+    rootClosed: boolean = false
+    doctypeSeen: boolean = false
+
+    --- Where the document's own content starts, after a byte-order mark and
+    --- an XML declaration.
+    bodyStart: integer = 1
+
+    --- For a streamed document, what supplies the next chunk: nil or the empty
+    --- string is the end. `src` is then a window over the input.
+    pull: (function(): string?)?
+
+    eof: boolean = true
+    heldcr: boolean = false
+
+    --- Bytes dropped from before the window, the newlines among them, and the
+    --- input offset where the window's first line starts.
+    base: integer = 0
+
+    lines: integer = 0
+    linestart: integer = 1
+
+    --- How much of the window has been checked as UTF-8.
+    checked: integer = 0
+
+    --- The largest token a streamed document may hold in its window.
+    maxtoken: integer = 1048576
+
+    --- Namespace resolution, when asked for: the bindings in scope, the count
+    --- in scope at each depth, and each open element's URI and local name.
+    namespaces: boolean = false
+
+    --- Full well-formedness, and the next `]]>` at or after the last checked
+    --- text, found once rather than per text run.
+    strict: boolean = false
+
+    nextcdataend: integer = 0
+    entities: {[string]: boolean}
+
+    nsprefixes: {string}
+    nsuris: {string}
+    nscount: integer = 0
+    nsmark: {integer}
+    spaces: {[integer]: string?}
+    locals: {string}
+
+    --- The current tag's namespace URI and local name, with namespaces.
+    tspace: string? = nil
+
+    tlocal: string = ""
+
+    --- The current start tag's attribute URIs and local names, with namespaces.
+    aspaces: {[integer]: string?}
+
+    alocals: {string}
+
+    --- The element path of the current position, for an error.
+    function path(self): string
+        if self.depth == 0 then
+            return "/"
+        end
+        local parts: {string} = {}
+        for level = 1, self.depth do
+            local index = self.indices[level]
+            parts[#parts + 1] = index ~= nil and self.names[level] .. "[" .. tostring(index) .. "]" or self.names[level]
+        end
+
+        return "/" .. table.concat(parts, "/")
+    end
+
+    --- Raises a syntax error at an offset of this document.
+    function fail(self, offset: integer, rule: string, message: string): never
+        if self.pull == nil then
+            fail(self.src, offset, rule, message, self:path())
+        end
+        local line, column = text.position(self.src, offset)
+        if line == 1 then
+            column = self.base + offset - self.linestart + 1
+        end
+        text.failat(self.base + offset, self.lines + line, column, rule, message, self:path())
+    end
+
+    --- Raises the error that tells a streamed read to fetch more input.
+    function incomplete(self, offset: integer): never
+        self:fail(offset, "incomplete", "the input ends inside a token")
+    end
+
+    --- Checks the window's new bytes as UTF-8, leaving out a sequence the next
+    --- chunk may complete.
+    function validate(self, final: boolean): nil
+        local src = self.src
+        local first = self.checked + 1
+        local last = self.len
+        if not final then
+            local i = last
+            while i >= first and i > last - 4 do
+                local b = byte(src, i) as integer
+                if b < 0x80 then
+                    break
+                elseif b >= 0xC0 then
+                    last = i - 1
+                    break
+                end
+                i = i - 1
+            end
+        end
+        if last < first then
+            return
+        end
+        local slice = sub(src, first, last)
+        local bad = text.invalidutf8(slice, 1)
+        if bad ~= nil then
+            self:fail(first + bad - 1, "invalid-utf8", "the document is not well-formed UTF-8")
+        end
+        if self.strict then
+            local control = chars.invalidchar(slice, 1)
+            if control ~= nil then
+                self:fail(first + control - 1, "invalid-character", "the document holds a character XML does not allow")
+            end
+        end
+        self.checked = last
+    end
+
+    --- Appends the next chunk of a streamed document to the window.
+    ---
+    --- @return whether there was one
+    function more(self): boolean
+        local pull = self.pull
+        if pull == nil or self.eof then
+            return false
+        end
+        local data = pull()
+        if data == nil or data == "" then
+            self.eof = true
+            if self.heldcr then
+                self.heldcr = false
+                self.src = self.src .. "\n"
+                self.len = #self.src
+                self:validate(true)
+                return true
+            end
+            self:validate(true)
+            return false
+        end
+        if self.heldcr then
+            data = "\r" .. data
+            self.heldcr = false
+        end
+        if byte(data, #data) == 13 then
+            data = sub(data, 1, #data - 1)
+            self.heldcr = true
+        end
+        if find(data, "\r", 1, true) then
+            data = string.gsub(data, "\r\n?", "\n")
+        end
+        self.src = self.src .. data
+        self.len = #self.src
+        self.nextcdataend = 0
+        self:validate(false)
+
+        return true
+    end
+
+    --- Drops the window's bytes before the current position.
+    function compact(self): nil
+        local drop = self.pos - 1
+        if drop <= 0 then
+            return
+        end
+        local src = self.src
+        local dropped = sub(src, 1, drop)
+        local _, newlines = string.gsub(dropped, "\n", "")
+        if newlines > 0 then
+            local last = find(dropped, "\n[^\n]*$") as integer
+            self.linestart = self.base + last + 1
+            self.lines = self.lines + newlines
+        end
+        self.base = self.base + drop
+        self.src = sub(src, self.pos)
+        self.len = #self.src
+        self.pos = 1
+        self.checked = self.checked - drop
+        self.bodyStart = self.bodyStart - drop
+        self.nextcdataend = 0
+    end
+
+    --- The URI a prefix is bound to in the current scope; `""` is the
+    --- default namespace.
+    function resolve(self, prefix: string): string?
+        if prefix == "xml" then
+            return XML_NAMESPACE
+        end
+        for index = self.nscount, 1, -1 do
+            if self.nsprefixes[index] == prefix then
+                local uri = self.nsuris[index]
+                return uri ~= "" and uri or nil
+            end
+        end
+
+        return nil
+    end
+
+    function declare(self, prefix: string, uri: string, at: integer): nil
+        if prefix == "xmlns" then
+            self:fail(at, "reserved-prefix", "the xmlns prefix cannot be declared")
+        elseif prefix == "xml" and uri ~= XML_NAMESPACE then
+            self:fail(at, "reserved-prefix", "the xml prefix can only be bound to " .. XML_NAMESPACE)
+        elseif prefix ~= "xml" and uri == XML_NAMESPACE then
+            self:fail(at, "reserved-namespace", XML_NAMESPACE .. " can only be bound to the xml prefix")
+        elseif uri == XMLNS_NAMESPACE then
+            self:fail(at, "reserved-namespace", XMLNS_NAMESPACE .. " cannot be bound")
+        elseif prefix ~= "" and uri == "" then
+            self:fail(at, "empty-namespace", "the prefix " .. prefix .. " cannot be bound to an empty namespace")
+        end
+        local count = self.nscount + 1
+        self.nsprefixes[count] = prefix
+        self.nsuris[count] = uri
+        self.nscount = count
+    end
+
+    --- Splits a qualified name, answering its prefix and local part.
+    function split(self, name: string, at: integer): (string, string)
+        local colon = find(name, ":", 1, true)
+        if colon == nil then
+            return "", name
+        end
+        local prefix = sub(name, 1, colon - 1)
+        local localname = sub(name, colon + 1)
+        if prefix == "" or localname == "" or find(localname, ":", 1, true) then
+            self:fail(at, "malformed-qualified-name", name .. " is not a qualified name")
+        end
+
+        return prefix, localname
+    end
+
+    --- Applies the current start tag's namespace declarations and resolves
+    --- its name and attributes.
+    function bind(self, name: string, at: integer): nil
+        local depth = self.depth
+        self.nsmark[depth] = self.nscount
+        local count = self.acount
+        for index = 1, count do
+            local attribute = self.anames[index]
+            if attribute == "xmlns" then
+                self:declare("", self:attrvalue(index), self.avs[index])
+            elseif sub(attribute, 1, 6) == "xmlns:" then
+                self:declare(sub(attribute, 7), self:attrvalue(index), self.avs[index])
+            end
+        end
+        local prefix, localname = self:split(name, at)
+        local uri = self:resolve(prefix)
+        if uri == nil and prefix ~= "" then
+            self:fail(at, "unbound-prefix", "the prefix " .. prefix .. " of <" .. name .. "> is not bound")
+        end
+        self.spaces[depth] = uri
+        self.locals[depth] = localname
+        self.tspace = uri
+        self.tlocal = localname
+        for index = 1, count do
+            local attribute = self.anames[index]
+            local attributePrefix, attributeLocal = self:split(attribute, self.avs[index])
+            local attributeUri: string? = nil
+            if attribute == "xmlns" or attributePrefix == "xmlns" then
+                attributeUri = XMLNS_NAMESPACE
+            elseif attributePrefix ~= "" then
+                attributeUri = self:resolve(attributePrefix)
+                if attributeUri == nil then
+                    self:fail(
+                        self.avs[index],
+                        "unbound-prefix",
+                        "the prefix " .. attributePrefix .. " of " .. attribute .. " is not bound"
+                    )
+                end
+            end
+            self.aspaces[index] = attributeUri
+            self.alocals[index] = attributeLocal
+            for other = 1, index - 1 do
+                if self.alocals[other] == attributeLocal and self.aspaces[other] == attributeUri then
+                    self:fail(self.avs[index], "duplicate-attribute", "attribute " .. attribute .. " is given twice")
+                end
+            end
+        end
+    end
+
+    --- Ends the namespace scope of the element at `depth`.
+    function unbind(self, depth: integer): nil
+        self.tspace = self.spaces[depth]
+        self.tlocal = self.locals[depth]
+        self.nscount = self.nsmark[depth]
+    end
+
+    function pushStart(self, name: string, at: integer): nil
+        local depth = self.depth
+        if depth == 0 then
+            if self.rootSeen then
+                self:fail(at, "multiple-roots", "a document has one root element; found a second, <" .. name .. ">")
+            end
+            self.rootSeen = true
+        end
+        depth = depth + 1
+        if depth > self.maxdepth then
+            self:fail(at, "depth-limit", "elements nest deeper than the limit of " .. tostring(self.maxdepth))
+        end
+        self.depth = depth
+        self.names[depth] = name
+        self.indices[depth] = nil
+    end
+
+    --- Parses the attributes of a start tag after its name.
+    ---
+    --- @param at the byte after the name
+    --- @return the offset of the closing `>`
+    --- @return whether the tag closes itself
+    function attributes(self, at: integer): (integer, boolean)
+        local src = self.src
+        local count: integer = 0
+        local p = at
+        while true do
+            local _, close, slash = find(src, TAG_CLOSE, p)
+            if close ~= nil then
+                self.acount = count
+                return close as integer, slash == "/"
+            end
+            local _, quoteAt, name, quote = find(src, ATTRIBUTE, p)
+            if quoteAt == nil then
+                self:fail(p, "malformed-start-tag", "expected an attribute, /> or > in <" .. self.tname .. ">")
+            end
+            local valueStart = (quoteAt as integer) + 1
+            local valueEnd = find(src, quote as string, valueStart, true)
+            if valueEnd == nil then
+                self:fail(
+                    valueStart - 1,
+                    "unterminated-attribute",
+                    "attribute " .. (name as string) .. " is not closed"
+                )
+            end
+            local last = (valueEnd as integer) - 1
+            local hasref = false
+            local scan = valueStart
+            while true do
+                local special = find(src, "[<&]", scan)
+                if special == nil or special > last then
+                    break
+                end
+                if byte(src, special) == LT then
+                    self:fail(special as integer, "lt-in-attribute", "an attribute value cannot contain <")
+                end
+                local _, close, body = find(src, "^&([^;&<%s]*);", special)
+                if close == nil or (close as integer) > last then
+                    self:fail(special as integer, "malformed-reference", "an & must start a reference ending in ;")
+                end
+                local _, why = text.reference(body as string)
+                if why ~= nil then
+                    local rule = find(body as string, "^#") and "invalid-character-reference" or "undeclared-entity"
+                    self:fail(special as integer, rule, why)
+                end
+                hasref = true
+                scan = (close as integer) + 1
+            end
+            count = count + 1
+            self.anames[count] = name as string
+            self.avs[count] = valueStart
+            self.ave[count] = last
+            self.aref[count] = hasref
+            p = last + 2
+        end
+    end
+
+    --- Checks a start tag's names and attributes in the strict mode.
+    function checktag(self, name: string, at: integer): nil
+        local valid = self.namespaces and chars.isqname or chars.isname
+        if not valid(name) then
+            self:fail(at, "invalid-name", name .. " is not an element name")
+        end
+        for index = 1, self.acount do
+            local attribute = self.anames[index]
+            if not valid(attribute) then
+                self:fail(self.avs[index], "invalid-name", attribute .. " is not an attribute name")
+            end
+            for other = 1, index - 1 do
+                if self.anames[other] == attribute then
+                    self:fail(self.avs[index], "duplicate-attribute", "attribute " .. attribute .. " is given twice")
+                end
+            end
+        end
+    end
+
+    --- In the strict mode, refuses a `]]>` in the text `src[first..last]`.
+    function checktext(self, first: integer, last: integer): nil
+        if last - first < 2 then
+            return
+        end
+        local known = self.nextcdataend
+        if known < first then
+            known = find(self.src, "]]>", first, true) or self.len + 1
+            self.nextcdataend = known
+        end
+        if known + 2 <= last then
+            self:fail(known, "cdata-end-in-text", "]]> cannot appear in text")
+        end
+    end
+
+    function startTag(self, p: integer): nil
+        local src = self.src
+        local _, close, name, slash = find(src, START_PLAIN, p)
+        local selfclosing: boolean
+        if close ~= nil then
+            self.acount = 0
+            selfclosing = slash == "/"
+        else
+            local _, nameEnd, captured = find(src, START_NAME, p)
+            if nameEnd == nil then
+                self:fail(p, "malformed-start-tag", "< must start a tag with a name")
+            end
+            name = captured
+            self.tname = captured as string
+            close, selfclosing = self:attributes((nameEnd as integer) + 1)
+        end
+        if self.strict then
+            self:checktag(name as string, p)
+        end
+        self:pushStart(name as string, p)
+        if self.namespaces then
+            self:bind(name as string, p)
+        end
+        self.kind = START
+        self.tname = name as string
+        self.tstart = p
+        self.selfclosing = selfclosing
+        self.pendingEnd = selfclosing
+        self.pos = (close as integer) + 1
+    end
+
+    function endTag(self, p: integer): nil
+        local _, close, name = find(self.src, END_TAG, p)
+        if close == nil then
+            self:fail(p, "malformed-end-tag", "expected an end tag </name>")
+        end
+        local depth = self.depth
+        if depth == 0 then
+            self:fail(p, "unbalanced-end-tag", "</" .. (name as string) .. "> closes no open element")
+        end
+        if name ~= self.names[depth] then
+            self:fail(
+                p,
+                "mismatched-end-tag",
+                "expected </" .. self.names[depth] .. ">, found </" .. (name as string) .. ">"
+            )
+        end
+        self.kind = END
+        self.tname = name as string
+        self.tstart = p
+        if self.namespaces then
+            self:unbind(depth)
+        end
+        self.depth = depth - 1
+        if depth == 1 then
+            self.rootClosed = true
+        end
+        self.pos = (close as integer) + 1
+    end
+
+    --- Skips a comment at `p`, returning the offset after it.
+    function commentEnd(self, p: integer): integer
+        local close = find(self.src, "-->", p + 4, true)
+        if close == nil then
+            self:fail(p, "unterminated-comment", "a comment is not closed with -->")
+        end
+        if self.strict then
+            local inner = find(self.src, "--", p + 4, true)
+            if inner ~= nil and inner < close then
+                self:fail(inner as integer, "malformed-comment", "a comment cannot contain -- or end with -")
+            end
+        end
+
+        return (close as integer) + 3
+    end
+
+    --- Skips a PI at `p`, returning the offset after it.
+    function piEnd(self, p: integer): integer
+        local _, targetEnd, target = find(self.src, PI_TARGET, p)
+        if targetEnd == nil then
+            self:fail(p, "malformed-pi", "<? must start a processing instruction with a target")
+        end
+        local close = find(self.src, "?>", (targetEnd as integer) + 1, true)
+        if close == nil then
+            self:fail(p, "unterminated-pi", "a processing instruction is not closed with ?>")
+        end
+        if self.strict then
+            local name = target as string
+            if lower(name) == "xml" then
+                self:fail(
+                    p,
+                    "reserved-pi-target",
+                    "a processing instruction cannot be named " .. name .. "; an XML declaration comes first"
+                )
+            end
+            if not chars.isname(name) or (self.namespaces and find(name, ":", 1, true)) then
+                self:fail(p, "invalid-name", name .. " is not a processing instruction target")
+            end
+            if close ~= (targetEnd as integer) + 1 and not find(self.src, "^[ \t\r\n]", (targetEnd as integer) + 1) then
+                self:fail(p, "malformed-pi", "a processing instruction's target needs whitespace after it")
+            end
+        end
+        self.tname = target as string
+
+        return (close as integer) + 2
+    end
+
+    --- Scans a DOCTYPE at `p`, honoring quotes and an internal subset, and
+    --- returns the offset after its `>`. Nothing it declares is applied.
+    function doctypeEnd(self, p: integer): integer
+        if self.strict then
+            return doctypes.parse(
+                self.src,
+                p,
+                function(offset: integer, rule: string, message: string): never
+                    self:fail(offset, rule, message)
+                end,
+                self.entities,
+                self.namespaces
+            )
+        end
+        local src = self.src
+        local at = p + 9
+        local subset = false
+        while true do
+            local hit = find(src, "[\"'%[%]><]", at)
+            if hit == nil then
+                self:fail(p, "unterminated-doctype", "a DOCTYPE is not closed")
+            end
+            local c = byte(src, hit)
+            if c == 34 or c == 39 then
+                local close = find(src, c == 34 and "\"" or "'", (hit as integer) + 1, true)
+                if close == nil then
+                    self:fail(hit as integer, "unterminated-doctype", "a DOCTYPE literal is not closed")
+                end
+                at = (close as integer) + 1
+            elseif c == 91 then
+                subset = true
+                at = (hit as integer) + 1
+            elseif c == 93 then
+                subset = false
+                at = (hit as integer) + 1
+            elseif c == LT then
+                if find(src, "^<!%-%-", hit) then
+                    at = self:commentEnd(hit as integer)
+                elseif find(src, "^<%?", hit) then
+                    local close = find(src, "?>", (hit as integer) + 2, true)
+                    if close == nil then
+                        self:fail(hit as integer, "unterminated-pi", "a processing instruction is not closed with ?>")
+                    end
+                    at = (close as integer) + 2
+                else
+                    at = (hit as integer) + 1
+                end
+            elseif subset then
+                at = (hit as integer) + 1
+            else
+                return (hit as integer) + 1
+            end
+        end
+    end
+
+    --- Scans a run of character data starting at `p` inside an element.
+    ---
+    --- @return whether the run holds any character data
+    function textRun(self, p: integer): boolean
+        local src = self.src
+        local at = p
+        local hasref = false
+        local hasmarkup = false
+        local last: integer = 0
+        while true do
+            local hit = find(src, "[&<]", at)
+            if self.strict then
+                self:checktext(at, hit ~= nil and (hit as integer) - 1 or self.len)
+            end
+            if hit == nil then
+                if not self.eof then
+                    self:incomplete(at)
+                end
+                last = self.len
+                self.pos = self.len + 1
+                break
+            end
+            if byte(src, hit) == AMP then
+                local _, close, body = find(src, "^&([^;&<%s]*);", hit)
+                if close == nil then
+                    self:fail(hit as integer, "malformed-reference", "an & must start a reference ending in ;")
+                end
+                local _, why = text.reference(body as string)
+                if why ~= nil then
+                    local rule = find(body as string, "^#") and "invalid-character-reference" or "undeclared-entity"
+                    self:fail(hit as integer, rule, why)
+                end
+                hasref = true
+                at = (close as integer) + 1
+            else
+                if not self.eof and (hit as integer) + 9 > self.len then
+                    self:incomplete(hit as integer)
+                end
+                local after = byte(src, (hit as integer) + 1)
+                if after == BANG and find(src, "^<!%[CDATA%[", hit) then
+                    local close = find(src, "]]>", (hit as integer) + 9, true)
+                    if close == nil then
+                        self:fail(hit as integer, "unterminated-cdata", "a CDATA section is not closed with ]]>")
+                    end
+                    hasmarkup = true
+                    at = (close as integer) + 3
+                elseif after == BANG and not self.comments and find(src, "^<!%-%-", hit) then
+                    hasmarkup = true
+                    at = self:commentEnd(hit as integer)
+                elseif after == QUESTION and not self.pis then
+                    hasmarkup = true
+                    at = self:piEnd(hit as integer)
+                else
+                    last = (hit as integer) - 1
+                    self.pos = hit as integer
+                    break
+                end
+            end
+        end
+        if last < p then
+            return false
+        end
+        self.kind = TEXT
+        self.ts = p
+        self.te = last
+        self.hasref = hasref
+        self.hasmarkup = hasmarkup
+
+        return true
+    end
+
+    --- Skips content outside the root element, which may only be whitespace.
+    function prolog(self, p: integer): nil
+        local src = self.src
+        local _, spaceEnd = find(src, "^%s*", p)
+        local after = (spaceEnd as integer) + 1
+        if after <= self.len and byte(src, after) ~= LT then
+            self:fail(
+                after,
+                "content-outside-root",
+                "only whitespace, comments and PIs may stand outside the root element"
+            )
+        end
+        self.pos = after
+    end
+
+    --- Advances to the next token.
+    ---
+    --- A streamed document reads more input whenever a token runs past the
+    --- window, so it gives the tokens a whole string would.
+    ---
+    --- @return whether there is one; false at the end of the document
+    --- @raises serde.Error when the document is malformed
+    function next(self): boolean
+        if self.pull == nil or self.pendingEnd then
+            return self:advance()
+        end
+        if self.pos > COMPACT_AFTER then
+            self:compact()
+        end
+        while true do
+            local start = self.pos
+            local ok, result = pcall(self.advance, self)
+            if ok then
+                return result as boolean
+            end
+            if self.eof then
+                error(result, 0)
+            end
+            -- A real error stays one however much more is read; one caused by
+            -- the window's end goes away. Reading up to the token limit tells
+            -- the two apart.
+            if self.len - start > self.maxtoken then
+                local problem: any = result
+                if type(problem) == "table" and problem.rule == "incomplete" then
+                    self:fail(
+                        start,
+                        "token-limit",
+                        "a token is longer than the limit of " .. tostring(self.maxtoken) .. " bytes"
+                    )
+                end
+                error(result, 0)
+            end
+            self:more()
+        end
+    end
+
+    function advance(self): boolean
+        if self.pendingEnd then
+            self.pendingEnd = false
+            local depth = self.depth
+            self.kind = END
+            if self.namespaces then
+                self:unbind(depth)
+            end
+            self.depth = depth - 1
+            if depth == 1 then
+                self.rootClosed = true
+            end
+            return true
+        end
+        local src = self.src
+        while true do
+            local p = self.pos
+            if p > self.len then
+                if self:more() then
+                    src = self.src
+                    continue
+                end
+                if self.depth > 0 then
+                    self:fail(
+                        self.len + 1,
+                        "unclosed-element",
+                        "the document ends inside <" .. self.names[self.depth] .. ">"
+                    )
+                end
+                if not self.rootSeen then
+                    self:fail(self.len + 1, "missing-root", "the document has no root element")
+                end
+                self.kind = EOF
+                return false
+            end
+            if byte(src, p) ~= LT then
+                if self.depth == 0 then
+                    self:prolog(p)
+                elseif self:textRun(p) then
+                    return true
+                end
+            else
+                local after = byte(src, p + 1)
+                if after == SLASH then
+                    self:endTag(p)
+                    return true
+                elseif after == BANG then
+                    if find(src, "^<!%-%-", p) then
+                        local close = self:commentEnd(p)
+                        if self.comments then
+                            self.kind = COMMENT
+                            self.ts = p + 4
+                            self.te = close - 4
+                            self.pos = close
+                            return true
+                        end
+                        self.pos = close
+                    elseif find(src, "^<!%[CDATA%[", p) then
+                        if self.depth == 0 then
+                            self:fail(p, "content-outside-root", "a CDATA section must be inside an element")
+                        end
+                        if self:textRun(p) then
+                            return true
+                        end
+                    elseif find(src, "^<!DOCTYPE", p) then
+                        if self.rootSeen or self.doctypeSeen then
+                            self:fail(p, "misplaced-doctype", "a DOCTYPE must come once, before the root element")
+                        end
+                        local close = self:doctypeEnd(p)
+                        self.doctypeSeen = true
+                        self.kind = DOCTYPE
+                        self.ts = p
+                        self.te = close - 1
+                        self.pos = close
+                        return true
+                    else
+                        self:fail(p, "malformed-markup", "<! must start a comment, CDATA section or DOCTYPE")
+                    end
+                elseif after == QUESTION then
+                    local close = self:piEnd(p)
+                    if self.pis then
+                        self.kind = PI
+                        self.ts = p
+                        self.te = close - 1
+                        self.pos = close
+                        return true
+                    end
+                    self.pos = close
+                else
+                    if self.rootClosed then
+                        self:fail(p, "multiple-roots", "a document has one root element")
+                    end
+                    self:startTag(p)
+                    return true
+                end
+            end
+        end
+    end
+
+    --- The current text token's character data.
+    function text(self): string
+        local src = self.src
+        if not self.hasmarkup then
+            local raw = sub(src, self.ts, self.te)
+            return self.hasref and text.decode(raw) or raw
+        end
+        local parts: {string} = {}
+        local at = self.ts
+        local last = self.te
+        while at <= last do
+            local hit = find(src, "<", at, true)
+            if hit == nil or hit > last then
+                parts[#parts + 1] = text.decode(sub(src, at, last))
+                break
+            end
+            if hit > at then
+                parts[#parts + 1] = text.decode(sub(src, at, (hit as integer) - 1))
+            end
+            if find(src, "^<!%[CDATA%[", hit) then
+                local close = find(src, "]]>", (hit as integer) + 9, true) as integer
+                parts[#parts + 1] = sub(src, (hit as integer) + 9, close - 1)
+                at = close + 3
+            elseif find(src, "^<!%-%-", hit) then
+                at = self:commentEnd(hit as integer)
+            else
+                at = self:piEnd(hit as integer)
+            end
+        end
+
+        return table.concat(parts)
+    end
+
+    --- The value of attribute `index` of the current start tag.
+    function attrvalue(self, index: integer): string
+        local raw = sub(self.src, self.avs[index], self.ave[index])
+        if self.strict and find(raw, "[\t\n]") then
+            raw = string.gsub(raw, "[\t\n]", " ")
+        end
+
+        return self.aref[index] and text.decode(raw) or raw
+    end
+
+    --- The value of the named attribute of the current start tag, or nil.
+    function attr(self, name: string): string?
+        for index = 1, self.acount do
+            if self.anames[index] == name then
+                return self:attrvalue(index)
+            end
+        end
+
+        return nil
+    end
+
+    --- Skips the rest of the current element, counting depth.
+    ---
+    --- Only the skipped element's own end tag is matched by name; the content
+    --- inside is checked for balance and nothing else.
+    ---
+    --- @raises serde.Error when the element is unbalanced or not closed
+    function skip(self): nil
+        if self.pull == nil or self.kind ~= START or self.pendingEnd or self.strict then
+            self:skipraw()
+            return
+        end
+        while true do
+            local ok, problem = pcall(self.skipraw, self)
+            if ok then
+                return
+            end
+            if self.eof then
+                error(problem, 0)
+            end
+            if not self:more() then
+                error(problem, 0)
+            end
+        end
+    end
+
+    function skipraw(self): nil
+        if self.kind ~= START then
+            return
+        end
+        if self.strict then
+            local target = self.depth - 1
+            while self:next() do
+                if self.kind == END and self.depth == target then
+                    return
+                end
+            end
+            return
+        end
+        if self.pendingEnd then
+            self:next()
+            return
+        end
+        local src = self.src
+        local target = self.depth - 1
+        local level = self.depth
+        local at = self.pos
+        while true do
+            local lt = find(src, "<", at, true)
+            if lt == nil then
+                self:fail(
+                    self.len + 1,
+                    "unclosed-element",
+                    "the document ends inside <" .. self.names[self.depth] .. ">"
+                )
+            end
+            local after = byte(src, (lt as integer) + 1)
+            if after == SLASH then
+                level = level - 1
+                if level == target then
+                    self:endTag(lt as integer)
+                    return
+                end
+                local close = find(src, ">", lt, true)
+                if close == nil then
+                    self:fail(lt as integer, "malformed-end-tag", "an end tag is not closed")
+                end
+                at = (close as integer) + 1
+            elseif after == BANG then
+                if find(src, "^<!%-%-", lt) then
+                    at = self:commentEnd(lt as integer)
+                elseif find(src, "^<!%[CDATA%[", lt) then
+                    local close = find(src, "]]>", (lt as integer) + 9, true)
+                    if close == nil then
+                        self:fail(lt as integer, "unterminated-cdata", "a CDATA section is not closed with ]]>")
+                    end
+                    at = (close as integer) + 3
+                else
+                    self:fail(lt as integer, "malformed-markup", "<! must start a comment or CDATA section here")
+                end
+            elseif after == QUESTION then
+                local close = find(src, "?>", (lt as integer) + 2, true)
+                if close == nil then
+                    self:fail(lt as integer, "unterminated-pi", "a processing instruction is not closed with ?>")
+                end
+                at = (close as integer) + 2
+            else
+                -- A start tag: find its end past any quoted attribute values.
+                local p = (lt as integer) + 1
+                while true do
+                    local hit = find(src, "[>\"']", p)
+                    if hit == nil then
+                        self:fail(lt as integer, "malformed-start-tag", "a start tag is not closed")
+                    end
+                    local c = byte(src, hit)
+                    if c == 62 then
+                        if byte(src, (hit as integer) - 1) ~= SLASH then
+                            level = level + 1
+                            if level > self.maxdepth then
+                                self:fail(
+                                    lt as integer,
+                                    "depth-limit",
+                                    "elements nest deeper than the limit of " .. tostring(self.maxdepth)
+                                )
+                            end
+                        end
+                        at = (hit as integer) + 1
+                        break
+                    end
+                    local close = find(src, c == 34 and "\"" or "'", (hit as integer) + 1, true)
+                    if close == nil then
+                        self:fail(hit as integer, "unterminated-attribute", "an attribute value is not closed")
+                    end
+                    p = (close as integer) + 1
+                end
+            end
+        end
+    end
+end
+
+--- Checks an XML declaration's grammar: version, then encoding and
+--- standalone in that order, each after whitespace.
+local function strictDeclaration(cursor: Cursor, p: integer, close: integer): nil
+    local src = cursor.src
+
+    local function refuse(message: string): never
+        fail(src, p, "malformed-declaration", message)
+    end
+
+    local _, e, _, version = find(src, "^[ \t\n]+version[ \t\n]*=[ \t\n]*([\"'])([^\"']*)%1", p + 5)
+    if e == nil then
+        refuse("the XML declaration must start with a quoted version")
+    end
+    if not find(version as string, "^1%.%d+$") then
+        refuse("XML version " .. (version as string) .. " is not 1.x")
+    end
+    local at = (e as integer) + 1
+    local _, ee, _, encoding = find(src, "^[ \t\n]+encoding[ \t\n]*=[ \t\n]*([\"'])([^\"']*)%1", at)
+    if ee ~= nil then
+        if not find(encoding as string, "^%a[%w%._%-]*$") then
+            refuse((encoding as string) .. " is not an encoding name")
+        end
+        at = (ee as integer) + 1
+    end
+    local _, se, _, standalone = find(src, "^[ \t\n]+standalone[ \t\n]*=[ \t\n]*([\"'])([^\"']*)%1", at)
+    if se ~= nil then
+        if standalone ~= "yes" and standalone ~= "no" then
+            refuse("standalone must be yes or no")
+        end
+        at = (se as integer) + 1
+    end
+    local _, de = find(src, "^[ \t\n]*%?>", at)
+    if de == nil or de ~= close then
+        refuse("the XML declaration holds something it cannot")
+    end
+end
+
+--- Reads the prolog's byte-order mark and XML declaration.
+---
+--- @param cursor the cursor at the start of its document
+--- @param allowEncoding whether a non-UTF-8 declaration may pass, because it
+---     has already been transcoded
+local function declaration(cursor: Cursor, allowEncoding: boolean): nil
+    local src = cursor.src
+    local p: integer = 1
+    local b1, b2, b3 = byte(src, 1, 3)
+    if b1 == 0xEF and b2 == 0xBB and b3 == 0xBF then
+        p = 4
+    elseif (b1 == 0xFF and b2 == 0xFE) or (b1 == 0xFE and b2 == 0xFF) then
+        fail(
+            src,
+            1,
+            "undeclared-encoding",
+            "the document starts with a UTF-16 byte-order mark; pass encoding = true to transcode it"
+        )
+    elseif (b1 == 0 and b2 == LT) or (b1 == LT and b2 == 0) then
+        fail(
+            src,
+            1,
+            "undeclared-encoding",
+            "the document is UTF-16 without a byte-order mark; pass encoding = true to transcode it"
+        )
+    end
+    cursor.bodyStart = p
+    if find(src, "^<%?xml[%s?]", p) then
+        local _, close = find(src, "?>", p + 5, true)
+        if close == nil then
+            fail(src, p, "malformed-declaration", "the XML declaration is not closed with ?>")
+        end
+        -- The declaration's grammar is checked in every mode: it is read once.
+        strictDeclaration(cursor, p, close as integer)
+        local body = sub(src, p + 5, (close as integer) - 2)
+        local _, _, version = find(body, "^%s*version%s*=%s*[\"']([^\"']*)[\"']")
+        if version == nil then
+            fail(src, p, "malformed-declaration", "the XML declaration must start with a version")
+        end
+        if not find(version as string, "^1%.%d+$") then
+            fail(src, p, "unsupported-version", "XML version " .. (version as string) .. " is not supported")
+        end
+        local _, _, encoding = find(body, "encoding%s*=%s*[\"']([^\"']*)[\"']")
+        if encoding ~= nil and lower(encoding as string) ~= "utf-8" and not allowEncoding then
+            fail(
+                src,
+                p,
+                "undeclared-encoding",
+                "the document declares " .. (encoding as string) .. "; pass encoding = true to transcode it"
+            )
+        end
+        p = (close as integer) + 1
+    end
+    cursor.pos = p
+end
+
+--- Opens a cursor over a document read in chunks.
+---
+--- @param pull answers the next chunk, or nil or the empty string at the end
+--- @param options what to report, the depth limit and the token limit, or nil
+--- @param maxtoken the largest token the window may have to hold
+--- @return the cursor before its first token
+--- @raises serde.Error when the document is not UTF-8 or declares another
+---     encoding
+export function openstream(pull: function(): string?, options: Options?, maxtoken: integer?): Cursor
+    local transcoded = false
+    if options ~= nil and options.encoding then
+        pull, transcoded = encodings.transcodestream(pull)
+    end
+    local cursor = Cursor(
+        src = "",
+        len = 0,
+        pos = 1,
+        names = {},
+        indices = {},
+        anames = {},
+        avs = {},
+        ave = {},
+        aref = {},
+        nsprefixes = {},
+        nsuris = {},
+        nsmark = {},
+        spaces = {},
+        locals = {},
+        aspaces = {},
+        alocals = {},
+        namespaces = options ~= nil and options.namespaces or false,
+        strict = options ~= nil and options.strict or false,
+        entities = {},
+        comments = options ~= nil and options.comments or false,
+        pis = options ~= nil and options.pis or false,
+        maxdepth = options ~= nil and options.maxdepth or DEFAULT_MAXDEPTH,
+        pull = pull,
+        eof = false,
+        maxtoken = maxtoken ?? 1048576
+    )
+
+    -- The prolog's byte-order mark and declaration are read whole.
+    local function declared(): boolean
+        local src = cursor.src
+        return find(src, "^<%?xml") ~= nil or find(src, "^\239\187\191<%?xml") ~= nil
+    end
+
+    while not cursor.eof and cursor.len <= cursor.maxtoken do
+        if cursor.len >= 8 and (not declared() or find(cursor.src, "?>", 1, true)) then
+            break
+        end
+        cursor:more()
+    end
+    declaration(cursor, transcoded)
+
+    return cursor
+end
+
+--- Opens a cursor over a whole document held as a string.
+---
+--- @param source the document
+--- @param options what to report and the depth limit, or nil
+--- @param transcoded whether the document was transcoded to UTF-8 already
+--- @return the cursor before its first token
+--- @raises serde.Error when the document is not UTF-8 or declares another
+---     encoding
+export function open(source: string, options: Options?, transcoded: boolean?): Cursor
+    if options ~= nil and options.encoding then
+        source, transcoded = encodings.transcode(source)
+    end
+    -- XML reads every line ending as a newline before anything else.
+    if find(source, "\r", 1, true) then
+        source = string.gsub(source, "\r\n?", "\n")
+    end
+    local cursor = Cursor(
+        src = source,
+        len = #source,
+        pos = 1,
+        names = {},
+        indices = {},
+        anames = {},
+        avs = {},
+        ave = {},
+        aref = {},
+        nsprefixes = {},
+        nsuris = {},
+        nsmark = {},
+        spaces = {},
+        locals = {},
+        aspaces = {},
+        alocals = {},
+        namespaces = options ~= nil and options.namespaces or false,
+        strict = options ~= nil and options.strict or false,
+        entities = {},
+        comments = options ~= nil and options.comments or false,
+        pis = options ~= nil and options.pis or false,
+        maxdepth = options ~= nil and options.maxdepth or DEFAULT_MAXDEPTH
+    )
+    declaration(cursor, transcoded == true)
+    local bad = text.invalidutf8(source, 1)
+    if bad ~= nil then
+        fail(source, bad, "invalid-utf8", "the document is not well-formed UTF-8")
+    end
+    if cursor.strict then
+        local control = chars.invalidchar(source, 1)
+        if control ~= nil then
+            fail(source, control, "invalid-character", "the document holds a character XML does not allow")
+        end
+    end
+
+    return cursor
+end

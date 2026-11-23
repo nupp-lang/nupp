@@ -1,0 +1,139 @@
+-- serde.xml.parse: the element tree, its lookups with and without
+-- namespaces, and round trips through the writer.
+
+local xml = require("serde.xml")
+local test = require("assert")
+local M = {}
+
+local DOC = [==[<?xml version="1.0"?>
+<!-- comment -->
+<catalog xmlns="urn:catalog" xmlns:x="urn:extra" version="2">
+  <book id="b1" x:flag="yes"><title>One &amp; Only</title><x:note>n1</x:note></book>
+  <book id="b2"><title><![CDATA[Two]]> Parts</title></book>
+  <x:book id="b3"/>
+</catalog>]==]
+
+function M.buildsElementsAttributesAndText(): nil
+    local root = xml.parse(DOC)
+    test(root.name == "catalog" and root.localname == "catalog" and root.space == nil)
+    test(root:attr("version") == "2" and root:attr("xmlns") == "urn:catalog")
+    local first = root:child("book") as xml.Element
+    test(first:attr("id") == "b1" and first:attr("x:flag") == "yes")
+    test((first:child("title") as xml.Element):text() == "One & Only")
+    test(first:text() == "One & Onlyn1")
+    local ids: {string} = {}
+    for book in root:children("book") do
+        ids[#ids + 1] = book:attr("id") as string
+    end
+    test(table.concat(ids, ",") == "b1,b2")
+    local all: integer = 0
+    for _ in root:children() do
+        all = all + 1
+    end
+    test(all == 3)
+    test((root:find("title", nil, nil) as xml.Element):text() == "One & Only")
+    test(((root:child("book") as xml.Element):child("x:note") as xml.Element):text() == "n1")
+    test(root:child("x:book") ~= nil and root:child("missing") == nil)
+end
+
+function M.namespaceLookupsNeedTheOption(): nil
+    local plain = xml.parse(DOC)
+    local ok, why = pcall(function(): any
+        return plain:child("book", "urn:catalog")
+    end)
+    test(not ok and tostring(why):find("namespaces = true", 1, true) ~= nil)
+    local resolved = xml.parse(DOC, {namespaces = true})
+    test(resolved.space == "urn:catalog")
+    local books: {string} = {}
+    for book in resolved:children("book", "urn:catalog") do
+        books[#books + 1] = book:attr("id") as string
+    end
+    test(table.concat(books, ",") == "b1,b2")
+    test((resolved:child("book", "urn:extra") as xml.Element):attr("id") == "b3")
+    local first = resolved:child("book", "urn:catalog") as xml.Element
+    test(first:attr("flag", "urn:extra") == "yes")
+    test((resolved:find("book", "urn:catalog", {id = "b2"}) as xml.Element):attr("id") == "b2")
+end
+
+local function same(a: xml.Element, b: xml.Element): boolean
+    if a.name ~= b.name or #a.attributes ~= #b.attributes or #a.nodes ~= #b.nodes then
+        return false
+    end
+    for _, attribute in ipairs(a.attributes) do
+        if b:attr(attribute.name) ~= attribute.value then
+            return false
+        end
+    end
+    for index, node in ipairs(a.nodes) do
+        local other = b.nodes[index]
+        if type(node) == "string" then
+            if node ~= other then
+                return false
+            end
+        elseif type(other) == "string" or not same(node as xml.Element, other as xml.Element) then
+            return false
+        end
+    end
+
+    return true
+end
+
+function M.writerOutputParsesToTheSameTree(): nil
+    local root = xml.parse(DOC)
+    local w = xml.writer()
+    w:element(root)
+    local written = w:finish()
+    test(same(xml.parse(written), root), written)
+end
+
+local record Random
+    state: integer
+
+    function nextint(self, limit: integer): integer
+        self.state = (self.state * 1103515245 + 12345) % 2147483648
+        return self.state % limit + 1
+    end
+end
+
+const NAMES: {string} = {"a", "b", "item", "x:y", "名前", "long-name.with_parts"}
+const TEXTS: {string} = {"", "plain", "a < b & c", "]]>", "quote \" and ' ", "tab\there", "line\nbreak", "é€😀"}
+
+local function randomTree(random: Random, depth: integer): xml.Element
+    local w = xml.writer()
+
+    local function emit(level: integer): nil
+        local attributes: {[string]: string} = {}
+        for _ = 1, random:nextint(3) - 1 do
+            attributes["at" .. tostring(random:nextint(5))] = TEXTS[random:nextint(#TEXTS)]
+        end
+        local name = NAMES[random:nextint(#NAMES)]
+        w:start(name, attributes)
+        for _ = 1, random:nextint(4) - 1 do
+            if level < depth and random:nextint(2) == 1 then
+                emit(level + 1)
+            elseif random:nextint(3) == 1 then
+                w:cdata(TEXTS[random:nextint(#TEXTS)])
+            else
+                w:text(TEXTS[random:nextint(#TEXTS)])
+            end
+        end
+        w:finishelement(name)
+    end
+
+    emit(1)
+
+    return xml.parse(w:finish())
+end
+
+function M.randomTreesRoundTrip(): nil
+    local random = Random(state = 99)
+    for _ = 1, 100 do
+        local tree = randomTree(random, 4)
+        local w = xml.writer()
+        w:element(tree)
+        local text = w:finish()
+        test(same(xml.parse(text), tree), text)
+    end
+end
+
+return M

@@ -1,0 +1,263 @@
+-- Differential fuzz of the default mode against the strict mode, over seeded
+-- byte and structure mutations of a corpus. Where strict accepts, the default
+-- must give identical tokens and decoded values; where strict refuses and the
+-- default accepts, the input must exercise a leniency on the committed list.
+--
+-- NUPP_XML_FUZZ_ITERATIONS raises the iteration count; a failure prints the
+-- input so it can be added to the corpus.
+
+local leniencies = require("tests.stdlib.serde.xml.leniencies")
+local xml = require("serde.xml")
+local test = require("assert")
+local M = {}
+
+const DEFAULT_ITERATIONS = 400
+
+local function iterations(): integer
+    local configured = tonumber(os.getenv("NUPP_XML_FUZZ_ITERATIONS") or "")
+    return configured ~= nil and math.tointeger(configured) or DEFAULT_ITERATIONS
+end
+
+const CORPUS: {
+    string
+} = {
+    "<a>hi</a>",
+    "<?xml version='1.0' encoding='UTF-8'?>\n<doc a='1' b=\"two\"><x>t&amp;&#x41;</x><!--c--><?pi d?><y/></doc>",
+    "<r><![CDATA[<raw> & ]]>tail</r>",
+    "<!DOCTYPE r [<!ELEMENT r ANY><!ATTLIST r a CDATA 'd'><!ENTITY e 'v'>]><r a='x'>text</r>",
+    "<p:a xmlns:p='urn:x'><p:b c='d'>é€</p:b></p:a>",
+    "<list>\n  <member><id>1</id><v>2.5</v></member>\n  <member><id>2</id><v>NaN</v></member>\n</list>",
+    "<r>\n\t<k a=\"1\n2\">v</k>\n</r>",
+}
+
+-- What a mutation inserts: markup characters and the bytes leniencies turn on.
+const PIECES: {
+    string
+} = {
+    "<",
+    ">",
+    "&",
+    ";",
+    "\"",
+    "'",
+    "/",
+    "!",
+    "?",
+    "-",
+    "--",
+    "]]>",
+    "[",
+    "]",
+    ":",
+    "=",
+    " ",
+    "\t",
+    "\n",
+    "\1",
+    "\31",
+    "\239\191\190",
+    "é",
+    "&amp;",
+    "&#0;",
+    "&#x20;",
+    "<!--",
+    "-->",
+    "<![CDATA[",
+    "<?xml ",
+    "<?pi",
+    "?>",
+    "<x>",
+    "</x>",
+    "<x/>",
+    " a='1'",
+    " a='2'",
+    " 1a='3'",
+    "\xff",
+    "·",
+    "<!DOCTYPE x>",
+}
+
+local record Random
+    state: integer
+
+    function nextint(self, limit: integer): integer
+        self.state = (self.state * 1103515245 + 12345) % 2147483648
+        return self.state % limit + 1
+    end
+end
+
+local function mutate(random: Random, input: string): string
+    local result = input
+    for _ = 1, random:nextint(3) do
+        local at = random:nextint(#result + 1)
+        local choice = random:nextint(4)
+        if choice == 1 and #result > 1 then
+            result = result:sub(1, at - 1) .. result:sub(at + 1)
+        elseif choice == 2 then
+            result = result:sub(1, at - 1) .. PIECES[random:nextint(#PIECES)] .. result:sub(at)
+        elseif choice == 3 then
+            local tag = result:match("<([%a][^%s/>]*)")
+            if tag ~= nil then
+                result = result:gsub("<" .. tag .. "([%s>/])", "<" .. tag .. " a='1' a='1'%1", 1)
+            end
+        else
+            local piece = PIECES[random:nextint(#PIECES)]
+            result = result:sub(1, at - 1) .. piece .. result:sub(at + #piece)
+        end
+    end
+
+    return result
+end
+
+--- The tokens a mode reads, or nil and why it refuses.
+local function tokens(input: string, strict: boolean): (string?, string?)
+    local ok, result = pcall(function(): string
+        local r = xml.reader(input, {strict = strict, comments = true, pis = true})
+        local out: {string} = {}
+        while r:next() do
+            local kind = r:kind()
+            if kind == xml.START then
+                local attrs = r:attributes()
+                local keys: {string} = {}
+                for key, value in pairs(attrs) do
+                    keys[#keys + 1] = key .. "=" .. value
+                end
+                table.sort(keys)
+                out[#out + 1] = "S " .. r:name() .. " " .. table.concat(keys, " ")
+            elseif kind == xml.END then
+                out[#out + 1] = "E " .. r:name()
+            elseif kind ~= xml.DOCTYPE then
+                out[#out + 1] = tostring(kind) .. " " .. r:text()
+            end
+        end
+
+        return table.concat(out, "\n")
+    end)
+    if ok then
+        return result as string, nil
+    end
+
+    return nil, tostring(result)
+end
+
+local function excused(input: string, allowSkip: boolean): boolean
+    for _, number in ipairs(leniencies.exercised(input)) do
+        if number ~= 1 or allowSkip then
+            return true
+        end
+    end
+
+    return false
+end
+
+local record Member
+    id: string?
+    v: number?
+end
+
+local record List
+    member: {Member} = {}
+end
+
+local defaultCodec = xml.codec(List, {
+    name = "list",
+    fields = {member = xml.FieldOptions(flattened = true)},
+    declarations = {Member}
+})
+local strictCodec = xml.codec(List, {
+    name = "list",
+    fields = {member = xml.FieldOptions(flattened = true)},
+    declarations = {Member},
+    strict = true
+})
+
+local function decoded(codec: xml.Codec<List>, input: string): (string?, string?)
+    local ok, result = pcall(function(): string
+        return codec:encode(codec:decode(input))
+    end)
+    if ok then
+        return result as string, nil
+    end
+
+    return nil, tostring(result)
+end
+
+function M.theDefaultAgreesWithStrictOutsideTheListedLeniencies(): nil
+    local random = Random(state = 20261122)
+    local failures: {string} = {}
+    local diverged: integer = 0
+    for iteration = 1, iterations() do
+        local input = mutate(random, CORPUS[random:nextint(#CORPUS)])
+        local strictTokens = tokens(input, true)
+        local defaultTokens, defaultWhy = tokens(input, false)
+        if strictTokens ~= nil then
+            if defaultTokens ~= strictTokens and not (defaultTokens ~= nil and excused(input, false)) then
+                failures[
+                    #failures + 1
+                ] = string.format(
+                    "%d: strict accepts, the default %s: %q",
+                    iteration,
+                    defaultTokens == nil and "refuses (" .. tostring(defaultWhy) .. ")" or "differs",
+                    input
+                )
+            end
+        elseif defaultTokens ~= nil then
+            diverged = diverged + 1
+            if not excused(input, false) then
+                failures[
+                    #failures + 1
+                ] = string.format(
+                    "%d: strict refuses, the default accepts, and no leniency explains it: %q",
+                    iteration,
+                    input
+                )
+            end
+        end
+        local strictValue = decoded(strictCodec, input)
+        local defaultValue = decoded(defaultCodec, input)
+        if strictValue ~= nil then
+            if defaultValue ~= strictValue and not excused(input, true) then
+                failures[#failures + 1] = string.format("%d: the codecs disagree: %q", iteration, input)
+            end
+        elseif defaultValue ~= nil and not excused(input, true) then
+            failures[
+                #failures + 1
+            ] = string.format(
+                "%d: the strict codec refuses, the default decodes, and no leniency explains it: %q",
+                iteration,
+                input
+            )
+        end
+    end
+    test(#failures == 0, table.concat(failures, "\n"))
+    test(diverged > 0, "the mutations never exercised a leniency")
+end
+
+function M.everyLeniencyHasAnInputThatExercisesIt(): nil
+    local examples: {
+        [integer]: string
+    } = {
+        [1] = "<list><skipped><a></b></skipped></list>",
+        [2] = "<a x='1' x='2'/>",
+        [3] = "<1a/>",
+        [4] = "<a x='1\t2'/>",
+        [5] = "<a>]]></a>",
+        [6] = "<a>\1</a>",
+        [7] = "<a><!-- x -- y --></a>",
+        [8] = "<!DOCTYPE a [<!BOGUS>]><a/>",
+    }
+    for number, input in pairs(examples) do
+        local strict = tokens(input, true)
+        local lenient = number == 1 and decoded(defaultCodec, input) or tokens(input, false)
+        -- Normalization changes a value rather than refusing a document.
+        local diverges = number == 4 and strict ~= lenient or (strict == nil and lenient ~= nil)
+        test(diverges, "leniency " .. tostring(number) .. " is not exercised by its example")
+        local found = false
+        for _, exercised in ipairs(leniencies.exercised(input)) do
+            found = found or exercised == number
+        end
+        test(found, "leniency " .. tostring(number) .. "'s detector misses its example")
+    end
+end
+
+return M

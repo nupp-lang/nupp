@@ -1,0 +1,1211 @@
+--[[
+The typed XML codec: a plan per record, built once from the record's
+reflection and kept, that decodes elements straight into records and
+encodes them back.
+
+Every member carries its name already spelled as the patterns and tags it
+needs. A scalar member's pattern reads its start tag, its text in the
+member's lexical form and its end tag in one call, and a container's reads
+its start tag past the whitespace before it. A member found out of order, or
+written with attributes, comments or references, takes the general path
+through the cursor, which gives the same result.
+]]
+module serde.xml.internal.plan
+
+local cursors = require("serde.xml.internal.cursor")
+local text = require("serde.xml.internal.text")
+local scalars = require("serde.xml.internal.scalars")
+local reflect = require("types.reflect")
+local byteapi = require("bytes")
+
+local type Cursor = cursors.Cursor
+
+local find = string.find
+local concat = table.concat
+local literal = text.literal
+local escapetext = text.escapetext
+local escapeattribute = text.escapeattribute
+
+const START = cursors.START
+const END = cursors.END
+const TEXT = cursors.TEXT
+
+--- XML mapping for one field, beside serde's renames and representations.
+export record FieldOptions
+    --- The element or attribute name, overriding the naming policy.
+    @readonly name: string?
+
+    --- Read and write the field as an attribute of its record's element.
+    @readonly attribute: boolean = false
+
+    --- Write a list's items or a map's entries directly in the record's
+    --- element, each under the field's own name, rather than wrapped in one
+    --- element.
+    @readonly flattened: boolean = false
+
+    --- The element each item of a wrapped list is written in.
+    @readonly member: string = "member"
+
+    --- The element each entry of a map is written in, when it is wrapped.
+    @readonly entry: string = "entry"
+
+    --- The element a map entry's key is written in.
+    @readonly key: string = "key"
+
+    --- The element a map entry's value is written in.
+    @readonly value: string = "value"
+
+    --- The namespace written as `xmlns` on the field's element.
+    @readonly namespace: string?
+
+    --- Leave the field out when it is nil, false, empty text or an empty table.
+    @readonly omitempty: boolean = false
+
+    --- How a `number` or `integer` field is a timestamp: `"datetime"` for an
+    --- RFC 3339 date-time, `"epoch"` for seconds. Applies to list items and map
+    --- values of the field too.
+    @readonly timestamp: ("datetime" | "epoch")?
+
+    --- Read and write a string field as base64 text.
+    @readonly base64: boolean = false
+
+    --- serde's `iso8601seconds`: an integer field of epoch seconds written as
+    --- a date-time.
+    @readonly representation: "iso8601seconds"?
+end
+
+--- How one value is read and written.
+export record Value
+    --- `scalar`, `record`, `list` or `map`.
+    kind: string = "scalar"
+
+    --- The declared scalar kind, such as `string`, `int64` or `boolean`.
+    scalar: string = "string"
+
+    --- Reads a scalar's text, answering nil and a reason when it does not fit.
+    convert: (function(text: string): (any, string?))?
+
+    --- Writes a scalar as text, before escaping.
+    format: (function(value: any): string)?
+
+    --- The pattern a scalar's text must match on the fast path, with one
+    --- capture.
+    lexical: string = "([^<&]*)"
+
+    record: Record?
+    element: Member?
+    keyMember: Member?
+    valueMember: Member?
+    entryName: string = "entry"
+    flattened: boolean = false
+end
+
+--- One element or attribute of a record, or the element a list item or
+--- map entry part is written in.
+export record Member
+    --- The record field, or nil for a list item or map entry part.
+    field: string?
+
+    --- The element or attribute name as written.
+    wire: string
+
+    index: integer = 0
+    attribute: boolean = false
+    required: boolean = false
+    hasdefault: boolean = false
+    default: any
+    omitempty: boolean = false
+    namespace: string?
+
+    value: Value
+
+    --- `<wire>` and `</wire>`, written as they go out.
+    open: string
+
+    close: string
+
+    --- `^%s*<wire>(lexical)</wire%s*>`, for a scalar.
+    fast: string?
+
+    --- `^%s*<wire>`, for a container.
+    openfast: string
+
+    --- `^%s*</wire%s*>`.
+    closefast: string
+
+    --- With namespaces, the URI and local name the element is matched by.
+    uri: string?
+
+    localname: string = ""
+end
+
+--- A record's plan.
+export record Record
+    name: string
+    witness: any
+    members: {Member}
+    elements: {[string]: Member}
+    attributes: {Member}
+    reject: boolean = false
+
+    --- Builds the value from decoded fields, or nil to set a metatable.
+    construct: (function(fields: any): any)?
+end
+
+--- What a codec is built with.
+export type Options = {
+    naming: ("identity" | "snakecase" | "camelcase")?,
+    fields: {[string]: FieldOptions}?,
+    records: {[string]: {[string]: FieldOptions}}?,
+    unknownmembers: ("reject" | "ignore")?,
+    renames: {[string]: string}?,
+    whitelist: {[string]: boolean}?
+}
+
+local function wireName(name: string, naming: string?): string
+    if naming == "snakecase" then
+        return name:gsub("(%u)(%u%l)", "%1_%2"):gsub("(%l)(%u)", "%1_%2"):lower()
+    elseif naming == "camelcase" then
+        local result = name:gsub("_([%a])", string.upper)
+        return result
+    end
+
+    return name
+end
+
+local function identity(value: string): (any, string?)
+    return value, nil
+end
+
+local function isempty(value: any): boolean
+    if value == nil or value == false or value == "" then
+        return true
+    end
+    if type(value) == "table" then
+        return next(value) == nil
+    end
+
+    return false
+end
+
+local function copydefault(value: any): any
+    if type(value) ~= "table" then
+        return value
+    end
+    local result: any = {}
+    for key, item in pairs(value) do
+        result[key] = copydefault(item)
+    end
+
+    return result
+end
+
+----------------------------------------------------------------------------
+-- Decoding
+----------------------------------------------------------------------------
+
+local decodeValue: function(c: Cursor, m: Member): any
+local decodeEntry: function(c: Cursor, value: Value): (any, any)
+
+--- Reads the text of the element the cursor is at the start of, up to and
+--- including its end tag.
+local function elementText(c: Cursor): string
+    if c.pendingEnd then
+        c:next()
+        return ""
+    end
+    local single: string? = nil
+    local parts: {string}? = nil
+    while true do
+        c:next()
+        local kind = c.kind
+        if kind == TEXT then
+            local piece = c:text()
+            if single == nil then
+                single = piece
+            else
+                if parts == nil then
+                    parts = {single as string}
+                end
+                (parts as {string})[#(parts as {string}) + 1] = piece
+            end
+        elseif kind == END then
+            break
+        elseif kind == START then
+            c:fail(c.tstart, "unexpected-element", "expected text, found <" .. c.tname .. ">")
+        end
+    end
+    if parts ~= nil then
+        return concat(parts)
+    end
+
+    return single ?? ""
+end
+
+--- Whether the current tag is the member's element.
+local function matches(c: Cursor, m: Member): boolean
+    if c.namespaces then
+        return c.tlocal == m.localname and c.tspace == m.uri
+    end
+
+    return c.tname == m.wire
+end
+
+local function convert(c: Cursor, m: Member, raw: string, at: integer): any
+    local value, why = (m.value.convert as function(text: string): (any, string?))(raw)
+    if value == nil then
+        c:fail(at, "invalid-value", m.wire .. ": " .. (why ?? "invalid value"))
+    end
+
+    return value
+end
+
+--- Marks the cursor as having read a start tag the fast path matched.
+local function enter(c: Cursor, name: string, at: integer, close: integer): nil
+    c:pushStart(name, at)
+    c.acount = 0
+    if c.namespaces then
+        c:bind(name, at)
+    end
+    c.kind = START
+    c.tname = name
+    c.tstart = at
+    c.selfclosing = false
+    c.pendingEnd = false
+    c.pos = close + 1
+end
+
+--- Closes the element the cursor is inside, through the end tag the fast
+--- path matched.
+local function leave(c: Cursor, close: integer): nil
+    local depth = c.depth
+    c.kind = END
+    c.tname = c.names[depth]
+    if c.namespaces then
+        c:unbind(depth)
+    end
+    c.depth = depth - 1
+    if depth == 1 then
+        c.rootClosed = true
+    end
+    c.pos = close + 1
+end
+
+local function finishRecord(c: Cursor, plan: Record, fields: any, at: integer): any
+    for _, m in ipairs(plan.members) do
+        local field = m.field as string
+        if fields[field] == nil then
+            if m.hasdefault then
+                fields[field] = copydefault(m.default)
+            elseif m.value.kind == "list" and m.value.flattened and m.required then
+                fields[field] = {}
+            elseif m.required then
+                c:fail(at, "missing-member", plan.name .. " has no " .. m.wire)
+            end
+        end
+    end
+    local construct = plan.construct
+    if construct ~= nil then
+        return construct(fields)
+    end
+
+    return setmetatable(fields, plan.witness)
+end
+
+local function readAttributes(c: Cursor, plan: Record, fields: any): nil
+    for _, m in ipairs(plan.attributes) do
+        for index = 1, c.acount do
+            if c.anames[index] == m.wire then
+                fields[m.field as string] = convert(c, m, c:attrvalue(index), c.avs[index])
+                break
+            end
+        end
+    end
+end
+
+local function decodeRecord(c: Cursor, plan: Record, closefast: string): any
+    local fields: any = {}
+    local at = c.tstart
+    if #plan.attributes > 0 then
+        readAttributes(c, plan, fields)
+    end
+    if c.pendingEnd then
+        c:next()
+        return finishRecord(c, plan, fields, at)
+    end
+    local members = plan.members
+    local count = #members
+    local hint: integer = 1
+    local elements = plan.elements
+    local spaced = c.namespaces
+    local fastspace: string? = spaced and c:resolve("") or nil
+    while true do
+        -- The member expected next, matched with its own pattern.
+        if hint <= count and c.depth < c.maxdepth and (not spaced or members[hint].uri == fastspace) then
+            local m = members[hint]
+            local fast = m.fast
+            if fast ~= nil then
+                local s, e, raw = find(c.src, fast, c.pos)
+                if s ~= nil then
+                    local value, _ = (m.value.convert as function(text: string): (any, string?))(raw as string)
+                    if value ~= nil then
+                        fields[m.field as string] = value
+                        c.pos = (e as integer) + 1
+                        hint = hint + 1
+                        continue
+                    end
+                end
+            elseif not m.attribute and not m.value.flattened then
+                local s, e = find(c.src, m.openfast, c.pos)
+                if s ~= nil then
+                    enter(c, m.wire, (e as integer) - #m.open + 1, e as integer)
+                    fields[m.field as string] = decodeValue(c, m)
+                    hint = hint + 1
+                    continue
+                end
+            end
+        end
+        -- The end of this record.
+        local s, e = find(c.src, closefast, c.pos)
+        if s ~= nil then
+            local value = finishRecord(c, plan, fields, at)
+            leave(c, e as integer)
+            return value
+        end
+        c:next()
+        local kind = c.kind
+        if kind == START then
+            local m = elements[spaced and c.tlocal or c.tname]
+            if m ~= nil and spaced and m.uri ~= c.tspace then
+                m = nil
+            end
+            if m == nil then
+                if plan.reject then
+                    c:fail(c.tstart, "unknown-member", plan.name .. " has no member " .. c.tname)
+                end
+                c:skip()
+            elseif m.value.flattened then
+                local field = m.field as string
+                local value = m.value
+                if value.kind == "list" then
+                    local list = fields[field]
+                    if list == nil then
+                        list = {}
+                        fields[field] = list
+                    end
+                    list[#list + 1] = decodeValue(c, value.element as Member)
+                else
+                    local map = fields[field]
+                    if map == nil then
+                        map = {}
+                        fields[field] = map
+                    end
+                    local key, item = decodeEntry(c, value)
+                    map[key] = item
+                end
+                hint = m.index
+            else
+                fields[m.field as string] = decodeValue(c, m)
+                hint = m.index + 1
+            end
+        elseif kind == END then
+            break
+        end
+    end
+
+    return finishRecord(c, plan, fields, at)
+end
+
+--- Reads one map entry's key and value, the cursor at the entry's start.
+decodeEntry = function(c: Cursor, value: Value): (any, any)
+    local key: any = nil
+    local item: any = nil
+    local keyMember = value.keyMember as Member
+    local valueMember = value.valueMember as Member
+    if c.pendingEnd then
+        c:next()
+        c:fail(c.tstart, "missing-member", "a map entry needs a " .. keyMember.wire)
+    end
+    local start = c.tstart
+    while true do
+        c:next()
+        local kind = c.kind
+        if kind == START then
+            if matches(c, keyMember) then
+                key = decodeValue(c, keyMember)
+            elseif matches(c, valueMember) then
+                item = decodeValue(c, valueMember)
+            else
+                c:skip()
+            end
+        elseif kind == END then
+            break
+        end
+    end
+    if key == nil then
+        c:fail(start, "missing-member", "a map entry needs a " .. keyMember.wire)
+    end
+    if item == nil then
+        c:fail(start, "missing-member", "a map entry needs a " .. valueMember.wire)
+    end
+
+    return key, item
+end
+
+local function decodeList(c: Cursor, value: Value): any
+    local list: any = {}
+    if c.pendingEnd then
+        c:next()
+        return list
+    end
+    local element = value.element as Member
+    local fast = element.fast
+    local wire = element.wire
+    local convertfn = element.value.convert
+    local count: integer = 0
+    local level = c.depth
+    if c.namespaces and c:resolve("") ~= element.uri then
+        fast = nil
+    end
+    while true do
+        if fast ~= nil and c.depth < c.maxdepth then
+            local s, e, raw = find(c.src, fast, c.pos)
+            if s ~= nil then
+                local item, _ = (convertfn as function(text: string): (any, string?))(raw as string)
+                if item ~= nil then
+                    count = count + 1
+                    list[count] = item
+                    c.pos = (e as integer) + 1
+                    continue
+                end
+            end
+        elseif fast == nil
+            and element.value.kind ~= "scalar"
+            and (not c.namespaces or c:resolve("") == element.uri)
+        then
+            local s, e = find(c.src, element.openfast, c.pos)
+            if s ~= nil then
+                enter(c, wire, (e as integer) - #element.open + 1, e as integer)
+                count = count + 1
+                c.indices[level + 1] = count
+                list[count] = decodeValue(c, element)
+                continue
+            end
+        end
+        c:next()
+        local kind = c.kind
+        if kind == START then
+            if matches(c, element) then
+                count = count + 1
+                c.indices[level + 1] = count
+                list[count] = decodeValue(c, element)
+            else
+                c:skip()
+            end
+        elseif kind == END then
+            break
+        end
+    end
+
+    return list
+end
+
+local function decodeMap(c: Cursor, value: Value): any
+    local map: any = {}
+    if c.pendingEnd then
+        c:next()
+        return map
+    end
+    local entry = value.entryName
+    local spaced = c.namespaces
+    while true do
+        c:next()
+        local kind = c.kind
+        if kind == START then
+            if (spaced and c.tlocal or c.tname) == entry then
+                local key, item = decodeEntry(c, value)
+                map[key] = item
+            else
+                c:skip()
+            end
+        elseif kind == END then
+            break
+        end
+    end
+
+    return map
+end
+
+decodeValue = function(c: Cursor, m: Member): any
+    local value = m.value
+    local kind = value.kind
+    if kind == "scalar" then
+        local at = c.tstart
+        return convert(c, m, elementText(c), at)
+    elseif kind == "record" then
+        return decodeRecord(c, value.record as Record, m.closefast)
+    elseif kind == "list" then
+        return decodeList(c, value)
+    end
+
+    return decodeMap(c, value)
+end
+
+--- Decodes the element at the cursor as a member.
+export function decodemember(c: Cursor, m: Member): any
+    return decodeValue(c, m)
+end
+
+----------------------------------------------------------------------------
+-- Encoding
+----------------------------------------------------------------------------
+
+local encodeValue: function(out: {string}, n: integer, m: Member, item: any): integer
+local encodeEntries: function(out: {string}, n: integer, m: Member, value: Value, map: any): integer
+
+local function encodeRecord(out: {string}, n: integer, m: Member, plan: Record, item: any): integer
+    if #plan.attributes == 0 then
+        n = n + 1
+        out[n] = m.open
+    else
+        n = n + 1
+        out[n] = string.sub(m.open, 1, -2)
+        for _, a in ipairs(plan.attributes) do
+            local v = item[a.field as string]
+            if v ~= nil and not (a.omitempty and isempty(v)) then
+                n = n + 1
+                out[
+                    n
+                ] = " " .. a.wire .. "=\"" .. escapeattribute(
+                    (a.value.format as function(value: any): string)(v)
+                ) .. "\""
+            end
+        end
+        n = n + 1
+        out[n] = ">"
+    end
+    for _, child in ipairs(plan.members) do
+        if not child.attribute then
+            local v = item[child.field as string]
+            if v ~= nil and not (child.omitempty and isempty(v)) then
+                local value = child.value
+                if value.flattened then
+                    if value.kind == "list" then
+                        local element = value.element as Member
+                        for index = 1, #v do
+                            n = encodeValue(out, n, element, v[index])
+                        end
+                    else
+                        n = encodeEntries(out, n, child, value, v)
+                    end
+                else
+                    n = encodeValue(out, n, child, v)
+                end
+            end
+        end
+    end
+    n = n + 1
+    out[n] = m.close
+
+    return n
+end
+
+local function sortedKeys(map: any): {any}
+    local keys: {any} = {}
+    for key in pairs(map) do
+        keys[#keys + 1] = key
+    end
+    table.sort(keys, function(a: any, b: any): boolean
+        return tostring(a) < tostring(b)
+    end)
+
+    return keys
+end
+
+--- Writes a map's entries, each in an entry element named for the entry, or
+--- for the map member itself when the map is flattened.
+encodeEntries = function(out: {string}, n: integer, m: Member, value: Value, map: any): integer
+    local open = value.flattened and m.open or "<" .. value.entryName .. ">"
+    local close = value.flattened and m.close or "</" .. value.entryName .. ">"
+    for _, key in ipairs(sortedKeys(map)) do
+        n = n + 1
+        out[n] = open
+        n = encodeValue(out, n, value.keyMember as Member, key)
+        n = encodeValue(out, n, value.valueMember as Member, map[key])
+        n = n + 1
+        out[n] = close
+    end
+
+    return n
+end
+
+encodeValue = function(out: {string}, n: integer, m: Member, item: any): integer
+    local value = m.value
+    local kind = value.kind
+    if kind == "scalar" then
+        out[n + 1] = m.open
+        out[n + 2] = escapetext((value.format as function(value: any): string)(item))
+        out[n + 3] = m.close
+        return n + 3
+    elseif kind == "record" then
+        return encodeRecord(out, n, m, value.record as Record, item)
+    end
+    n = n + 1
+    out[n] = m.open
+    if kind == "list" then
+        local element = value.element as Member
+        for index = 1, #item do
+            n = encodeValue(out, n, element, item[index])
+        end
+    else
+        n = encodeEntries(out, n, m, value, item)
+    end
+    n = n + 1
+    out[n] = m.close
+
+    return n
+end
+
+--- Encodes a value as the element a member names.
+export function encodemember(out: {string}, n: integer, m: Member, item: any): integer
+    return encodeValue(out, n, m, item)
+end
+
+----------------------------------------------------------------------------
+-- Building plans
+----------------------------------------------------------------------------
+
+local record Builder
+    info: any
+    options: any
+    records: {[integer]: Record}
+end
+
+local buildValue: function(b: Builder, index: integer, options: FieldOptions?, label: string): (Value, boolean)
+
+--- Unwraps an optional and `const`, answering the type and whether nil fits.
+local function unwrap(info: any, index: integer): (integer, boolean)
+    local node = info.types[index]
+    if node.kind == "const" then
+        return unwrap(info, node.element)
+    end
+    if node.kind == "union" then
+        local rest: {integer} = {}
+        local nullable = false
+        for _, member in ipairs(node.members) do
+            if info.types[member].kind == "nil" then
+                nullable = true
+            else
+                rest[#rest + 1] = member
+            end
+        end
+        if nullable and #rest == 1 then
+            local inner, _ = unwrap(info, rest[1])
+            return inner, true
+        end
+        return index, nullable
+    end
+
+    return index, node.kind == "nil"
+end
+
+local function member(wire: string, field: string?, value: Value, fast: boolean, namespace: string?): Member
+    local lit = literal(wire)
+    local prefix = string.match(wire, "^([^:]+):")
+    local declaration = prefix ~= nil and " xmlns:" .. (prefix as string) .. "=\"" or " xmlns=\""
+    local open = namespace ~= nil and "<" .. wire .. declaration .. escapeattribute(namespace) .. "\">"
+        or "<" .. wire .. ">"
+
+    return Member(
+        field = field,
+        wire = wire,
+        value = value,
+        namespace = namespace,
+        open = open,
+        close = "</" .. wire .. ">",
+        fast = fast and value.kind == "scalar" and "^%s*<" .. lit .. ">" .. value.lexical .. "</" .. lit .. "%s*>"
+        or nil,
+        openfast = "^%s*<" .. lit .. ">",
+        closefast = "^%s*</" .. lit .. "%s*>",
+        uri = namespace,
+        localname = string.match(wire, "([^:]*)$") as string
+    )
+end
+
+local INTEGER_KINDS: {
+    [string]: boolean
+} = {
+    int64 = true,
+    integer = true,
+    int8 = true,
+    int16 = true,
+    int32 = true,
+    uint8 = true,
+    uint16 = true,
+    uint32 = true,
+    uint64 = true,
+}
+
+local function scalarValue(kind: string, options: FieldOptions?, label: string, literals: {string}?): Value
+    local timestamp = options ~= nil and options.timestamp or nil
+    if options ~= nil and options.representation == "iso8601seconds" then
+        timestamp = "datetime"
+    end
+    if timestamp == "datetime" then
+        local whole = INTEGER_KINDS[kind] == true
+        if not whole and kind ~= "number" then
+            error("serde.xml: " .. label .. ": a date-time needs a number or integer field", 0)
+        end
+        return Value(
+            scalar = kind,
+            lexical = "([%d%-]+[Tt][%d:%.]+[^<&]*)",
+            convert = function(raw: string): (any, string?)
+                local seconds, why = scalars.datetime(raw)
+                if seconds ~= nil and whole then
+                    local exact = math.tointeger(seconds)
+                    if exact == nil then
+                        return nil, "date-time " .. raw .. " has a fraction an integer field cannot hold"
+                    end
+                    return exact, nil
+                end
+
+                return seconds, why
+            end,
+            format = function(value: any): string
+                return scalars.formatdatetime(value as number)
+            end
+        )
+    end
+    if INTEGER_KINDS[kind] then
+        return Value(
+            scalar = kind,
+            lexical = "(%-?%d+)",
+            convert = function(raw: string): (any, string?)
+                return scalars.integer(raw, kind)
+            end,
+            format = function(value: any): string
+                return scalars.formatinteger(value as integer)
+            end
+        )
+    elseif kind == "number" or kind == "float" or kind == "float32" or kind == "float64" then
+        return Value(
+            scalar = kind,
+            lexical = "(%-?[%d%.]+[eE]?[%-+]?%d*)",
+            convert = function(raw: string): (any, string?)
+                return scalars.float(raw)
+            end,
+            format = function(value: any): string
+                return scalars.formatfloat(value as number)
+            end
+        )
+    elseif kind == "boolean" then
+        return Value(
+            scalar = kind,
+            lexical = "(%l+)",
+            convert = function(raw: string): (any, string?)
+                return scalars.boolean(raw)
+            end,
+            format = function(value: any): string
+                return value and "true" or "false"
+            end
+        )
+    elseif kind == "string" then
+        if options ~= nil and options.base64 then
+            return Value(
+                scalar = kind,
+                lexical = "([%w+/=]*)",
+                convert = function(raw: string): (any, string?)
+                    local ok, decoded = pcall(byteapi.base64decode, raw)
+                    if not ok then
+                        return nil, "expected base64 text"
+                    end
+
+                    return decoded, nil
+                end,
+                format = function(value: any): string
+                    return byteapi.base64encode(value as string)
+                end
+            )
+        end
+        if literals ~= nil then
+            local allowed: {[string]: boolean} = {}
+            for _, item in ipairs(literals) do
+                allowed[item] = true
+            end
+            return Value(
+                scalar = kind,
+                convert = function(raw: string): (any, string?)
+                    if allowed[raw] then
+                        return raw, nil
+                    end
+                    return nil, "expected one of " .. concat(literals, ", ") .. ", found " .. string.format("%q", raw)
+                end,
+                format = function(value: any): string
+                    return value as string
+                end
+            )
+        end
+        return Value(scalar = kind, convert = identity, format = function(value: any): string
+            return value as string
+        end)
+    end
+    error("serde.xml: " .. label .. ": a " .. kind .. " field has no XML mapping", 0)
+end
+
+local function literalSet(info: any, index: integer): {string}?
+    local node = info.types[index]
+    if node.kind == "literal" and type(node.value) == "string" then
+        return {node.value as string}
+    end
+    if node.kind ~= "union" then
+        return nil
+    end
+    local values: {string} = {}
+    for _, member in ipairs(node.members) do
+        local child = info.types[member]
+        if child.kind == "nil" then
+            continue
+        end
+        if child.kind ~= "literal" or type(child.value) ~= "string" then
+            return nil
+        end
+        values[#values + 1] = child.value as string
+    end
+
+    return values
+end
+
+local buildRecord: function(b: Builder, index: integer, label: string): Record
+
+buildValue = function(b: Builder, index: integer, options: FieldOptions?, label: string): (Value, boolean)
+    local info = b.info
+    local inner, nullable = unwrap(info, index)
+    local node = info.types[inner]
+    local kind = node.kind
+    if kind == "record" or kind == "struct" then
+        return Value(kind = "record", record = buildRecord(b, inner, label)), nullable
+    elseif kind == "array" then
+        local item, _ = buildValue(b, node.element, options, label .. "[]")
+        local wire = options ~= nil and options.member or "member"
+        local element = member(wire, nil, item, true, nil)
+        return Value(kind = "list", element = element, flattened = options ~= nil and options.flattened), nullable
+    elseif kind == "map" then
+        local keyValue, _ = buildValue(b, node.readkey, nil, label .. ".key")
+        if keyValue.kind ~= "scalar" then
+            error("serde.xml: " .. label .. ": a map key must be a scalar", 0)
+        end
+        local itemValue, _ = buildValue(b, node.readvalue, options, label .. ".value")
+        local keyName = options ~= nil and options.key or "key"
+        local valueName = options ~= nil and options.value or "value"
+        return Value(
+            kind = "map",
+            keyMember = member(keyName, nil, keyValue, false, nil),
+            valueMember = member(valueName, nil, itemValue, false, nil),
+            entryName = options ~= nil and options.entry or "entry",
+            flattened = options ~= nil and options.flattened
+        ), nullable
+    end
+    local literals = literalSet(info, inner)
+    if literals ~= nil then
+        return scalarValue("string", options, label, literals), nullable
+    end
+
+    return scalarValue(kind as string, options, label, nil), nullable
+end
+
+buildRecord = function(b: Builder, index: integer, label: string): Record
+    local prior = b.records[index]
+    if prior ~= nil then
+        return prior
+    end
+    local info = b.info
+    local node = info.types[index]
+    local isroot = index == info.root
+    local witness = isroot and b.options.witness or reflect.runtimetype(info, index)
+    if witness == nil then
+        for _, declaration in ipairs(b.options.declarations or {}) do
+            local described: any = reflect.runtime(declaration)
+            if described.name == node.name and described.types[described.root].modulename == node.modulename then
+                witness = declaration
+                break
+            end
+        end
+    end
+    if witness == nil then
+        error(
+            "serde.xml: " .. label .. ": the declaration " .. tostring(
+                node.name
+            ) .. " is not available at run time; pass it in the codec's declarations",
+            0
+        )
+    end
+    local plan = Record(
+        name = node.name as string,
+        witness = witness,
+        members = {},
+        elements = {},
+        attributes = {},
+        reject = b.options.unknownmembers == "reject"
+    )
+    b.records[index] = plan
+    local recordOptions = b.options.records ~= nil and b.options.records[node.name] or nil
+    local fieldOptions = isroot and b.options.fields or recordOptions
+    local whitelist = isroot and b.options.whitelist or nil
+    local renames = isroot and b.options.renames or nil
+    local construction = node.construction
+    if construction ~= nil and construction.declared then
+        local params = construction.params
+        local construct: any = witness
+        plan.construct = function(fields: any): any
+            local arguments: any = {}
+            for position, parameter in ipairs(params) do
+                arguments[position] = fields[parameter.name]
+            end
+
+            return construct(table.unpack(arguments, 1, #params))
+        end
+    end
+    local optional: {[string]: boolean} = {}
+    if construction ~= nil then
+        for _, parameter in ipairs(construction.params) do
+            optional[parameter.name] = parameter.optional == true
+        end
+    end
+    for _, field in ipairs(node.fields) do
+        if field.stored and field.readable and (whitelist == nil or whitelist[field.name]) then
+            local name = field.name as string
+            local options = fieldOptions ~= nil and fieldOptions[name] or nil
+            local fieldLabel = (node.name as string) .. "." .. name
+            local value, nullable = buildValue(b, field.read, options, fieldLabel)
+            local wire = options ~= nil and options.name
+                or renames ~= nil and renames[name]
+                or wireName(name, b.options.naming)
+            local attribute = options ~= nil and options.attribute
+            if attribute and value.kind ~= "scalar" then
+                error("serde.xml: " .. fieldLabel .. ": only a scalar field can be an attribute", 0)
+            end
+            if value.flattened and value.kind == "list" then
+                local element = value.element as Member
+                value.element = member(wire, nil, element.value, true, options ~= nil and options.namespace or nil)
+            end
+            local m = member(wire, name, value, not attribute, options ~= nil and options.namespace or nil)
+            m.index = #plan.members + 1
+            m.attribute = attribute == true
+            m.hasdefault = field.hasdefault == true
+            m.default = field.defaultvalue
+            m.required = not nullable and not m.hasdefault and optional[name] ~= true
+            m.omitempty = options ~= nil and options.omitempty
+            plan.members[m.index] = m
+            if m.attribute then
+                plan.attributes[#plan.attributes + 1] = m
+            else
+                local key = b.options.namespaces and m.localname or wire
+                if plan.elements[key] ~= nil then
+                    error("serde.xml: " .. fieldLabel .. ": two members are named " .. wire, 0)
+                end
+                plan.elements[key] = m
+            end
+        end
+    end
+
+    return plan
+end
+
+--- A codec's plan: the root member and how it was asked for.
+export record Plan
+    --- The root element, as the document names it.
+    root: Member
+
+    --- The element the record's members are read from: the root, or the
+    --- innermost wrapper.
+    inner: Member
+
+    record: Record
+
+    --- Elements between the root and the record's members, outermost first.
+    wrappers: {string}
+
+    --- `^%s*</wrapper%s*>` for each wrapper.
+    wrapperclose: {string}
+
+    --- The start and end tags written around the inner element.
+    prefix: string
+
+    suffix: string
+
+    --- Accept any root element name.
+    anyroot: boolean = false
+end
+
+--- Builds a plan for a record declaration.
+---
+--- @param witness the declaration
+--- @param name the root element name, or nil for the declaration's name
+--- @param namespace the namespace the root element is written in, or nil
+--- @param wrappers elements between the root and the record's members
+--- @param options field mapping
+--- @return the plan
+--- @raises string when a field has no XML mapping
+export function build(witness: any, name: string?, namespace: string?, wrappers: {string}?, options: any): Plan
+    local info: any = reflect.runtime(witness)
+    local node = info.types[info.root]
+    if node.kind ~= "record" and node.kind ~= "struct" then
+        error("serde.xml: a codec needs a record or struct declaration", 0)
+    end
+    local settings: any = {}
+    for key, value in pairs(options or {}) do
+        settings[key] = value
+    end
+    settings.witness = witness
+    local b = Builder(info = info, options = settings, records = {})
+    local record = buildRecord(b, info.root, node.name as string)
+    local rootName = name ?? node.name as string
+    local value = Value(kind = "record", record = record)
+    local root = member(rootName, nil, value, false, namespace)
+    -- Every member without a namespace of its own is matched in the codec's.
+    local seen: {[any]: boolean} = {}
+
+    local function inherit(m: Member?): nil
+        if m == nil or seen[m] then
+            return
+        end
+        seen[m] = true
+        if m.uri == nil then
+            m.uri = namespace
+        end
+        local held = m.value
+        inherit(held.element)
+        inherit(held.keyMember)
+        inherit(held.valueMember)
+        if held.record ~= nil and not seen[held.record] then
+            seen[held.record] = true
+            for _, child in ipairs((held.record as Record).members) do
+                inherit(child)
+            end
+        end
+    end
+
+    inherit(root)
+    local chain = wrappers ?? {}
+    local inner = root
+    local prefix = ""
+    local suffix = ""
+    local closes: {string} = {}
+    if #chain > 0 then
+        inner = member(chain[#chain], nil, value, false, nil)
+        local opens: {string} = {root.open}
+        local ends: {string} = {}
+        for index = 1, #chain - 1 do
+            opens[#opens + 1] = "<" .. chain[index] .. ">"
+        end
+        for index = #chain - 1, 1, -1 do
+            ends[#ends + 1] = "</" .. chain[index] .. ">"
+        end
+        ends[#ends + 1] = root.close
+        prefix = concat(opens)
+        suffix = concat(ends)
+        for index, wrapper in ipairs(chain) do
+            closes[index] = "^%s*</" .. literal(wrapper) .. "%s*>"
+        end
+    end
+
+    return Plan(
+        root = root,
+        inner = inner,
+        record = record,
+        wrappers = chain,
+        wrapperclose = closes,
+        prefix = prefix,
+        suffix = suffix
+    )
+end
+
+--- Decodes a whole document with a plan.
+---
+--- @param plan the plan
+--- @param source the document
+--- @param anyroot accept any root element name
+--- @param settings the cursor's options
+--- @return the record
+--- @raises serde.Error when the document is malformed or does not fit
+export function decode(
+    plan: Plan,
+    source: string | function(): string?,
+    anyroot: boolean,
+    settings: cursors.Options
+): any
+    local c: Cursor
+    if type(source) == "string" then
+        c = cursors.open(source as string, settings)
+    else
+        c = cursors.openstream(source as function(): string?, settings)
+    end
+    while c:next() do
+        if c.kind == START then
+            break
+        end
+    end
+    if not anyroot and not matches(c, plan.root) then
+        c:fail(
+            c.tstart,
+            "unexpected-root",
+            "expected the root element <" .. plan.root.wire .. ">, found <" .. c.tname .. ">"
+        )
+    end
+    for _, wrapper in ipairs(plan.wrappers) do
+        local level = c.depth
+        local found = false
+        if not c.pendingEnd then
+            while c:next() do
+                if c.kind == START then
+                    if (c.namespaces and c.tlocal or c.tname) == wrapper then
+                        found = true
+                        break
+                    end
+                    c:skip()
+                elseif c.kind == END and c.depth < level then
+                    break
+                end
+            end
+        end
+        if not found then
+            c:fail(c.tstart, "missing-member", "expected a <" .. wrapper .. "> element")
+        end
+    end
+    local value = decodeRecord(c, plan.record, plan.inner.closefast)
+    -- Close the wrappers, skipping anything beside the record's element.
+    for _ = 1, #plan.wrappers do
+        local level = c.depth
+        while c:next() do
+            if c.kind == START then
+                c:skip()
+            elseif c.kind == END and c.depth < level then
+                break
+            end
+        end
+    end
+    while c:next() do
+    end
+
+    return value
+end
+
+--- Encodes a record with a plan.
+---
+--- @param plan the plan
+--- @param item the record
+--- @return the document
+export function encode(plan: Plan, item: any): string
+    local out: {string} = {}
+    local n: integer = 0
+    if plan.prefix ~= "" then
+        n = 1
+        out[1] = plan.prefix
+    end
+    n = encodeRecord(out, n, plan.inner, plan.record, item)
+    if plan.suffix ~= "" then
+        out[n + 1] = plan.suffix
+    end
+
+    return concat(out)
+end

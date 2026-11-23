@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<rss version="2.0" xmlns:a="http://www.w3.org/2005/Atom" xmlns:tz="http://torznab.com/schemas/2015/feed">
+  <channel>
+    <a:link href="https://indexer.example/api" rel="self" type="application/rss+xml"/>
+    <title>Example Indexer</title>
+    <item>
+      <title>Show.S01E01.1080p</title>
+      <guid>https://indexer.example/details/1</guid>
+      <link>https://indexer.example/download/1</link>
+      <pubDate>Sat, 21 Nov 2026 10:00:00 +0000</pubDate>
+      <size>1500000000</size>
+      <enclosure url="https://indexer.example/download/1" length="1500000000" type="application/x-bittorrent"/>
+      <tz:attr name="category" value="5040"/>
+      <tz:attr name="seeders" value="42"/>
+      <tz:attr name="peers" value="50"/>
+      <tz:attr name="infohash" value="0123456789abcdef0123456789abcdef01234567"/>
+    </item>
+    <item>
+      <title>Movie &amp; Sequel (2026) 2160p</title>
+      <guid>https://indexer.example/details/2</guid>
+      <link>https://indexer.example/download/2</link>
+      <pubDate>Fri, 20 Nov 2026 08:30:00 +0000</pubDate>
+      <size>30000000000</size>
+      <tz:attr name="category" value="2045"/>
+      <tz:attr name="seeders" value="7"/>
+    </item>
+  </channel>
+</rss>

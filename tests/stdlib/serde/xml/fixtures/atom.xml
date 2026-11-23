@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="utf-8"?>
+<feed xmlns="http://www.w3.org/2005/Atom" xmlns:media="http://search.yahoo.com/mrss/">
+  <title>Example Atom Feed</title>
+  <id>urn:uuid:60a76c80-d399-11d9-b93C-0003939e0af6</id>
+  <updated>2026-11-21T18:30:02Z</updated>
+  <link href="https://atom.example/" rel="alternate"/>
+  <entry>
+    <title type="text">Atom entry one</title>
+    <id>urn:uuid:1225c695-cfb8-4ebb-aaaa-80da344efa6a</id>
+    <updated>2026-11-21T18:30:02Z</updated>
+    <link href="https://atom.example/one"/>
+    <author><name>Ada</name></author>
+    <summary>First &#x2014; summary</summary>
+    <media:group>
+      <media:content url="https://atom.example/one.mp4" type="video/mp4"/>
+      <media:rating scheme="urn:simple">nonadult</media:rating>
+    </media:group>
+  </entry>
+</feed>

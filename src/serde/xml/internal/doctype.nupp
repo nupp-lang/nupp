@@ -1,0 +1,480 @@
+--[[
+The strict mode's DOCTYPE: a `doctypedecl` and its internal subset parsed by
+XML 1.0's grammar, productions 28 through 83, and nothing applied. Entities
+are declared to check the references in attribute defaults, never expanded.
+]]
+module serde.xml.internal.doctype
+
+local chars = require("serde.xml.internal.chars")
+local text = require("serde.xml.internal.text")
+
+local find = string.find
+local sub = string.sub
+local byte = string.byte
+
+--- Name-ish runs: the bytes up to a delimiter, checked as a Name afterwards.
+const NAMEISH = "^([^%s%[%]>\"'/=<&%%;|,()?*+#]+)"
+
+const PUBID = "^[ \r\na-zA-Z0-9%-'()+,./:=?;!*#@$_%%]*$"
+
+export record Parser
+    src: string
+    p: integer
+    fail: function(offset: integer, rule: string, message: string): never
+    entities: {[string]: boolean}
+
+    --- What each general entity was declared as: its literal value, or
+    --- whether it is external or unparsed.
+    declared: {[string]: {
+        value: string?,
+        external: boolean,
+        unparsed: boolean
+    }}
+
+    --- Whether names are namespace names, which hold no colon.
+    namespaces: boolean = false
+
+    function error(self, message: string): never
+        self.fail(self.p, "malformed-doctype", message)
+    end
+
+    function space(self, required: boolean): boolean
+        local _, e = find(self.src, "^[ \t\r\n]+", self.p)
+        if e == nil then
+            if required then
+                self:error("expected whitespace")
+            end
+            return false
+        end
+        self.p = (e as integer) + 1
+
+        return true
+    end
+
+    function literal(self, word: string): boolean
+        if sub(self.src, self.p, self.p + #word - 1) == word then
+            self.p = self.p + #word
+            return true
+        end
+
+        return false
+    end
+
+    function expect(self, word: string): nil
+        if not self:literal(word) then
+            self:error("expected " .. word)
+        end
+    end
+
+    --- A name that, with namespaces, holds no colon.
+    function ncname(self): string
+        local at = self.p
+        local value = self:name()
+        if self.namespaces and find(value, ":", 1, true) then
+            self.fail(at, "invalid-name", value .. " holds a colon, which a namespace name cannot")
+        end
+
+        return value
+    end
+
+    --- Checks that an attribute default's entity references are to parsed
+    --- internal entities whose replacement text holds no < and refers back
+    --- to none of them.
+    function checkdefault(self, value: string, at: integer): nil
+        local active: {[string]: boolean} = {}
+
+        local function visit(textValue: string): nil
+            for entity in textValue:gmatch("&([^#;&][^;&]*);") do
+                if text.reference(entity) == nil then
+                    local found = self.declared[entity]
+                    if found == nil then
+                        self.fail(
+                            at,
+                            "undeclared-entity",
+                            "the default value refers to the undeclared entity " .. entity
+                        )
+                    end
+                    local entry = found as {
+                        value: string?,
+                        external: boolean,
+                        unparsed: boolean
+                    }
+                    if entry.external or entry.unparsed then
+                        self.fail(
+                            at,
+                            "external-entity-in-attribute",
+                            "an attribute value cannot refer to the external entity " .. entity
+                        )
+                    end
+                    if active[entity] then
+                        self.fail(at, "recursive-entity", "the entity " .. entity .. " refers to itself")
+                    end
+                    local replacement = entry.value as string
+                    if find(replacement, "<", 1, true) then
+                        self.fail(at, "lt-in-attribute", "the entity " .. entity .. " puts a < in an attribute value")
+                    end
+                    active[entity] = true
+                    visit(replacement)
+                    active[entity] = nil
+                end
+            end
+        end
+
+        visit(value)
+    end
+
+    function name(self, token: boolean?): string
+        local _, e, value = find(self.src, NAMEISH, self.p)
+        if e == nil then
+            self:error("expected a name")
+        end
+        local checked = token and chars.isnmtoken(value as string) or (not token and chars.isname(value as string))
+        if not checked then
+            self:error((value as string) .. " is not a " .. (token and "name token" or "name"))
+        end
+        self.p = (e as integer) + 1
+
+        return value as string
+    end
+
+    --- A quoted literal, returning its contents.
+    function quoted(self): string
+        local q = byte(self.src, self.p)
+        if q ~= 34 and q ~= 39 then
+            self:error("expected a quoted literal")
+        end
+        local close = find(self.src, q == 34 and "\"" or "'", self.p + 1, true)
+        if close == nil then
+            self:error("a literal is not closed")
+        end
+        local value = sub(self.src, self.p + 1, (close as integer) - 1)
+        self.p = (close as integer) + 1
+
+        return value
+    end
+
+    function reference(self, value: string, at: integer, allowPercent: boolean, allowLt: boolean?): nil
+        local scan: integer = 1
+        while true do
+            local hit = find(value, "[&%%<]", scan)
+            if hit == nil then
+                return
+            end
+            local c = byte(value, hit)
+            if c == 60 then
+                if not allowLt then
+                    self.fail(at + (hit as integer), "lt-in-attribute", "an attribute value cannot contain <")
+                end
+                scan = (hit as integer) + 1
+            elseif c == 37 then
+                if not allowPercent then
+                    self.fail(
+                        at + (hit as integer),
+                        "pe-in-internal-subset",
+                        "a parameter entity reference cannot occur inside a declaration in the internal subset"
+                    )
+                end
+                scan = (hit as integer) + 1
+            else
+                local _, close, body = find(value, "^&([^;&<%s]*);", hit)
+                if close == nil then
+                    self.fail(at + (hit as integer), "malformed-reference", "an & must start a reference ending in ;")
+                end
+                local bodyText = body as string
+                if find(bodyText, "^#") then
+                    local _, why = text.reference(bodyText)
+                    if why ~= nil then
+                        self.fail(at + (hit as integer), "invalid-character-reference", why)
+                    end
+                elseif not chars.isname(bodyText) then
+                    self.fail(at + (hit as integer), "malformed-reference", bodyText .. " is not a name")
+                end
+                scan = (close as integer) + 1
+            end
+        end
+    end
+
+    function externalid(self, publicOnly: boolean): boolean
+        if self:literal("SYSTEM") then
+            self:space(true)
+            self:quoted()
+            return true
+        elseif self:literal("PUBLIC") then
+            self:space(true)
+            local id = self:quoted()
+            if not find(id, PUBID) then
+                self:error("a public identifier holds a character it cannot")
+            end
+            local before = self.p
+            if self:space(false) and (byte(self.src, self.p) == 34 or byte(self.src, self.p) == 39) then
+                self:quoted()
+            elseif not publicOnly then
+                self.p = before
+                self:space(true)
+                self:quoted()
+            else
+                self.p = before
+            end
+            return true
+        end
+
+        return false
+    end
+
+    function contentparticle(self): nil
+        if self:literal("(") then
+            self:space(false)
+            self:contentparticle()
+            self:space(false)
+            local separator: string? = nil
+            while true do
+                local c = byte(self.src, self.p)
+                if c == 41 then
+                    self.p = self.p + 1
+                    break
+                end
+                local current = c == 124 and "|" or c == 44 and "," or nil
+                if current == nil or (separator ~= nil and separator ~= current) then
+                    self:error("a content model mixes or lacks separators")
+                end
+                separator = current
+                self.p = self.p + 1
+                self:space(false)
+                self:contentparticle()
+                self:space(false)
+            end
+        else
+            self:name()
+        end
+        local c = byte(self.src, self.p)
+        if c == 63 or c == 42 or c == 43 then
+            self.p = self.p + 1
+        end
+    end
+
+    function contentspec(self): nil
+        if self:literal("EMPTY") or self:literal("ANY") then
+            return
+        end
+        if not find(self.src, "^%(", self.p) then
+            self:error("expected EMPTY, ANY or a content model")
+        end
+        local at = self.p
+        self.p = self.p + 1
+        self:space(false)
+        if self:literal("#PCDATA") then
+            self:space(false)
+            local names = false
+            while self:literal("|") do
+                self:space(false)
+                self:name()
+                self:space(false)
+                names = true
+            end
+            self:expect(")")
+            if names then
+                self:expect("*")
+            else
+                self:literal("*")
+            end
+            return
+        end
+        self.p = at
+        self:contentparticle()
+    end
+
+    function attlist(self): nil
+        self:space(true)
+        self:name()
+        while true do
+            local spaced = self:space(false)
+            if self:literal(">") then
+                return
+            end
+            if not spaced then
+                self:error("expected whitespace before an attribute definition")
+            end
+            self:name()
+            self:space(true)
+            local typed = false
+            for _, word in ipairs({"CDATA", "IDREFS", "IDREF", "ID", "ENTITY", "ENTITIES", "NMTOKENS", "NMTOKEN"}) do
+                if self:literal(word) then
+                    typed = true
+                    break
+                end
+            end
+            if not typed then
+                local notation = self:literal("NOTATION")
+                if notation then
+                    self:space(true)
+                end
+                self:expect("(")
+                self:space(false)
+                self:name(not notation)
+                self:space(false)
+                while self:literal("|") do
+                    self:space(false)
+                    self:name(not notation)
+                    self:space(false)
+                end
+                self:expect(")")
+            end
+            self:space(true)
+            if not (self:literal("#REQUIRED") or self:literal("#IMPLIED")) then
+                if self:literal("#FIXED") then
+                    self:space(true)
+                end
+                local at = self.p
+                local value = self:quoted()
+                self:reference(value, at, true)
+                self:checkdefault(value, at)
+            end
+        end
+    end
+
+    function entity(self): nil
+        self:space(true)
+        local parameter = false
+        if self:literal("%") then
+            parameter = true
+            self:space(true)
+        end
+        local declared = self:ncname()
+        self:space(true)
+        local c = byte(self.src, self.p)
+        local entry = {value = nil as string?, external = false, unparsed = false}
+        if c == 34 or c == 39 then
+            local at = self.p
+            local value = self:quoted()
+            self:reference(value, at, false, true)
+            entry.value = value
+        elseif self:externalid(false) then
+            entry.external = true
+            if not parameter then
+                local before = self.p
+                if self:space(false) and self:literal("NDATA") then
+                    self:space(true)
+                    self:ncname()
+                    entry.unparsed = true
+                else
+                    self.p = before
+                end
+            end
+        else
+            self:error("expected an entity value or external identifier")
+        end
+        if not parameter then
+            self.entities[declared] = true
+            -- The first declaration binds.
+            if self.declared[declared] == nil then
+                self.declared[declared] = entry
+            end
+        end
+        self:space(false)
+        self:expect(">")
+    end
+
+    --- Parses the internal subset up to its `]`.
+    function subset(self): nil
+        local src = self.src
+        while true do
+            self:space(false)
+            local p = self.p
+            if byte(src, p) == 93 then
+                self.p = p + 1
+                return
+            end
+            if self:literal("<!ELEMENT") then
+                self:space(true)
+                self:name()
+                self:space(true)
+                self:contentspec()
+                self:space(false)
+                self:expect(">")
+            elseif self:literal("<!ATTLIST") then
+                self:attlist()
+            elseif self:literal("<!ENTITY") then
+                self:entity()
+            elseif self:literal("<!NOTATION") then
+                self:space(true)
+                self:ncname()
+                self:space(true)
+                if not self:externalid(true) then
+                    self:error("expected an external or public identifier")
+                end
+                self:space(false)
+                self:expect(">")
+            elseif find(src, "^<!%-%-", p) then
+                local close = find(src, "-->", p + 4, true)
+                if close == nil then
+                    self:error("a comment is not closed")
+                end
+                local inner = find(src, "--", p + 4, true)
+                if inner ~= nil and inner < close then
+                    self.fail(inner as integer, "malformed-comment", "a comment cannot contain --")
+                end
+                self.p = (close as integer) + 3
+            elseif find(src, "^<%?", p) then
+                self.p = p + 2
+                local target = self:ncname()
+                if target:lower() == "xml" then
+                    self.fail(p, "reserved-pi-target", "a processing instruction cannot be named xml")
+                end
+                local close = find(src, "?>", self.p, true)
+                if close == nil then
+                    self:error("a processing instruction is not closed")
+                end
+                if close ~= self.p and not find(src, "^[ \t\r\n]", self.p) then
+                    self:error("a processing instruction's target needs whitespace after it")
+                end
+                self.p = (close as integer) + 2
+            elseif byte(src, p) == 37 then
+                self.p = p + 1
+                self:name()
+                self:expect(";")
+            else
+                self:error("expected a markup declaration")
+            end
+        end
+    end
+end
+
+--- Parses a DOCTYPE starting at `p`, returning the offset after its `>`.
+---
+--- @param src the document
+--- @param p the offset of `<!DOCTYPE`
+--- @param fail raises an error at an offset
+--- @param entities receives the general entities the subset declares
+--- @return the offset after the declaration
+export function parse(
+    src: string,
+    p: integer,
+    fail: function(offset: integer, rule: string, message: string): never,
+    entities: {[string]: boolean},
+    namespaces: boolean?
+): integer
+    local parser = Parser(
+        src = src,
+        p = p + 9,
+        fail = fail,
+        entities = entities,
+        declared = {},
+        namespaces = namespaces == true
+    )
+    parser:space(true)
+    parser:name()
+    local before = parser.p
+    if parser:space(false) then
+        if not parser:externalid(false) then
+            parser.p = before
+        end
+    end
+    parser:space(false)
+    if parser:literal("[") then
+        parser:subset()
+        parser:space(false)
+    end
+    parser:expect(">")
+
+    return parser.p
+end

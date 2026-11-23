@@ -1,0 +1,93 @@
+-- The W3C XML Conformance Test Suite (xmlts20130923) in the strict mode.
+--
+-- Every case is classified in conformance-manifest.json: an accepted case
+-- must parse and, where the suite gives an output, match it in the first
+-- canonical form; a rejected case must raise; an out-of-scope case carries
+-- its reason. A case the manifest does not classify fails. The suite is
+-- data fetched by `scripts/toolchain xmlts`, pinned by digest.
+
+local canonical = require("tests.stdlib.serde.xml.canonical")
+local json = require("serde.json")
+local test = require("assert")
+local M = {}
+
+local HERE = "tests/stdlib/serde/xml/"
+
+local function suiteRoot(): string
+    local configured = os.getenv("NUPP_XMLTS")
+    if configured ~= nil and configured ~= "" then
+        return configured as string
+    end
+    local pipe = assert(io.popen("sh scripts/toolchain xmlts 2>/dev/null"))
+    local path = (pipe:read("a") as string):gsub("%s+$", "")
+    pipe:close()
+    test(path ~= "", "scripts/toolchain xmlts could not provide the suite; set NUPP_XMLTS")
+
+    return path
+end
+
+local function manifest(): any
+    local decoded: any = json.decodevalue(assert(canonical.read(HERE .. "conformance-manifest.json")))
+
+    return decoded
+end
+
+local function run(case: canonical.Case): (boolean, string)
+    local document = canonical.read(case.path)
+    if document == nil then
+        return false, "missing file " .. case.path
+    end
+    local ok, result = pcall(canonical.canonical, document as string, canonical.namespaced(case))
+    if ok then
+        return true, result as string
+    end
+    local problem: any = result
+
+    return false, tostring(problem.rule or problem)
+end
+
+function M.everyCaseBehavesAsClassified(): nil
+    local root = suiteRoot()
+    local classes = manifest().cases
+    local counts: {[string]: integer} = {accept = 0, reject = 0, out = 0}
+    local failures: {string} = {}
+    for _, case in ipairs(canonical.suite(root)) do
+        local entry = classes[case.id]
+        if entry == nil then
+            failures[#failures + 1] = case.id .. ": not classified"
+            continue
+        end
+        local class = entry.class as string
+        counts[class] = (counts[class] or 0) + 1
+        if class == "out" then
+            if type(entry.reason) ~= "string" or entry.reason == "" then
+                failures[#failures + 1] = case.id .. ": out of scope without a reason"
+            end
+            continue
+        end
+        local accepted, result = run(case)
+        if class == "accept" then
+            if not accepted then
+                failures[#failures + 1] = case.id .. ": refused (" .. result .. ")"
+            elseif case.output ~= nil and entry.output ~= false then
+                local expected = canonical.read(case.output as string)
+                if expected ~= nil and canonical.expected(expected as string) ~= result then
+                    failures[#failures + 1] = case.id .. ": canonical output differs"
+                end
+            end
+        elseif accepted then
+            failures[#failures + 1] = case.id .. ": accepted, expected a refusal"
+        end
+    end
+    print(
+        string.format(
+            "xmlts20130923 strict: %d accepted, %d rejected, %d out of scope",
+            counts.accept ?? 0,
+            counts.reject ?? 0,
+            counts.out ?? 0
+        )
+    )
+    test(#failures == 0, table.concat(failures, "\n"))
+end
+
+return M

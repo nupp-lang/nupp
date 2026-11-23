@@ -1,0 +1,175 @@
+-- The W3C XML Conformance Test Suite's cases and James Clark's canonical
+-- form, for xmlconformancetest and the script that classified the manifest.
+
+module tests.stdlib.serde.xml.canonical
+
+local xml = require("serde.xml")
+
+export record Case
+    id: string
+    type: string
+    entities: string
+    path: string
+    output: string?
+    version: string?
+    edition: string?
+    recommendation: string?
+    namespace: string?
+    sections: string?
+    description: string
+end
+
+local function slurp(path: string): string?
+    local file = io.open(path, "rb")
+    if file == nil then
+        return nil
+    end
+    local data = file:read("a") as string
+    file:close()
+
+    return data
+end
+
+export const read = slurp
+
+local function directory(path: string): string
+    return (path:match("^(.*/)") or "") as string
+end
+
+--- Every case the suite's master manifest reaches, in order.
+---
+--- @param root the extracted `xmlconf` directory
+export function suite(root: string): {Case}
+    local master = assert(slurp(root .. "/xmlconf.xml"), "cannot read " .. root .. "/xmlconf.xml")
+    local files: {[string]: string} = {}
+    for name, system in master:gmatch("<!ENTITY%s+([%w%-%.]+)%s+SYSTEM%s+\"([^\"]+)\">") do
+        files[name] = system
+    end
+    local cases: {Case} = {}
+    for base, body in master:gmatch("<TESTCASES[^>]-xml:base=\"([^\"]*)\"[^>]*>(.-)</TESTCASES>") do
+        for entity in body:gmatch("&([%w%-%.]+);") do
+            local system = assert(files[entity], "no file for " .. entity)
+            local file = root .. "/" .. system
+            local manifest = assert(slurp(file), "cannot read " .. file)
+            manifest = manifest:gsub("^%s*<%?xml[^>]*%?>", "")
+            local r = xml.reader("<wrap>" .. manifest .. "</wrap>")
+            local bases: {string} = {directory(file)}
+            local current: Case? = nil
+            local parts: {string} = {}
+            while r:next() do
+                local kind = r:kind()
+                if kind == xml.START and r:nameis("TESTCASES") then
+                    local nested = r:attr("xml:base")
+                    bases[#bases + 1] = nested ~= nil and bases[#bases] .. nested or bases[#bases]
+                elseif kind == xml.END and r:nameis("TESTCASES") then
+                    bases[#bases] = nil
+                elseif kind == xml.START and r:nameis("TEST") then
+                    local here = bases[#bases]
+                    local output = r:attr("OUTPUT")
+                    current = Case(
+                        id = assert(r:attr("ID")),
+                        type = assert(r:attr("TYPE")),
+                        entities = r:attr("ENTITIES") or "none",
+                        path = here .. assert(r:attr("URI")),
+                        output = output ~= nil and here .. output or nil,
+                        version = r:attr("VERSION"),
+                        edition = r:attr("EDITION"),
+                        recommendation = r:attr("RECOMMENDATION"),
+                        namespace = r:attr("NAMESPACE"),
+                        sections = r:attr("SECTIONS"),
+                        description = ""
+                    )
+                    parts = {}
+                elseif kind == xml.TEXT and current ~= nil then
+                    parts[#parts + 1] = r:text()
+                elseif kind == xml.END and r:nameis("TEST") and current ~= nil then
+                    local found = current as Case
+                    found.description = (table.concat(parts):gsub("%s+", " "):gsub("^ ", ""):gsub(" $", ""))
+                    cases[#cases + 1] = found
+                    current = nil
+                end
+            end
+            -- `base` is where the master points the cases; the files' own
+            -- directories say the same.
+            local _ = base
+        end
+    end
+
+    return cases
+end
+
+--- Whether a case is namespace-aware, so the strict reader resolves names.
+export function namespaced(case: Case): boolean
+    if case.namespace == "no" then
+        return false
+    end
+    local recommendation = case.recommendation or ""
+
+    return recommendation:find("^NS") ~= nil or case.namespace == "yes"
+end
+
+local ESCAPES: {
+    [string]: string
+} = {
+    ["&"] = "&amp;",
+    ["<"] = "&lt;",
+    [">"] = "&gt;",
+    ["\""] = "&quot;",
+    ["\t"] = "&#9;",
+    ["\n"] = "&#10;",
+    ["\r"] = "&#13;",
+}
+
+local function escape(value: string): string
+    local result = value:gsub("[&<>\"\t\n\r]", ESCAPES)
+    return result
+end
+
+--- Reads a document in the strict mode and writes it in the first canonical
+--- form: no declaration, DOCTYPE or comments, attributes sorted, and
+--- characters escaped.
+---
+--- @param document the document's bytes
+--- @param namespaces whether to resolve namespaces
+--- @return the canonical form
+--- @raises serde.Error when the document is not well-formed
+export function canonical(document: string, namespaces: boolean): string
+    local r = xml.reader(document, {strict = true, namespaces = namespaces, encoding = true, pis = true})
+    local out: {string} = {}
+    while r:next() do
+        local kind = r:kind()
+        if kind == xml.START then
+            local attributes = r:attributes()
+            local names: {string} = {}
+            for name in pairs(attributes) do
+                names[#names + 1] = name
+            end
+            table.sort(names)
+            out[#out + 1] = "<" .. r:name()
+            for _, name in ipairs(names) do
+                out[#out + 1] = " " .. name .. "=\"" .. escape(attributes[name] as string) .. "\""
+            end
+            out[#out + 1] = ">"
+        elseif kind == xml.END then
+            out[#out + 1] = "</" .. r:name() .. ">"
+        elseif kind == xml.TEXT then
+            if r:depth() > 0 then
+                out[#out + 1] = escape(r:text())
+            end
+        elseif kind == xml.PI then
+            local body = r:text()
+            local target = r:name()
+            local data = body:match("^<%?[^%s?]+%s*(.-)%?>$") or ""
+            out[#out + 1] = "<?" .. target .. " " .. data .. "?>"
+        end
+    end
+
+    return table.concat(out)
+end
+
+--- An expected output in the first canonical form: a second-form DOCTYPE of
+--- notations is dropped, since this reader reports none.
+export function expected(text: string): string
+    local result = text:gsub("^<!DOCTYPE.-%]>\n", "")
+    return result
+end

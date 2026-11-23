@@ -45,7 +45,7 @@ usage: scripts/toolchain COMPONENT...
        scripts/toolchain --all
        scripts/toolchain --prefix
 
-Components: luajit luarocks uncrustify stage0-image stage0-seed core-seed
+Components: luajit luarocks uncrustify stage0-image stage0-seed core-seed xmlts
             core-seed-install ARCHIVE SHA256
             rust-vendor OUTPUT
             vm-runtime FACILITIES, vm-program FACILITIES PAYLOAD
@@ -403,6 +403,24 @@ source_tree() {
     mv "$staging/$name" "$tree"
     rm -rf "$staging"
     printf '%s\n' "$tree"
+}
+
+# The XML conformance suite, extracted once per pin. It is data, so it is kept by
+# version under the shared sources rather than under the compiler-pair key.
+xmlts() {
+    file=$(archive "xmlts$XMLTS_VERSION" "$(expand_pin "$XMLTS_URL")" "$XMLTS_SHA256")
+    tree="$SOURCES/xmlts$XMLTS_VERSION"
+    if [ ! -f "$tree/$XMLTS_MARKER" ]; then
+        mkdir -p "$SOURCES"
+        staging="$SOURCES/.xmlts.$$"
+        rm -rf "$staging"
+        mkdir -p "$staging"
+        tar xzf "$file" -C "$staging"
+        [ -f "$staging/$XMLTS_MARKER" ] || die "xmlts$XMLTS_VERSION did not extract $XMLTS_MARKER"
+        rm -rf "$tree"
+        mv "$staging" "$tree"
+    fi
+    native_path "$tree/xmlconf"
 }
 
 # --- the stage-zero compiler ------------------------------------------------
@@ -1516,6 +1534,7 @@ for component in "$@"; do
             fi
             ;;
         core-seed) core_seed ;;
+        xmlts) xmlts ;;
         *) note "unknown component $component"; usage ;;
     esac
 done

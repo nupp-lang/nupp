@@ -1,0 +1,227 @@
+-- The typed XML codec's encoding: escaping, attributes, namespaces, the
+-- Smithy binding defaults, and round trips over seeded random values.
+
+local xml = require("serde.xml")
+local test = require("assert")
+local M = {}
+
+local record Leaf
+    label: string
+    weight: number?
+end
+
+local record Tree
+    id: string
+    title: string
+    count: integer
+    big: integer
+    flag: boolean
+    ratio: number
+    leaf: Leaf?
+    leaves: {Leaf} = {}
+    words: {string} = {}
+    scores: {[string]: number} = {}
+    tags: {string} = {}
+    kind: ("a" | "b" | "c")?
+    at: number?
+end
+
+local trees = xml.codec(Tree, {
+    namespace = "urn:example:tree",
+    fields = {
+        id = xml.FieldOptions(attribute = true),
+        tags = xml.FieldOptions(flattened = true, name = "tag"),
+        at = xml.FieldOptions(timestamp = "datetime"),
+    },
+    declarations = {Leaf},
+})
+
+local function equal(a: any, b: any): boolean
+    if type(a) ~= type(b) then
+        return false
+    end
+    if type(a) ~= "table" then
+        return a == b or (a ~= a and b ~= b)
+    end
+    for key, value in pairs(a) do
+        if not equal(value, b[key]) then
+            return false
+        end
+    end
+    for key in pairs(b) do
+        if a[key] == nil then
+            return false
+        end
+    end
+
+    return true
+end
+
+function M.writesPrecomputedTagsAndEscapes(): nil
+    local tree = Tree(
+        id = "t\"1&",
+        title = "a < b & c > d",
+        count = -3,
+        big = 9007199254740993,
+        flag = false,
+        ratio = 0.1,
+        leaf = Leaf(label = "]]>"),
+        tags = {"x", "y"},
+        at = 0
+    )
+    local text = trees:encode(tree)
+    test(
+        text == "<Tree xmlns=\"urn:example:tree\" id=\"t&quot;1&amp;\"><title>a &lt; b &amp; c &gt; d</title>"
+        .. "<count>-3</count><big>9007199254740993</big><flag>false</flag><ratio>0.1</ratio>"
+        .. "<leaf><label>]]&gt;</label></leaf><leaves></leaves><words></words><scores></scores>"
+        .. "<tag>x</tag><tag>y</tag><at>1970-01-01T00:00:00Z</at></Tree>",
+        text
+    )
+    test(equal(trees:decode(text), tree))
+end
+
+function M.textNeedingNoEscapeIsWrittenAsItIs(): nil
+    test(xml.escapetext("plain text, nothing to do") == "plain text, nothing to do")
+    test(xml.escapetext("\r") == "&#xD;")
+    test(xml.escapeattribute("a\tb\nc\"") == "a&#x9;b&#xA;c&quot;")
+end
+
+function M.omitemptyLeavesEmptyFieldsOut(): nil
+    local record Sparse
+        name: string?
+        items: {string} = {}
+    end
+    local codec = xml.codec(Sparse, {fields = {items = xml.FieldOptions(omitempty = true)}})
+    test(codec:encode(Sparse()) == "<Sparse></Sparse>")
+    test(
+        codec:encode(
+            Sparse(name = "n", items = {"i"})
+        ) == "<Sparse><name>n</name><items><member>i</member></items></Sparse>"
+    )
+end
+
+function M.floatsRoundTripExactly(): nil
+    local record Number
+        value: number
+    end
+    local codec = xml.codec(Number)
+    for _, value in ipairs({0.1, 1 / 3, 1e300, -1e-300, 2 ^ 53, 123456.789, 0 / 0, math.huge, -math.huge, 5.0}) do
+        local back = codec:decode(codec:encode(Number(value = value))).value
+        test(back == value or (value ~= value and back ~= back), tostring(value))
+    end
+    test(codec:encode(Number(value = 5.0)) == "<Number><value>5.0</value></Number>")
+end
+
+--- A small deterministic generator, so a failure reproduces.
+local record Random
+    state: integer
+
+    function nextint(self, limit: integer): integer
+        self.state = (self.state * 1103515245 + 12345) % 2147483648
+        return self.state % limit + 1
+    end
+end
+
+const ALPHABET = "abc xyz<>&\"'\t\n]]>é€"
+
+local function word(random: Random): string
+    local parts: {string} = {}
+    for _ = 1, random:nextint(8) - 1 do
+        local index = random:nextint(#ALPHABET)
+        local first = ALPHABET:byte(index) as integer
+        if first < 0x80 then
+            parts[#parts + 1] = ALPHABET:sub(index, index)
+        end
+    end
+    if random:nextint(4) == 1 then
+        parts[#parts + 1] = "é€"
+    end
+
+    return table.concat(parts)
+end
+
+local function randomTree(random: Random): Tree
+    local leaves: {Leaf} = {}
+    for _ = 1, random:nextint(4) - 1 do
+        leaves[
+            #leaves + 1
+        ] = Leaf(label = word(random), weight = random:nextint(2) == 1 and random:nextint(1000) / 8 or nil)
+    end
+    local words: {string} = {}
+    for _ = 1, random:nextint(4) - 1 do
+        words[#words + 1] = word(random)
+    end
+    local scores: {[string]: number} = {}
+    for _ = 1, random:nextint(3) - 1 do
+        scores["k" .. tostring(random:nextint(100))] = random:nextint(100000) / 7
+    end
+    local tags: {string} = {}
+    for _ = 1, random:nextint(3) - 1 do
+        tags[#tags + 1] = word(random)
+    end
+    local kinds: {"a" | "b" | "c"} = {}
+    kinds[1], kinds[2], kinds[3] = "a", "b", "c"
+
+    return Tree(
+        id = word(random),
+        title = word(random),
+        count = random:nextint(2000000) - 1000000,
+        big = random:nextint(2147483647) * 4294967296,
+        flag = random:nextint(2) == 1,
+        ratio = random:nextint(1000000) / 1024,
+        leaf = random:nextint(2) == 1 and Leaf(label = word(random)) or nil,
+        leaves = leaves,
+        words = words,
+        scores = scores,
+        tags = tags,
+        kind = random:nextint(2) == 1 and kinds[random:nextint(3)] or nil,
+        at = random:nextint(2) == 1 and random:nextint(2000000000) + random:nextint(999) / 1000 or nil
+    )
+end
+
+function M.randomValuesRoundTrip(): nil
+    local random = Random(state = 42)
+    for iteration = 1, 200 do
+        local tree = randomTree(random)
+        local text = trees:encode(tree)
+        local back = trees:decode(text)
+        if tree.at ~= nil then
+            test(math.abs((back.at as number) - (tree.at as number)) < 0.0005, "timestamp " .. tostring(iteration))
+            back.at = tree.at
+        end
+        test(equal(back, tree), "iteration " .. tostring(iteration) .. ": " .. text)
+        test(trees:encode(back) == text)
+    end
+end
+
+local record Flat
+    title: string
+    count: integer
+    flag: boolean
+    ratio: number
+    words: {string} = {}
+    scores: {[string]: number} = {}
+end
+
+-- A flat record: on the core, serde.binding cannot yet reach a nested
+-- declaration.
+function M.theBindingEncoderMatchesTheCodecByteForByte(): nil
+    local binding = serde.binding(Flat)
+    local direct = xml.codec(Flat)
+    local random = Random(state = 7)
+    for _ = 1, 50 do
+        local tree = randomTree(random)
+        local flat = Flat(
+            title = tree.title,
+            count = tree.count,
+            flag = tree.flag,
+            ratio = tree.ratio,
+            words = tree.words,
+            scores = tree.scores
+        )
+        test(xml.encode(binding, flat) == direct:encode(flat))
+        test(equal(xml.decode(binding, direct:encode(flat)), flat))
+    end
+end
+
+return M

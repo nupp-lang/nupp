@@ -1,0 +1,173 @@
+-- The committed list of what serde.xml's default mode accepts that the strict
+-- mode refuses, each with a detector saying whether an input exercises it.
+-- xmldifferentialtest holds the default to this list, and
+-- docs/learn/runtime/data/xml.md publishes the same list.
+module tests.stdlib.serde.xml.leniencies
+
+local xml = require("serde.xml")
+
+export record Leniency
+    number: integer
+    description: string
+
+    --- Whether the input exercises it. A detector may answer true for an input
+    --- the leniency does not explain; it must not answer false for one it does.
+    detect: function(input: string): boolean
+end
+
+--- The start tags of an input, roughly: what a detector looks at.
+local function tags(input: string): function(): string?
+    return input:gmatch("<([^!?/<>][^<>]*)>") as function(): string?
+end
+
+local function names(tag: string): {string}
+    local found: {string} = {}
+    local element = tag:match("^([^%s/>]+)")
+    if element ~= nil then
+        found[1] = element as string
+    end
+    for name in tag:gmatch("[%s\"']([^%s=\"']+)%s*=") do
+        found[#found + 1] = name
+    end
+
+    return found
+end
+
+local function inside(input: string, pattern: string): function(): string?
+    return input:gmatch(pattern) as function(): string?
+end
+
+export const LIST: {Leniency} = {
+    Leniency(
+        number = 1,
+        description = "Elements the typed codec or skip() passes over are checked only for balance and their own end tag.",
+        detect = function(input: string): boolean
+            -- Exercised when reading every token, as the default does
+            -- outside a skip, refuses the input.
+            local ok = pcall(function(): nil
+                local r = xml.reader(input)
+                while r:next() do
+                end
+            end)
+
+            return not ok
+        end
+    ),
+    Leniency(number = 2, description = "Duplicate attributes are not detected.", detect = function(
+        input: string
+    ): boolean
+        for tag in tags(input) do
+            local seen: {[string]: boolean} = {}
+            for index, name in ipairs(names(tag)) do
+                if index > 1 then
+                    if seen[name] then
+                        return true
+                    end
+                    seen[name] = true
+                end
+            end
+        end
+
+        return false
+    end),
+    Leniency(
+        number = 3,
+        description = "Names are runs of ASCII name characters, colons and bytes of 0x80 and above, not the Unicode NameStartChar and NameChar classes.",
+        detect = function(input: string): boolean
+            for tag in tags(input) do
+                for _, name in ipairs(names(tag)) do
+                    if not xml.isname(name) then
+                        return true
+                    end
+                end
+            end
+            for tag in input:gmatch("</([^%s>]+)") do
+                if not xml.isname(tag) then
+                    return true
+                end
+            end
+            for target in input:gmatch("<%?([^%s?]+)") do
+                if not xml.isname(target) then
+                    return true
+                end
+            end
+
+            return false
+        end
+    ),
+    Leniency(
+        number = 4,
+        description = "Attribute values are not normalized: references are decoded and whitespace is kept as written.",
+        detect = function(input: string): boolean
+            for tag in tags(input) do
+                if tag:find("=%s*\"[^\"]*[\t\n\r][^\"]*\"") or tag:find("=%s*'[^']*[\t\n\r][^']*'") then
+                    return true
+                end
+            end
+
+            return false
+        end
+    ),
+    Leniency(number = 5, description = "]]> in text is accepted.", detect = function(input: string): boolean
+        local _, terminators = input:gsub("%]%]>", "")
+        local _, sections = input:gsub("<!%[CDATA%[", "")
+        return terminators > sections
+    end),
+    Leniency(
+        number = 6,
+        description = "The document is checked as UTF-8 but not against XML's Char ranges, so C0 controls and U+FFFE and U+FFFF pass outside character references.",
+        detect = function(input: string): boolean
+            return input:find("[%z\1-\8\11\12\14-\31]") ~= nil or input:find("\239\191[\190\191]") ~= nil
+        end
+    ),
+    Leniency(
+        number = 7,
+        description = "Comments holding -- or ending with -, processing instructions named xml, and PI targets not followed by whitespace are accepted.",
+        detect = function(input: string): boolean
+            for body in inside(input, "<!%-%-(.-)%-%->") do
+                if body:find("--", 1, true) or body:find("-$") then
+                    return true
+                end
+            end
+            if input:find("<!%-%-%->") then
+                return true
+            end
+            for target, after in input:gmatch("<%?([^%s?]*)(.?)") do
+                if target:lower() == "xml" or (after ~= "" and after ~= "?" and not after:find("%s")) then
+                    return true
+                end
+            end
+            for target, rest in input:gmatch("<%?([%w_:%.%-\128-\255]+)([^%s?][^?]*)%?>") do
+                if target ~= "" and rest ~= "" then
+                    return true
+                end
+            end
+
+            return false
+        end
+    ),
+    Leniency(
+        number = 8,
+        description = "A DOCTYPE's internal subset is skipped by a quote- and bracket-aware scan, not parsed by the grammar.",
+        detect = function(input: string): boolean
+            return input:find("<!DOCTYPE", 1, true) ~= nil
+        end
+    ),
+    Leniency(number = 9, description = "Without namespaces, no namespace well-formedness is checked.", detect = function(
+        input: string
+    ): boolean
+        return input:find(":", 1, true) ~= nil or input:find("xmlns", 1, true) ~= nil
+    end),
+}
+
+--- The leniencies an input exercises, by number.
+export function exercised(input: string): {integer}
+    local numbers: {integer} = {}
+    for _, leniency in ipairs(LIST) do
+        if leniency.detect(input) then
+            numbers[#numbers + 1] = leniency.number
+        end
+    end
+
+    return numbers
+end

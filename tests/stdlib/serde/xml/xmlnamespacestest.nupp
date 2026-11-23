@@ -1,0 +1,166 @@
+-- The namespaces option: scoped default and prefixed bindings, the
+-- reserved prefixes, (URI, local) matching in the reader and the typed codec,
+-- and the default's behavior without it.
+
+local xml = require("serde.xml")
+local test = require("assert")
+local M = {}
+
+local ATOM = "http://www.w3.org/2005/Atom"
+local MEDIA = "http://search.yahoo.com/mrss/"
+
+local function raised(f: function(): any): any
+    local ok, failure = pcall(f)
+    test(not ok, "expected a raise")
+
+    return failure
+end
+
+local function names(doc: string): string
+    local r = xml.reader(doc, {namespaces = true})
+    local out: {string} = {}
+    while r:next() do
+        if r:kind() == xml.START or r:kind() == xml.END then
+            out[#out + 1] = (r:kind() == xml.START and "+" or "-") .. "{" .. tostring(r:space()) .. "}" .. r:localname()
+        end
+    end
+
+    return table.concat(out, " ")
+end
+
+function M.resolvesScopedDefaultAndPrefixedBindings(): nil
+    local doc = "<feed xmlns='"
+        .. ATOM
+        .. "' xmlns:m='"
+        .. MEDIA
+        .. "'>"
+        .. "<entry><m:content/><title xmlns=''>t</title><m:x xmlns:m='urn:other'/></entry><m:group/></feed>"
+    test(
+        names(
+            doc
+        ) == "+{"
+        .. ATOM
+        .. "}feed +{"
+        .. ATOM
+        .. "}entry +{"
+        .. MEDIA
+        .. "}content -{"
+        .. MEDIA
+        .. "}content"
+        .. " +{nil}title -{nil}title +{urn:other}x -{urn:other}x -{"
+        .. ATOM
+        .. "}entry"
+        .. " +{"
+        .. MEDIA
+        .. "}group -{"
+        .. MEDIA
+        .. "}group -{"
+        .. ATOM
+        .. "}feed"
+    )
+end
+
+function M.matchesNamesAndAttributesByUriAndLocalName(): nil
+    local r = xml.reader("<a:item xmlns:a='urn:x' xmlns:b='urn:y' b:name='n' name='plain'/>", {namespaces = true})
+    test(r:next())
+    test(r:nameis("item", "urn:x") and not r:nameis("item", "urn:y") and r:nameis("a:item"))
+    test(r:attr("name", "urn:y") == "n" and r:attr("name") == "plain")
+    test(r:prefix() == "a" and r:localname() == "item")
+    test(r:attr("xml") == nil)
+    local xmlLang = xml.reader("<a xml:lang='en'/>", {namespaces = true})
+    xmlLang:next()
+    test(xmlLang:attr("lang", "http://www.w3.org/XML/1998/namespace") == "en")
+end
+
+function M.refusesWhatNamespacesForbid(): nil
+    local function rule(doc: string): string
+        local err = raised(function(): any
+            return names(doc)
+        end)
+        return err.rule as string
+    end
+
+    test(rule("<p:a/>") == "unbound-prefix")
+    test(rule("<a p:x='1'/>") == "unbound-prefix")
+    test(rule("<a xmlns:xml='urn:wrong'/>") == "reserved-prefix")
+    test(rule("<a xmlns:xmlns='urn:x'/>") == "reserved-prefix")
+    test(rule("<a xmlns:p='http://www.w3.org/XML/1998/namespace'/>") == "reserved-namespace")
+    test(rule("<a xmlns='http://www.w3.org/2000/xmlns/'/>") == "reserved-namespace")
+    test(rule("<a xmlns:p=''/>") == "empty-namespace")
+    test(rule("<a xmlns:p='urn:x' xmlns:q='urn:x' p:v='1' q:v='2'/>") == "duplicate-attribute")
+    test(rule("<a:b:c xmlns:a='urn:x'/>") == "malformed-qualified-name")
+    test(rule("<:a/>") == "malformed-qualified-name")
+    test(names("<a xmlns:xml='http://www.w3.org/XML/1998/namespace'/>") ~= "")
+end
+
+function M.withoutTheOptionNamesStayRawAndUnchecked(): nil
+    local r = xml.reader("<p:a q:x='1'><p:b/></p:a>")
+    test(r:next() and r:name() == "p:a" and r:attr("q:x") == "1")
+    local err = raised(function(): any
+        return r:space()
+    end)
+    test(tostring(err):find("namespaces = true", 1, true) ~= nil)
+    test(
+        not pcall(function(): any
+            return r:nameis("a", "urn:x")
+        end)
+    )
+end
+
+local record Thumbnail
+    url: string
+    width: integer?
+end
+
+local record Entry
+    title: string
+    thumbnail: Thumbnail?
+    rating: string?
+end
+
+local record Feed
+    title: string
+    entries: {Entry} = {}
+end
+
+local MRSS_FIELDS = {thumbnail = xml.FieldOptions(namespace = MEDIA), rating = xml.FieldOptions(namespace = MEDIA),}
+
+local feeds = xml.codec(Feed, {
+    name = "feed",
+    namespace = ATOM,
+    namespaces = true,
+    fields = {entries = xml.FieldOptions(flattened = true, name = "entry")},
+    records = {
+        Entry = MRSS_FIELDS,
+        Thumbnail = {url = xml.FieldOptions(attribute = true), width = xml.FieldOptions(attribute = true)},
+    },
+    declarations = {Entry, Thumbnail},
+})
+
+function M.theTypedCodecMatchesMembersByUriAndLocalName(): nil
+    local first = "<feed xmlns='"
+        .. ATOM
+        .. "' xmlns:media='"
+        .. MEDIA
+        .. "'><title>F</title>"
+        .. "<entry><title>A</title><media:thumbnail url='u1' width='3'/><media:rating>pg</media:rating></entry>"
+        .. "<entry><title>B</title><thumbnail url='wrong-namespace'/></entry></feed>"
+    local second = "<a:feed xmlns:a='"
+        .. ATOM
+        .. "' xmlns:mrss='"
+        .. MEDIA
+        .. "'><a:title>F</a:title>"
+        .. "<a:entry><a:title>A</a:title><mrss:thumbnail width='3' url='u1'/><mrss:rating>pg</mrss:rating></a:entry>"
+        .. "<a:entry><a:title>B</a:title><a:thumbnail url='wrong-namespace'/></a:entry></a:feed>"
+    local one = feeds:decode(first)
+    local two = feeds:decode(second)
+    test(#one.entries == 2 and one.entries[1].thumbnail ~= nil and one.entries[2].thumbnail == nil)
+    test((one.entries[1].thumbnail as Thumbnail).url == "u1" and one.entries[1].rating == "pg")
+    test(feeds:encode(one) == feeds:encode(two), "the same document under other prefixes decodes alike")
+    local wrong = raised(function(): any
+        return feeds:decode("<feed><title>F</title></feed>")
+    end)
+    test(wrong.rule == "unexpected-root")
+end
+
+return M

@@ -83,6 +83,13 @@ export record Options
 end
 local cacheKey: table = {}
 
+--- The declaration and options each binding this module made was built from,
+--- for a codec that plans from the declaration itself.
+local sources: {[any]: {
+    target: any,
+    options: Options?
+}} = setmetatable({}, {__mode = "k"})
+
 local record Member is core.Member
     @readonly annotations: const{types.reflect.Annotation} = {}
     @readonly label: string?
@@ -931,8 +938,23 @@ export function binding<T is own.Copyable>(target: Type<T>, options: Options?): 
     if options == nil then
         rawset(selected.info, cacheKey, result)
     end
+    sources[result] = {target = target, options = snapshot}
 
     return result
+end
+
+--- The declaration and options a binding from [](binding) was built from.
+---
+--- @param bound the binding
+--- @return the declaration, or nil when another adapter made the binding
+--- @return the options it was built with
+export function source(bound: any): (any, Options?)
+    local found = sources[bound]
+    if found == nil then
+        return nil, nil
+    end
+
+    return found.target, found.options
 end
 
 local record Policy<M is core.Member> is plans.Policy<M>

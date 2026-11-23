@@ -1,0 +1,230 @@
+-- The serde.xml pull reader in its default mode: what it accepts, what it
+-- refuses in every mode, and the errors it raises.
+
+local xml = require("serde.xml")
+local test = require("assert")
+local M = {}
+
+--- Every token, rendered compactly.
+local function tokens(doc: string, options: xml.ReaderOptions?): string
+    local r = xml.reader(doc, options)
+    local out: {string} = {}
+    while r:next() do
+        local kind = r:kind()
+        if kind == xml.START then
+            local attrs = r:attributes()
+            local keys: {string} = {}
+            for key, value in pairs(attrs) do
+                keys[#keys + 1] = key .. "=" .. value
+            end
+            table.sort(keys)
+            out[#out + 1] = "<" .. r:name() .. (#keys > 0 and " " .. table.concat(keys, " ") or "") .. ">"
+        elseif kind == xml.END then
+            out[#out + 1] = "</" .. r:name() .. ">"
+        elseif kind == xml.TEXT then
+            out[#out + 1] = "[" .. r:text() .. "]"
+        elseif kind == xml.COMMENT then
+            out[#out + 1] = "!" .. r:text()
+        elseif kind == xml.PI then
+            out[#out + 1] = "?" .. r:name()
+        else
+            out[#out + 1] = "DOCTYPE"
+        end
+    end
+
+    return table.concat(out)
+end
+
+--- The error a document raises.
+local function failure(doc: string, options: xml.ReaderOptions?): any
+    local ok, err = pcall(tokens, doc, options)
+    test(not ok, "expected the document to be refused: " .. doc)
+    test(getmetatable(err) == serde.Error, "expected a serde.Error, got " .. tostring(err))
+
+    return err
+end
+
+local function refuses(doc: string, rule: string): any
+    local err = failure(doc)
+    test(err.rule == rule, "expected rule " .. rule .. ", got " .. tostring(err.rule) .. " for " .. doc)
+
+    return err
+end
+
+function M.readsElementsTextAndAttributes(): nil
+    test(tokens("<a>hi</a>") == "<a>[hi]</a>")
+    test(tokens("<a x=\"1\" y='two'><b/></a>") == "<a x=1 y=two><b></b></a>")
+    test(tokens("<a >  <b\n/></a >") == "<a>[  ]<b></b></a>")
+end
+
+function M.decodesThePredefinedEntitiesAndCharacterReferences(): nil
+    test(tokens("<a>&lt;&gt;&amp;&quot;&apos;</a>") == "<a>[<>&\"']</a>")
+    test(tokens("<a>&#65;&#x42;&#x20AC;&#x1F600;</a>") == "<a>[AB€😀]</a>")
+    test(tokens("<a v='&amp;&#x41;'/>") == "<a v=&A></a>")
+end
+
+function M.refusesCharacterReferencesThatAreNotXmlCharacters(): nil
+    refuses("<a>&#0;</a>", "invalid-character-reference")
+    refuses("<a>&#xD800;</a>", "invalid-character-reference")
+    refuses("<a>&#x110000;</a>", "invalid-character-reference")
+    refuses("<a>&#xFFFE;</a>", "invalid-character-reference")
+    refuses("<a>&#x;</a>", "invalid-character-reference")
+end
+
+function M.refusesEveryOtherEntityInEveryMode(): nil
+    refuses("<a>&nbsp;</a>", "undeclared-entity")
+    refuses("<a v='&foo;'/>", "undeclared-entity")
+    refuses("<a>& b</a>", "malformed-reference")
+    refuses("<a>&amp</a>", "malformed-reference")
+end
+
+function M.mergesCdataWithTheTextAroundIt(): nil
+    test(tokens("<a>x<![CDATA[<y>&amp;]]>z</a>") == "<a>[x<y>&amp;z]</a>")
+    test(tokens("<a><![CDATA[]]></a>") == "<a>[]</a>")
+    refuses("<a><![CDATA[open</a>", "unterminated-cdata")
+end
+
+function M.skipsCommentsAndPisUnlessAsked(): nil
+    test(tokens("<?pi x?><!--c--><a>1<!--c-->2<?p?>3</a><!--after-->") == "<a>[123]</a>")
+    test(tokens("<?pi x?><!--c--><a>1<!--d--></a>", {comments = true, pis = true}) == "?pi!c<a>[1]!d</a>")
+end
+
+function M.matchesEndTagsOnEveryElement(): nil
+    local err = refuses("<a>\n  <b></c></a>", "mismatched-end-tag")
+    test(err.path == "/a/b")
+    test(err.line == 2 and err.column == 6, "line " .. tostring(err.line) .. " column " .. tostring(err.column))
+    refuses("<a>", "unclosed-element")
+    refuses("<a></a></b>", "unbalanced-end-tag")
+end
+
+function M.keepsQualifiedNamesRaw(): nil
+    local r = xml.reader("<p:a xmlns:p='urn:x'><p:b q:c='1'/></p:a>")
+    test(r:next() and r:name() == "p:a" and r:prefix() == "p" and r:localname() == "a")
+    test(r:attr("xmlns:p") == "urn:x")
+    test(r:next() and r:nameis("p:b") and not r:nameis("b"))
+    test(r:attr("q:c") == "1" and r:attr("c") == nil)
+end
+
+function M.acceptsNameBytesAboveAscii(): nil
+    test(tokens("<名前 属性='値'>テキスト</名前>") == "<名前 属性=値>[テキスト]</名前>")
+end
+
+function M.enforcesTheDepthLimit(): nil
+    local open = string.rep("<a>", 10)
+    local close = string.rep("</a>", 10)
+    tokens(open .. close, {maxdepth = 10})
+    local err = failure(open .. "<a/>" .. close, {maxdepth = 10})
+    test(err.rule == "depth-limit")
+    local skipped = xml.reader("<r>" .. string.rep("<a>", 12) .. string.rep("</a>", 12) .. "</r>", {maxdepth = 10})
+    skipped:next()
+    test(not pcall(skipped.skip, skipped), "skipping counts depth against the limit too")
+end
+
+function M.validatesUtf8(): nil
+    refuses("<a>\xff</a>", "invalid-utf8")
+    refuses("<a>\xc0\x80</a>", "invalid-utf8")
+    refuses("<a>\xed\xa0\x80</a>", "invalid-utf8")
+    refuses("<a>\xe2\x82</a>", "invalid-utf8")
+    test(tokens("\xef\xbb\xbf<a>é</a>") == "<a>[é]</a>", "a UTF-8 byte-order mark is accepted")
+end
+
+function M.refusesOtherEncodingsNamingTheOption(): nil
+    local err = refuses("<?xml version='1.0' encoding='ISO-8859-1'?><a/>", "undeclared-encoding")
+    test(err.message:find("ISO-8859-1", 1, true) and err.message:find("encoding = true", 1, true))
+    refuses("\xff\xfe<\0a\0/\0>\0", "undeclared-encoding")
+    refuses("\xfe\xff\0<\0a\0/\0>", "undeclared-encoding")
+    refuses("<\0a\0/\0>\0", "undeclared-encoding")
+    test(tokens("<?xml version=\"1.0\" encoding=\"utf-8\"?><a/>") == "<a></a>")
+    test(tokens("<?xml version='1.0'?><a/>") == "<a></a>")
+end
+
+function M.skipsADoctypeWithoutApplyingIt(): nil
+    local doc = "<!DOCTYPE a [\n<!ENTITY x \"a > b\">\n<!-- ' ] > -->\n<!ATTLIST a v CDATA '>'>\n]>\n<a>ok</a>"
+    test(tokens(doc) == "DOCTYPE<a>[ok]</a>")
+    refuses("<!DOCTYPE a [<!ENTITY x 'y'>]><a>&x;</a>", "undeclared-entity")
+    refuses("<a/><!DOCTYPE a>", "misplaced-doctype")
+end
+
+function M.refusesEntityExpansionAttacks(): nil
+    local laughs = [=[<?xml version="1.0"?>
+<!DOCTYPE lolz [
+ <!ENTITY lol "lol">
+ <!ENTITY lol2 "&lol;&lol;&lol;&lol;&lol;&lol;&lol;&lol;&lol;&lol;">
+ <!ENTITY lol3 "&lol2;&lol2;&lol2;&lol2;&lol2;&lol2;&lol2;&lol2;&lol2;&lol2;">
+]>
+<lolz>&lol3;</lolz>]=]
+    refuses(laughs, "undeclared-entity")
+    local external = [=[<?xml version="1.0"?>
+<!DOCTYPE foo [ <!ENTITY xxe SYSTEM "file:///etc/passwd"> ]>
+<foo>&xxe;</foo>]=]
+    refuses(external, "undeclared-entity")
+end
+
+function M.requiresOneRootAndNothingButMarkupAroundIt(): nil
+    refuses("", "missing-root")
+    refuses("  <!-- only -->  ", "missing-root")
+    refuses("<a/><b/>", "multiple-roots")
+    refuses("<a/>tail", "content-outside-root")
+    refuses("lead<a/>", "content-outside-root")
+    test(tokens("\n<a/>\n<!--x-->\n") == "<a></a>")
+end
+
+function M.refusesMalformedMarkup(): nil
+    refuses("<a x=1/>", "malformed-start-tag")
+    refuses("<a x='1'y='2'/>", "malformed-start-tag")
+    refuses("<a x='<'/>", "lt-in-attribute")
+    refuses("<a x='1/>", "unterminated-attribute")
+    refuses("<a><!-- open</a>", "unterminated-comment")
+    refuses("<a><? open</a>", "malformed-pi")
+    refuses("<a><!x></a>", "malformed-markup")
+    refuses("< a/>", "malformed-start-tag")
+end
+
+function M.accessorsAllocateOnlyWhenCalled(): nil
+    local r = xml.reader("<a><b>text</b></a>")
+    test(r:next() and r:kind() == xml.START and r:depth() == 1 and r:offset() == 1)
+    test(r:next() and r:nameis("b") and r:depth() == 2)
+    test(r:next() and r:kind() == xml.TEXT and r:offset() == 7)
+    test(r:text() == "text")
+    test(r:next() and r:kind() == xml.END and r:depth() == 1)
+    test(r:next() and r:kind() == xml.END and r:depth() == 0)
+    test(not r:next())
+end
+
+function M.skipChecksOnlyBalanceAndItsOwnEndTag(): nil
+    local r = xml.reader("<r><s a='>'><x><y/>&bogus;<!-- > --><![CDATA[</s>]]></x></s><k>v</k></r>")
+    r:next()
+    r:next()
+    test(r:nameis("s"))
+    r:skip()
+    test(r:kind() == xml.END and r:name() == "s" and r:depth() == 1)
+    test(r:next() and r:nameis("k"))
+    test(r:elementtext() == "v")
+    local bad = xml.reader("<r><s><x></s></r>")
+    bad:next()
+    bad:next()
+    test(not pcall(bad.skip, bad), "the skipped element's own end tag must still match")
+end
+
+function M.readsChildText(): nil
+    local r = xml.reader("<item><a>1</a><title>T &amp; U</title><b/></item>")
+    r:next()
+    test(r:childtext("title") == "T & U")
+    test(r:kind() == xml.END and r:name() == "title")
+    local missing = xml.reader("<item><a>1</a></item>")
+    missing:next()
+    test(missing:childtext("title") == nil)
+    test(missing:kind() == xml.END and missing:name() == "item")
+end
+
+function M.errorsComputeLinesOnlyWhenRaised(): nil
+    local before = xml.counters.positions
+    tokens("<a>\n<b>x</b>\n<c y='z'/>\n</a>")
+    test(xml.counters.positions == before, "the success path computed a line")
+    local err = failure("<a>\n\n  <b></a>")
+    test(xml.counters.positions == before + 1)
+    test(err.line == 3 and err.column == 6 and err.byte == 11)
+    test(tostring(err):find("line 3, column 6", 1, true) ~= nil, tostring(err))
+end
+
+return M

@@ -1,0 +1,227 @@
+--[[
+Scalar text for `serde.xml`: XML Schema lexical forms for integers,
+floats, Booleans and date-times, read with one pattern call each.
+]]
+module serde.xml.internal.scalars
+
+local find = string.find
+local format = string.format
+local tointeger = math.tointeger
+
+const SECONDS_PER_DAY = 86400
+const DAYS_PER_ERA = 146097
+const CIVIL_OFFSET = 719468
+
+--- Integer ranges by declared kind.
+const RANGES: {
+    [string]: {integer}
+} = {
+    int8 = {-128, 127},
+    int16 = {-32768, 32767},
+    int32 = {-2147483648, 2147483647},
+    uint8 = {0, 255},
+    uint16 = {0, 65535},
+    uint32 = {0, 4294967295},
+}
+
+--- Reads an integer lexeme: an optional sign and decimal digits.
+---
+--- @param text the lexeme
+--- @param kind the declared integer kind, such as `int64` or `uint32`
+--- @return the integer, or nil
+--- @return why not, when nil
+export function integer(text: string, kind: string): (integer?, string?)
+    if not find(text, "^[%-+]?%d+$") then
+        local _, _, inner = find(text, "^%s*([%-+]?%d+)%s*$")
+        if inner == nil then
+            return nil, "expected an integer, found " .. format("%q", text)
+        end
+        text = inner as string
+    end
+    local value = tointeger(tonumber(text))
+    if value == nil then
+        return nil, "integer " .. text .. " is out of range"
+    end
+    local range = RANGES[kind]
+    if range ~= nil and (value < range[1] or value > range[2]) then
+        return nil, "integer " .. text .. " is out of range for " .. kind
+    end
+    if kind == "uint64" and value < 0 then
+        return nil, "integer " .. text .. " is out of range for uint64"
+    end
+
+    return value, nil
+end
+
+const NAN = 0 / 0
+
+--- Reads a float lexeme, including `NaN`, `Infinity`, `-Infinity`, `INF`
+--- and `-INF`.
+---
+--- @param text the lexeme
+--- @return the number, or nil
+--- @return why not, when nil
+export function float(text: string): (number?, string?)
+    if find(text, "^[%-+]?%d*%.?%d+[eE]?[%-+]?%d*$") or find(text, "^[%-+]?%d+%.$") then
+        local value = tonumber(text)
+        if value ~= nil then
+            return value + 0.0, nil
+        end
+    end
+    if text == "NaN" then
+        return NAN, nil
+    elseif text == "Infinity" or text == "INF" or text == "+INF" then
+        return math.huge, nil
+    elseif text == "-Infinity" or text == "-INF" then
+        return -math.huge, nil
+    end
+    local _, _, inner = find(text, "^%s*(.-)%s*$")
+    if inner ~= text and inner ~= "" then
+        return float(inner as string)
+    end
+
+    return nil, "expected a number, found " .. format("%q", text)
+end
+
+--- Reads a Boolean lexeme: `true`, `false`, `1` or `0`.
+export function boolean(text: string): (boolean?, string?)
+    if text == "true" or text == "1" then
+        return true, nil
+    elseif text == "false" or text == "0" then
+        return false, nil
+    end
+    local _, _, inner = find(text, "^%s*(%S+)%s*$")
+    if inner ~= nil and inner ~= text then
+        return boolean(inner as string)
+    end
+
+    return nil, "expected true or false, found " .. format("%q", text)
+end
+
+--- The days from 1970-01-01 to a civil date.
+local function daysfromcivil(year: integer, month: integer, day: integer): integer
+    local y = month <= 2 and year - 1 or year
+    local era = y // 400
+    local yoe = y - era * 400
+    local mp = month > 2 and month - 3 or month + 9
+    local doy = (153 * mp + 2) // 5 + day - 1
+    local doe = yoe * 365 + yoe // 4 - yoe // 100 + doy
+
+    return era * DAYS_PER_ERA + doe - CIVIL_OFFSET
+end
+
+--- The civil date of a day count from 1970-01-01.
+local function civilfromdays(days: integer): (integer, integer, integer)
+    local z = days + CIVIL_OFFSET
+    local era = z // DAYS_PER_ERA
+    local doe = z - era * DAYS_PER_ERA
+    local yoe = (doe - doe // 1460 + doe // 36524 - doe // 146096) // 365
+    local year = yoe + era * 400
+    local doy = doe - (365 * yoe + yoe // 4 - yoe // 100)
+    local mp = (5 * doy + 2) // 153
+    local day = doy - (153 * mp + 2) // 5 + 1
+    local month = mp < 10 and mp + 3 or mp - 9
+    if month <= 2 then
+        year = year + 1
+    end
+
+    return year, month, day
+end
+
+const DAYS_IN_MONTH: {integer} = {31, 29, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31}
+
+--- Reads an RFC 3339 date-time as epoch seconds.
+---
+--- @param text the date-time, such as `2026-10-10T12:00:00.5Z`
+--- @return the seconds, with any fraction, or nil
+--- @return why not, when nil
+export function datetime(text: string): (number?, string?)
+    local _, _, y, mo, d, h, mi, s, fraction, zone = find(
+        text,
+        "^(%d%d%d%d)%-(%d%d)%-(%d%d)[Tt](%d%d):(%d%d):(%d%d)(%.?%d*)(.*)$"
+    )
+    if y == nil then
+        return nil, "expected an RFC 3339 date-time, found " .. format("%q", text)
+    end
+    local year = tointeger(tonumber(y)) as integer
+    local month = tointeger(tonumber(mo)) as integer
+    local day = tointeger(tonumber(d)) as integer
+    local hour = tointeger(tonumber(h)) as integer
+    local minute = tointeger(tonumber(mi)) as integer
+    local second = tointeger(tonumber(s)) as integer
+    if month < 1 or month > 12 or day < 1 or day > DAYS_IN_MONTH[month] or hour > 23 or minute > 59 or second > 60 then
+        return nil, "date-time " .. text .. " is out of range"
+    end
+    if month == 2 and day == 29 and not (year % 4 == 0 and (year % 100 ~= 0 or year % 400 == 0)) then
+        return nil, "date-time " .. text .. " is out of range"
+    end
+    local offset: integer = 0
+    if zone ~= "Z" and zone ~= "z" then
+        local _, _, sign, oh, om = find(zone as string, "^([%-+])(%d%d):(%d%d)$")
+        if sign == nil then
+            return nil, "date-time " .. text .. " needs a Z or a numeric offset"
+        end
+        offset = ((tointeger(tonumber(oh)) as integer) * 60 + (tointeger(tonumber(om)) as integer)) * 60
+        if sign == "-" then
+            offset = -offset
+        end
+    end
+    if fraction == "." then
+        return nil, "date-time " .. text .. " has an empty fraction"
+    end
+    local whole = daysfromcivil(year, month, day) * SECONDS_PER_DAY + hour * 3600 + minute * 60 + second - offset
+    if fraction == "" then
+        return whole, nil
+    end
+
+    return whole + (tonumber("0" .. (fraction as string)) as number), nil
+end
+
+--- Formats epoch seconds as an RFC 3339 date-time in UTC.
+---
+--- A fraction is written as milliseconds, and only when there is one.
+export function formatdatetime(value: number): string
+    local whole = math.floor(value)
+    local millis = math.floor((value - whole) * 1000 + 0.5)
+    if millis >= 1000 then
+        whole, millis = whole + 1, 0
+    end
+    local seconds = tointeger(whole) as integer
+    local days = seconds // SECONDS_PER_DAY
+    local rest = seconds - days * SECONDS_PER_DAY
+    local year, month, day = civilfromdays(days)
+    local stamp = format("%04d-%02d-%02dT%02d:%02d:%02d", year, month, day, rest // 3600, (rest // 60) % 60, rest % 60)
+    if millis == 0 then
+        return stamp .. "Z"
+    end
+
+    return stamp .. format(".%03dZ", tointeger(millis) as integer)
+end
+
+--- Formats a float so it reads back as the same number.
+export function formatfloat(value: number): string
+    if value ~= value then
+        return "NaN"
+    elseif value == math.huge then
+        return "Infinity"
+    elseif value == -math.huge then
+        return "-Infinity"
+    end
+    local whole = tointeger(value)
+    if whole ~= nil and value > -1e15 and value < 1e15 then
+        return format("%d", whole) .. ".0"
+    end
+    for digits = 15, 17 do
+        local text = format("%." .. tostring(digits) .. "g", value)
+        if tonumber(text) == value then
+            return text
+        end
+    end
+
+    return format("%.17g", value)
+end
+
+--- Formats an integer.
+export function formatinteger(value: integer): string
+    return format("%d", value)
+end

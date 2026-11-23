@@ -1,0 +1,268 @@
+-- The typed XML codec's decoding: member matching in and out of order,
+-- skipping, attributes, scalars from their lexical forms, the Smithy XML
+-- binding defaults, serde's options, and the binding path.
+
+local xml = require("serde.xml")
+local test = require("assert")
+local M = {}
+
+--- The value a call raises.
+local function raised(f: function(): any): any
+    local ok, failure = pcall(f)
+    test(not ok, "expected a raise")
+
+    return failure
+end
+
+local record Point
+    x: integer
+    y: integer
+    label: string?
+end
+
+local record Entry
+    id: string
+    note: string?
+end
+
+local record Shapes
+    name: string
+    count: integer
+    ratio: number
+    enabled: boolean
+    small: uint32?
+    mode: ("ALPHA" | "BRAVO")?
+    origin: Point?
+    points: {Point} = {}
+    numbers: {number} = {}
+    names: {string} = {}
+    counts: {[string]: integer} = {}
+    entries: {Entry} = {}
+    at: number?
+    blob: string?
+    seconds: integer?
+end
+
+local shapes = xml.codec(Shapes, {
+    fields = {
+        name = xml.FieldOptions(attribute = true),
+        entries = xml.FieldOptions(flattened = true, name = "entry"),
+        names = xml.FieldOptions(member = "item"),
+        counts = xml.FieldOptions(entry = "pair", key = "k", value = "v"),
+        at = xml.FieldOptions(timestamp = "datetime"),
+        blob = xml.FieldOptions(base64 = true),
+        seconds = xml.FieldOptions(representation = serde.iso8601seconds),
+    },
+    records = {Entry = {id = xml.FieldOptions(attribute = true)}},
+    declarations = {Point, Entry},
+})
+
+local DOCUMENT = [==[<?xml version="1.0" encoding="UTF-8"?>
+<Shapes name="demo">
+  <count>3</count>
+  <ratio>0.25</ratio>
+  <enabled>true</enabled>
+  <small>4294967295</small>
+  <mode>BRAVO</mode>
+  <origin><x>1</x><y>-2</y><label>a &lt; b</label></origin>
+  <points>
+    <member><x>3</x><y>4</y></member>
+    <member>
+      <y>6</y>
+      <x>5</x>
+    </member>
+  </points>
+  <numbers><member>1.5</member><member>-2e3</member><member>NaN</member><member>Infinity</member><member>-Infinity</member></numbers>
+  <names><item>one</item><item><![CDATA[t<w>o]]></item></names>
+  <counts><pair><k>a</k><v>1</v></pair><pair><v>2</v><k>b</k></pair></counts>
+  <entry id="e1"><note>first</note></entry>
+  <unknown a="1"><deep><deeper/></deep>&amp;</unknown>
+  <entry id="e2"/>
+  <at>2021-01-01T00:00:00.250Z</at>
+  <blob>aGVsbG8=</blob>
+  <seconds>1970-01-01T00:01:00Z</seconds>
+</Shapes>
+]==]
+
+function M.decodesEveryShape(): nil
+    local s = shapes:decode(DOCUMENT)
+    test(s.name == "demo" and s.count == 3 and s.ratio == 0.25 and s.enabled == true)
+    test(s.small == 4294967295 and s.mode == "BRAVO")
+    local origin = s.origin as Point
+    test(origin.x == 1 and origin.y == -2 and origin.label == "a < b")
+    test(#s.points == 2 and s.points[1].x == 3 and s.points[2].x == 5 and s.points[2].y == 6)
+    test(getmetatable(s.points[1]) == Point and getmetatable(s) == Shapes)
+    test(s.numbers[1] == 1.5 and s.numbers[2] == -2000 and s.numbers[3] ~= s.numbers[3])
+    test(s.numbers[4] == math.huge and s.numbers[5] == -math.huge)
+    test(s.names[1] == "one" and s.names[2] == "t<w>o")
+    test(s.counts.a == 1 and s.counts.b == 2)
+    test(#s.entries == 2 and s.entries[1].id == "e1" and s.entries[1].note == "first" and s.entries[2].id == "e2")
+    test(s.at == 1609459200.25)
+    test(s.blob == "hello" and s.seconds == 60)
+end
+
+function M.membersMatchInAnyOrder(): nil
+    local forward = xml.codec(Point):decode("<Point><x>1</x><y>2</y><label>z</label></Point>")
+    local backward = xml.codec(Point):decode("<Point><label>z</label><y>2</y><x>1</x></Point>")
+    test(forward.x == backward.x and forward.y == backward.y and forward.label == backward.label)
+    local spaced = xml.codec(Point):decode("<Point>\n\t<x >1</x>\n\t<!-- c --><y>2</y>\n</Point>")
+    test(spaced.x == 1 and spaced.y == 2)
+end
+
+function M.skipsUnknownMembersByDepth(): nil
+    local p = xml.codec(Point):decode("<Point><a><x>9</x><b/></a><x>1</x><z>&amp;</z><y>2</y></Point>")
+    test(p.x == 1 and p.y == 2)
+    local strict = xml.codec(Point, {unknownmembers = "reject"})
+    local err = raised(function(): any
+        return strict:decode("<Point><x>1</x><y>2</y><z/></Point>")
+    end)
+    test(err.rule == "unknown-member")
+end
+
+function M.defaultsApplyAndRequiredMembersAreChecked(): nil
+    local s = shapes:decode("<Shapes name='n'><count>1</count><ratio>1</ratio><enabled>false</enabled></Shapes>")
+    test(#s.points == 0 and #s.names == 0 and next(s.counts) == nil and s.origin == nil)
+    local err = raised(function(): any
+        return xml.codec(Point):decode("<Point><x>1</x></Point>")
+    end)
+    test(err.rule == "missing-member" and err.message:find("y", 1, true))
+end
+
+local function refusal(doc: string): any
+    local ok, failure = pcall(function(): any
+        return shapes:decode(doc)
+    end)
+    test(not ok, "expected a refusal: " .. doc)
+
+    return failure
+end
+
+local HEAD = "<Shapes name='n'><ratio>1</ratio><enabled>true</enabled>"
+
+function M.scalarsAreCheckedAgainstTheirLexicalForms(): nil
+    test(refusal(HEAD .. "<count>1.5</count></Shapes>").rule == "invalid-value")
+    test(refusal(HEAD .. "<count>99999999999999999999</count></Shapes>").rule == "invalid-value")
+    test(refusal(HEAD .. "<count>1</count><small>-1</small></Shapes>").rule == "invalid-value")
+    test(refusal(HEAD .. "<count>1</count><small>4294967296</small></Shapes>").rule == "invalid-value")
+    test(refusal(HEAD .. "<count>1</count><mode>CHARLIE</mode></Shapes>").rule == "invalid-value")
+    test(refusal(HEAD .. "<count>1</count><at>yesterday</at></Shapes>").rule == "invalid-value")
+    test(
+        refusal(
+            "<Shapes name='n'><count>1</count><ratio>x</ratio><enabled>true</enabled></Shapes>"
+        ).rule == "invalid-value"
+    )
+    test(
+        refusal(
+            "<Shapes name='n'><count>1</count><ratio>1</ratio><enabled>yes</enabled></Shapes>"
+        ).rule == "invalid-value"
+    )
+    local err = refusal(HEAD .. "<count><b/></count></Shapes>")
+    test(err.rule == "unexpected-element")
+end
+
+function M.errorsCarryTheElementPath(): nil
+    local err = refusal(
+        HEAD .. "<count>1</count><points><member><x>1</x><y>2</y></member><member><x>q</x></member></points></Shapes>"
+    )
+    test(err.path == "/Shapes/points/member[2]", err.path)
+    test(err.line == 1 and err.byte ~= nil)
+end
+
+function M.malformedDocumentsAreRefusedOnTheDecodedPath(): nil
+    test(refusal(HEAD .. "<count>1</count></Shape>").rule == "mismatched-end-tag")
+    test(refusal(HEAD .. "<count>1</count>").rule == "unclosed-element")
+    test(refusal(HEAD .. "<count>1</count></Shapes><extra/>").rule == "multiple-roots")
+    test(refusal(HEAD .. "<count>&undefined;</count></Shapes>").rule == "undeclared-entity")
+    test(refusal("<Other/>").rule == "unexpected-root")
+end
+
+function M.serdeOptionsApply(): nil
+    local record Account
+        displayName: string
+        passwordHash: string?
+        loginCount: integer = 0
+    end
+    local codec = xml.codec(Account, {
+        serde = serde.Options(
+            naming = "snakecase",
+            fields = {displayName = serde.FieldOptions(), loginCount = serde.FieldOptions(name = "logins")}
+        ),
+    })
+    local account = codec:decode(
+        "<Account><display_name>Ada</display_name><password_hash>x</password_hash><logins>4</logins></Account>"
+    )
+    test(account.displayName == "Ada" and account.passwordHash == nil and account.loginCount == 4)
+    test(codec:encode(account) == "<Account><display_name>Ada</display_name><logins>4</logins></Account>")
+end
+
+function M.wrappersAndRootNamesFollowTheProtocol(): nil
+    local record Result
+        Value: integer
+    end
+    local codec = xml.codec(Result, {name = "Response", wrappers = {"ResultWrapper"}})
+    local value = codec:decode(
+        "<Response xmlns='urn:x'><Meta/><ResultWrapper><Value>5</Value></ResultWrapper><RequestId>r</RequestId></Response>"
+    )
+    test(value.Value == 5)
+    test(codec:encode(value) == "<Response><ResultWrapper><Value>5</Value></ResultWrapper></Response>")
+    local any = xml.codec(Result, {anyroot = true})
+    test(any:decode("<Whatever><Value>1</Value></Whatever>").Value == 1)
+end
+
+-- Flat records: on the core, serde.binding cannot yet find a nested
+-- declaration from its root's reflection, so it refuses records that reach one.
+local record Flat
+    name: string
+    count: integer
+    ratio: number?
+    enabled: boolean = false
+    numbers: {number} = {}
+    counts: {[string]: integer} = {}
+end
+
+function M.theBindingPathGivesTheCodecsResults(): nil
+    local binding = serde.binding(Flat)
+    local direct = xml.codec(Flat)
+    local doc = "<Flat><name>n</name><count>2</count><ratio>0.5</ratio><enabled>true</enabled>"
+        .. "<numbers><member>1.5</member></numbers><counts><entry><key>a</key><value>1</value></entry></counts></Flat>"
+    local viaBinding = xml.decode(binding, doc)
+    local viaCodec = direct:decode(doc)
+    test(xml.encode(binding, viaBinding) == direct:encode(viaCodec))
+    test(xml.encode(binding, viaBinding) == doc)
+    local record Custom
+        id: integer
+    end
+    local renamed = serde.binding(Custom, serde.Options(fields = {id = serde.FieldOptions(name = "ID")}))
+    test(xml.decode(renamed, "<Custom><ID>4</ID></Custom>").id == 4)
+end
+
+function M.nestedDeclarationsAreFoundOrNamed(): nil
+    local record Inner
+        v: integer
+    end
+    local record Outer
+        inner: Inner
+    end
+    local found = xml.codec(Outer, {declarations = {Inner}}):decode("<Outer><inner><v>1</v></inner></Outer>")
+    test(getmetatable(found.inner) == Inner and found.inner.v == 1)
+    local ok, why = pcall(function(): any
+        return xml.codec(Outer)
+    end)
+    if not ok then
+        test(tostring(why):find("declarations", 1, true) ~= nil, tostring(why))
+    end
+end
+
+function M.recordsWithConstructorsBuildThroughThem(): nil
+    local record Clamped
+        value: integer
+
+        constructor(self, value: integer)
+            self.value = math.min(value, 10)
+        end
+    end
+    local codec = xml.codec(Clamped)
+    test(codec:decode("<Clamped><value>99</value></Clamped>").value == 10)
+end
+
+return M

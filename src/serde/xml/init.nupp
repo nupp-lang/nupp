@@ -1,0 +1,640 @@
+--[[
+XML for [](serde): a pull reader, a typed codec, an element tree and a
+writer, written in Nupp.
+
+The default reads UTF-8, the five predefined entities, character
+references, CDATA, comments and processing instructions, matches every end
+tag it reads, and never expands a DTD. What costs speed is an option.
+
+```nupp
+local xml = serde.xml
+local r = xml.reader("<feed><title>News</title></feed>")
+local titles: {string} = {}
+while r:next() do
+    if r:kind() == xml.START and r:nameis("title") then
+        r:next()
+        titles[#titles + 1] = r:text()
+    end
+end
+assert(titles[1] == "News")
+```
+
+See [xml.md](docs/learn/runtime/data/xml.md) for the guide.
+]]
+module serde.xml
+
+local cursors = require("serde.xml.internal.cursor")
+local text = require("serde.xml.internal.text")
+local chars = require("serde.xml.internal.chars")
+local plans = require("serde.xml.internal.plan")
+local trees = require("serde.xml.internal.tree")
+local writers = require("serde.xml.internal.writer")
+local declarations = require("nupp.serde.internal.declaration")
+
+local type Cursor = cursors.Cursor
+
+--- The kind of a start tag. A self-closing tag reads as a start and an end.
+export const START: integer = cursors.START
+
+--- The kind of an end tag.
+export const END: integer = cursors.END
+
+--- The kind of character data: text, references and CDATA together.
+export const TEXT: integer = cursors.TEXT
+
+--- The kind of a comment, reported only with `comments = true`.
+export const COMMENT: integer = cursors.COMMENT
+
+--- The kind of a processing instruction, reported only with `pis = true`.
+export const PI: integer = cursors.PI
+
+--- The kind of a DOCTYPE declaration. It is reported, never applied.
+export const DOCTYPE: integer = cursors.DOCTYPE
+
+--- What a reader reports and accepts beyond the default.
+---
+--- `namespaces` resolves prefixes to URIs, which [](Reader.space) and the
+--- two-argument [](Reader.nameis) and [](Reader.attr) read, and refuses
+--- unbound prefixes and misused reserved ones. It costs a scope per element
+--- that declares one and a lookup per name.
+---
+--- `encoding` transcodes a document declared or byte-order-marked as
+--- UTF-16LE, UTF-16BE, ISO-8859-1, Windows-1252 or US-ASCII to UTF-8 first,
+--- which costs a copy of the input; without it such a document is refused.
+---
+--- `strict` checks full well-formedness: inside skipped elements, duplicate
+--- attributes, Unicode name rules, XML characters everywhere, attribute-value
+--- normalization, `]]>` in text, comment and PI rules, and the DOCTYPE's
+--- internal subset by its grammar, still never applied. It parses every
+--- skipped element and classifies every name, so it costs the most.
+---
+--- `comments` and `pis` report comments and processing instructions as
+--- tokens instead of skipping them. `maxdepth` is the deepest element nesting
+--- accepted, 256 unless given.
+export type ReaderOptions = {
+    namespaces: boolean?,
+    encoding: boolean?,
+    strict: boolean?,
+    comments: boolean?,
+    pis: boolean?,
+    maxdepth: integer?,
+    maxtokenbytes: integer?
+}
+
+--- What supplies a streamed document: a function answering the next chunk,
+--- and nil or the empty string at the end, such as
+--- `function() return body:read(65536) end` over an [](io.Reader).
+export type Chunks = function(): string?
+
+const CHUNK_BYTES = 65536
+
+--- A pull reader over one document.
+---
+--- Each call to [](Reader.next) moves to the next token. Accessors make
+--- strings only when called, and comparisons such as [](Reader.nameis) make
+--- none.
+export record Reader
+    @private @readonly cursor: Cursor
+
+    --- Advances to the next token.
+    ---
+    --- @return whether there is one; false once the document has ended
+    --- @raises serde.Error when the document is malformed
+    function next(self): boolean
+        return self.cursor:next()
+    end
+
+    --- The current token's kind: [](START), [](END), [](TEXT), [](COMMENT),
+    --- [](PI) or [](DOCTYPE).
+    function kind(self): integer
+        return self.cursor.kind
+    end
+
+    --- How deep the reader is: inside the root element is 1. A start tag
+    --- counts itself; an end tag no longer does.
+    function depth(self): integer
+        return self.cursor.depth
+    end
+
+    --- The byte offset where the current token starts.
+    function offset(self): integer
+        local cursor = self.cursor
+        if cursor.kind == cursors.TEXT then
+            return cursor.ts
+        end
+
+        return cursor.tstart
+    end
+
+    --- The qualified name of the current start or end tag, as written, or the
+    --- target of a processing instruction.
+    function name(self): string
+        return self.cursor.tname
+    end
+
+    --- The prefix of the current tag's name, or nil when it has none.
+    function prefix(self): string?
+        local name = self.cursor.tname
+        local colon = string.find(name, ":", 1, true)
+        return colon ~= nil and string.sub(name, 1, colon - 1) or nil
+    end
+
+    --- The current tag's name after any prefix.
+    function localname(self): string
+        if self.cursor.namespaces then
+            return self.cursor.tlocal
+        end
+        local name = self.cursor.tname
+        local colon = string.find(name, ":", 1, true)
+
+        return colon ~= nil and string.sub(name, colon + 1) or name
+    end
+
+    --- Whether the current tag's qualified name is `name`, compared as bytes.
+    function nameis(self, name: string): boolean
+        return self.cursor.tname == name
+    end
+
+    --- Whether the current tag is `localname` in the namespace `space`.
+    ---
+    --- @raises string when the reader was opened without `namespaces`
+    function nameis(self, localname: string, space: string): boolean
+        local cursor = self.cursor
+        if not cursor.namespaces then
+            error("serde.xml: matching a namespace needs a reader opened with namespaces = true", 2)
+        end
+
+        return cursor.tlocal == localname and cursor.tspace == space
+    end
+
+    --- The namespace URI of the current tag, or nil when it has none.
+    ---
+    --- @raises string when the reader was opened without `namespaces`
+    function space(self): string?
+        local cursor = self.cursor
+        if not cursor.namespaces then
+            error("serde.xml: a namespace needs a reader opened with namespaces = true", 2)
+        end
+
+        return cursor.tspace
+    end
+
+    --- The current text token's characters, with references replaced and
+    --- CDATA merged; or a comment's or processing instruction's contents.
+    function text(self): string
+        local cursor = self.cursor
+        if cursor.kind == cursors.TEXT then
+            return cursor:text()
+        end
+
+        return string.sub(cursor.src, cursor.ts, cursor.te)
+    end
+
+    --- The value of an attribute of the current start tag, or nil.
+    ---
+    --- @param name the attribute's qualified name, as written
+    function attr(self, name: string): string?
+        return self.cursor:attr(name)
+    end
+
+    --- The value of the attribute `localname` in the namespace `space`, or nil.
+    ---
+    --- @raises string when the reader was opened without `namespaces`
+    function attr(self, localname: string, space: string): string?
+        local cursor = self.cursor
+        if not cursor.namespaces then
+            error("serde.xml: matching a namespace needs a reader opened with namespaces = true", 2)
+        end
+        for index = 1, cursor.acount do
+            if cursor.alocals[index] == localname and cursor.aspaces[index] == space then
+                return cursor:attrvalue(index)
+            end
+        end
+
+        return nil
+    end
+
+    --- The current start tag's attributes, by qualified name.
+    function attributes(self): {[string]: string}
+        local cursor = self.cursor
+        local result: {[string]: string} = {}
+        for index = 1, cursor.acount do
+            result[cursor.anames[index]] = cursor:attrvalue(index)
+        end
+
+        return result
+    end
+
+    --- Skips the rest of the current element, leaving the reader at its end
+    --- tag. Inside, only balance is checked.
+    function skip(self): nil
+        self.cursor:skip()
+    end
+
+    --- From a start tag, reads the element's text content and returns it,
+    --- leaving the reader at its end tag.
+    ---
+    --- @raises serde.Error when the element has child elements
+    function elementtext(self): string
+        local cursor = self.cursor
+        local parts: {string} = {}
+        while cursor:next() do
+            local kind = cursor.kind
+            if kind == cursors.TEXT then
+                parts[#parts + 1] = cursor:text()
+            elseif kind == cursors.END then
+                break
+            elseif kind == cursors.START then
+                cursor:fail(cursor.tstart, "unexpected-element", "expected text, found <" .. cursor.tname .. ">")
+            end
+        end
+
+        return table.concat(parts)
+    end
+
+    --- From a start tag, reads to the first child element named `name` and
+    --- returns its text, leaving the reader at that child's end tag.
+    ---
+    --- Children before it are skipped. Nil means the element ended without
+    --- one, and the reader is then at the element's end tag.
+    ---
+    --- @param name the child's qualified name
+    --- @return the child's text, or nil
+    function childtext(self, name: string): string?
+        local cursor = self.cursor
+        local level = cursor.depth
+        while cursor:next() do
+            if cursor.kind == cursors.START then
+                if cursor.tname == name then
+                    return self:elementtext()
+                end
+                cursor:skip()
+            elseif cursor.kind == cursors.END and cursor.depth < level then
+                return nil
+            end
+        end
+
+        return nil
+    end
+end
+
+--- Opens a pull reader.
+---
+--- A string is read in place. [](Chunks) are read through a window that is
+--- refilled at token boundaries and holds at most `maxtokenbytes` (1 MiB
+--- unless given) past the token being read, and give the same tokens however
+--- the input is split.
+---
+--- @param source the document, or its chunks
+--- @param options what to report and the limits, or nil
+--- @return the reader, before its first token
+--- @raises serde.Error when the document is not UTF-8 or declares another
+---     encoding
+export function reader(source: string | Chunks, options: ReaderOptions?): Reader
+    local settings = cursors.Options(
+        namespaces = options ~= nil and options.namespaces == true,
+        encoding = options ~= nil and options.encoding == true,
+        strict = options ~= nil and options.strict == true,
+        comments = options ~= nil and options.comments == true,
+        pis = options ~= nil and options.pis == true,
+        maxdepth = options ~= nil and options.maxdepth or 256
+    )
+    local cursor: Cursor
+    if type(source) == "string" then
+        cursor = cursors.open(source as string, settings)
+    else
+        cursor = cursors.openstream(source as Chunks, settings, options ~= nil and options.maxtokenbytes or nil)
+    end
+
+    return Reader(cursor = cursor)
+end
+
+--- An element of a tree from [](parse): its names, attributes and nodes,
+--- with lookups by name.
+---
+--- Without `namespaces`, a lookup matches the qualified name as written, and
+--- one that passes a namespace URI raises, so feed code cannot match on a
+--- prefix another publisher spells differently.
+export type Element = trees.Element
+
+--- One attribute of an [](Element).
+export type Attribute = trees.Attribute
+
+--- Parses a document into an element tree.
+---
+--- Comments, processing instructions and the DOCTYPE are left out; text
+--- nodes keep CDATA merged and references replaced.
+---
+--- ```nupp
+--- local xml = serde.xml
+--- local TORZNAB = "http://torznab.com/schemas/2015/feed"
+--- local feed = xml.parse([[<rss xmlns:torznab="http://torznab.com/schemas/2015/feed"><channel>
+---   <item><title>A</title><torznab:attr name="seeders" value="12"/></item>
+--- </channel></rss>]], {namespaces = true})
+--- for item in (feed:child("channel") as xml.Element):children("item") do
+---     local seeders = item:find("attr", TORZNAB, {name = "seeders"}) as xml.Element
+---     assert(seeders:attr("value") == "12")
+--- end
+--- ```
+---
+--- @param source the document, or its chunks
+--- @param options the reader's options
+--- @return the root element
+--- @raises serde.Error when the document is malformed
+export function parse(source: string | Chunks, options: ReaderOptions?): Element
+    return trees.build(reader(source, options).cursor)
+end
+
+--- A writer of escaped, well-formed XML.
+export type Writer = writers.Writer
+
+--- Starts a writer.
+---
+--- ```nupp
+--- local w = serde.xml.writer()
+--- w:start("note", {lang = "en"}):text("a < b"):cdata("x]]>y"):finishelement("note")
+--- assert(w:finish() == '<note lang="en">a &lt; b<![CDATA[x]]]]><![CDATA[>y]]></note>')
+--- ```
+---
+--- @param sink receives the document in chunks, such as an io.Writer's
+---     write; nil gathers it for `finish`
+--- @param declaration begin with an XML declaration
+--- @return the writer
+export function writer(sink: (function(chunk: string): nil)?, declaration: boolean?): Writer
+    return writers.new(sink, declaration)
+end
+
+--- XML mapping for one field: attributes, flattened lists, list member and
+--- map entry names, the namespace to write, and timestamp and base64
+--- representations.
+---
+--- ```nupp
+--- local xml = serde.xml
+--- local record Item
+---     id: string
+---     tags: {string} = {}
+--- end
+--- local items = xml.codec(Item, {fields = {
+---     id = xml.FieldOptions(attribute = true),
+---     tags = xml.FieldOptions(flattened = true, name = "tag"),
+--- }})
+--- assert(items:encode(Item(id = "7", tags = {"a", "b"})) == '<Item id="7"><tag>a</tag><tag>b</tag></Item>')
+--- ```
+export type FieldOptions = plans.FieldOptions
+
+export const FieldOptions = plans.FieldOptions
+
+--- What a typed codec is built with.
+---
+--- `name` is the root element, the declaration's name unless given, and
+--- `namespace` the namespace written on it. `wrappers` names elements between
+--- the root and the record's members, as an awsQuery response wraps its
+--- result. `anyroot` accepts any root element name on decode.
+---
+--- `serde` applies a [](serde.Options): its naming to every record, and its
+--- field whitelist, renames, `omitempty` and representations to the root.
+--- `fields` maps the root's fields to [](FieldOptions), and `records` maps the
+--- fields of nested declarations by declaration name. Unknown members are
+--- skipped, counting depth, unless `unknownmembers` is `"reject"`.
+---
+--- `declarations` lists record declarations the root reaches, for a runtime
+--- that cannot find a nested declaration from the root's reflection on its
+--- own; each is matched by name and module.
+export type CodecOptions = {
+    name: string?,
+    namespace: string?,
+    wrappers: {string}?,
+    anyroot: boolean?,
+    serde: declarations.Options?,
+    fields: {[string]: FieldOptions}?,
+    records: {[string]: {[string]: FieldOptions}}?,
+    unknownmembers: ("reject" | "ignore")?,
+    declarations: {any}?,
+    namespaces: boolean?,
+    encoding: boolean?,
+    strict: boolean?,
+    maxdepth: integer?
+}
+
+--- A typed codec for one record declaration and the records it reaches.
+---
+--- The plan behind it is built once, when the codec is made: every member's
+--- name is spelled out as the patterns that read it, so decoding makes no
+--- token objects and no tree.
+export record Codec<T is own.Copyable>
+    @private @readonly plan: plans.Plan
+    @private @readonly anyroot: boolean
+    @private @readonly settings: cursors.Options
+    @private @readonly _type: (function(value: T): T)?
+
+    --- Decodes a document.
+    ---
+    --- @param source the document, or its chunks
+    --- @return the record
+    --- @raises serde.Error when the document is malformed or does not fit
+    function decode(self, source: string | Chunks): T
+        return plans.decode(self.plan, source, self.anyroot, self.settings) as T
+    end
+
+    --- Decodes a document read from an [](io.Reader), in chunks, and closes
+    --- the reader.
+    ---
+    --- @param source the reader, read to the end of the document
+    --- @return the record
+    --- @raises serde.Error when the document is malformed or does not fit
+    function decodefrom(self, takes source: io.Reader): T
+        -- The reader is closed here once the document is read, so its
+        -- obligation is taken over rather than borrowed into the window.
+        local stream: any = @unsafe own.release(source)
+        local pull = function(): string?
+            local data, why = stream:read(CHUNK_BYTES)
+            if data == nil and why ~= nil then
+                error("serde.xml: reading the document failed: " .. tostring(why), 0)
+            end
+
+            return data
+        end
+        local ok, result = pcall(plans.decode, self.plan, pull, self.anyroot, self.settings)
+        stream:close()
+        if not ok then
+            error(result, 0)
+        end
+
+        return result as T
+    end
+
+    --- Encodes a record as a document.
+    ---
+    --- @param value the record
+    --- @return the document, without an XML declaration
+    function encode(self, value: T): string
+        return plans.encode(self.plan, value)
+    end
+end
+
+local function planOptions(options: CodecOptions?): any
+    local result: any = {}
+    if options == nil then
+        return result
+    end
+    result.records = options.records
+    result.unknownmembers = options.unknownmembers
+    result.declarations = options.declarations
+    result.namespaces = options.namespaces == true
+    local fields: {[string]: FieldOptions} = {}
+    for name, field in pairs(options.fields or {}) do
+        fields[name] = field
+    end
+    local selected = options.serde
+    if selected ~= nil then
+        result.naming = selected.naming
+        if selected.fields ~= nil then
+            local whitelist: {[string]: boolean} = {}
+            for name, field in pairs(selected.fields) do
+                whitelist[name] = true
+                local prior = fields[name]
+                if prior == nil then
+                    fields[
+                        name
+                    ] = FieldOptions(
+                        name = field.name,
+                        omitempty = field.omitempty,
+                        representation = field.representation
+                    )
+                elseif prior.name == nil and field.name ~= nil then
+                    error(
+                        "serde.xml: field "
+                        .. name
+                        .. " is renamed by serde options; give the name in FieldOptions too",
+                        2
+                    )
+                end
+            end
+            result.whitelist = whitelist
+        end
+    end
+    result.fields = fields
+
+    return result
+end
+
+local codecs: {[any]: any} = setmetatable({}, {__mode = "k"})
+
+--- Builds a typed codec for a record declaration.
+---
+--- A codec built without options is cached per declaration, so asking again
+--- returns the same one.
+---
+--- ```nupp
+--- local xml = serde.xml
+--- local record Datapoint
+---     id: string
+---     values: {number} = {}
+--- end
+--- local points = xml.codec(Datapoint)
+--- local point = points:decode("<Datapoint><id>a</id><values><member>1.5</member></values></Datapoint>")
+--- assert(point.id == "a" and point.values[1] == 1.5)
+--- assert(points:encode(point) == "<Datapoint><id>a</id><values><member>1.5</member></values></Datapoint>")
+--- ```
+---
+--- @param target the record declaration
+--- @param options naming, field mapping and the root element
+--- @return the codec
+--- @raises string when a field has no XML mapping
+export function codec<T is own.Copyable>(target: Type<T>, options: CodecOptions?): Codec<T>
+    if options == nil then
+        local cached = codecs[target]
+        if cached ~= nil then
+            return cached as Codec<T>
+        end
+    end
+    local plan = plans.build(
+        target,
+        options ~= nil and options.name or nil,
+        options ~= nil and options.namespace or nil,
+        options ~= nil and options.wrappers or nil,
+        planOptions(options)
+    )
+    local result = Codec<T>(
+        plan = plan,
+        anyroot = options ~= nil and options.anyroot == true,
+        settings = cursors.Options(
+            maxdepth = options ~= nil and options.maxdepth or 256,
+            namespaces = options ~= nil and options.namespaces == true,
+            encoding = options ~= nil and options.encoding == true,
+            strict = options ~= nil and options.strict == true
+        )
+    )
+    if options == nil then
+        codecs[target] = result
+    end
+
+    return result
+end
+
+local bindingCodecs: {[any]: any} = setmetatable({}, {__mode = "k"})
+
+local function bindingCodec<T is own.Copyable>(binding: serde.Binding<T>): Codec<T>
+    local cached = bindingCodecs[binding]
+    if cached ~= nil then
+        return cached as Codec<T>
+    end
+    local target, options = declarations.source(binding)
+    if target == nil then
+        error("serde.xml: the binding was not made by serde.binding; build a codec with serde.xml.codec", 3)
+    end
+    local result = codec(target as Type<T>, {serde = options})
+    bindingCodecs[binding] = result
+
+    return result
+end
+
+--- Decodes a document through a binding made by [](serde.binding).
+---
+--- The plan is built on the first call for a binding and kept, so this gives
+--- what [](codec) gives for the binding's declaration and options.
+---
+--- ```nupp
+--- local record User
+---     id: integer
+---     displayName: string
+--- end
+--- local users = serde.binding(User, serde.Options(naming = "snakecase"))
+--- local user = serde.xml.decode(users, "<User><id>7</id><display_name>Ada</display_name></User>")
+--- assert(user.displayName == "Ada")
+--- assert(serde.xml.encode(users, user) == "<User><id>7</id><display_name>Ada</display_name></User>")
+--- ```
+---
+--- @param binding the binding
+--- @param source the document
+--- @return the value
+--- @raises serde.Error when the document is malformed or does not fit
+--- @raises string when the binding was not made by serde.binding
+export function decode<T is own.Copyable>(binding: serde.Binding<T>, source: string): T
+    return bindingCodec(binding):decode(source)
+end
+
+--- Encodes a value through a binding made by [](serde.binding).
+---
+--- @param binding the binding
+--- @param value the value
+--- @return the document
+--- @raises string when the binding was not made by serde.binding
+export function encode<T is own.Copyable>(binding: serde.Binding<T>, value: T): string
+    return bindingCodec(binding):encode(value)
+end
+
+--- Whether a string is an XML `Name` by the fifth edition's Unicode rules,
+--- which the strict mode holds every name to.
+export const isname: function(value: string): boolean = chars.isname
+
+--- Escapes character data for XML text.
+export const escapetext: function(value: string): string = text.escapetext
+
+--- Escapes a value for a double-quoted XML attribute.
+export const escapeattribute: function(value: string): string = text.escapeattribute
+
+--- How many times an error has computed a line and column, so a test can
+--- show the success path never does.
+--- @internal
+export const counters: {positions: integer} = text.counters

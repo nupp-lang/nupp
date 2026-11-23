@@ -1,0 +1,156 @@
+-- The encoding option: UTF-16 by byte-order mark or declaration, ISO-8859-1,
+-- Windows-1252 and US-ASCII transcoded to UTF-8, for strings and chunks, and
+-- the errors for what it cannot honor.
+
+local xml = require("serde.xml")
+local test = require("assert")
+local M = {}
+
+local function raised(f: function(): any): any
+    local ok, failure = pcall(f)
+    test(not ok, "expected a raise")
+
+    return failure
+end
+
+--- UTF-8 text as UTF-16 code units.
+local function utf16(textValue: string, bigEndian: boolean): string
+    local out: {string} = {}
+    local at: integer = 1
+    while at <= #textValue do
+        local codepoint, nextAt = utf8.decodeat(textValue, at)
+        local value = codepoint as integer
+        local units: {integer} = {}
+        if value >= 0x10000 then
+            local offset = value - 0x10000
+            units = {0xD800 + (offset >> 10), 0xDC00 + (offset & 0x3FF)}
+        else
+            units = {value}
+        end
+        for _, unit in ipairs(units) do
+            if bigEndian then
+                out[#out + 1] = string.char(unit >> 8, unit & 0xFF)
+            else
+                out[#out + 1] = string.char(unit & 0xFF, unit >> 8)
+            end
+        end
+        at = nextAt
+    end
+
+    return table.concat(out)
+end
+
+local function texts(source: string | xml.Chunks): string
+    local r = xml.reader(source, {encoding = true})
+    local out: {string} = {}
+    while r:next() do
+        if r:kind() == xml.START then
+            out[#out + 1] = "<" .. r:name() .. ">"
+            for key, value in pairs(r:attributes()) do
+                out[#out + 1] = key .. "=" .. value
+            end
+        elseif r:kind() == xml.TEXT then
+            out[#out + 1] = r:text()
+        end
+    end
+
+    return table.concat(out, "|")
+end
+
+local function sized(textValue: string, size: integer): xml.Chunks
+    local at: integer = 1
+
+    return function(): string?
+        if at > #textValue then
+            return nil
+        end
+        local piece = textValue:sub(at, at + size - 1)
+        at = at + size
+
+        return piece
+    end
+end
+
+const SAMPLE = "<?xml version=\"1.0\"?><doc a=\"é\">café € 😀 ünï</doc>"
+const EXPECTED = "<doc>|a=é|café € 😀 ünï"
+
+function M.transcodesUtf16ByByteOrderMark(): nil
+    test(texts("\xff\xfe" .. utf16(SAMPLE, false)) == EXPECTED)
+    test(texts("\xfe\xff" .. utf16(SAMPLE, true)) == EXPECTED)
+end
+
+function M.transcodesUtf16WithoutAMarkByItsFirstBytes(): nil
+    local declared = "<?xml version=\"1.0\" encoding=\"UTF-16\"?><doc a=\"é\">x</doc>"
+    test(texts(utf16(declared, false)) == "<doc>|a=é|x")
+    test(texts(utf16(declared, true)) == "<doc>|a=é|x")
+end
+
+function M.transcodesSingleByteEncodings(): nil
+    local latin = "<?xml version='1.0' encoding='ISO-8859-1'?><d>caf\xe9 \xa9</d>"
+    test(texts(latin) == "<d>|café ©")
+    local windows = "<?xml version='1.0' encoding='windows-1252'?><d>\x80 \x93q\x94</d>"
+    test(texts(windows) == "<d>|€ “q”")
+    test(texts("<?xml version='1.0' encoding='US-ASCII'?><d>plain</d>") == "<d>|plain")
+end
+
+function M.transcodesChunksAcrossEverySplit(): nil
+    local documents: {
+        string
+    } = {
+        "\xff\xfe" .. utf16(SAMPLE, false),
+        "\xfe\xff" .. utf16(SAMPLE, true),
+        "<?xml version='1.0' encoding='ISO-8859-1'?><d>caf\xe9 \xa9</d>",
+    }
+    for _, doc in ipairs(documents) do
+        local whole = texts(doc)
+        for size = 1, 9 do
+            test(texts(sized(doc, size)) == whole, "chunks of " .. tostring(size))
+        end
+    end
+end
+
+function M.refusesWhatItCannotHonor(): nil
+    local unsupported = raised(function(): any
+        return texts("<?xml version='1.0' encoding='Shift_JIS'?><d/>")
+    end)
+    test(unsupported.rule == "unsupported-encoding" and unsupported.message:find("Shift_JIS", 1, true))
+    local contradicted = raised(function(): any
+        return texts("\xff\xfe" .. utf16("<?xml version='1.0' encoding='ISO-8859-1'?><d/>", false))
+    end)
+    test(contradicted.rule == "unsupported-encoding")
+    local ascii = raised(function(): any
+        return texts("<?xml version='1.0' encoding='US-ASCII'?><d>\xe9</d>")
+    end)
+    test(ascii.rule == "unsupported-encoding")
+    local lone = raised(function(): any
+        return texts("\xff\xfe" .. utf16("<d>", false) .. "\x00\xd8" .. utf16("</d>", false))
+    end)
+    test(lone.rule == "unsupported-encoding")
+    local odd = raised(function(): any
+        return texts("\xff\xfe" .. utf16("<d/>", false) .. "\x41")
+    end)
+    test(odd.rule == "unsupported-encoding")
+    local undefined = raised(function(): any
+        return texts("<?xml version='1.0' encoding='windows-1252'?><d>\x81</d>")
+    end)
+    test(undefined.rule == "unsupported-encoding")
+end
+
+function M.withoutTheOptionOtherEncodingsAreRefused(): nil
+    local err = raised(function(): any
+        local r = xml.reader("\xff\xfe" .. utf16("<d/>", false))
+        return r:next()
+    end)
+    test(err.rule == "undeclared-encoding" and err.message:find("encoding = true", 1, true))
+end
+
+function M.theTypedCodecTranscodes(): nil
+    local record Note
+        body: string
+    end
+    local notes = xml.codec(Note, {encoding = true})
+    test(notes:decode("\xfe\xff" .. utf16("<Note><body>hé</body></Note>", true)).body == "hé")
+    test(notes:decode("<?xml version='1.0' encoding='latin1'?><Note><body>\xe9</body></Note>").body == "é")
+end
+
+return M

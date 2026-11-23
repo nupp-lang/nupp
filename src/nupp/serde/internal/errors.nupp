@@ -21,6 +21,17 @@ export record Error
     --- The input byte offset, when a decoder knows it.
     @readonly byte: integer?
 
+    --- The 1-based line of `byte`, when a decoder computed it.
+    @readonly line: integer?
+
+    --- The 1-based byte column of `byte` within its line, when a decoder
+    --- computed it.
+    @readonly column: integer?
+
+    --- The rule the input broke, such as `mismatched-end-tag`, when a decoder
+    --- names one.
+    @readonly rule: string?
+
     --- The original problem, such as the value an adapter raised.
     @readonly cause: unknown
 
@@ -35,6 +46,10 @@ end
 
 Error.__tostring = function(self: Error): string
     local position = self.byte ~= nil and " at byte " .. tostring(self.byte) or ""
+    if self.line ~= nil and self.column ~= nil then
+        position = position .. " (line " .. tostring(self.line) .. ", column " .. tostring(self.column) .. ")"
+    end
+
     return self.code .. " " .. self.path .. position .. ": " .. self.message
 end
 
@@ -84,6 +99,9 @@ export function prefix(problem: unknown, parent: string): Error
         message = inner.message,
         path = parent .. inner.path:sub(2),
         byte = inner.byte,
+        line = inner.line,
+        column = inner.column,
+        rule = inner.rule,
         cause = inner.cause,
         suppressed = inner.suppressed
     )

@@ -1,0 +1,251 @@
+--[[
+The element tree `serde.xml.parse` builds on the cursor. Only elements and
+their text are kept; comments, PIs and the DOCTYPE are not.
+]]
+module serde.xml.internal.tree
+
+local cursors = require("serde.xml.internal.cursor")
+
+local type Cursor = cursors.Cursor
+
+--- One attribute as written, with its namespace when names are resolved.
+export record Attribute
+    @readonly name: string
+    @readonly localname: string
+    @readonly space: string?
+    @readonly value: string
+end
+
+const NAMESPACES_OFF = "serde.xml: a namespace-qualified lookup needs a tree parsed with namespaces = true"
+
+--- Whether a child or attribute named by a lookup is this one.
+local function named(name: string, localname: string, space: string?, wanted: string, wantedSpace: string?): boolean
+    if wantedSpace == nil then
+        return name == wanted
+    end
+
+    return localname == wanted and space == wantedSpace
+end
+
+export record Element
+    --- The qualified name as written.
+    @readonly name: string
+
+    --- The name after any prefix.
+    @readonly localname: string
+
+    --- The namespace URI, when the tree was parsed with namespaces.
+    @readonly space: string?
+
+    --- The attributes in document order.
+    @readonly attributes: {Attribute}
+
+    --- Child elements and text, in document order.
+    @readonly nodes: {Element | string}
+
+    @private @readonly resolved: boolean
+
+    function check(self, space: string?): nil
+        if space ~= nil and not self.resolved then
+            error(NAMESPACES_OFF, 3)
+        end
+    end
+
+    --- The value of an attribute, or nil.
+    ---
+    --- @param name the qualified name, or the local name when `space` is given
+    --- @param space the namespace URI
+    --- @raises string when `space` is given and the tree was parsed without
+    ---     namespaces
+    function attr(self, name: string, space: string?): string?
+        self:check(space)
+        for _, attribute in ipairs(self.attributes) do
+            if named(attribute.name, attribute.localname, attribute.space, name, space) then
+                return attribute.value
+            end
+        end
+
+        return nil
+    end
+
+    --- The first child element with a name, or nil.
+    ---
+    --- @param name the qualified name, or the local name when `space` is given
+    --- @param space the namespace URI
+    --- @raises string when `space` is given and the tree was parsed without
+    ---     namespaces
+    function child(self, name: string, space: string?): Element?
+        self:check(space)
+        for _, node in ipairs(self.nodes) do
+            if type(node) ~= "string" then
+                local element = node as Element
+                if named(element.name, element.localname, element.space, name, space) then
+                    return element
+                end
+            end
+        end
+
+        return nil
+    end
+
+    --- Iterates the child elements, or those with a name.
+    ---
+    --- @param name the qualified name, the local name when `space` is given,
+    ---     or nil for every child element
+    --- @param space the namespace URI
+    --- @raises string when `space` is given and the tree was parsed without
+    ---     namespaces
+    function children(self, name: string?, space: string?): function(): Element?
+        self:check(space)
+        local nodes = self.nodes
+        local index: integer = 0
+
+        return function(): Element?
+            while true do
+                index = index + 1
+                local node = nodes[index]
+                if node == nil then
+                    return nil
+                end
+                if type(node) ~= "string" then
+                    local element = node as Element
+                    if name == nil or named(element.name, element.localname, element.space, name as string, space) then
+                        return element
+                    end
+                end
+            end
+        end
+    end
+
+    --- The first descendant element with a name and, when given, attribute
+    --- values, searched depth first in document order; or nil.
+    ---
+    --- ```nupp:fragment
+    --- local seeders = item:find("attr", TORZNAB, {name = "seeders"})
+    --- ```
+    ---
+    --- @param name the qualified name, or the local name when `space` is given
+    --- @param space the namespace URI, or nil
+    --- @param attributes attribute values the element must have, by name
+    --- @raises string when `space` is given and the tree was parsed without
+    ---     namespaces
+    function find(self, name: string, space: string?, attributes: {[string]: string}?): Element?
+        self:check(space)
+        for _, node in ipairs(self.nodes) do
+            if type(node) ~= "string" then
+                local element = node as Element
+                if named(element.name, element.localname, element.space, name, space) then
+                    local matches = true
+                    for key, value in pairs(attributes or {}) do
+                        if element:attr(key) ~= value then
+                            matches = false
+                            break
+                        end
+                    end
+                    if matches then
+                        return element
+                    end
+                end
+                local found = element:find(name, space, attributes)
+                if found ~= nil then
+                    return found
+                end
+            end
+        end
+
+        return nil
+    end
+
+    --- The element's text: its own and every descendant's, in order.
+    function text(self): string
+        local parts: {string} = {}
+
+        local function collect(element: Element): nil
+            for _, node in ipairs(element.nodes) do
+                if type(node) == "string" then
+                    parts[#parts + 1] = node as string
+                else
+                    collect(node as Element)
+                end
+            end
+        end
+
+        collect(self)
+
+        return table.concat(parts)
+    end
+end
+
+--- Builds the tree from a cursor before its first token.
+---
+--- @param c the cursor
+--- @return the root element
+--- @raises serde.Error when the document is malformed
+export function build(c: Cursor): Element
+    local stack: {Element} = {}
+    local root: Element? = nil
+    local resolved = c.namespaces
+    while c:next() do
+        local kind = c.kind
+        if kind == cursors.START then
+            local attributes: {Attribute} = {}
+            for index = 1, c.acount do
+                local name = c.anames[index]
+                local localname = name
+                local space: string? = nil
+                if resolved then
+                    localname = c.alocals[index]
+                    space = c.aspaces[index]
+                else
+                    local colon = string.find(name, ":", 1, true)
+                    if colon ~= nil then
+                        localname = string.sub(name, colon + 1)
+                    end
+                end
+                attributes[
+                    index
+                ] = Attribute(name = name, localname = localname, space = space, value = c:attrvalue(index))
+            end
+            local localname = c.tname
+            if resolved then
+                localname = c.tlocal
+            else
+                local colon = string.find(localname, ":", 1, true)
+                if colon ~= nil then
+                    localname = string.sub(localname, colon + 1)
+                end
+            end
+            local element = Element(
+                name = c.tname,
+                localname = localname,
+                space = resolved and c.tspace or nil,
+                attributes = attributes,
+                nodes = {},
+                resolved = resolved
+            )
+            local parent = stack[#stack]
+            if parent ~= nil then
+                parent.nodes[#parent.nodes + 1] = element
+            else
+                root = element
+            end
+            stack[#stack + 1] = element
+        elseif kind == cursors.END then
+            stack[#stack] = nil
+        elseif kind == cursors.TEXT then
+            local parent = stack[#stack]
+            if parent ~= nil then
+                local value = c:text()
+                local nodes = parent.nodes
+                local last = nodes[#nodes]
+                if type(last) == "string" then
+                    nodes[#nodes] = (last as string) .. value
+                else
+                    nodes[#nodes + 1] = value
+                end
+            end
+        end
+    end
+
+    return root as Element
+end

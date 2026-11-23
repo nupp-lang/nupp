@@ -1,0 +1,349 @@
+--[[
+Character data for `serde.xml`: references, escaping, UTF-8 and error
+positions.
+
+Everything here works on whole strings through the runtime's pattern
+functions, so a run of text costs a call rather than a call per byte.
+]]
+module serde.xml.internal.text
+
+local errors = require("nupp.serde.internal.errors")
+
+local find = string.find
+local sub = string.sub
+local gsub = string.gsub
+local byte = string.byte
+local char = string.char
+
+--- The five predefined entities.
+const PREDEFINED: {[string]: string} = {amp = "&", lt = "<", gt = ">", quot = "\"", apos = "'"}
+
+--- Text bytes that escape, and what they become.
+const TEXT_ESCAPES: {[string]: string} = {["&"] = "&amp;", ["<"] = "&lt;", [">"] = "&gt;", ["\r"] = "&#xD;",}
+
+--- Attribute value bytes that escape, and what they become.
+const ATTRIBUTE_ESCAPES: {
+    [string]: string
+} = {
+    ["&"] = "&amp;",
+    ["<"] = "&lt;",
+    [">"] = "&gt;",
+    ["\""] = "&quot;",
+    ["\r"] = "&#xD;",
+    ["\n"] = "&#xA;",
+    ["\t"] = "&#x9;",
+}
+
+const MAX_CODEPOINT = 0x10FFFF
+
+--- Counts the line and column of a byte offset.
+---
+--- Called only when an error is raised, so a successful parse never pays for
+--- tracking lines.
+---
+--- @param source the document
+--- @param offset the 1-based byte offset
+--- @return the 1-based line
+--- @return the 1-based byte column
+export function position(source: string, offset: integer): (integer, integer)
+    local line: integer = 1
+    local lineStart: integer = 1
+    local at: integer = 1
+    local limit = offset < 1 and 1 or offset
+    while true do
+        local newline = find(source, "\n", at, true)
+        if newline == nil or newline >= limit then
+            break
+        end
+        line = line + 1
+        lineStart = newline + 1
+        at = newline + 1
+    end
+
+    return line, limit - lineStart + 1
+end
+
+--- Counts how many times `position` has run, so a test can show the success
+--- path never does.
+export const counters: {positions: integer} = {positions = 0}
+
+--- Raises a syntax error at a byte offset of a document.
+---
+--- @param source the document, or nil when the offset is not in a string held
+---     whole
+--- @param offset the 1-based byte offset
+--- @param rule the rule broken, such as `mismatched-end-tag`
+--- @param message what is wrong
+--- @param path the element path, such as `/feed/entry[2]`
+--- @param code the error code, `syntax` unless given
+--- @raises serde.Error always
+export function fail(
+    source: string?,
+    offset: integer,
+    rule: string,
+    message: string,
+    path: string?,
+    code: errors.Code?
+): never
+    local line: integer? = nil
+    local column: integer? = nil
+    if source ~= nil then
+        counters.positions = counters.positions + 1
+        line, column = position(source, offset)
+    end
+    error(
+        errors.Error(
+            code = code ?? "syntax",
+            message = message,
+            path = path ?? "/",
+            byte = offset,
+            line = line,
+            column = column,
+            rule = rule,
+            cause = nil
+        ),
+        0
+    )
+end
+
+--- Raises a syntax error whose line and column the caller computed.
+---
+--- @param offset the 1-based byte offset in the whole input
+--- @param line the 1-based line
+--- @param column the 1-based byte column
+--- @param rule the rule broken
+--- @param message what is wrong
+--- @param path the element path
+--- @raises serde.Error always
+export function failat(
+    offset: integer,
+    line: integer,
+    column: integer,
+    rule: string,
+    message: string,
+    path: string?
+): never
+    counters.positions = counters.positions + 1
+    error(
+        errors.Error(
+            code = "syntax",
+            message = message,
+            path = path ?? "/",
+            byte = offset,
+            line = line,
+            column = column,
+            rule = rule,
+            cause = nil
+        ),
+        0
+    )
+end
+
+--- Whether a code point is an XML `Char`.
+---
+--- @param codepoint the code point
+--- @return whether XML 1.0 admits it
+export function ischar(codepoint: integer): boolean
+    if codepoint < 0x20 then
+        return codepoint == 0x9 or codepoint == 0xA or codepoint == 0xD
+    end
+
+    return codepoint <= 0xD7FF
+        or (codepoint >= 0xE000 and codepoint <= 0xFFFD)
+        or (codepoint >= 0x10000 and codepoint <= MAX_CODEPOINT)
+end
+
+--- Encodes a code point as UTF-8.
+---
+--- @param codepoint a valid Unicode scalar
+--- @return its bytes
+export function encode(codepoint: integer): string
+    if codepoint < 0x80 then
+        return char(codepoint)
+    elseif codepoint < 0x800 then
+        return char(0xC0 | (codepoint >> 6), 0x80 | (codepoint & 0x3F))
+    elseif codepoint < 0x10000 then
+        return char(0xE0 | (codepoint >> 12), 0x80 | ((codepoint >> 6) & 0x3F), 0x80 | (codepoint & 0x3F))
+    end
+
+    return char(
+        0xF0 | (codepoint >> 18),
+        0x80 | ((codepoint >> 12) & 0x3F),
+        0x80 | ((codepoint >> 6) & 0x3F),
+        0x80 | (codepoint & 0x3F)
+    )
+end
+
+--- Resolves one reference body, the text between `&` and `;`.
+---
+--- @param body the reference, such as `amp` or `#x20AC`
+--- @return the replacement text, or nil
+--- @return why the reference is refused, when it is
+export function reference(body: string): (string?, string?)
+    local predefined = PREDEFINED[body]
+    if predefined ~= nil then
+        return predefined, nil
+    end
+    local codepoint: integer? = nil
+    if find(body, "^#x%x+$") then
+        local digits = gsub(sub(body, 3), "^0+(.)", "%1")
+        if #digits > 6 then
+            return nil, "character reference &" .. body .. "; is out of range"
+        end
+        codepoint = math.tointeger(tonumber(digits, 16))
+    elseif find(body, "^#%d+$") then
+        local digits = gsub(sub(body, 2), "^0+(.)", "%1")
+        if #digits > 7 then
+            return nil, "character reference &" .. body .. "; is out of range"
+        end
+        codepoint = math.tointeger(tonumber(digits, 10))
+    elseif find(body, "^#") then
+        return nil, "malformed character reference &" .. body .. ";"
+    elseif body == "" then
+        return nil, "empty entity reference"
+    else
+        return nil, "entity &" .. body .. "; is not expanded: only the five predefined entities are"
+    end
+    if codepoint == nil or not ischar(codepoint) then
+        return nil, "character reference &" .. body .. "; is not an XML character"
+    end
+
+    return encode(codepoint), nil
+end
+
+--- Checks every reference in `source[first..last]`.
+---
+--- @param source the document
+--- @param first the first byte of the run, which contains an `&`
+--- @param last the last byte of the run
+--- @param path the element path for errors
+--- @raises serde.Error when a reference is malformed or names an entity other
+---     than the predefined five
+export function checkreferences(source: string, first: integer, last: integer, path: string?): nil
+    local at = first
+    while true do
+        local amp = find(source, "[&<]", at)
+        if amp == nil or amp > last or byte(source, amp) ~= 38 then
+            return
+        end
+        local _, close, body = find(source, "^&([^;&<%s]*);", amp)
+        if close == nil or (close as integer) > last then
+            fail(source, amp, "malformed-reference", "an & must start a reference ending in ;", path)
+        end
+        local _, why = reference(body as string)
+        if why ~= nil then
+            local rule = find(body as string, "^#") and "invalid-character-reference" or "undeclared-entity"
+            fail(source, amp, rule, why, path)
+        end
+        at = (close as integer) + 1
+    end
+end
+
+--- Replaces the references in text already checked by `checkreferences`.
+---
+--- @param raw the text, with references
+--- @return the text they stand for
+export function decode(raw: string): string
+    if not find(raw, "&", 1, true) then
+        return raw
+    end
+    local result = gsub(raw, "&([^;&<%s]*);", function(body: string): string
+        local replacement, why = reference(body)
+        if replacement == nil then
+            error(why, 0)
+        end
+
+        return replacement
+    end)
+
+    return result
+end
+
+--- Escapes character data.
+---
+--- Text that needs no escape is returned as it is, after one scan.
+---
+--- @param value the text
+--- @return it as XML character data
+export function escapetext(value: string): string
+    if not find(value, "[&<>\r]") then
+        return value
+    end
+    local result = gsub(value, "[&<>\r]", TEXT_ESCAPES)
+
+    return result
+end
+
+--- Escapes an attribute value for a double-quoted attribute.
+---
+--- @param value the value
+--- @return it as XML attribute text
+export function escapeattribute(value: string): string
+    if not find(value, "[&<>\"\r\n\t]") then
+        return value
+    end
+    local result = gsub(value, "[&<>\"\r\n\t]", ATTRIBUTE_ESCAPES)
+
+    return result
+end
+
+--- Finds the first malformed UTF-8 sequence in `source`.
+---
+--- ASCII is found in one scan; only runs of bytes at or above 0x80 are
+--- decoded.
+---
+--- @param source the bytes
+--- @param first where to start
+--- @return the offset of the first malformed byte, or nil when the bytes are
+---     well formed
+export function invalidutf8(source: string, first: integer?): integer?
+    local at = first ?? 1
+    while true do
+        local runStart, runEnd = find(source, "[\128-\255]+", at)
+        if runStart == nil then
+            return nil
+        end
+        local i: integer = runStart as integer
+        local last: integer = runEnd as integer
+        while i <= last do
+            local lead = byte(source, i) as integer
+            local count: integer
+            local minimum: integer
+            local codepoint: integer
+            if lead >= 0xC2 and lead <= 0xDF then
+                count, minimum, codepoint = 1, 0x80, lead & 0x1F
+            elseif lead >= 0xE0 and lead <= 0xEF then
+                count, minimum, codepoint = 2, 0x800, lead & 0x0F
+            elseif lead >= 0xF0 and lead <= 0xF4 then
+                count, minimum, codepoint = 3, 0x10000, lead & 0x07
+            else
+                return i
+            end
+            if i + count > last then
+                return i
+            end
+            for k = 1, count do
+                local continuation = byte(source, i + k) as integer
+                if continuation < 0x80 or continuation > 0xBF then
+                    return i
+                end
+                codepoint = (codepoint << 6) | (continuation & 0x3F)
+            end
+            if codepoint < minimum or codepoint > MAX_CODEPOINT or (codepoint >= 0xD800 and codepoint <= 0xDFFF) then
+                return i
+            end
+            i = i + count + 1
+        end
+        at = last + 1
+    end
+end
+
+--- Escapes Lua pattern magic in `value`.
+---
+--- @param value literal text
+--- @return a pattern matching exactly it
+export function literal(value: string): string
+    local result = gsub(value, "[%^%$%(%)%%%.%[%]%*%+%-%?]", "%%%0")
+
+    return result
+end

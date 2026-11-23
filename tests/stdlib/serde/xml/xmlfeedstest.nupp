@@ -1,0 +1,236 @@
+-- Feeds with namespaces on: Torznab caps and search results, RSS 2.0 with
+-- content:encoded, Atom, Media RSS and Dublin Core, as trees and as typed
+-- records. The same documents under other prefixes give the same results.
+
+local xml = require("serde.xml")
+local test = require("assert")
+local M = {}
+
+local HERE = "tests/stdlib/serde/xml/fixtures/"
+local TORZNAB = "http://torznab.com/schemas/2015/feed"
+local ATOM = "http://www.w3.org/2005/Atom"
+local CONTENT = "http://purl.org/rss/1.0/modules/content/"
+local DC = "http://purl.org/dc/elements/1.1/"
+local MEDIA = "http://search.yahoo.com/mrss/"
+
+local function fixture(name: string): string
+    local file = assert(io.open(HERE .. name, "rb"))
+    local data = file:read("a") as string
+    file:close()
+
+    return data
+end
+
+local function parsed(name: string): xml.Element
+    return xml.parse(fixture(name), {namespaces = true})
+end
+
+function M.readsTorznabCaps(): nil
+    local caps = parsed("torznab-caps.xml")
+    test((caps:child("server") as xml.Element):attr("title") == "Example Indexer")
+    test((caps:child("limits") as xml.Element):attr("max") == "100")
+    local tv = (caps:child("searching") as xml.Element):child("tv-search") as xml.Element
+    test(tv:attr("supportedParams") == "q,season,ep,imdbid")
+    local ids: {string} = {}
+    for category in (caps:child("categories") as xml.Element):children("category") do
+        for sub in category:children("subcat") do
+            ids[#ids + 1] = sub:attr("id") as string
+        end
+    end
+    test(table.concat(ids, ",") == "2040,2045,5040")
+end
+
+local function torznabSummary(feed: xml.Element): string
+    local rows: {string} = {}
+    for item in (feed:child("channel") as xml.Element):children("item") do
+        local seeders = item:find("attr", TORZNAB, {name = "seeders"})
+        local category = item:find("attr", TORZNAB, {name = "category"})
+        rows[
+            #rows + 1
+        ] = (
+            item:child("title") as xml.Element
+        ):text() .. "|" .. tostring(
+            seeders and seeders:attr("value")
+        ) .. "|" .. tostring(category and category:attr("value"))
+    end
+    local self = (feed:child("channel") as xml.Element):child("link", ATOM) as xml.Element
+
+    return table.concat(rows, ";") .. "|" .. tostring(self:attr("href"))
+end
+
+function M.readsTorznabSearchResultsWhateverThePrefix(): nil
+    local summary = torznabSummary(parsed("torznab-search.xml"))
+    test(summary == "Show.S01E01.1080p|42|5040;Movie & Sequel (2026) 2160p|7|2045|https://indexer.example/api", summary)
+    test(torznabSummary(parsed("torznab-search-prefixed.xml")) == summary)
+end
+
+function M.theRequirementsExampleRunsAsWritten(): nil
+    -- As the requirements write it. `child` answers an optional, so the
+    -- chained call is read through `any`, as a script would.
+    local body = fixture("torznab-search.xml")
+    local feed: any = serde.xml.parse(body, {namespaces = true})
+    local TORZNAB_FEED = "http://torznab.com/schemas/2015/feed"
+    local found: {string} = {}
+    for item in feed:child("channel"):children("item") do
+        local seeders = item:find("attr", TORZNAB_FEED, {name = "seeders"})
+        found[#found + 1] = seeders:attr("value")
+    end
+    test(table.concat(found, ",") == "42,7")
+end
+
+local function rssSummary(feed: xml.Element): string
+    local rows: {string} = {}
+    for item in (feed:child("channel") as xml.Element):children("item") do
+        local creator = item:child("creator", DC)
+        local encoded = item:child("encoded", CONTENT) as xml.Element
+        local content = item:child("content", MEDIA)
+        local thumbnail = item:child("thumbnail", MEDIA)
+        rows[
+            #rows + 1
+        ] = table.concat(
+            {
+                (item:child("title") as xml.Element):text(),
+                creator ~= nil and (creator as xml.Element):text() or "-",
+                encoded:text(),
+                content ~= nil and tostring((content as xml.Element):attr("url")) or "-",
+                content ~= nil and ((content as xml.Element):child("title", MEDIA) as xml.Element):text() or "-",
+                thumbnail ~= nil and tostring((thumbnail as xml.Element):attr("width")) or "-",
+            },
+            "|"
+        )
+    end
+
+    return table.concat(rows, ";")
+end
+
+function M.readsRssWithContentDublinCoreAndMediaRss(): nil
+    local summary = rssSummary(parsed("rss.xml"))
+    test(
+        summary == "First post|Ada|<p>Body with <b>markup</b> & an ampersand.</p>|https://blog.example/first.jpg|Cover|64"
+        .. ";Second post|Grace|<p>Second body.</p>|-|-|-",
+        summary
+    )
+    test(rssSummary(parsed("rss-prefixed.xml")) == summary)
+    test(
+        (
+            (parsed("rss.xml"):child("channel") as xml.Element):child("description") as xml.Element
+        ):text() == "Notes <and> links"
+    )
+end
+
+local function atomSummary(feed: xml.Element): string
+    local entry = feed:child("entry", ATOM) as xml.Element
+    local group = entry:child("group", MEDIA) as xml.Element
+
+    return table.concat(
+        {
+            (feed:child("title", ATOM) as xml.Element):text(),
+            (entry:child("title", ATOM) as xml.Element):text(),
+            ((entry:child("author", ATOM) as xml.Element):child("name", ATOM) as xml.Element):text(),
+            (entry:child("summary", ATOM) as xml.Element):text(),
+            tostring((group:child("content", MEDIA) as xml.Element):attr("type")),
+            (group:child("rating", MEDIA) as xml.Element):text(),
+        },
+        "|"
+    )
+end
+
+function M.readsAtomWithMediaRssWhateverThePrefix(): nil
+    local summary = atomSummary(parsed("atom.xml"))
+    test(summary == "Example Atom Feed|Atom entry one|Ada|First — summary|video/mp4|nonadult", summary)
+    test(atomSummary(parsed("atom-prefixed.xml")) == summary)
+    test(parsed("atom.xml"):child("title", MEDIA) == nil, "an Atom name does not match in another namespace")
+end
+
+-- The same feeds as typed records.
+
+local record TorznabAttr
+    name: string
+    value: string
+end
+
+local record Item
+    title: string
+    guid: string?
+    size: integer?
+    attrs: {TorznabAttr} = {}
+end
+
+local record Channel
+    title: string
+    items: {Item} = {}
+end
+
+local record Rss
+    channel: Channel
+end
+
+local torznab = xml.codec(Rss, {
+    name = "rss",
+    namespaces = true,
+    records = {
+        Channel = {items = xml.FieldOptions(flattened = true, name = "item")},
+        Item = {attrs = xml.FieldOptions(flattened = true, name = "torznab:attr", namespace = TORZNAB)},
+        TorznabAttr = {name = xml.FieldOptions(attribute = true), value = xml.FieldOptions(attribute = true)},
+    },
+    declarations = {Channel, Item, TorznabAttr},
+})
+
+local function torznabRecords(name: string): string
+    local feed = torznab:decode(fixture(name))
+    local rows: {string} = {}
+    for _, item in ipairs(feed.channel.items) do
+        local parts: {string} = {item.title, tostring(item.size)}
+        for _, attr in ipairs(item.attrs) do
+            parts[#parts + 1] = attr.name .. "=" .. attr.value
+        end
+        rows[#rows + 1] = table.concat(parts, ",")
+    end
+
+    return table.concat(rows, ";")
+end
+
+function M.decodesTorznabIntoRecordsWhateverThePrefix(): nil
+    local summary = torznabRecords("torznab-search.xml")
+    test(
+        summary == "Show.S01E01.1080p,1500000000,category=5040,seeders=42,peers=50,infohash=0123456789abcdef0123456789abcdef01234567"
+        .. ";Movie & Sequel (2026) 2160p,30000000000,category=2045,seeders=7",
+        summary
+    )
+    test(torznabRecords("torznab-search-prefixed.xml") == summary)
+end
+
+local record Post
+    title: string
+    encoded: string?
+    creator: string?
+end
+
+local record PostChannel
+    title: string
+    posts: {Post} = {}
+end
+
+local record Blog
+    channel: PostChannel
+end
+
+local blogs = xml.codec(Blog, {
+    name = "rss",
+    namespaces = true,
+    records = {
+        PostChannel = {posts = xml.FieldOptions(flattened = true, name = "item")},
+        Post = {encoded = xml.FieldOptions(namespace = CONTENT), creator = xml.FieldOptions(namespace = DC)},
+    },
+    declarations = {PostChannel, Post},
+})
+
+function M.decodesRssIntoRecordsWhateverThePrefix(): nil
+    local one = blogs:decode(fixture("rss.xml"))
+    local two = blogs:decode(fixture("rss-prefixed.xml"))
+    test(#one.channel.posts == 2 and one.channel.posts[1].creator == "Ada")
+    test(one.channel.posts[1].encoded == "<p>Body with <b>markup</b> & an ampersand.</p>")
+    test(blogs:encode(one) == blogs:encode(two))
+end
+
+return M
