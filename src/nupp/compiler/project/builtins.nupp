@@ -51,6 +51,13 @@ export const REGISTRY: {[string]: Builtin} = {
     },
     -- Written in Nupp, so it binds no library and runs wherever serde does.
     xml = {modules = {"serde.xml", "serde.xml.*"}, owned = {}, libraries = {}, hosts = {"native", "browser"}},
+    -- serde.yaml over the pinned libyaml (native/yaml).
+    yaml = {
+        modules = {"serde.yaml", "serde.yaml.*"},
+        owned = {"nupp.runtime.core.yamlcodec"},
+        libraries = {{name = "nuppyaml", file = "nupp_yaml", notices = {"libyaml-LICENSE.txt"}}},
+        hosts = {"native"},
+    },
 }
 
 --- The variable naming a JSON file of further entries, in the registry's

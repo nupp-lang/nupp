@@ -1,0 +1,9 @@
+module app.config
+
+local yaml = require("serde.yaml")
+
+--- The port a YAML configuration names, through the yaml builtin.
+export function port(text: string): integer
+    local value: any = assert(yaml.decodevalue(text))
+    return value.port as integer
+end
