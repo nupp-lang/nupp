@@ -10,9 +10,12 @@ local M = {}
 function M.theHostWallClockReportsEpochMilliseconds()
     local wallclock = require("nupp.runtime.provider.wallclock")
     local available, clock = pcall(require, "nupp.vm.clock")
-    if not available then
+    -- On the core both are the shared timer provider, whose `now` is
+    -- monotonic: only the difference between two readings means anything.
+    if not available or clock == wallclock then
         local before = wallclock.now()
         assert(type(before) == "number" and before >= 0 and wallclock.now() >= before)
+        assert(progress.now() >= before)
         return
     end
     local before = clock.wallTime()
