@@ -381,7 +381,7 @@ export function prepare(
     local spread = native.load64(call, native.fieldOffset<catalog.Callsite>("spread")) == 1ULL
     -- A variadic callee's last parameter is its pack of extra arguments.
     local declared = native.load64(signature, native.fieldOffset<catalog.Signature>("parameterCount"))
-    local variadic = native.load64(signature, native.fieldOffset<catalog.Signature>("variadic")) == 1ULL
+    local variadic = native.load64(signature, native.fieldOffset<catalog.Signature>("variadic")) ~= 0ULL
     local fixed = declared
     if variadic then
         fixed = declared - 1ULL
@@ -428,10 +428,20 @@ export function prepare(
     return child
 end
 
--- After prepare: a variadic callee's pack {[0] = n, ...} of the arguments
--- past its fixed ones, stored in its last parameter slot before it is filled
--- so the prepared frame roots it throughout. Answers 1, or 0 on refusal.
-export function packVarargs(ctx: voidptr, frame: voidptr, child: voidptr, base: uint64, nargs: uint64): uint64
+-- After prepare: a variadic callee's pack of the arguments past its fixed
+-- ones, stored in its last parameter slot. With `inframe` 1, a callee whose
+-- code takes a frame pack gets one, the arguments where `frame` staged them,
+-- which it waits on the callee meanwhile; otherwise the pack is a table
+-- {[0] = n, ...}, stored before it is filled so the prepared frame roots it
+-- throughout. Answers 1, or 0 on refusal.
+export function packVarargs(
+    ctx: voidptr,
+    frame: voidptr,
+    child: voidptr,
+    base: uint64,
+    nargs: uint64,
+    inframe: uint64
+): uint64
     local c = native.loadPointer(ctx, context.CATALOG)
     local id = native.load64(child, native.fieldOffset<frames.Frame>("functionId"))
     if id >= native.load64(c, native.fieldOffset<catalog.Catalog>("count")) then
@@ -450,20 +460,25 @@ export function packVarargs(ctx: voidptr, frame: voidptr, child: voidptr, base: 
             ) * native.sizeOf<catalog.Signature>()
         )
     )
-    if native.load64(signature, native.fieldOffset<catalog.Signature>("variadic")) ~= 1ULL then
+    local variadic = native.load64(signature, native.fieldOffset<catalog.Signature>("variadic"))
+    if variadic == 0ULL then
         return 1ULL
     end
     local declared = native.load64(signature, native.fieldOffset<catalog.Signature>("parameterCount"))
     local fixed = declared - 1ULL
-    local window = native.loadPointer(frame, native.fieldOffset<frames.Frame>("values"))
-    local pack = guestscope.newTable(ctx)
     local slots = native.loadPointer(child, native.fieldOffset<frames.Frame>("values"))
-    native.store64(slots, native.index(declared * 8ULL), values.TAG_OBJ | pack)
     -- A dynamic call may give fewer than the fixed ones: then none extra.
     local count: uint64 = 0ULL
     if nargs > fixed then
         count = nargs - fixed
     end
+    if variadic == catalog.FRAME_VARARGS and inframe == 1ULL then
+        native.store64(slots, native.index(declared * 8ULL), guestscope.framepack(base + 1ULL + fixed, count))
+        return 1ULL
+    end
+    local window = native.loadPointer(frame, native.fieldOffset<frames.Frame>("values"))
+    local pack = guestscope.newTable(ctx)
+    native.store64(slots, native.index(declared * 8ULL), values.TAG_OBJ | pack)
     guestmeta.tableSet(ctx, pack, values.TAG_INTEGER, values.TAG_INTEGER | count)
     local k: uint64 = 0ULL
     while k < count do
@@ -523,7 +538,7 @@ export function appendSpread(
         )
     )
     local declared = native.load64(signature, native.fieldOffset<catalog.Signature>("parameterCount"))
-    if native.load64(signature, native.fieldOffset<catalog.Signature>("variadic")) ~= 1ULL then
+    if native.load64(signature, native.fieldOffset<catalog.Signature>("variadic")) == 0ULL then
         if declared > given then
             return 0ULL
         end
@@ -690,7 +705,7 @@ export function metaPrepare(
     -- arguments past the parameters are dropped, and a variadic callee packs
     -- those past its fixed ones.
     local declared = native.load64(signature, native.fieldOffset<catalog.Signature>("parameterCount"))
-    local variadic = native.load64(signature, native.fieldOffset<catalog.Signature>("variadic")) == 1ULL
+    local variadic = native.load64(signature, native.fieldOffset<catalog.Signature>("variadic")) ~= 0ULL
     local fixed = declared
     if variadic then
         fixed = declared - 1ULL
@@ -734,7 +749,7 @@ export function metaPrepare(
         fail(ctx, frame, pc, RESOURCE)
         return 0ULL
     end
-    if variadic and packVarargs(ctx, frame, native.pointer(child), base, nargs) ~= 1ULL then
+    if variadic and packVarargs(ctx, frame, native.pointer(child), base, nargs, 0ULL) ~= 1ULL then
         failure(ctx, INVALID)
         return 0ULL
     end

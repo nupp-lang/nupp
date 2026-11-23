@@ -568,6 +568,55 @@ export function newpacked(ctx: voidptr, kind: uint64, capacity: uint64): uint64
     end
 end
 
+-- A variadic function's `...` is a pack: a table {[0] = n, ...}, or a frame
+-- pack, which is no table. A frame pack's values are the arguments its
+-- caller staged, which stay in the caller's window while the function runs,
+-- since the caller waits at the call meanwhile (guestops.packVarargs). It is
+-- an integer word saying where in that window they start and how many there
+-- are, so the collector passes over it. Only the function's own frame holds
+-- it, since `...` is never captured, and it is read while that frame is the
+-- active one: by select, a spread or return of `...`, and the library calls
+-- that copy it into a table, `{...}` and a named vararg among them.
+const FRAME_PACK_SHIFT: uint64 = 8ULL
+const FRAME_PACK_COUNT: uint64 = 0xffULL
+
+-- The frame pack of the `count` values from slot `start` of the window of
+-- the active frame's caller.
+export function framepack(start: uint64, count: uint64): uint64
+    return values.TAG_INTEGER | (start << FRAME_PACK_SHIFT) | count
+end
+
+-- Whether the pack `pack` is a frame pack rather than a table.
+export function inframe(pack: uint64): boolean
+    return pack & values.TAG_MASK ~= values.TAG_OBJ
+end
+
+-- How many values the pack `pack` holds.
+export function packcount(pack: uint64): uint64
+    if inframe(pack) then
+        return pack & FRAME_PACK_COUNT
+    end
+
+    return ints.bitsOf(tables.get(pack & values.PAYLOAD, values.TAG_INTEGER))
+end
+
+-- The `k`-th value of the pack `pack`, from 1 to its count. A frame pack is
+-- read while the frame holding it is the active one.
+export function packvalue(ctx: voidptr, pack: uint64, k: uint64): uint64
+    if not inframe(pack) then
+        return tables.get(pack & values.PAYLOAD, values.TAG_INTEGER | k)
+    end
+    local active = native.loadPointer(
+        native.loadPointer(ctx, context.STATE),
+        native.fieldOffset<frames.State>("active")
+    )
+    local caller = native.loadPointer(active, native.fieldOffset<frames.Frame>("previous"))
+    local window = native.loadPointer(caller, native.fieldOffset<frames.Frame>("values"))
+    local start = (pack & values.PAYLOAD) >> FRAME_PACK_SHIFT
+
+    return native.load64(window, native.index((start + k - 1ULL) * 8ULL))
+end
+
 -- The pack {[0] = n, ...} of the `count` values at `source` followed by the
 -- values of `extra`, a pack (0 for none): a call's results for a caller that
 -- takes them all as one value.
@@ -604,16 +653,11 @@ local function packedvalues(
             at = at + 1ULL
         end
         if extra ~= 0ULL then
-            local more = ints.bitsOf(tables.get(extra, values.TAG_INTEGER))
+            local more = packcount(extra)
             local k: uint64 = 1ULL
             while k <= more do
                 n = n + 1ULL
-                if tables.set(
-                    h,
-                    t,
-                    values.TAG_INTEGER | n,
-                    tables.get(extra, values.TAG_INTEGER | k)
-                ) == tables.NO_MEMORY then
+                if tables.set(h, t, values.TAG_INTEGER | n, packvalue(ctx, extra, k)) == tables.NO_MEMORY then
                     error("not enough memory")
                 end
                 k = k + 1ULL
@@ -644,6 +688,16 @@ end
 
 export function failedvalues(ctx: voidptr, value: uint64): uint64
     return packedvalues(ctx, native.pointer(0ULL), 0ULL, 0ULL, values.FALSE, value, true)
+end
+
+-- The pack `pack` as a table: itself, or a fresh one holding a frame pack's
+-- values.
+export function packtable(ctx: voidptr, pack: uint64): uint64
+    if not inframe(pack) then
+        return pack
+    end
+
+    return packedvalues(ctx, native.pointer(0ULL), 0ULL, pack, 0ULL, 0ULL, false)
 end
 
 -- The value the last recovered error carried.

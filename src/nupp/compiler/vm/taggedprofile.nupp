@@ -1774,11 +1774,12 @@ export function forVersion(version: integer): any
 
             return ctx.emit(node, "Eq", {found, name}, "tagged") as integer
         end
-        -- `...` in a single-value context: the pack's first value.
+        -- `...` in a single-value context: the pack's first value, which
+        -- select reads from a pack kept in the frame as from a table.
         profile.vararg = function(ctx: any, node: any, expected: string?): integer
             need(expected == nil or expected == "tagged", "`...` requires tagged destination")
             local key = ctx.emit(node, "K", {pool(ctx, "int64", "1")}, "tagged")
-            return ctx.emit(node, "GetIdx", {ctx.varargPack(), key}, "tagged") as integer
+            return ctx.emit(node, "LibCall", {corelibrary.id("SELECT"), ctx.varargPack(), key}, "tagged") as integer
         end
         -- `function T.f(...)` and `function T:m(...)`: the closure stored into the
         -- table T names, as Lua does. One level of name only.
@@ -2025,12 +2026,15 @@ export function forVersion(version: integer): any
             if node.ownershipIntrinsic then
                 return ownership(ctx, node, count)
             end
-            -- `local a, b = ...` reads the pack in order; past its end is nil.
+            -- `local a, b = ...` reads the pack in order, as select does;
+            -- past its end is nil.
             if node.kind == "vararg" then
                 local values = {}
                 for index = 1, count do
                     local key = ctx.emit(node, "K", {pool(ctx, "int64", tostring(index))}, "tagged")
-                    values[index] = ctx.emit(node, "GetIdx", {ctx.varargPack(), key}, "tagged")
+                    values[
+                        index
+                    ] = ctx.emit(node, "LibCall", {corelibrary.id("SELECT"), ctx.varargPack(), key}, "tagged")
                 end
                 return values
             end
@@ -2402,9 +2406,10 @@ export function forVersion(version: integer): any
                 need(count >= 1 and count <= 2, "error takes a value and an optional level")
                 return libraryCall(ctx, node, corelibrary.id("ERROR"), node.args.exprs)
             elseif library == "select" then
-                -- select over the pack: "#" reads its count at key 0.
-                -- So is a call's results, last, as an open call's pack, and
-                -- any other values, packed in order.
+                -- select over the pack, `...` or a call's results, last,
+                -- as an open call's pack, or any other values, packed in
+                -- order. "#" asks for its count, which a pack kept in the
+                -- frame has without a table.
                 local args = node.args.exprs or {}
                 need(#args >= 1, "select takes an index")
                 local first = args[1]
@@ -2414,8 +2419,8 @@ export function forVersion(version: integer): any
                     if pack == nil or ctx.block == nil then
                         return nil
                     end
-                    local zero = ctx.emit(node, "K", {pool(ctx, "int64", "0")}, "tagged")
-                    return ctx.emit(node, "GetIdx", {pack, zero}, "tagged") as integer
+                    local count = ctx.emit(node, "K", {pool(ctx, "str", "#")}, "tagged")
+                    return ctx.emit(node, "LibCall", {corelibrary.id("SELECT"), pack, count}, "tagged") as integer
                 end
                 local index = ctx.expression(first, "tagged")
                 if index == nil then

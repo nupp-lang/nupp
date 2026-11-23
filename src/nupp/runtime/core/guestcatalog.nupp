@@ -121,10 +121,16 @@ export struct Signature
     parameterCount: uint64
     resultKind: uint64
     parameters: uint64
-    -- 1 when the last parameter is a variadic function's pack of extra
-    -- arguments, which calls supply at least parameterCount - 1 of.
+    -- When the last parameter is a variadic function's pack of extra
+    -- arguments, which calls supply at least parameterCount - 1 of: 1 when
+    -- the pack is a table, 2 (FRAME_VARARGS) when a call may give a frame
+    -- pack (guestscope.framepack) in its place; otherwise 0.
     variadic: uint64
 end
+
+-- A Signature's `variadic` when the function's code takes its `...` as a
+-- frame pack or a table alike.
+export const FRAME_VARARGS: uint64 = 2ULL
 
 export struct Callsite
     id: uint64
@@ -391,8 +397,8 @@ local function valid(data: voidptr, bytes: uint64): uint64
         local result = native.load64(signature, native.fieldOffset<Signature>("resultKind"))
         local variadic = native.load64(signature, native.fieldOffset<Signature>("variadic"))
         if parameters > 63ULL
-            or variadic > 1ULL
-            or variadic == 1ULL and (version < 8ULL or parameters == 0ULL)
+            or variadic > FRAME_VARARGS
+            or variadic ~= 0ULL and (version < 8ULL or parameters == 0ULL)
             or (
                 result ~= BOOLEAN
                 and result ~= NIL
@@ -587,7 +593,7 @@ local function valid(data: voidptr, bytes: uint64): uint64
             -- A spread call's count is known only when it runs; prepare checks it.
             local fixed = native.load64(cs, native.fieldOffset<Signature>("parameterCount"))
             local spread = native.load64(site, native.fieldOffset<Callsite>("spread")) == 1ULL
-            if native.load64(cs, native.fieldOffset<Signature>("variadic")) == 1ULL then
+            if native.load64(cs, native.fieldOffset<Signature>("variadic")) ~= 0ULL then
                 if nargs + 1ULL < fixed and not spread then
                     return 0ULL
                 end

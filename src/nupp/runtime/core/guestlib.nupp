@@ -153,12 +153,28 @@ local function printValues(ctx: voidptr, packValue: uint64): uint64
     end
 end
 
--- select(i, ...) over a variadic pack {[0] = n, ...}: the i-th value, from
--- the end when negative; nil past the end.
-local function select(ctx: voidptr, packValue: uint64, index: uint64): uint64
+-- The byte of "#", select's index asking for the count.
+const COUNT_INDEX_BYTE: uint64 = 0x23ULL
+
+-- Whether select's index `index` is "#", asking for the count.
+local function countindex(index: uint64): boolean
     @unsafe do
-        local pack = packValue & values.PAYLOAD
-        local n = native.index(ints.bitsOf(tables.get(pack, values.TAG_INTEGER)))
+        local s = strings.header(index)
+        return s ~= 0ULL
+            and strings.length(s) == 1ULL
+            and native.word(native.load8(native.pointer(strings.bytes(s)), 0)) == COUNT_INDEX_BYTE
+    end
+end
+
+-- select(i, ...) over a variadic pack (guestscope.packcount): the i-th
+-- value, from the end when negative; nil past the end. An index of "#"
+-- gives the count.
+local function select(ctx: voidptr, pack: uint64, index: uint64): uint64
+    @unsafe do
+        local n = native.index(guestscope.packcount(pack))
+        if countindex(index) then
+            return values.TAG_INTEGER | native.word(n)
+        end
         local i = guestvalues.intarg(ctx, index, 0, 1ULL)
         if i < 0 then
             i = n + i + 1
@@ -171,28 +187,20 @@ local function select(ctx: voidptr, packValue: uint64, index: uint64): uint64
         if i > n then
             return values.NIL
         end
-        return tables.get(pack, values.TAG_INTEGER | native.word(i))
+        return guestscope.packvalue(ctx, pack, native.word(i))
     end
 end
-
--- The byte of "#", select's index asking for the count.
-const COUNT_INDEX_BYTE: uint64 = 0x23ULL
 
 -- select(i, ...) where a list takes all it gives: a fresh pack {[0] = count,
 -- ...} of the values from the i-th on, from the end when negative; none past
 -- the end. An index of "#" gives the count alone.
-local function selectAll(ctx: voidptr, packValue: uint64, index: uint64): uint64
+local function selectAll(ctx: voidptr, pack: uint64, index: uint64): uint64
     @unsafe do
         local h = guestvalues.guestheap(ctx)
-        local pack = packValue & values.PAYLOAD
-        local n = native.index(ints.bitsOf(tables.get(pack, values.TAG_INTEGER)))
+        local n = native.index(guestscope.packcount(pack))
         local result = guestscope.newTable(ctx)
         guestscope.hold(ctx, values.TAG_OBJ | result)
-        local s = strings.header(index)
-        if s ~= 0ULL
-            and strings.length(s) == 1ULL
-            and native.word(native.load8(native.pointer(strings.bytes(s)), 0)) == COUNT_INDEX_BYTE
-        then
+        if countindex(index) then
             if tables.set(h, result, values.TAG_INTEGER, values.TAG_INTEGER | 1ULL) == tables.NO_MEMORY
                 or tables.set(
                     h,
@@ -225,7 +233,7 @@ local function selectAll(ctx: voidptr, packValue: uint64, index: uint64): uint64
                 h,
                 result,
                 values.TAG_INTEGER | native.word(k),
-                tables.get(pack, values.TAG_INTEGER | native.word(i + k - 1))
+                guestscope.packvalue(ctx, pack, native.word(i + k - 1))
             ) == tables.NO_MEMORY then
                 error("not enough memory")
             end
@@ -240,23 +248,17 @@ local function selectAll(ctx: voidptr, packValue: uint64, index: uint64): uint64
 end
 
 -- {...}: a fresh table holding a variadic pack's values at 1..n.
-local function packCopy(ctx: voidptr, packValue: uint64, named: boolean): uint64
+local function packCopy(ctx: voidptr, pack: uint64, named: boolean): uint64
     local state = strings.Builder(0ULL, 0ULL)
     @unsafe do
         local h = guestvalues.guestheap(ctx)
-        local pack = packValue & values.PAYLOAD
-        local n = ints.bitsOf(tables.get(pack, values.TAG_INTEGER))
+        local n = guestscope.packcount(pack)
         local t = guestscope.newTable(ctx)
         -- Held while its key strings are made.
         guestscope.hold(ctx, values.TAG_OBJ | t)
         local i: uint64 = 1ULL
         while i <= n do
-            if tables.set(
-                h,
-                t,
-                values.TAG_INTEGER | i,
-                tables.get(pack, values.TAG_INTEGER | i)
-            ) == tables.NO_MEMORY then
+            if tables.set(h, t, values.TAG_INTEGER | i, guestscope.packvalue(ctx, pack, i)) == tables.NO_MEMORY then
                 error("not enough memory")
             end
             i = i + 1ULL
@@ -502,8 +504,7 @@ export function call(ctx: voidptr, id: uint64, count: uint64, a: uint64, b: uint
         @unsafe do
             local h = guestvalues.guestheap(ctx)
             local t = a & values.PAYLOAD
-            local pack = b & values.PAYLOAD
-            local n = ints.bitsOf(tables.get(pack, values.TAG_INTEGER))
+            local n = guestscope.packcount(b)
             local first = ints.bitsOf(c)
             local i: uint64 = 1ULL
             while i <= n do
@@ -511,7 +512,7 @@ export function call(ctx: voidptr, id: uint64, count: uint64, a: uint64, b: uint
                     h,
                     t,
                     values.TAG_INTEGER | (first + i - 1ULL),
-                    tables.get(pack, values.TAG_INTEGER | i)
+                    guestscope.packvalue(ctx, b, i)
                 ) == tables.NO_MEMORY then
                     error("not enough memory")
                 end

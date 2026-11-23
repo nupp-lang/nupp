@@ -246,6 +246,7 @@ end
 scopes.serdecheckcontracttest = "component"
 scopes.tracebacktest = "component"
 scopes.resultliststest = "integration"
+scopes.varargstest = "integration"
 scopes.handlerordertest = "integration"
 scopes.testcachetest = "integration"
 scopes.sharedcachetest = "integration"

@@ -23,6 +23,10 @@ local ARTIFACT_BOUND: integer = schema.artifactBytes()
 local ZERO_WORD = string.rep("\0", 8)
 -- A dispatch table's handlers, and an instruction's bytes.
 const HANDLERS = 256
+-- A variadic signature's word: its code takes `...` as a pack the caller's
+-- frame keeps or as a table alike (guestcatalog.FRAME_VARARGS), since it
+-- reads the pack only through the library calls and spreads that take both.
+const FRAME_VARARGS = 2
 const INSTRUCTION_BYTES = 16
 -- Zero padding is joined from runs of this many bytes at most.
 local ZERO_RUN = string.rep("\0", 65536)
@@ -524,7 +528,7 @@ export function encode(code: any, dispatch: {integer}, codeBytes: integer, raise
     for index, signature in ipairs(signatures) do
         record("Signature", (signatureOffset + (index - 1) * layouts.Signature.size) as integer, {
             parameterCount = #signature.params,
-            variadic = signature.variadic and 1 or 0,
+            variadic = signature.variadic and FRAME_VARARGS or 0,
             resultKind = kind(signature.result),
             parameters = parameterOffsets[index]
         })
