@@ -34,6 +34,8 @@ local struct View
     generation: uint64
     lease: uint64
     prepared: uint64
+    -- The struct type id of the block it views (`typeid`), or 0.
+    typeid: uint64
 end
 
 -- Owner-only access for private core callers. Keep the owner rooted for this
@@ -161,6 +163,37 @@ export function isstorage(value: uint64): boolean
     @unsafe do
         local o = native.pointer(value & values.PAYLOAD) as heap.Header*
         return o.kind as uint64 == heap.KIND_CORE_STORAGE or o.kind as uint64 == heap.KIND_CORE_VIEW
+    end
+end
+
+-- A struct's type id, which names its declaration (gueststorage.structid):
+-- kept beside its bytes, in the storage's header or the view's body, so a
+-- copy of the bytes alone, as C or the GPU is given, carries none. 0 for
+-- storage that is no struct's, or a string.
+export function typeid(object: uint64): uint64
+    @unsafe do
+        local o = native.pointer(object) as heap.Header*
+        if o.kind as uint64 == heap.KIND_CORE_VIEW then
+            return (native.pointer(object + heap.HEADER_BYTES) as View*).typeid
+        elseif o.kind as uint64 == heap.KIND_CORE_STORAGE then
+            -- A live storage object's aux is otherwise unused.
+            return o.aux as uint64
+        end
+
+        return 0ULL
+    end
+end
+
+-- Sets the struct type id of storage or a view `object` to `id`, below
+-- 2^32.
+export function settypeid(object: uint64, id: uint64): nil
+    @unsafe do
+        local o = native.pointer(object) as heap.Header*
+        if o.kind as uint64 == heap.KIND_CORE_VIEW then
+            (native.pointer(object + heap.HEADER_BYTES) as View*).typeid = id
+        elseif o.kind as uint64 == heap.KIND_CORE_STORAGE then
+            native.store32(o as voidptr, native.fieldOffset<heap.Header>("aux"), native.index(id))
+        end
     end
 end
 
@@ -354,6 +387,11 @@ export function newview(h: heap.Heap*, source: uint64, kind: uint64, offset: uin
         elseif from.kind as uint64 == heap.KIND_CORE_STORAGE then
             generation = descriptor(source).generation
         end
+        -- An element of an array of structs is a struct of the array's type.
+        local inherited: uint64 = 0ULL
+        if isblock(kind) and kind == elementkind(source) then
+            inherited = typeid(source)
+        end
         local o = collector.allocate(h, heap.KIND_CORE_VIEW, native.sizeOf<View>())
         local body = native.pointer(native.address(o as voidptr) + heap.HEADER_BYTES) as View*
         body.owner = values.TAG_OBJ | owner
@@ -361,6 +399,7 @@ export function newview(h: heap.Heap*, source: uint64, kind: uint64, offset: uin
         body.generation = generation
         body.lease = lease
         body.prepared = 0ULL
+        body.typeid = inherited
         native.store32(o as voidptr, native.fieldOffset<heap.Header>("aux"), native.index(kind))
         o.auxPtr = 0ULL
         o.auxLen = n
@@ -384,6 +423,7 @@ export function preparewrite(h: heap.Heap*, owner: uint64, offset: uint64, count
         body.generation = token
         body.lease = token
         body.prepared = 1ULL
+        body.typeid = 0ULL
         native.store32(o as voidptr, native.fieldOffset<heap.Header>("aux"), native.index(UINT8))
         o.auxPtr = 0ULL
         o.auxLen = count

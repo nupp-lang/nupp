@@ -45,6 +45,18 @@ local record storagecalls
     --- as for `allocate`, 11 for booleans), or 0 when it is general or
     --- `value` is not a table: what a test of the representation reads.
     packedkind: function(borrows value: any): integer
+
+    --- New zeroed storage of `count` elements of `kind`, each a struct of the
+    --- declaration `key` names: the type id beside its bytes names it.
+    struct: function(kind: integer, count: integer, key: string): any
+
+    --- `storage`, a view of a struct's bytes or their storage, as a struct
+    --- of the declaration `key` names.
+    typed: function(borrows storage: any, key: string): any borrows (storage)
+
+    --- Gives every struct of the declaration `key` names `metatable`, which
+    --- a field of one is read and written through by name.
+    declare: function(key: string, metatable: any): nil
 end
 
 local calls: storagecalls

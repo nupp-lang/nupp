@@ -16,6 +16,7 @@ const collector = require("nupp.runtime.vm.collector")
 const gcweak = require("nupp.runtime.vm.gcweak")
 const gcfinal = require("nupp.runtime.vm.gcfinal")
 const coreuserdata = require("nupp.runtime.core.coreuserdata")
+const corestorage = require("nupp.runtime.core.corestorage")
 
 -- tableSet's answer when a __newindex function is to be called instead.
 export const META_PENDING: uint64 = 100ULL
@@ -427,6 +428,44 @@ export function threadMeta(ctx: voidptr, value: uint64): uint64
 end
 
 -- All non-table builtin metatables use the same field lookup and protection.
+-- The metatable a struct value's declaration has (gueststorage.declarestruct),
+-- found by the type id beside its bytes: nil for any other value, and for a
+-- struct whose declaration has none.
+export function structmeta(ctx: voidptr, value: uint64): uint64
+    if not corestorage.isstorage(value) then
+        return values.NIL
+    end
+    local id = corestorage.typeid(value & values.PAYLOAD)
+    if id == 0ULL then
+        return values.NIL
+    end
+    @unsafe do
+        local registry = native.load64(guestscope.scopeof(ctx), native.fieldOffset<guestscope.Services>("structtypes"))
+        if registry == 0ULL then
+            return values.NIL
+        end
+
+        return tables.get(registry & values.PAYLOAD, values.TAG_INTEGER | id)
+    end
+end
+
+-- Notes a struct value's __newindex function for the handler to call
+-- (`takeMeta`), as a table write does: false when its declaration's
+-- metatable has none.
+export function structset(ctx: voidptr, value: uint64): boolean
+    local meta = tableOf(structmeta(ctx, value))
+    if meta == 0ULL then
+        return false
+    end
+    local newindex = tables.get(meta, metaKey(ctx, META_NEWINDEX))
+    if newindex == values.NIL or tableOf(newindex) ~= 0ULL then
+        return false
+    end
+    pend(ctx, newindex, value & values.PAYLOAD)
+
+    return true
+end
+
 local function objectmeta(ctx: voidptr, value: uint64): uint64
     if strings.header(value) ~= 0ULL then
         @unsafe do
@@ -441,6 +480,9 @@ local function objectmeta(ctx: voidptr, value: uint64): uint64
 
     if meta ~= values.NIL then
         return meta
+    end
+    if corestorage.isstorage(value) then
+        return structmeta(ctx, value)
     end
 
     return coreuserdata.meta(value)

@@ -1096,6 +1096,13 @@ export function NewTable(
     return native.dispatch(native.pointer(nextPC), regs, ints, floats, ctx, frame)
 end
 
+-- Whether `key` names a field of struct `subject` by name, which its
+-- declaration's metatable reads and writes (guestmeta.structmeta), not an
+-- element of its storage.
+local function structNamed(ctx: voidptr, subject: uint64, key: uint64): boolean
+    return strings.header(key) ~= 0ULL and guestmeta.structmeta(ctx, subject) ~= values.NIL
+end
+
 -- Indexing anything but a table raises, as Lua does without a metatable.
 export function GetIdx(pc: voidptr, regs: voidptr, ints: voidptr, floats: voidptr, ctx: voidptr, frame: voidptr): uint64
     local remaining = native.load64(ctx, context.REMAINING)
@@ -1124,7 +1131,10 @@ export function GetIdx(pc: voidptr, regs: voidptr, ints: voidptr, floats: voidpt
         return native.fail()
     end
     local header = tableHeader(slots.readValue(frame, regs, object))
-    if header == 0ULL and corestorage.isstorage(slots.readValue(frame, regs, object)) then
+    if header == 0ULL
+        and corestorage.isstorage(slots.readValue(frame, regs, object))
+        and not structNamed(ctx, slots.readValue(frame, regs, object), slots.readValue(frame, regs, key))
+    then
         -- Storage's element at a zero-based index.
         local element = gueststorage.storageget(
             ctx,
@@ -1228,7 +1238,10 @@ export function SetIdx(pc: voidptr, regs: voidptr, ints: voidptr, floats: voidpt
         return native.fail()
     end
     local header = tableHeader(slots.readValue(frame, regs, object))
-    if header == 0ULL and corestorage.isstorage(slots.readValue(frame, regs, object)) then
+    if header == 0ULL
+        and corestorage.isstorage(slots.readValue(frame, regs, object))
+        and not structNamed(ctx, slots.readValue(frame, regs, object), slots.readValue(frame, regs, key))
+    then
         if gueststorage.storageset(
             ctx,
             slots.readValue(frame, regs, object),
@@ -1249,12 +1262,18 @@ export function SetIdx(pc: voidptr, regs: voidptr, ints: voidptr, floats: voidpt
         end
         return native.dispatch(native.pointer(after), regs, ints, floats, ctx, frame)
     end
+    local status = guestmeta.META_PENDING
     if header == 0ULL then
-        guesterrors.fault(ctx, guestscope.FAULT_INDEX, slots.readValue(frame, regs, object), values.NIL)
-        ops.fail(ctx, frame, pc, context.GUEST_ERROR_STATUS)
-        return native.fail()
+        -- A struct's field written by name, through its declaration's
+        -- __newindex.
+        if not guestmeta.structset(ctx, slots.readValue(frame, regs, object)) then
+            guesterrors.fault(ctx, guestscope.FAULT_INDEX, slots.readValue(frame, regs, object), values.NIL)
+            ops.fail(ctx, frame, pc, context.GUEST_ERROR_STATUS)
+            return native.fail()
+        end
+    else
+        status = guestmeta.tableSet(ctx, header, slots.readValue(frame, regs, key), slots.readValue(frame, regs, src))
     end
-    local status = guestmeta.tableSet(ctx, header, slots.readValue(frame, regs, key), slots.readValue(frame, regs, src))
     if status == guestmeta.META_PENDING then
         -- A __newindex function: called with the table, key and value from
         -- the top of the call window; its result is dropped.
@@ -1828,6 +1847,14 @@ export function LibCall(
         slots.writeValue(frame, regs, dst, gueststorage.loadat(ctx, a, b, c))
     elseif libraryId == storagelibrary.STORAGE_STORE then
         slots.writeValue(frame, regs, dst, gueststorage.storeat(ctx, a, b, c, d))
+    elseif libraryId == storagelibrary.STRUCT_NEW then
+        slots.writeValue(frame, regs, dst, gueststorage.newstruct(ctx, a, b, c))
+    elseif libraryId == storagelibrary.STRUCT_TYPED then
+        slots.writeValue(frame, regs, dst, gueststorage.typed(ctx, a, b))
+    elseif libraryId == storagelibrary.STRUCT_IS then
+        slots.writeValue(frame, regs, dst, gueststorage.istype(ctx, a, b))
+    elseif libraryId == storagelibrary.STRUCT_DECLARE then
+        slots.writeValue(frame, regs, dst, gueststorage.declarestruct(ctx, a, b))
     elseif libraryId == librarycalls.TABLE_NEWARRAY then
         slots.writeValue(
             frame,

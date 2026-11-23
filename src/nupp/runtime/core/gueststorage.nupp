@@ -427,3 +427,119 @@ export function storageoffset(ctx: voidptr, subject: uint64, step: uint64): uint
         return values.TAG_OBJ | made
     end
 end
+
+-- The ids of the struct types this process has named, beyond the last.
+const MAX_STRUCT_ID: uint64 = 0xffffffffULL
+
+-- The struct types table (guestscope.Services.structtypes), or 0 before
+-- one is named.
+local function structtypes(ctx: voidptr): uint64
+    @unsafe do
+        local registry = native.load64(guestscope.scopeof(ctx), native.fieldOffset<guestscope.Services>("structtypes"))
+        return registry & values.PAYLOAD
+    end
+end
+
+-- The type id of the struct declaration `key`, a string, names: its
+-- checked runtime key, the module that declares it and its place there.
+-- The first time the process names a declaration it is given the next id,
+-- from 1, so an id is the process's own, and the key is what stays the
+-- same from one build to the next.
+export function structid(ctx: voidptr, key: uint64): uint64
+    if strings.header(key) == 0ULL then
+        texts.argumentError(ctx, 1ULL, librarytexts.TEXT_STRING, 0ULL, key)
+    end
+    @unsafe do
+        local services = guestscope.scopeof(ctx)
+        local at = native.fieldOffset<guestscope.Services>("structtypes")
+        if native.load64(services, at) == 0ULL then
+            native.store64(services, at, values.TAG_OBJ | guestscope.newTable(ctx))
+        end
+        local registry = structtypes(ctx)
+        local known = tables.get(registry, key)
+        if known ~= values.NIL then
+            return ints.bitsOf(known)
+        end
+        -- Integer 0 keeps the last id given.
+        local last = tables.get(registry, values.TAG_INTEGER)
+        local id: uint64 = 1ULL
+        if last ~= values.NIL then
+            id = ints.bitsOf(last) + 1ULL
+        end
+        if id > MAX_STRUCT_ID then
+            error("nupp: too many struct types")
+        end
+        local h = guestvalues.guestheap(ctx)
+        if tables.set(h, registry, key, values.TAG_INTEGER | id) ~= tables.OK
+            or tables.set(h, registry, values.TAG_INTEGER, values.TAG_INTEGER | id) ~= tables.OK
+        then
+            error("not enough memory")
+        end
+        tables.drain(h)
+
+        return id
+    end
+end
+
+-- New zeroed storage of `n` elements of `kind`, each a struct of the
+-- declaration `key` names (STRUCT_NEW): its instance, or an array of them.
+export function newstruct(ctx: voidptr, kind: uint64, n: uint64, key: uint64): uint64
+    local id = structid(ctx, key)
+    local made = allocate(ctx, kind, n)
+    corestorage.settypeid(made & values.PAYLOAD, id)
+
+    return made
+end
+
+-- `value`, storage or a view of it, as a struct of the declaration `key`
+-- names (STRUCT_TYPED): a nested struct's view, or an instance a provider
+-- made.
+export function typed(ctx: voidptr, value: uint64, key: uint64): uint64
+    local id = structid(ctx, key)
+    corestorage.settypeid(storageargument(ctx, value, 1ULL), id)
+
+    return value
+end
+
+-- Whether `value` is a struct of the declaration `key` names (STRUCT_IS):
+-- the type id beside its bytes is that declaration's. The bytes are not
+-- read, so two declarations of the same layout are told apart.
+export function istype(ctx: voidptr, value: uint64, key: uint64): uint64
+    if not corestorage.isstorage(value) or strings.header(key) == 0ULL then
+        return values.FALSE
+    end
+    local id = corestorage.typeid(value & values.PAYLOAD)
+    local registry = structtypes(ctx)
+    if id == 0ULL or registry == 0ULL then
+        return values.FALSE
+    end
+    local known = tables.get(registry, key)
+    if known ~= values.NIL and ints.bitsOf(known) == id then
+        return values.TRUE
+    end
+
+    return values.FALSE
+end
+
+-- Makes `meta`, a table, the metatable of every struct of the declaration
+-- `key` names (STRUCT_DECLARE): a field read or written by name, where no
+-- static type gave its offset, goes through its __index and __newindex.
+export function declarestruct(ctx: voidptr, key: uint64, meta: uint64): uint64
+    @unsafe do
+        if meta & values.TAG_MASK ~= values.TAG_OBJ
+            or (native.pointer(meta & values.PAYLOAD) as heap.Header*).kind as uint64 ~= heap.KIND_TABLE
+        then
+            texts.argumentError(ctx, 2ULL, librarytexts.TEXT_TABLE, 0ULL, meta)
+        end
+    end
+    local id = structid(ctx, key)
+    @unsafe do
+        local h = guestvalues.guestheap(ctx)
+        if tables.set(h, structtypes(ctx), values.TAG_INTEGER | id, meta) ~= tables.OK then
+            error("not enough memory")
+        end
+        tables.drain(h)
+    end
+
+    return values.NIL
+end

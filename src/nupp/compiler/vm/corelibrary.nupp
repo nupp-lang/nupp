@@ -516,7 +516,18 @@ local subjectrows: {Subject} = {
             -- value), the element of `kind` at byte `offset`. A pointer kind
             -- stores an address and loads as an integer.
             {name = "STORAGE_LOAD", id = 228},
-            {name = "STORAGE_STORE", id = 229}
+            {name = "STORAGE_STORE", id = 229},
+            -- A struct's type id, which names its declaration beside its
+            -- bytes: struct(kind, count, key) allocates as allocate does,
+            -- each element a struct of the declaration `key` names;
+            -- typed(storage, key) makes a view one; istype(value, key) tests
+            -- one; and declare(key, metatable) gives a declaration's structs
+            -- the metatable their fields are read and written through by
+            -- name.
+            {name = "STRUCT_NEW", id = 230, call = "storagecalls.struct", min = 3, max = 3},
+            {name = "STRUCT_TYPED", id = 231, call = "storagecalls.typed", min = 2, max = 2},
+            {name = "STRUCT_IS", id = 232},
+            {name = "STRUCT_DECLARE", id = 233, call = "storagecalls.declare", min = 2, max = 2}
         }
     },
     {

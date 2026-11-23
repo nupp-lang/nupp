@@ -9,3 +9,7 @@ export const STORAGE_ALIGNED: uint64 = 204ULL
 export const STORAGE_STORE_POINTER: uint64 = 227ULL
 export const STORAGE_LOAD: uint64 = 228ULL
 export const STORAGE_STORE: uint64 = 229ULL
+export const STRUCT_NEW: uint64 = 230ULL
+export const STRUCT_TYPED: uint64 = 231ULL
+export const STRUCT_IS: uint64 = 232ULL
+export const STRUCT_DECLARE: uint64 = 233ULL
