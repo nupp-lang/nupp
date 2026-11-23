@@ -1856,7 +1856,9 @@ end
 
 -- The watch's step for a worker that has gone quiet: it counts its own sleeps
 -- since the log last grew, rather than reading a clock, which is all a shell
--- has everywhere. On ending the worker it leaves a mark beside the log.
+-- has everywhere. A stopped worker (SIGSTOP, as an overloaded machine pauses
+-- a lane) is not quiet, only paused, so its sleeps are not counted. On ending
+-- the worker it leaves a mark beside the log.
 local function stallStep(limit, errors)
     if limit <= 0 or errors == nil then
         return ""
@@ -1864,8 +1866,10 @@ local function stallStep(limit, errors)
     local log = shellQuote(errors)
 
     return (" nupp_size=$(wc -c < %s 2>/dev/null || echo 0);"
-        .. " if [ \"$nupp_size\" = \"$nupp_seen\" ]; then nupp_idle=$((nupp_idle + %d));"
-        .. " else nupp_seen=$nupp_size; nupp_idle=0; fi;"
+        .. " nupp_state=$(ps -o stat= -p $nupp_worker 2>/dev/null | tr -d ' ');"
+        .. " case $nupp_state in T*) ;;"
+        .. " *) if [ \"$nupp_size\" = \"$nupp_seen\" ]; then nupp_idle=$((nupp_idle + %d));"
+        .. " else nupp_seen=$nupp_size; nupp_idle=0; fi ;; esac;"
         .. " if [ $nupp_idle -ge %d ]; then : > %s; nupp_reap $nupp_worker;"
         .. " kill -KILL $nupp_worker 2>/dev/null; exit 0; fi;"):format(
         log,
