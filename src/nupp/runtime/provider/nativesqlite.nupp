@@ -1,0 +1,197 @@
+@!internal
+--[[
+The native core's SQLite provider for the `sqlite` library
+(`sqlite.internal.contracts`), over the pinned amalgamation through the
+checked binding `nupp.runtime.core.sqlitecodec` declares.
+
+Each call runs on the calling thread and blocks it while SQLite works. A call
+SQLite fails raises an `Error` carrying its extended code, SQLite's message,
+the SQL text and the offset SQLite reported in it. The first open refuses a
+library that is not the one the binding was written for, saying what differs.
+]]
+module nupp.runtime.provider.nativesqlite
+
+const contracts = require("sqlite.internal.contracts")
+const codec = require("nupp.runtime.core.sqlitecodec")
+
+-- A failure the codec answered for a statement, raised.
+local function statementFailure(borrows statement: codec.Statement, status: int32, sql: string): never
+    local code: integer = statement:errcode()
+    if code == 0 then
+        code = status
+    end
+    error(contracts.failure(code, statement:errmsg(), sql, nil), 0)
+end
+
+local function checked(borrows statement: codec.Statement, status: int32, sql: string): nil
+    if status ~= codec.OK then
+        statementFailure(statement, status, sql)
+    end
+end
+
+local CLASSES: {
+    [integer]: contracts.StorageClass
+} = {
+    [codec.INTEGER as integer] = "integer",
+    [codec.FLOAT as integer] = "float",
+    [codec.TEXT as integer] = "text",
+    [codec.BLOB as integer] = "blob",
+    [codec.NULL as integer] = "null",
+}
+
+local record Statement is contracts.Statement
+    @private handle: codec.Statement
+    @private sql: string
+
+    function close(takes self): nil
+        self.handle:close()
+    end
+
+    function parametercount(self): integer
+        return self.handle:parametercount()
+    end
+
+    function parameterindex(self, name: string): integer
+        return self.handle:parameterindex(name)
+    end
+
+    function parametername(self, index: integer): string?
+        return self.handle:parametername(index)
+    end
+
+    function bindnull(exclusive self, index: integer): nil
+        checked(self.handle, self.handle:bindnull(index), self.sql)
+    end
+
+    function bindinteger(exclusive self, index: integer, value: integer): nil
+        checked(self.handle, self.handle:bindinteger(index, value), self.sql)
+    end
+
+    function bindfloat(exclusive self, index: integer, value: number): nil
+        checked(self.handle, self.handle:bindfloat(index, value), self.sql)
+    end
+
+    function bindtext(exclusive self, index: integer, value: string): nil
+        checked(self.handle, self.handle:bindtext(index, value), self.sql)
+    end
+
+    function bindblob(exclusive self, index: integer, value: string): nil
+        checked(self.handle, self.handle:bindblob(index, value), self.sql)
+    end
+
+    function step(exclusive self): boolean
+        local status = self.handle:step()
+        if status == codec.ROW then
+            return true
+        elseif status == codec.DONE then
+            return false
+        end
+        statementFailure(self.handle, status, self.sql)
+    end
+
+    -- A reset answers the failure of the last step again, which that step has
+    -- raised already.
+    function reset(exclusive self): nil
+        local _ = self.handle:reset()
+    end
+
+    function clearbindings(exclusive self): nil
+        checked(self.handle, self.handle:clearbindings(), self.sql)
+    end
+
+    function columncount(self): integer
+        return self.handle:columncount()
+    end
+
+    function columnname(self, index: integer): string
+        return self.handle:columnname(index)
+    end
+
+    function columntype(self, index: integer): contracts.StorageClass
+        return CLASSES[self.handle:columntype(index) as integer] or "null"
+    end
+
+    function column(self, index: integer): contracts.Column?
+        local class = self.handle:columntype(index)
+        if class == codec.INTEGER then
+            return self.handle:columninteger(index)
+        elseif class == codec.FLOAT then
+            return self.handle:columnfloat(index)
+        elseif class == codec.TEXT then
+            return self.handle:columntext(index)
+        elseif class == codec.BLOB then
+            return self.handle:columnblob(index)
+        end
+
+        return nil
+    end
+end
+
+local record Database is contracts.Database
+    @private handle: codec.Database
+
+    function close(takes self): nil
+        self.handle:close()
+    end
+
+    function prepare(self, sql: string, offset: integer): (contracts.Statement?, integer)
+        local status, made, consumed = self.handle:prepare(sql, offset)
+        if status ~= codec.OK then
+            if made ~= nil then
+                made:close()
+            end
+            local at = self.handle:erroroffset()
+            error(
+                contracts.failure(self.handle:errcode(), self.handle:errmsg(), sql, at >= 0 and offset + at or nil),
+                0
+            )
+        end
+        if made == nil then
+            return nil, consumed
+        end
+
+        return Statement(handle = made, sql = sql:sub(offset + 1, offset + consumed)), consumed
+    end
+
+    function changes(self): integer
+        return self.handle:changes()
+    end
+
+    function totalchanges(self): integer
+        return self.handle:totalchanges()
+    end
+
+    function lastrowid(self): integer
+        return self.handle:lastrowid()
+    end
+
+    function autocommit(self): boolean
+        return self.handle:autocommit()
+    end
+end
+
+local function open(path: string, readonly: boolean, create: boolean, busytimeout: integer): contracts.Database
+    local problem = codec.problem()
+    if problem ~= nil then
+        error("sqlite: the SQLite library cannot be used: " .. problem, 2)
+    end
+    local flags = readonly and codec.OPEN_READONLY or codec.OPEN_READWRITE
+    if create and not readonly then
+        flags = flags | codec.OPEN_CREATE
+    end
+    local status, made = codec.open(path, flags)
+    if made == nil then
+        error(contracts.failure(status, codec.errstr(status), nil, nil), 0)
+    end
+    if status ~= codec.OK then
+        local code, message = made:errcode(), made:errmsg()
+        made:close()
+        error(contracts.failure(code, message, nil, nil), 0)
+    end
+    local _ = made:busytimeout(busytimeout)
+
+    return Database(handle = made)
+end
+
+local provider: contracts.Provider = {open = open, version = codec.version, openhandles = codec.openhandles,}
+export = provider

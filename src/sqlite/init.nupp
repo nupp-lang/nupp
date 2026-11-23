@@ -1,0 +1,868 @@
+--[[
+SQLite databases, over the pinned SQLite amalgamation. See
+[sqlite.md](docs/learn/runtime/data/sqlite.md) for the guide.
+
+```nupp:fragment
+local db = sqlite.open("library.db", {journal = "wal"})
+db:exec("create table if not exists shows (id integer primary key, title text not null)")
+db:run("insert into shows (title) values (?)", "Severance")
+for row in db:rows("select id, title from shows order by id") do
+    print(row.id, row.title)
+end
+```
+
+A [](Connection) closes at the end of its scope, and a [](Statement) is
+finalized at the end of its own, which cannot outlive the connection it was
+prepared on. A loop over [](Connection.rows) finalizes its statement when the
+loop ends, by `break` or a raised error included.
+
+Values map exactly. NULL is nil, INTEGER a 64-bit integer, REAL a float, and
+TEXT and BLOB strings of their exact bytes, which [](Statement.columntype)
+tells apart. A string binds as TEXT, [](blob) as BLOB, and a boolean as 0 or 1;
+an integral float stays REAL. A failed call raises an [](Error) carrying
+SQLite's extended result code, its name, its message, and the SQL.
+
+Every call runs on the calling thread and blocks it while SQLite works. The
+library is provided on the native core; a target without one cannot build a
+program that reaches it.
+]]
+module sqlite
+
+const contracts = require("sqlite.internal.contracts")
+const serde = require("serde")
+const document = require("serde.document")
+local target = require("nupp.runtime.target")
+
+const _PROVIDER_REQUIRES = "@requires-dynamically nupp.runtime.provider.nativesqlite"
+
+--- A failed SQLite call: [](Error.code) is the extended result code,
+--- [](Error.primary) the primary one to compare with [](BUSY),
+--- [](CONSTRAINT) and the rest, [](Error.name) its symbolic name, and
+--- [](Error.offset) the byte offset of a syntax error in [](Error.sql).
+export type Error = contracts.Error
+
+export const Error = contracts.Error
+
+--- A storage class: `integer`, `float`, `text`, `blob` or `null`.
+export type StorageClass = contracts.StorageClass
+
+--- What a column holds: nil for NULL.
+export type Column = contracts.Column
+
+--- A row: its columns by name. A NULL column is absent.
+export type Row = {[string]: Column}
+
+--- How a transaction begins: SQLite's `BEGIN DEFERRED`, `IMMEDIATE` or
+--- `EXCLUSIVE`.
+export type Mode = "deferred" | "immediate" | "exclusive"
+
+--- Bytes that bind as a BLOB rather than as TEXT.
+export record Blob
+    --- The bytes.
+    @readonly bytes: string
+end
+
+--- A value a parameter binds: nil as NULL, an integer as INTEGER, a float as
+--- REAL, a string as TEXT, a [](Blob) as BLOB, and a boolean as 0 or 1.
+export type Value = integer | number | string | boolean | Blob
+
+--- How [](open) opens a connection.
+export type OpenOptions = {
+    --- Opens it read-only; false by default.
+    readonly: boolean?,
+
+    --- Creates the file when it does not exist; true by default.
+    create: boolean?,
+
+    --- SQLite's journal mode; the file's own by default.
+    journal: ("delete" | "wal" | "memory")?,
+
+    --- How long, in milliseconds, a call waits for another connection's lock
+    --- before failing with [](BUSY); 5000 by default.
+    busytimeout: integer?,
+
+    --- Enforces foreign keys; true by default, which SQLite's own default is
+    --- not.
+    foreignkeys: boolean?
+}
+
+--- The primary result codes, to compare with [](Error.primary).
+export const ERROR = 1
+
+export const INTERNAL = 2
+export const PERM = 3
+export const ABORT = 4
+export const BUSY = 5
+export const LOCKED = 6
+export const NOMEM = 7
+export const READONLY = 8
+export const INTERRUPT = 9
+export const IOERR = 10
+export const CORRUPT = 11
+export const NOTFOUND = 12
+export const FULL = 13
+export const CANTOPEN = 14
+export const PROTOCOL = 15
+export const EMPTY = 16
+export const SCHEMA = 17
+export const TOOBIG = 18
+export const CONSTRAINT = 19
+export const MISMATCH = 20
+export const MISUSE = 21
+export const NOLFS = 22
+export const AUTH = 23
+export const FORMAT = 24
+export const RANGE = 25
+export const NOTADB = 26
+export const NOTICE = 27
+export const WARNING = 28
+
+const PROVIDER = "nupp.runtime.provider.nativesqlite"
+
+local provided: contracts.Provider? = nil
+
+local function provider(): contracts.Provider
+    local found = provided
+    if found ~= nil then
+        return found
+    end
+    if target.host ~= "native" then
+        error("sqlite: no implementation is available on host " .. tostring(target.host), 3)
+    end
+    local loaded = _G.require(PROVIDER) as contracts.Provider
+    provided = loaded
+
+    return loaded
+end
+
+--- Bytes that bind as a BLOB.
+--- @param bytes the bytes
+--- @return the blob
+export function blob(bytes: string): Blob
+    if type(bytes) ~= "string" then
+        error("sqlite.blob: bytes must be a string, not " .. type(bytes), 2)
+    end
+
+    return Blob(bytes = bytes)
+end
+
+--- The SQLite version the library binds, such as `3.54.1`.
+export function version(): string
+    return provider().version()
+end
+
+-- Which coroutine holds a connection's open transaction, and how deeply it
+-- is nested, shared by the connection and every statement prepared on it.
+local record Guard
+    owner: thread? = nil
+    depth: integer = 0
+end
+
+local function admit(guard: Guard): nil
+    local owner = guard.owner
+    if owner ~= nil and owner ~= coroutine.running() then
+        error("sqlite: the connection has a transaction open in another coroutine", 3)
+    end
+end
+
+local function closedConnection(): never
+    error("sqlite: the connection is closed", 3)
+end
+
+local function finalizedStatement(): never
+    error("sqlite: the statement is finalized", 3)
+end
+
+local function bindvalue(exclusive statement: contracts.Statement, index: integer, value: any, level: integer): nil
+    local kind = type(value)
+    if value == nil then
+        statement:bindnull(index)
+    elseif kind == "boolean" then
+        statement:bindinteger(index, value and 1 or 0)
+    elseif kind == "number" then
+        if math.type(value) == "integer" then
+            statement:bindinteger(index, value as integer)
+        else
+            statement:bindfloat(index, value as number)
+        end
+    elseif kind == "string" then
+        statement:bindtext(index, value as string)
+    elseif kind == "table" and getmetatable(value) == Blob then
+        statement:bindblob(index, (value as Blob).bytes)
+    else
+        error(("sqlite: parameter %d cannot bind a %s"):format(index, kind), level + 1)
+    end
+end
+
+local function bindall(exclusive statement: contracts.Statement, level: integer, ...: any): nil
+    local count = select("#", ...)
+    local expected = statement:parametercount()
+    if count ~= expected then
+        error(("sqlite: the statement takes %d parameters, not %d"):format(expected, count), level + 1)
+    end
+    for index = 1, count do
+        bindvalue(statement, index, (select(index, ...)), level + 1)
+    end
+end
+
+-- The index of a parameter given by its index or its name, with or without
+-- its prefix.
+local function parameter(borrows statement: contracts.Statement, at: any, level: integer): integer
+    if type(at) == "number" then
+        local index = at as integer
+        if math.type(at) ~= "integer" or index < 1 or index > statement:parametercount() then
+            error(
+                (
+                    "sqlite: the statement has no parameter %s; it takes %d"
+                ):format(tostring(at), statement:parametercount()),
+                level + 1
+            )
+        end
+        return index
+    elseif type(at) ~= "string" then
+        error("sqlite: a parameter is named by its index or its name, not a " .. type(at), level + 1)
+    end
+    local name = at as string
+    local index = statement:parameterindex(name)
+    if index == 0 and not name:match("^[:@$?]") then
+        for _, prefix in ipairs({":", "@", "$"}) do
+            index = statement:parameterindex(prefix .. name)
+            if index ~= 0 then
+                break
+            end
+        end
+    end
+    if index == 0 then
+        error(("sqlite: the statement has no parameter named %q"):format(name), level + 1)
+    end
+
+    return index
+end
+
+-- The result's column names, in order. A row keyed by them needs each to be
+-- different.
+local function namesOf(borrows statement: contracts.Statement, distinct: boolean, level: integer): {string}
+    local names: {string} = {}
+    local seen: {[string]: boolean} = {}
+    for index = 1, statement:columncount() do
+        local name = statement:columnname(index - 1)
+        if distinct and seen[name] then
+            error(
+                ("sqlite: the result has two columns named %q; give one another name with AS"):format(name),
+                level + 1
+            )
+        end
+        seen[name] = true
+        names[index] = name
+    end
+
+    return names
+end
+
+local function rowOf(borrows statement: contracts.Statement, names: {string}): Row
+    local row: Row = {}
+    for index, name in ipairs(names) do
+        local value = statement:column(index - 1)
+        if value ~= nil then
+            row[name] = value
+        end
+    end
+
+    return row
+end
+
+-- A column as a document, for a binding to decode.
+local function columnDocument(borrows statement: contracts.Statement, index: integer): document.Document
+    local value = statement:column(index)
+    local class = statement:columntype(index)
+    if class == "null" then
+        return document.null()
+    elseif class == "integer" then
+        return document.integer(serde.Integer(decimal = tostring(value), width = 64, signed = true))
+    elseif class == "float" then
+        return document.float(serde.Float(value = value as number, width = 64))
+    elseif class == "text" then
+        return document.string(value as string)
+    else
+        return document.bytes(value as string)
+    end
+end
+
+local function decoded<T>(binding: serde.Binding<T>, borrows statement: contracts.Statement, names: {string}): T
+    local entries: {document.Entry} = {}
+    for index, name in ipairs(names) do
+        entries[index] = document.Entry(name = name, value = columnDocument(statement, index - 1))
+    end
+
+    return document.into(binding, document.object(entries))
+end
+
+-- Binds a document member to a named parameter.
+local function binddocument(
+    exclusive statement: contracts.Statement,
+    index: integer,
+    name: string,
+    value: document.Document,
+    level: integer
+): nil
+    local kind = value.kind
+    if kind == "null" then
+        statement:bindnull(index)
+    elseif kind == "bool" then
+        statement:bindinteger(index, value:bool() and 1 or 0)
+    elseif kind == "integer" then
+        local number = math.tointeger(tonumber(value:integer().decimal))
+        if number == nil then
+            error(("sqlite: member %q does not fit a 64-bit integer"):format(name), level + 1)
+        end
+        statement:bindinteger(index, number as integer)
+    elseif kind == "float" then
+        statement:bindfloat(index, value:float().value)
+    elseif kind == "string" then
+        statement:bindtext(index, value:string())
+    elseif kind == "bytes" then
+        statement:bindblob(index, value:bytes())
+    else
+        error(("sqlite: member %q is a %s, which no parameter binds"):format(name, kind), level + 1)
+    end
+end
+
+-- Prepares the one statement `sql` holds.
+local function single(
+    borrows database: contracts.Database,
+    sql: string,
+    what: string,
+    level: integer
+): contracts.Statement
+    local statement, consumed = database:prepare(sql, 0)
+    if statement == nil then
+        error("sqlite: " .. what .. " was given no statement", level + 1)
+    end
+    if consumed < #sql then
+        local rest, _ = database:prepare(sql, consumed)
+        if rest ~= nil then
+            rest:close()
+            statement:close()
+            error("sqlite: " .. what .. " takes one statement; exec runs several", level + 1)
+        end
+    end
+
+    return statement
+end
+
+-- Runs every statement in `sql`, ignoring their rows.
+local function execute(borrows database: contracts.Database, sql: string): nil
+    local offset: integer = 0
+    while offset < #sql do
+        local statement, consumed = database:prepare(sql, offset)
+        if statement ~= nil then
+            while statement:step() do
+            end
+            statement:close()
+        end
+        if consumed <= 0 then
+            break
+        end
+        offset = offset + consumed
+    end
+end
+
+--- A prepared statement. It is finalized at the end of its scope, or by
+--- [](Statement.close), and cannot outlive its connection.
+---
+--- Parameters are numbered from one, as SQLite numbers them, and so are
+--- columns, as a Lua sequence is.
+export record Statement is own.Closeable
+    @private handle: contracts.Statement?
+    @private guard: Guard
+
+    --- The SQL text it was prepared from.
+    @readonly sql: string
+
+    --- Finalizes it.
+    function close(takes self): nil
+        local handle = self.handle
+        if handle ~= nil then
+            handle:close()
+        end
+    end
+
+    --- Binds one parameter, by its index or its name (`:title`, or `title`).
+    --- @raises string for a parameter it does not have, or a value no
+    ---     parameter binds
+    function bind(exclusive self, at: integer | string, value: Value?): nil
+        admit(self.guard)
+        if self.handle == nil then
+            finalizedStatement()
+        end
+        bindvalue(self.handle, parameter(self.handle, at, 2), value, 2)
+    end
+
+    --- Binds every parameter, in order: as many values as it takes.
+    function bindall(exclusive self, ...: Value?): nil
+        admit(self.guard)
+        if self.handle == nil then
+            finalizedStatement()
+        end
+        bindall(self.handle, 2, ...)
+    end
+
+    --- Binds each named parameter (`:title`, `@title` or `$title`) to the
+    --- member of `value` that `binding` names `title`.
+    --- @raises string for a parameter no member is named for
+    function bindrecord<T>(exclusive self, binding: serde.Binding<T>, borrows value: T): nil
+        admit(self.guard)
+        if self.handle == nil then
+            finalizedStatement()
+        end
+        local tree = document.from(binding, value)
+        for index = 1, self.handle:parametercount() do
+            local name = self.handle:parametername(index)
+            if name == nil or name:sub(1, 1) == "?" then
+                error(("sqlite: parameter %d has no name for a member to bind"):format(index), 2)
+            end
+            local member = tree:get(name:sub(2))
+            if member == nil then
+                error(("sqlite: no member is named for parameter %s"):format(name), 2)
+            end
+            binddocument(self.handle, index, name:sub(2), member, 2)
+        end
+    end
+
+    --- Steps it: true while a row is ready, false once it is done.
+    function step(exclusive self): boolean
+        admit(self.guard)
+        if self.handle == nil then
+            finalizedStatement()
+        end
+
+        return self.handle:step()
+    end
+
+    --- The value of column `index` in the current row: nil for NULL.
+    --- @raises string for a column the result does not have
+    function column(self, index: integer): Column?
+        if self.handle == nil then
+            finalizedStatement()
+        end
+        if index < 1 or index > self.handle:columncount() then
+            error(("sqlite: the result has no column %d"):format(index), 2)
+        end
+
+        return self.handle:column(index - 1)
+    end
+
+    --- The storage class of column `index` in the current row.
+    --- @raises string for a column the result does not have
+    function columntype(self, index: integer): StorageClass
+        if self.handle == nil then
+            finalizedStatement()
+        end
+        if index < 1 or index > self.handle:columncount() then
+            error(("sqlite: the result has no column %d"):format(index), 2)
+        end
+
+        return self.handle:columntype(index - 1)
+    end
+
+    --- The result's column names, in order.
+    function columns(self): {string}
+        if self.handle == nil then
+            finalizedStatement()
+        end
+
+        return namesOf(self.handle, false, 2)
+    end
+
+    --- The current row, keyed by column name.
+    --- @raises string when two columns have one name
+    function row(self): Row
+        if self.handle == nil then
+            finalizedStatement()
+        end
+
+        return rowOf(self.handle, namesOf(self.handle, true, 2))
+    end
+
+    --- Resets it to run again, keeping its bindings.
+    function reset(exclusive self): nil
+        admit(self.guard)
+        if self.handle == nil then
+            finalizedStatement()
+        end
+        self.handle:reset()
+    end
+
+    --- Sets every parameter back to NULL.
+    function clearbindings(exclusive self): nil
+        admit(self.guard)
+        if self.handle == nil then
+            finalizedStatement()
+        end
+        self.handle:clearbindings()
+    end
+end
+
+--- The statement a loop over rows holds, finalized when the loop ends.
+export record Rows is own.Closeable
+    @private handle: contracts.Statement?
+    @private guard: Guard
+    @private names: {string}
+
+    --- Finalizes the statement.
+    function close(takes self): nil
+        local handle = self.handle
+        if handle ~= nil then
+            handle:close()
+        end
+    end
+
+    --- Steps to the next row: false once there is none.
+    function advance(exclusive self): boolean
+        admit(self.guard)
+        if self.handle == nil then
+            return false
+        end
+
+        return self.handle:step()
+    end
+
+    --- The current row, keyed by column name.
+    function current(self): Row
+        if self.handle == nil then
+            finalizedStatement()
+        end
+
+        return rowOf(self.handle, self.names)
+    end
+
+    --- The current row, decoded through `binding`.
+    function currentas<T>(self, binding: serde.Binding<T>): T
+        if self.handle == nil then
+            finalizedStatement()
+        end
+
+        return decoded(binding, self.handle, self.names)
+    end
+end
+
+local function nextRow(exclusive rows: Rows, _previous: Row?): Row?
+    if not rows:advance() then
+        return nil
+    end
+
+    return rows:current()
+end
+
+local function savepointName(depth: integer): string
+    return "nupp_sqlite_" .. tostring(depth)
+end
+
+-- Adds a failure raised while handling `problem` to it, where it can carry
+-- one.
+local function withSuppressed(problem: unknown, later: unknown): unknown
+    if getmetatable(problem) == Error then
+        local original = problem as Error
+        local suppressed: {unknown} = {}
+        for index, value in ipairs(original.suppressed) do
+            suppressed[index] = value
+        end
+        suppressed[#suppressed + 1] = later
+
+        return Error(
+            code = original.code,
+            primary = original.primary,
+            name = original.name,
+            message = original.message,
+            sql = original.sql,
+            offset = original.offset,
+            suppressed = suppressed
+        )
+    elseif type(problem) == "string" then
+        return (problem as string) .. " (suppressed: " .. tostring(later) .. ")"
+    end
+
+    return problem
+end
+
+--- An open connection. It closes at the end of its scope, or by
+--- [](Connection.close).
+export record Connection is own.Closeable
+    @private handle: contracts.Database?
+    @private guard: Guard
+
+    --- Closes it. SQLite's connection is released once every statement
+    --- prepared on it is finalized.
+    function close(takes self): nil
+        local handle = self.handle
+        if handle ~= nil then
+            handle:close()
+        end
+    end
+
+    --- Runs every statement in `sql`, ignoring any rows.
+    function exec(self, sql: string): nil
+        admit(self.guard)
+        if self.handle == nil then
+            closedConnection()
+        end
+        execute(self.handle, sql)
+    end
+
+    --- Runs one statement with `...` bound to its parameters, and answers
+    --- how many rows it changed.
+    function run(self, sql: string, ...: Value?): integer
+        admit(self.guard)
+        if self.handle == nil then
+            closedConnection()
+        end
+        local statement = single(self.handle, sql, "run", 2)
+        bindall(statement, 2, ...)
+        while statement:step() do
+        end
+        statement:close()
+
+        return self.handle:changes()
+    end
+
+    --- The rows of one statement with `...` bound to its parameters, for a
+    --- generic `for`. The loop finalizes the statement when it ends.
+    --- @raises string when two columns have one name
+    function rows(self, sql: string, ...: Value?): (function(exclusive rows: Rows, previous: Row?): Row?, Rows, nil)
+        admit(self.guard)
+        if self.handle == nil then
+            closedConnection()
+        end
+        local statement = single(self.handle, sql, "rows", 2)
+        bindall(statement, 2, ...)
+        local names = namesOf(statement, true, 2)
+
+        return nextRow, Rows(handle = statement, guard = self.guard, names = names), nil
+    end
+
+    --- The first row of one statement with `...` bound to its parameters, or
+    --- nil when it has none.
+    function first(self, sql: string, ...: Value?): Row?
+        admit(self.guard)
+        if self.handle == nil then
+            closedConnection()
+        end
+        local statement = single(self.handle, sql, "first", 2)
+        bindall(statement, 2, ...)
+        local names = namesOf(statement, true, 2)
+        local found: Row? = nil
+        if statement:step() then
+            found = rowOf(statement, names)
+        end
+        statement:close()
+
+        return found
+    end
+
+    --- The rows of one statement decoded through `binding`, one member per
+    --- column by name, for a generic `for`.
+    --- @raises serde.Error for a row the binding cannot decode, naming the
+    ---     column
+    function rowsas<T>(
+        self,
+        binding: serde.Binding<T>,
+        sql: string,
+        ...: Value?
+    ): (function(exclusive rows: Rows, previous: T?): T?, Rows, nil)
+        admit(self.guard)
+        if self.handle == nil then
+            closedConnection()
+        end
+        local statement = single(self.handle, sql, "rowsas", 2)
+        bindall(statement, 2, ...)
+        local names = namesOf(statement, true, 2)
+        local step = function(exclusive rows: Rows, _previous: T?): T?
+            if not rows:advance() then
+                return nil
+            end
+
+            return rows:currentas(binding)
+        end
+
+        return step, Rows(handle = statement, guard = self.guard, names = names), nil
+    end
+
+    --- The first row of one statement decoded through `binding`, or nil.
+    function firstas<T>(self, binding: serde.Binding<T>, sql: string, ...: Value?): T?
+        admit(self.guard)
+        if self.handle == nil then
+            closedConnection()
+        end
+        local statement = single(self.handle, sql, "firstas", 2)
+        bindall(statement, 2, ...)
+        local names = namesOf(statement, true, 2)
+        local found: T? = nil
+        if statement:step() then
+            found = decoded(binding, statement, names)
+        end
+        statement:close()
+
+        return found
+    end
+
+    --- Prepares one statement, which cannot outlive the connection.
+    function prepare(self, sql: string): affine(Statement) borrows (self)
+        admit(self.guard)
+        if self.handle == nil then
+            closedConnection()
+        end
+
+        return Statement(handle = single(self.handle, sql, "prepare", 2), guard = self.guard, sql = sql)
+    end
+
+    --- Runs `body` in a transaction: it begins in `mode`, deferred by
+    --- default, commits when `body` returns, and rolls back when it raises,
+    --- raising the same error again. A call inside `body` nests in a
+    --- savepoint. Until it ends, another coroutine that uses the connection is
+    --- refused.
+    --- @return what `body` returned
+    --- @raises unknown whatever `body` raised, or an Error when the
+    ---     transaction cannot begin or commit
+    function transaction<R>(self, borrows body: function(borrows connection: Connection): R, mode: Mode?): R
+        admit(self.guard)
+        if self.handle == nil then
+            closedConnection()
+        end
+        local depth = self.guard.depth
+        if depth == 0 then
+            local chosen = mode or "deferred"
+            if chosen ~= "deferred" and chosen ~= "immediate" and chosen ~= "exclusive" then
+                error(
+                    ("sqlite: a transaction begins deferred, immediate or exclusive, not %q"):format(tostring(chosen)),
+                    2
+                )
+            end
+            execute(self.handle, "BEGIN " .. chosen:upper())
+            self.guard.owner = coroutine.running()
+        else
+            execute(self.handle, "SAVEPOINT " .. savepointName(depth))
+        end
+        self.guard.depth = depth + 1
+        local ok, result = pcall(function(): R
+            return body(self)
+        end)
+        if ok then
+            local committed, problem = pcall(function(): nil
+                if self.handle == nil then
+                    closedConnection()
+                end
+                execute(self.handle, depth == 0 and "COMMIT" or "RELEASE " .. savepointName(depth))
+            end)
+            if committed then
+                self.guard.depth = depth
+                if depth == 0 then
+                    self.guard.owner = nil
+                end
+                return result as R
+            end
+            ok, result = false, problem
+        end
+        local rolled, failure = pcall(function(): nil
+            if self.handle == nil then
+                closedConnection()
+            end
+            if depth == 0 then
+                execute(self.handle, "ROLLBACK")
+            else
+                execute(self.handle, "ROLLBACK TO " .. savepointName(depth))
+                execute(self.handle, "RELEASE " .. savepointName(depth))
+            end
+        end)
+        self.guard.depth = depth
+        if depth == 0 then
+            self.guard.owner = nil
+        end
+        if not rolled then
+            error(withSuppressed(result, failure), 0)
+        end
+        error(result, 0)
+    end
+
+    --- How many rows the last statement changed.
+    function changes(self): integer
+        if self.handle == nil then
+            closedConnection()
+        end
+
+        return self.handle:changes()
+    end
+
+    --- How many rows every statement on the connection has changed.
+    function totalchanges(self): integer
+        if self.handle == nil then
+            closedConnection()
+        end
+
+        return self.handle:totalchanges()
+    end
+
+    --- The rowid of the last row inserted.
+    function lastrowid(self): integer
+        if self.handle == nil then
+            closedConnection()
+        end
+
+        return self.handle:lastrowid()
+    end
+end
+
+local OPTIONS: {
+    [string]: string
+} = {readonly = "boolean", create = "boolean", journal = "string", busytimeout = "number", foreignkeys = "boolean",}
+
+local JOURNALS: {[string]: boolean} = {delete = true, wal = true, memory = true}
+
+--- Opens the database at `path`, creating it unless `options` says not to.
+--- `:memory:` opens a database in memory.
+--- @param path the database file
+--- @param options how to open it
+--- @return the connection
+--- @raises Error when SQLite cannot open it
+--- @raises string for options it does not take
+export function open(path: string, options: OpenOptions?): Connection
+    if type(path) ~= "string" then
+        error("sqlite.open: path must be a string, not " .. type(path), 2)
+    end
+    local settings: any = options or {}
+    if type(settings) ~= "table" then
+        error("sqlite.open: options must be a table, not " .. type(settings), 2)
+    end
+    for key, value in pairs(settings) do
+        local expected = OPTIONS[tostring(key)]
+        if expected == nil then
+            error(("sqlite.open: there is no option %q"):format(tostring(key)), 2)
+        elseif type(value) ~= expected then
+            error(("sqlite.open: option %s must be a %s, not %s"):format(tostring(key), expected, type(value)), 2)
+        end
+    end
+    local journal: string? = settings.journal
+    if journal ~= nil and not JOURNALS[journal] then
+        error(("sqlite.open: journal is delete, wal or memory, not %q"):format(journal), 2)
+    end
+    local busytimeout = settings.busytimeout or 5000
+    if math.type(busytimeout) ~= "integer" or busytimeout < 0 then
+        error("sqlite.open: busytimeout is a count of milliseconds", 2)
+    end
+    local readonly = settings.readonly == true
+    local connection = Connection(
+        handle = provider().open(path, readonly, settings.create ~= false, busytimeout as integer),
+        guard = Guard()
+    )
+    if settings.foreignkeys ~= false then
+        connection:exec("PRAGMA foreign_keys = ON")
+    end
+    if journal ~= nil then
+        local row = connection:first("PRAGMA journal_mode = " .. journal:upper())
+        local mode = row ~= nil and row.journal_mode or nil
+        if mode ~= journal then
+            error(("sqlite.open: the journal stayed %s, not %s"):format(tostring(mode), journal), 2)
+        end
+    end
+
+    return connection
+end

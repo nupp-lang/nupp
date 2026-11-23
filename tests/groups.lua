@@ -303,8 +303,9 @@ scopes.builtinpackagetest = "delivery"
 scopes.builtinwithouttest = "integration"
 scopes.builtinclosuretest = "delivery"
 scopes.builtinyamltest = "delivery"
--- SQLite's binding against the pinned header.
+-- SQLite: its binding against the pinned header, and its facade.
 scopes.sqliteheadertest = "integration"
+scopes.sqlitefacadetest = "integration"
 scopes.compressionnativeprovidertest = "integration"
 scopes.nativeforeignmodetest = "integration"
 scopes.nativecodecabittest = "integration"
@@ -667,6 +668,7 @@ stdlib/serde/contract/protocol
 stdlib/serde/json
 stdlib/serde/xml
 stdlib/serde/yaml
+stdlib/sqlite
 stdlib/string
 stdlib/table
 stdlib/types

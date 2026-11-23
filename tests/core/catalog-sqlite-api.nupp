@@ -1,0 +1,158 @@
+module nupp.core.catalogsqliteapi
+
+-- The sqlite library on the core: connections and statements, exec, run,
+-- rows, first and prepare; every storage class bound and read back exactly;
+-- the statement a loop holds finalized when it ends normally, by break and
+-- by a raised error; and the errors SQLite and misuse raise. The provider's
+-- count of open handles shows that everything opened was let go. Each check
+-- is a bit of the score.
+const provider = require("nupp.runtime.provider.nativesqlite")
+
+local score = 0
+local bit = 1
+
+local function check(ok: boolean): nil
+    if ok then
+        score = score | bit
+    end
+    bit = bit << 1
+end
+
+local function raised(borrows body: function(): nil): unknown
+    local ok, problem = pcall(body)
+    if ok then
+        return nil
+    end
+
+    return problem
+end
+
+check(sqlite.version() == "3.54.1")
+
+do
+    local db = sqlite.open(":memory:")
+    check(provider.openhandles() == 1)
+
+    -- Several statements at once, and one with its parameters.
+    db:exec(
+        [[
+        create table shows (id integer primary key, title text not null unique, rating real, art blob);
+        create index shows_rating on shows (rating);
+    ]]
+    )
+    check(db:run("insert into shows (title, rating) values (?, ?)", "Severance", 9.5) == 1)
+    check(db:lastrowid() == 1 and db:changes() == 1)
+    check(db:run("insert into shows (title, rating, art) values (?, ?, ?)", "Andor", 9, sqlite.blob("\0art\255")) == 1)
+    check(db:totalchanges() == 2)
+
+    -- Rows as tables keyed by column name.
+    local titles: {string} = {}
+    for row in db:rows("select id, title, rating from shows order by id") do
+        titles[#titles + 1] = tostring(row.title)
+    end
+    check(#titles == 2 and titles[1] == "Severance" and titles[2] == "Andor")
+    check(provider.openhandles() == 1)
+
+    -- A loop left by break, and one left by a raised error, still finalize.
+    for row in db:rows("select title from shows order by id") do
+        check(row.title == "Severance")
+        break
+    end
+    check(provider.openhandles() == 1)
+    local problem = raised(function(): nil
+        for _ in db:rows("select title from shows") do
+            error("stop")
+        end
+    end)
+    check(tostring(problem):find("stop", 1, true) ~= nil and provider.openhandles() == 1)
+
+    -- first answers a row or nil.
+    local andor = db:first("select title, rating, art from shows where id = ?", 2)
+    check(andor ~= nil and andor.rating == 9.0 and math.type(andor.rating) == "float" and andor.art == "\0art\255")
+    check(db:first("select title from shows where id = ?", 99) == nil)
+
+    -- Every storage class, at its bounds and with its exact bytes.
+    local values = db:first(
+        "select ? as big, ? as small, ? as real, ? as text, ? as blob, ? as yes, ? as no, ? as absent, "
+        .. "typeof(?) as kind",
+        math.maxinteger,
+        math.mininteger,
+        2.0,
+        "a\0b",
+        sqlite.blob("\0\1\255"),
+        true,
+        false,
+        nil,
+        2.0
+    )
+    check(values ~= nil and values.big == math.maxinteger and values.small == math.mininteger)
+    check(values ~= nil and values.real == 2.0 and math.type(values.real) == "float" and values.kind == "real")
+    check(values ~= nil and values.text == "a\0b" and values.blob == "\0\1\255")
+    check(values ~= nil and values.yes == 1 and values.no == 0 and values.absent == nil)
+
+    -- A value no parameter binds is refused before SQLite is called.
+    local refused = raised(function(): nil
+        local _ = db:run("select ?", {} as any)
+    end)
+    check(type(refused) == "string" and tostring(refused):find("cannot bind a table", 1, true) ~= nil)
+    check(provider.openhandles() == 1)
+
+    -- A prepared statement: bound by index and name, stepped, read, reset.
+    do
+        local statement = db:prepare("select :title as title, ?2 as second, typeof(:title) as kind")
+        statement:bind(":title", "x")
+        statement:bind(2, sqlite.blob("y"))
+        check(statement:step() and statement:column(1) == "x" and statement:columntype(2) == "blob")
+        local columns = statement:columns()
+        check(#columns == 3 and columns[1] == "title" and columns[3] == "kind")
+        local row = statement:row()
+        check(row.title == "x" and row.second == "y" and row.kind == "text")
+        check(not statement:step())
+        statement:reset()
+        statement:bind("title", 7)
+        check(statement:step() and statement:column(1) == 7 and statement:columntype(1) == "integer")
+        statement:reset()
+        statement:clearbindings()
+        check(statement:step() and statement:column(1) == nil and statement:columntype(1) == "null")
+        check(provider.openhandles() == 2)
+    end
+    check(provider.openhandles() == 1)
+
+    -- SQLite's failures carry its diagnosis.
+    local unique = raised(function(): nil
+        local _ = db:run("insert into shows (title) values (?)", "Andor")
+    end)
+    check(getmetatable(unique) == sqlite.Error)
+    if getmetatable(unique) == sqlite.Error then
+        local failure = unique as sqlite.Error
+        check(
+            failure.code == 2067 and failure.primary == sqlite.CONSTRAINT and failure.name == "SQLITE_CONSTRAINT_UNIQUE"
+        )
+        check(failure.message:find("UNIQUE", 1, true) ~= nil and failure.sql == "insert into shows (title) values (?)")
+    end
+    local syntax = raised(function(): nil
+        db:exec("select 1;\nselect 1 frm shows")
+    end)
+    check(getmetatable(syntax) == sqlite.Error and (syntax as sqlite.Error).offset == 23)
+    check(tostring(syntax):find("SQLITE_ERROR: ", 1, true) == 1)
+
+    -- Misuse raises an ordinary error.
+    local count = raised(function(): nil
+        local _ = db:run("select ?, ?", 1)
+    end)
+    check(tostring(count):find("takes 2 parameters, not 1", 1, true) ~= nil)
+    local several = raised(function(): nil
+        local _ = db:run("select 1; select 2")
+    end)
+    check(tostring(several):find("takes one statement", 1, true) ~= nil)
+    local twice = raised(function(): nil
+        local _ = db:first("select 1 as a, 2 as a")
+    end)
+    check(tostring(twice):find("give one another name with AS", 1, true) ~= nil)
+    check(provider.openhandles() == 1)
+end
+
+-- The connection closed at the end of its scope.
+check(provider.openhandles() == 0)
+
+export const result = score

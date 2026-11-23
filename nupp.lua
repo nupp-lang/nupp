@@ -415,6 +415,13 @@ local RESOURCES = {
         source = "src/nupp/runtime/core/compressioncodec.nupp",
         output = "nupp/compiler/nupp/runtime/core/compressioncodec.nupp"
     },
+    {source = "src/sqlite/init.nupp", output = "nupp/compiler/sqlite/init.nupp"},
+    {source = "src/sqlite/internal/contracts.nupp", output = "nupp/compiler/sqlite/internal/contracts.nupp"},
+    {
+        source = "src/nupp/runtime/provider/nativesqlite.nupp",
+        output = "nupp/compiler/nupp/runtime/provider/nativesqlite.nupp"
+    },
+    {source = "src/nupp/runtime/core/sqlitecodec.nupp", output = "nupp/compiler/nupp/runtime/core/sqlitecodec.nupp"},
     {source = "src/nupp/util/internal/hash.nupp", output = "nupp/compiler/nupp/util/internal/hash.nupp"},
     {source = "src/nupp/util/internal/uuid.nupp", output = "nupp/compiler/nupp/util/internal/uuid.nupp"},
     {source = "src/nupp/runtime/system.nupp", output = "nupp/compiler/nupp/runtime/system.nupp"},
@@ -583,6 +590,7 @@ for _, tree in ipairs({
     "src/math",
     "src/os",
     "src/serde",
+    "src/sqlite",
     "src/types",
     "src/nupp/array",
     "src/nupp/bench",
