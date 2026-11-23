@@ -32,6 +32,8 @@ runs:
       run: |
         echo "toolchain=$TOOLCHAIN" >> "$GITHUB_OUTPUT"
         echo "vmcli=$VMCLI" >> "$GITHUB_OUTPUT"
+        echo "corecli=${VMCLI/nupp-vmcli-/nupp-corecli-}" >> "$GITHUB_OUTPUT"
+        echo "runtime=$(sh scripts/stage0-runtime)" >> "$GITHUB_OUTPUT"
 
     - id: toolchain
       uses: actions/cache/restore@v4
@@ -45,12 +47,25 @@ runs:
     # sources with the compiler it holds, which is minutes; none at all starts
     # from the pinned stage zero, which is half an hour.
     - id: vmcli
+      if: steps.keys.outputs.runtime == 'vm'
       uses: actions/cache/restore@v4
       with:
         path: .nupp/vm-cli
         key: ${{ steps.keys.outputs.vmcli }}
         restore-keys: |
           nupp-vmcli-${{ runner.os }}-${{ runner.arch }}-
+
+    # A host the pins flip to the native core (`scripts/stage0-runtime`) runs
+    # the core compiler `scripts/core-cli` installs, under the same sources key,
+    # and builds no VM compiler at all.
+    - id: corecli
+      if: steps.keys.outputs.runtime == 'core'
+      uses: actions/cache/restore@v4
+      with:
+        path: .nupp/core-cli
+        key: ${{ steps.keys.outputs.corecli }}
+        restore-keys: |
+          nupp-corecli-${{ runner.os }}-${{ runner.arch }}-
 
     # Every Cargo build the compiler starts goes through sccache once it is on
     # the path (`bin/nupp`, `scripts/toolchain`, `scripts/vm-cli`), and this
@@ -128,7 +143,7 @@ runs:
 
     # Only the generation this run selected is kept: each holds a runtime, and
     # older ones are dead weight in the cache.
-    - if: inputs.save == 'true' && steps.vmcli.outputs.cache-hit != 'true'
+    - if: inputs.save == 'true' && steps.keys.outputs.runtime == 'vm' && steps.vmcli.outputs.cache-hit != 'true'
       shell: bash
       run: |
         cd .nupp/vm-cli
@@ -138,12 +153,19 @@ runs:
           case "$keep" in *" $entry "*) ;; *) rm -rf "$entry" ;; esac
         done
 
-    - if: inputs.save == 'true' && steps.vmcli.outputs.cache-hit != 'true'
+    - if: inputs.save == 'true' && steps.keys.outputs.runtime == 'vm' && steps.vmcli.outputs.cache-hit != 'true'
       uses: actions/cache/save@v4
       continue-on-error: true
       with:
         path: .nupp/vm-cli
         key: ${{ steps.keys.outputs.vmcli }}
+
+    - if: inputs.save == 'true' && steps.keys.outputs.runtime == 'core' && steps.corecli.outputs.cache-hit != 'true'
+      uses: actions/cache/save@v4
+      continue-on-error: true
+      with:
+        path: .nupp/core-cli
+        key: ${{ steps.keys.outputs.corecli }}
 
     - if: inputs.save == 'true' && steps.toolchain.outputs.cache-hit != 'true'
       uses: actions/cache/save@v4
