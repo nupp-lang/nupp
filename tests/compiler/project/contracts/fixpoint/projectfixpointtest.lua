@@ -285,8 +285,10 @@ function M.childCompilersRunOnTheCorePair()
         NUPP_VM_CLI_IMAGE = "/vm/compiler.image",
         NUPP_VM_CLI_ENTRY = "nupp.tools.vm.root",
     }
-    local getenv = os.getenv
-    os.getenv = function(name)
+    -- Through the module's own reader: on the core a compiled module calls
+    -- os.getenv itself, whatever the global table holds.
+    local getenv = childProcess.environment.getenv
+    childProcess.environment.getenv = function(name)
         if values[name] ~= nil then
             return values[name]
         end
@@ -315,7 +317,7 @@ function M.childCompilersRunOnTheCorePair()
             "off the core a child compiler goes through the launcher"
         )
     end)
-    os.getenv = getenv
+    childProcess.environment.getenv = getenv
     assert(ok, problem)
 end
 
