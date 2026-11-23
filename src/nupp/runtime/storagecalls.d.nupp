@@ -20,6 +20,11 @@ local record storagecalls
     --- keeps the storage alive whoever holds it.
     cast: function(borrows storage: any, kind: integer): any borrows (storage)
 
+    --- Writes the number `value` as the element of `kind` at byte `offset` of
+    --- `storage`, in place, with no view made; a pointer kind stores the
+    --- address of the storage `value` names, or 0 for nil.
+    store: function(borrows storage: any, kind: integer, offset: integer, value: any): nil
+
     --- Copies `count` bytes of `source`, storage or a string, into `target`.
     copy: function(borrows target: any, borrows source: any, count: integer): nil
 

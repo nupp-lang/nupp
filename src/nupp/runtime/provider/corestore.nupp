@@ -1,0 +1,21 @@
+@!internal
+
+module nupp.runtime.provider.corestore
+
+-- A number written in place into storage, with no view made, through the
+-- core's STORAGE_STORE ([](nupp.runtime.storagecalls)). A compiler that
+-- lowers `storagecalls.store` as that call makes this module's calls; under
+-- one that predates it, `store` indexes a call module that is not there and
+-- raises, so a caller tries it under `pcall` first and keeps its own way
+-- otherwise (corederive).
+const storage = require("nupp.runtime.storagecalls")
+
+--- Writes the number `value` as the element of `kind` at byte `offset` of
+--- `target`.
+--- @param target the storage
+--- @param kind the element kind
+--- @param offset the byte offset
+--- @param value the number
+export function store(target: any, kind: integer, offset: integer, value: number): nil
+    storage.store(target, kind, offset, value)
+end

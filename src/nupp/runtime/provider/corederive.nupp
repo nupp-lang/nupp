@@ -29,6 +29,26 @@ local function copy(value: any): any
     return fresh
 end
 
+-- Which of a recipe's defaults are tables, so copied for each evaluation:
+-- known once, so that filling storage asks no default its type.
+local function copiedDefaults(spec: any): {boolean}
+    local copied: {boolean} = {}
+    for index = 1, #spec.fields do
+        copied[index] = type(spec.defaults[index]) == "table"
+    end
+
+    return copied
+end
+
+-- The default of field `index`, as main renders it.
+local function default(spec: any, copied: {boolean}, index: integer): any
+    if copied[index] then
+        return copy(spec.defaults[index])
+    end
+
+    return spec.defaults[index]
+end
+
 -- One forwarding argument of a call, from the member's own arguments.
 local function argument(spec: any, entry: any, given: any): any
     local kind = spec.kind
@@ -83,6 +103,28 @@ const unsignedKind: {[integer]: string} = {[1] = "uint8", [2] = "uint16", [4] = 
 -- of a borrowed value, or a zero address for nil.
 const POINTER_VIEW = 12
 
+-- Writes a number field in place (corestore), or nil when the compiler
+-- that lowered corestore predates its store: then it loads, but its store
+-- reads a call module that is not there and raises, so a field is written
+-- through a view of it instead, which allocates the view. A store into a
+-- byte of scratch storage tells which, once.
+local function inplaceStore(): any
+    local loaded, corestore = pcall(function(): any
+        return require("nupp.runtime.provider.corestore")
+    end)
+    if not loaded or corestore == nil then
+        return nil
+    end
+    local scratch = storage.allocbytes(1)
+    if not pcall(corestore.store, scratch, heap.scalar("uint8").kind, 0, 0) then
+        return nil
+    end
+
+    return corestore.store
+end
+
+const inplace: any = inplaceStore()
+
 local function structInitializer(layout: any, spec: any): any
     assert(layout.supported, layout.error)
     local byName: {[string]: any} = {}
@@ -105,21 +147,30 @@ local function structInitializer(layout: any, spec: any): any
             scalar = kind
         end
         local storageKind = kind == "pointer" and POINTER_VIEW or heap.scalar(scalar).kind
-        fields[index] = {field = field, storageKind = storageKind, composite = composite}
+        -- A plain number field is written in place; a pointer, bit field or
+        -- composite one through a view.
+        local direct = not composite and field.bitWidth == nil and kind ~= "pointer"
+        fields[index] = {field = field, storageKind = storageKind, composite = composite, direct = direct}
     end
+    local copied = copiedDefaults(spec)
+
+    -- The arguments are read where they were passed, and a number field
+    -- written in place where the core can, so filling storage allocates
+    -- nothing.
 
     return function(self: any, ...: any): any
-        local given: any = {...}
         for index, entry in ipairs(fields) do
             local field = entry.field
-            local value = given[index]
+            local value: any = (select(index, ...))
             if value == nil and spec.defaulted[index] then
-                value = copy(spec.defaults[index])
+                value = default(spec, copied, index)
             end
             if field.kind == "boolean" then
                 value = value and 1 or 0
             end
-            if field.bitWidth ~= nil then
+            if inplace ~= nil and entry.direct and value ~= nil then
+                inplace(self, entry.storageKind, field.offset, value)
+            elseif field.bitWidth ~= nil then
                 local cell = storage.view(self, entry.storageKind, field.offset, 1)
                 local shift = field.bitOffset as uint64
                 local mask = 0xffffffffffffffffULL >> ((64 - field.bitWidth) as uint64)
@@ -145,11 +196,12 @@ export function initializer(owner: any, spec: any): any
     if layout then
         return structInitializer(layout, spec)
     end
+    local copied = copiedDefaults(spec)
     if spec.constructor ~= nil then
         local constructor = assert(owner[spec.constructor], "derived constructor is missing")
         return function(self: any, ...: any): any
             for index, field in ipairs(spec.fields) do
-                self[field] = copy(spec.defaults[index])
+                self[field] = default(spec, copied, index)
             end
             constructor(self, ...)
 
@@ -158,11 +210,10 @@ export function initializer(owner: any, spec: any): any
     end
 
     return function(self: any, ...: any): any
-        local given: any = {...}
         for index, field in ipairs(spec.fields) do
-            local value = given[index]
+            local value: any = (select(index, ...))
             if value == nil and spec.defaulted[index] then
-                value = copy(spec.defaults[index])
+                value = default(spec, copied, index)
             end
             self[field] = value
         end
