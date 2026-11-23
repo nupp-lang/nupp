@@ -1,0 +1,4 @@
+-- serde.json and serde, which carry no YAML: serde does not require serde.yaml.
+local json = require("serde.json")
+
+print(json.encodevalue({hello = "world"}))

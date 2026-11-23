@@ -1,0 +1,3 @@
+local config = require("app.config")
+
+print(config.port("name: watchashow\nport: 9000\n"))

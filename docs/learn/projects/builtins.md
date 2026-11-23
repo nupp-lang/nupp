@@ -28,10 +28,14 @@ strip.
 
 ## The builtins
 
-None is registered yet. The registry is
-`src/nupp/compiler/project/builtins.nupp`; each library that becomes a builtin
-lists here its name, the modules it carries, its C library and the hosts that
-provide it.
+The registry is `src/nupp/compiler/project/builtins.nupp`; each library that
+becomes a builtin lists here its name, the modules it carries, its C library
+and the hosts that provide it.
+
+| Builtin | Modules | C library | Hosts |
+| --- | --- | --- | --- |
+| `xml` | `serde.xml` and `serde.xml.*` | none | the native core and the browser |
+| `yaml` | `serde.yaml`, `serde.yaml.*` and `nupp.runtime.core.yamlcodec` | libyaml 0.2.6 as `nupp_yaml`, with `libyaml-LICENSE.txt` | the native core |
 
 ## Stripping a builtin
 
