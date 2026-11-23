@@ -201,7 +201,8 @@ function M.explainDescribesTheCode()
     local entry = assert(explain.lookup("NUPP0006"))
     assert(entry.family == false, "NUPP0006 has its own entry")
     assert(entry.rule:find("--without", 1, true) and entry.rule:find("without = {", 1, true), entry.rule)
-    local page = assert(read(ROOT .. "/docs/learn/projects/builtins.md"))
+    -- A Windows checkout may write the page with CRLF line endings.
+    local page = assert(read(ROOT .. "/docs/learn/projects/builtins.md")):gsub("\r\n", "\n")
     assert(page:find("\n## Stripping a builtin\n", 1, true), "the docs anchor names a section")
 end
 
