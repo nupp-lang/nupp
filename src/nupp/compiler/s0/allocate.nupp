@@ -743,9 +743,10 @@ function allocate.simplify(f: ir.Function): nil
     end
 end
 
--- Which values a call crosses while they are live, by dataflow rather than
--- by interval: an interval spans every call between its ends, on paths that
--- never read the value again too. Saving, only these need a save slot.
+-- Liveness by dataflow. It extends each interval over every block its value
+-- is live out of, and finds which values a call crosses while they are live:
+-- an interval spans every call between its ends, on paths that never read
+-- the value again too. Saving, only these need a save slot.
 local function crossings(f: ir.Function, a: allocate.Allocation): nil
     local count = #f.blockStart
     local liveIn: {{[integer]: boolean}} = {}
@@ -810,6 +811,16 @@ local function crossings(f: ir.Function, a: allocate.Allocation): nil
             end
             if size ~= sizes[b] then
                 liveIn[b], sizes[b], changed = live, size, true
+            end
+        end
+    end
+    -- An interval spans its value's whole liveness: in reverse postorder a
+    -- loop's blocks need not follow one another, so the latest back edge
+    -- does not bound where a value live around the loop is still needed.
+    for b = 1, count do
+        for v in pairs(liveOut(b)) do
+            if a.finish[v] < a.blockExit[b] then
+                a.finish[v] = a.blockExit[b]
             end
         end
     end
