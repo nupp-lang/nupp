@@ -232,6 +232,28 @@ block0(v0: i64, v1: i64, v2: i64):
             end
         },
         {
+            -- A table indexed by a byte (a dispatch on an opcode) is one
+            -- load with the scaled index in its address.
+            name = "indexeddispatch",
+            text = [[
+function %table(i64, i64) -> i64 tail {
+    sig0 = (i64) -> i64 tail
+block0(v0: i64, v1: i64):
+    v5 = load.i64 v0
+    v6 = uload8.i64 v1
+    v7 = iconst.i64 3
+    v8 = ishl v6, v7
+    v9 = iadd v5, v8
+    v10 = load.i64 v9
+    return_call_indirect sig0, v10(v1)
+}
+]],
+            runs = {},
+            check = function(codes)
+                assert(inspect.count(codes, "table", inspect.isShiftImmediate) == 0, "the index is shifted apart")
+            end
+        },
+        {
             -- An indirect target loaded for its call alone is loaded into x16.
             name = "dispatch",
             text = [[
