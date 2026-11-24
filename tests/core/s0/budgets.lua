@@ -10,7 +10,7 @@ return {
     {name = "JmpIf", budget = {23, 10}, clang = {35, 19}},
     {name = "K", budget = {47, 19}, clang = {57, 26}},
     {name = "GetUpval", budget = {37, 16}, clang = {36, 15}},
-    {name = "GetCell", budget = {50, 32}},
+    {name = "GetCell", budget = {32, 14}},
     {name = "Eq", budget = {65, 40}},
-    {name = "GetIdx", budget = {138, 89}}
+    {name = "GetIdx", budget = {108, 60}}
 }

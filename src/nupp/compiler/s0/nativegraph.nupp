@@ -1034,7 +1034,15 @@ local function compilerGraph(
         end
         issuedResults[
             result
-        ] = {graph = g, owner = owner, machine = machine, callees = callees, osImports = pageImports, target = target}
+        ] = {
+            graph = g,
+            owner = owner,
+            machine = machine,
+            callees = callees,
+            osImports = pageImports,
+            target = target,
+            context = context
+        }
     end
 
     return result
@@ -1164,6 +1172,67 @@ function sink.win64PageSize(issued: any): (string, integer, string)
     return selector.selectPageSize(result.machine)
 end
 
+-- The most graph operations a leaf may have to be lowered for inlining; the
+-- inliner (nupp.compiler.s0.inline) decides by its machine instructions.
+const INLINE_GRAPH_LIMIT: 48 = 48
+
+-- Whether checked graph `g` is a leaf small enough to inline: no calls of
+-- any kind and no transfer out of it but a return.
+local function inlinableGraph(g: any): boolean
+    if g.native.abi ~= "leaf" then
+        return false
+    end
+    local count = 0
+    for _, block in ipairs(g.blocks) do
+        local term = block.term.kind
+        if term ~= "return" and term ~= "jump" and term ~= "branch" then
+            return false
+        end
+        for _, op in ipairs(block.op) do
+            count = count + 1
+            if count > INLINE_GRAPH_LIMIT
+                or (op as string):find("Call", 1, true)
+                or (op as string):find("Tail", 1, true)
+            then
+                return false
+            end
+        end
+    end
+
+    return true
+end
+
+-- Inlines the small leaves `result`'s machine IR calls, lowered from their
+-- checked graphs, before it is allocated. Copied instructions keep the call
+-- site's place in the source.
+local function inlineLeaves(result: sink.Result, held: any): nil
+    local inline = require("nupp.compiler.s0.inline")
+    local lowered: {[string]: ir.Function} = {}
+    inline.all(
+        result.machine,
+        function(symbol: string): ir.Function?
+            local item = held.callees[symbol]
+            if item == nil or not inlinableGraph(item.graph) then
+                return nil
+            end
+            if lowered[symbol] == nil then
+                local bound = {graph = item.graph, body = item.owner, pc = 0, count = 1}
+                lowered[symbol] = lower(bound, symbol, true, nil, held.context, held.target).machine
+            end
+
+            return lowered[symbol]
+        end,
+        function(site: integer, first: integer, last: integer): nil
+            for at = first, last do
+                result.instructionPosition[at] = result.instructionPosition[site]
+                result.instructionOperation[at] = result.instructionOperation[site]
+                result.instructionSegment[at] = result.instructionSegment[site]
+                result.instructionBlock[at] = result.instructionBlock[site]
+            end
+        end
+    )
+end
+
 -- This wrapper issues code provenance only after verifying the original graph
 -- and the exact MIR that compilerGraph produced. There is no annotateCode API.
 function sink.selectAuthenticated(result: sink.Result, mode: string): any
@@ -1180,6 +1249,7 @@ function sink.selectAuthenticated(result: sink.Result, mode: string): any
     if mode == "spill" then
         target.integerRegisters, target.floatRegisters = {}, {}
     end
+    inlineLeaves(result, held)
     local allocation = allocate.run(result.machine, target)
     assert(check.run(result.machine, target, allocation))
     local code = selector.run(result.machine, allocation)

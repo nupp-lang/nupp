@@ -62,6 +62,7 @@ local reader = require("s0lab.reader")
 local allocate = require("s0lab.allocate")
 local check = require("s0lab.allocationcheck")
 local selector = require("s0lab.select")
+local inliner = require("s0lab.inline")
 local arm = require("s0lab.arm64")
 local ir = require("s0lab.ir")
 local transport = require("nupp.core.transportbundle")
@@ -105,9 +106,23 @@ local function word64(bytes, index)
 end
 
 -- Selects every function of `text`; answers them by name, and the entry's.
-local function select(text, spill)
+local function select(text, spill, inlined)
     local codes, order = {}, {}
-    for _, f in ipairs(reader.read(text)) do
+    local functions = reader.read(text)
+    -- Calls between the case's own functions are inlined first, from
+    -- pristine copies (read again) of the callees.
+    if inlined then
+        local pristine = {}
+        for _, f in ipairs(reader.read(text)) do
+            pristine[f.name] = f
+        end
+        for _, f in ipairs(functions) do
+            inliner.all(f, function(name)
+                return pristine[name]
+            end)
+        end
+    end
+    for _, f in ipairs(functions) do
         local target = selector.target()
         if spill then
             target.integerRegisters, target.floatRegisters = {}, {}
@@ -318,7 +333,7 @@ for _, case in ipairs(cases(inspect)) do
         for _, spill in ipairs(case.spill == false and {false} or {false, true}) do
             local label = case.name .. (spill and " (spill)" or "")
             local ok, problem = pcall(function()
-                local codes, order = select(case.text, spill)
+                local codes, order = select(case.text, spill, case.inline)
                 local entry = case.entry or order[#order]
                 local image, words = bundle(codes, order, entry, case.runs[1] and #case.runs[1].args or 0)
                 if os.getenv("NUPP_S0_DISASSEMBLE") == "1" and not spill then
@@ -422,6 +437,11 @@ for _, handler in ipairs(dofile(ROOT .. "/tests/core/s0/budgets.lua")) do
     if next(only) == nil or only[handler.name] then
         local ok, problem = pcall(function()
             local f = loader.load(assert(read(ROOT .. "/tests/core/s0/handlers/" .. handler.name .. ".json")))
+            -- The small leaves it calls, as the selector inlines them.
+            inliner.all(f, function(symbol)
+                local text = read(ROOT .. "/tests/core/s0/handlers/callees/" .. symbol .. ".json")
+                return text and loader.load(text) or nil
+            end)
             local target = selector.target()
             local a = allocate.run(f, target)
             check.run(f, target, a)

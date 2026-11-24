@@ -1,0 +1,167 @@
+module nupp.compiler.s0.inline
+
+-- Inlines small leaf callees into their callers' machine IR, as C's small
+-- static functions are: a call to one becomes a jump into a copy of its
+-- blocks, and each of its returns a jump to the rest of the caller's block,
+-- which takes the result as its parameter. The call, the moves into its
+-- argument registers and every save around it go.
+local ir = require("nupp.compiler.s0.ir")
+
+local inline = {}
+
+-- The most instructions a callee may have to be inlined, not counting
+-- literals and jumps (which select as nothing or fold into their uses).
+const LIMIT: 24 = 24
+
+local CALL, CALL_INDIRECT = ir.opcode("call"), ir.opcode("call_indirect")
+local RETURN_CALL, RETURN_CALL_INDIRECT = ir.opcode("return_call"), ir.opcode("return_call_indirect")
+local STACK_ADDR, TRAP = ir.opcode("stack_addr"), ir.opcode("trap")
+local JUMP, RETURN = ir.opcode("jump"), ir.opcode("return")
+local ICONST, FCONST = ir.opcode("iconst"), ir.opcode("fconst")
+
+-- Whether `callee` may be inlined: small, calling nothing, with no stack
+-- slots of its own, and returning (once or more) at most one value.
+function inline.eligible(callee: ir.Function): boolean
+    if #callee.stackBytes > 0 or #callee.signature.results > 1 then
+        return false
+    end
+    local returns = false
+    local size: integer = 0
+    for _, op in ipairs(callee.op) do
+        if op ~= ICONST and op ~= FCONST and op ~= JUMP then
+            size = size + 1
+        end
+        if op == CALL
+            or op == CALL_INDIRECT
+            or op == RETURN_CALL
+            or op == RETURN_CALL_INDIRECT
+            or op == STACK_ADDR
+            or op == TRAP
+        then
+            return false
+        end
+        returns = returns or op == RETURN
+    end
+
+    return returns and size <= LIMIT
+end
+
+-- Inlines `callee` at instruction `at` of `f`, a call of it.
+function inline.run(f: ir.Function, at: integer, callee: ir.Function): nil
+    assert(f.op[at] == CALL and f.result2[at] == 0, "S0 inline: a single-result call required")
+    assert(f.nargs[at] == #callee.signature.params, "S0 inline: argument count")
+    local block: integer = 0
+    for b, start in ipairs(f.blockStart) do
+        if at >= start and at <= f.blockEnd[b] then
+            block = b
+        end
+    end
+    assert(block > 0 and at < f.blockEnd[block], "S0 inline: a call inside a block required")
+
+    -- The rest of the block continues, taking the result.
+    local continuation = #f.blockStart + 1
+    f.blockStart[continuation], f.blockEnd[continuation] = at + 1, f.blockEnd[block]
+    f.firstParam[continuation], f.nparams[continuation] = #f.params + 1, 0
+    local result = f.result[at]
+    if result ~= 0 then
+        f.params[#f.params + 1] = result
+        f.nparams[continuation] = 1
+        f.definitions[result] = -continuation
+    end
+    f.blockEnd[block] = at
+
+    -- The callee's values and blocks, renumbered past the caller's.
+    local values = #f.valueKinds
+    local blocks = #f.blockStart
+    for v, kind in ipairs(callee.valueKinds) do
+        f.valueKinds[values + v], f.definitions[values + v] = kind, 0
+    end
+    local arguments: {integer} = {}
+    for p = f.firstArg[at], f.firstArg[at] + f.nargs[at] - 1 do
+        arguments[#arguments + 1] = f.args[p]
+    end
+
+    -- The call jumps into the callee's entry with the arguments.
+    f.op[at], f.result[at], f.kind[at], f.nargs[at] = JUMP, 0, 0, 0
+    f.imm[at], f.aux[at] = 0, 0
+    f.firstEdge[at], f.nedges[at] = #f.edgeTarget + 1, 1
+    local entry = #f.edgeTarget + 1
+    f.edgeFrom[entry], f.edgeTarget[entry] = at, blocks + 1
+    f.edgeFirstArg[entry], f.edgeNargs[entry] = #f.edgeArgs + 1, #arguments
+    for _, value in ipairs(arguments) do
+        f.edgeArgs[#f.edgeArgs + 1] = value
+    end
+
+    for b, start in ipairs(callee.blockStart) do
+        local copy = blocks + b
+        f.firstParam[copy], f.nparams[copy] = #f.params + 1, callee.nparams[b]
+        for p = callee.firstParam[b], callee.firstParam[b] + callee.nparams[b] - 1 do
+            f.params[#f.params + 1] = values + callee.params[p]
+            f.definitions[values + callee.params[p]] = -copy
+        end
+        f.blockStart[copy] = #f.op + 1
+        for i = start, callee.blockEnd[b] do
+            local to = #f.op + 1
+            local op = callee.op[i]
+            f.op[to], f.kind[to], f.imm[to], f.aux[to] = op, callee.kind[i], callee.imm[i], callee.aux[i]
+            f.result[to], f.result2[to], f.kind2[to] = 0, 0, 0
+            if callee.result[i] ~= 0 then
+                f.result[to] = values + callee.result[i]
+                f.definitions[values + callee.result[i]] = to
+            end
+            f.firstArg[to], f.nargs[to] = #f.args + 1, 0
+            f.firstEdge[to], f.nedges[to] = #f.edgeTarget + 1, 0
+            if op == RETURN then
+                -- A return jumps to the continuation with what it returns.
+                f.op[to], f.kind[to] = JUMP, 0
+                local edge = #f.edgeTarget + 1
+                f.edgeFrom[edge], f.edgeTarget[edge] = to, continuation
+                f.edgeFirstArg[edge], f.edgeNargs[edge] = #f.edgeArgs + 1, f.nparams[continuation]
+                for p = callee.firstArg[i], callee.firstArg[i] + f.nparams[continuation] - 1 do
+                    f.edgeArgs[#f.edgeArgs + 1] = values + callee.args[p]
+                end
+                f.nedges[to] = 1
+            else
+                for p = callee.firstArg[i], callee.firstArg[i] + callee.nargs[i] - 1 do
+                    f.args[#f.args + 1] = values + callee.args[p]
+                end
+                f.nargs[to] = callee.nargs[i]
+                for e = callee.firstEdge[i], callee.firstEdge[i] + callee.nedges[i] - 1 do
+                    local edge = #f.edgeTarget + 1
+                    f.edgeFrom[edge], f.edgeTarget[edge] = to, blocks + callee.edgeTarget[e]
+                    f.edgeFirstArg[edge], f.edgeNargs[edge] = #f.edgeArgs + 1, callee.edgeNargs[e]
+                    for p = 0, callee.edgeNargs[e] - 1 do
+                        f.edgeArgs[#f.edgeArgs + 1] = values + callee.edgeArgs[callee.edgeFirstArg[e] + p]
+                    end
+                end
+                f.nedges[to] = callee.nedges[i]
+            end
+        end
+        f.blockEnd[copy] = #f.op
+    end
+end
+
+-- Inlines every call in `f` whose callee `lookup` answers with eligible IR,
+-- telling `copied` (when given) each call site and the instructions it became.
+-- Inlined bodies call nothing, so one pass over the caller's calls suffices.
+function inline.all(
+    f: ir.Function,
+    lookup: function(string): ir.Function?,
+    copied: (function(integer, integer, integer): nil)?
+): nil
+    local count = #f.op
+    for at = 1, count do
+        if f.op[at] == CALL and f.result2[at] == 0 then
+            local callee = lookup(f.importNames[f.aux[at]])
+            if callee ~= nil and inline.eligible(callee) then
+                local first = #f.op + 1
+                inline.run(f, at, callee)
+                if copied ~= nil then
+                    copied(at, first, #f.op)
+                end
+            end
+        end
+    end
+end
+
+export = inline

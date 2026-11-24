@@ -381,6 +381,47 @@ block2():
             end
         },
         {
+            -- A small leaf returning from two places (a header check, as
+            -- cellHeader makes) is inlined: no call, no saves around it.
+            name = "inlined",
+            inline = true,
+            text = [[
+function %header(i64) -> i64 tail {
+block0(v0: i64):
+    v1 = iconst.i64 -4
+    v2 = band v0, v1
+    v3 = icmp eq v2, v0
+    brif v3, block1(), block2()
+block1():
+    v4 = iconst.i64 3
+    v5 = band v0, v4
+    v6 = iadd v0, v5
+    return v6
+block2():
+    v7 = iconst.i64 0
+    return v7
+}
+function %caller(i64, i64) -> i64 tail {
+    sig0 = (i64) -> i64 tail
+    fn0 = %header sig0
+block0(v0: i64, v1: i64):
+    v2 = call fn0(v0)
+    v3 = iconst.i64 0
+    v4 = icmp eq v2, v3
+    brif v4, block1(), block2()
+block1():
+    return v1
+block2():
+    v5 = iadd v2, v1
+    return v5
+}
+]],
+            runs = {{args = {8, 1}, result = 9}, {args = {9, 5}, result = 5}, {args = {0, 7}, result = 7}},
+            check = function(codes)
+                assert(inspect.count(codes, "caller", inspect.isBranchLink) == 0, "the leaf is still called")
+            end
+        },
+        {
             -- An indirect target loaded for its call alone is loaded into x16.
             name = "dispatch",
             text = [[
