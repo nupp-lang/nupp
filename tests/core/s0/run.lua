@@ -287,6 +287,11 @@ function inspect.isConditionalCompare(word)
     return word & 0x7fe00400 == 0x7a400000
 end
 
+-- add xd, xn, #1.
+function inspect.isAddImmediateOne(word)
+    return word & 0xfffffc00 == 0x91000400
+end
+
 -- bl: a call.
 function inspect.isBranchLink(word)
     return word & 0xfc000000 == 0x94000000

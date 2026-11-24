@@ -347,6 +347,40 @@ block4():
             end
         },
         {
+            -- An index bounded and then used (index + 1, twice) is computed
+            -- once: the successor reuses what its sole predecessor made. Each
+            -- `1` is a literal of its own.
+            name = "common",
+            text = [[
+function %common(i64, i64) -> i64 tail {
+    ss0 = explicit_slot 32, align = 16
+block0(v0: i64, v1: i64):
+    v2 = stack_addr.i64 ss0
+    store v1, v2+16
+    v3 = iconst.i64 1
+    v4 = iadd v0, v3
+    v5 = iconst.i64 4
+    v6 = icmp uge v4, v5
+    brif v6, block1(), block2()
+block1():
+    v7 = iconst.i64 0
+    return v7
+block2():
+    v13 = iconst.i64 1
+    v8 = iadd v0, v13
+    v9 = iconst.i64 8
+    v10 = imul v8, v9
+    v11 = iadd v2, v10
+    v12 = load.i64 v11
+    return v12
+}
+]],
+            runs = {{args = {1, 42}, result = 42}, {args = {3, 42}, result = 0}},
+            check = function(codes)
+                assert(inspect.count(codes, "common", inspect.isAddImmediateOne) == 1, "index + 1 is computed twice")
+            end
+        },
+        {
             -- An indirect target loaded for its call alone is loaded into x16.
             name = "dispatch",
             text = [[

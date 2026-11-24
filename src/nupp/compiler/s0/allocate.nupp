@@ -1210,9 +1210,119 @@ local function merge(f: ir.Function): nil
     end
 end
 
+local OP_IMUL, OP_UMULHI, OP_SELECT = ir.opcode("imul"), ir.opcode("umulhi"), ir.opcode("select")
+local OP_IREDUCE, OP_LAST_CONVERSION = ir.opcode("ireduce"), ir.opcode("fcvt_to_uint_sat")
+local OP_IADD = ir.opcode("iadd")
+local OP_ICONST = ir.opcode("iconst")
+local OP_CALL, OP_CALL_INDIRECT = ir.opcode("call"), ir.opcode("call_indirect")
+
+-- Computes each pure operation once along a run of blocks each entered from
+-- the one before alone (so what the first computed dominates the rest): a
+-- repeat with the same operands takes the first's result, and is left with
+-- no operands for the selector to drop. Literals and stack addresses are
+-- left alone; each is remade where it is used.
+-- Nothing computed before a call is
+-- reused after it: across the call it would cost a save and a reload.
+local function common(f: ir.Function): nil
+    local count = #f.blockStart
+    -- Entries by named edges from blocks a path reaches: a block threading
+    -- passed by still names its edges, though nothing enters it.
+    local reached: {boolean} = {true}
+    local pending: {integer} = {1}
+    while #pending > 0 do
+        local b = pending[#pending]
+        pending[#pending] = nil
+        for i = f.blockStart[b], f.blockEnd[b] do
+            for e = f.firstEdge[i], f.firstEdge[i] + f.nedges[i] - 1 do
+                if not reached[f.edgeTarget[e]] then
+                    reached[f.edgeTarget[e]] = true
+                    pending[#pending + 1] = f.edgeTarget[e]
+                end
+            end
+        end
+    end
+    local named: {integer} = zeros(count)
+    for b = 1, count do
+        for i = reached[b] and f.blockStart[b] or 1, reached[b] and f.blockEnd[b] or 0 do
+            for e = f.firstEdge[i], f.firstEdge[i] + f.nedges[i] - 1 do
+                named[f.edgeTarget[e]] = named[f.edgeTarget[e]] + 1
+            end
+        end
+    end
+    local alias: {[integer]: integer} = {}
+
+    local function resolved(value: integer): integer
+        while alias[value] ~= nil do
+            value = alias[value] as integer
+        end
+
+        return value
+    end
+
+    local visited: {boolean} = {}
+    local blocks: {integer} = {1}
+    local tables: {{[string]: integer}} = {{}}
+    while #blocks > 0 do
+        local b, inherited = blocks[#blocks], tables[#tables]
+        blocks[#blocks], tables[#tables] = nil, nil
+        if not visited[b] then
+            visited[b] = true
+            local available: {[string]: integer} = {}
+            for key, value in pairs(inherited) do
+                available[key] = value
+            end
+            for i = f.blockStart[b], f.blockEnd[b] do
+                local op = f.op[i]
+                if op == OP_CALL or op == OP_CALL_INDIRECT then
+                    available = {}
+                end
+                local pure = op >= OP_IADD and op <= OP_IMUL
+                    or op >= OP_UMULHI and op <= OP_SELECT
+                    or op >= OP_IREDUCE and op <= OP_LAST_CONVERSION
+                if pure and f.result[i] ~= 0 and f.result2[i] == 0 and f.nargs[i] > 0 then
+                    local fields: {string} = {tostring(op), tostring(f.kind[i]), tostring(f.imm[i]), tostring(f.aux[i])}
+                    -- A literal operand is named by its value: each use
+                    -- of a literal may make its own.
+                    for p = f.firstArg[i], f.firstArg[i] + f.nargs[i] - 1 do
+                        local value = resolved(f.args[p])
+                        local definition = f.definitions[value]
+                        fields[#fields + 1] = definition > 0
+                            and f.op[definition] == OP_ICONST
+                            and "#" .. tostring(f.valueKinds[value]) .. ":" .. tostring(f.imm[definition])
+                            or tostring(value)
+                    end
+                    local key = table.concat(fields, " ")
+                    local first = available[key]
+                    if first ~= nil then
+                        alias[f.result[i]] = first
+                        f.nargs[i] = 0
+                    else
+                        available[key] = f.result[i]
+                    end
+                end
+                for e = f.firstEdge[i], f.firstEdge[i] + f.nedges[i] - 1 do
+                    local into = f.edgeTarget[e]
+                    blocks[#blocks + 1] = into
+                    tables[#tables + 1] = named[into] == 1 and into ~= 1 and available or {}
+                end
+            end
+        end
+    end
+    if next(alias) == nil then
+        return
+    end
+    for p, value in ipairs(f.args) do
+        f.args[p] = resolved(value)
+    end
+    for p, value in ipairs(f.edgeArgs) do
+        f.edgeArgs[p] = resolved(value)
+    end
+end
+
 function allocate.run(f: ir.Function, target: allocate.Target): allocate.Allocation
     if target.saveAcrossCalls == true then
         allocate.simplify(f)
+        common(f)
         merge(f)
     end
     local a = newAllocation(f)
