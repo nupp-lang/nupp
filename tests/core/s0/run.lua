@@ -112,6 +112,25 @@ local function select(text, spill)
             target.integerRegisters, target.floatRegisters = {}, {}
         end
         local a = allocate.run(f, target)
+        if os.getenv("NUPP_S0_ALLOCATION") == "1" then
+            for v = 1, #f.valueKinds do
+                if f.valueKinds[v] ~= 0 then
+                    print(
+                        (
+                            "%s v%d at %d save %d interval %d-%d ranges %s"
+                        ):format(
+                            f.name,
+                            v,
+                            a.location[v],
+                            a.saveSlot[v],
+                            a.start[v],
+                            a.finish[v],
+                            table.concat(a.ranges[v] or {}, ",")
+                        )
+                    )
+                end
+            end
+        end
         check.run(f, target, a)
         codes[f.name] = selector.run(f, a)
         order[#order + 1] = f.name
@@ -255,6 +274,11 @@ end
 -- add xd, xn, #0.
 function inspect.isAddZero(word)
     return word & 0xfffffc00 == 0x91000000
+end
+
+-- mov x0, xn (orr x0, xzr, xn).
+function inspect.isMoveToFirst(word)
+    return word & 0xffe0ffff == 0xaa0003e0
 end
 
 -- mov x16, xn (orr x16, xzr, xn).

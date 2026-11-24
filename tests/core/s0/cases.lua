@@ -178,6 +178,33 @@ block0(v0: i64, v1: i64):
             end
         },
         {
+            -- A value dead on one path does not hold its register there:
+            -- the fast path computes the next argument into x0 itself,
+            -- though x0's first value is used again on the slow path after.
+            name = "holes",
+            text = identity
+            .. [[
+function %holes(i64, i64) -> i64 tail {
+    sig0 = (i64) -> i64 tail
+    fn0 = %identity sig0
+block0(v0: i64, v1: i64):
+    brif v1, block1(), block2()
+block1():
+    v2 = iconst.i64 16
+    v3 = iadd v0, v2
+    return_call fn0(v3)
+block2():
+    v4 = call fn0(v0)
+    v5 = iadd v4, v0
+    return v5
+}
+]],
+            runs = {{args = {5, 1}, result = 21}, {args = {5, 0}, result = 10}},
+            check = function(codes)
+                assert(inspect.count(codes, "holes", inspect.isMoveToFirst) == 0, "moves into x0 before the tail call")
+            end
+        },
+        {
             -- An indirect target loaded for its call alone is loaded into x16.
             name = "dispatch",
             text = [[

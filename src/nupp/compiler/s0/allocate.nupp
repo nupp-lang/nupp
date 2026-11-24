@@ -50,6 +50,10 @@ record allocate.Allocation
     -- reloaded when the selector saves it lazily.
     callLive: {[integer]: {integer}}
     liveOut: {{integer}}
+    -- Where each value is live, by dataflow (crossings): pairs of first and
+    -- last positions, in no order. Saving, values whose ranges do not meet
+    -- share a register, holes in an interval included.
+    ranges: {{integer}}
     conservativeBlocks: integer
     conservativeValues: integer
 end
@@ -91,7 +95,8 @@ local function newAllocation(f: ir.Function): allocate.Allocation
         saveSlot = zeros(#f.valueKinds),
         used = {},
         callLive = {},
-        liveOut = {}
+        liveOut = {},
+        ranges = {}
     )
 end
 
@@ -400,6 +405,97 @@ local function placements(f: ir.Function, target: allocate.Target): {integer}
     return fixed
 end
 
+-- Whether values `v` and `w` are live at once anywhere (Allocation.ranges).
+local function overlap(a: allocate.Allocation, v: integer, w: integer): boolean
+    if a.finish[w] < a.start[v] or a.finish[v] < a.start[w] then
+        return false
+    end
+    local rv, rw = a.ranges[v], a.ranges[w]
+    for i = 1, #rv, 2 do
+        for j = 1, #rw, 2 do
+            if rv[i] <= rw[j + 1] and rw[j] <= rv[i + 1] then
+                return true
+            end
+        end
+    end
+
+    return false
+end
+
+-- Saving, assigns registers by where values are live rather than by
+-- interval: a register holds every value whose ranges do not meet. A value
+-- no register is free for takes one held by a single value that lasts
+-- longer, which is spilled, or is spilled itself. Values only C calls
+-- cross prefer registers they preserve; then the convention's register for
+-- them (`fixed`) and the one the value they copy is in (`hint`).
+local function shared(
+    f: ir.Function,
+    a: allocate.Allocation,
+    target: allocate.Target,
+    values: {integer},
+    hint: {integer},
+    fixed: {integer}
+): nil
+    local held: {[integer]: {integer}} = {}
+    for _, v in ipairs(values) do
+        local list = ir.isFloat(f.valueKinds[v]) and target.floatRegisters or target.integerRegisters
+        local copied = hint[v] ~= 0 and a.location[hint[v]] or 0
+        local keep = a.acrossC[v] and not a.acrossInternal[v]
+        local selected: integer = 0
+        local rank: integer = 0
+        local victimRegister: integer = 0
+        local victim: integer = 0
+        for _, reg in ipairs(list) do
+            local holders = held[reg] or {}
+            held[reg] = holders
+            -- What ended before this value starts never meets a later one.
+            local kept: integer = 0
+            for _, w in ipairs(holders) do
+                if a.finish[w] >= a.start[v] and a.location[w] == reg then
+                    kept = kept + 1
+                    holders[kept] = w
+                end
+            end
+            for p = #holders, kept + 1, -1 do
+                holders[p] = nil
+            end
+            local conflict: integer = 0
+            local conflicts: integer = 0
+            for _, w in ipairs(holders) do
+                if overlap(a, v, w) then
+                    conflict, conflicts = w, conflicts + 1
+                end
+            end
+            if conflicts == 0 then
+                local score: integer = 1
+                if keep and target.preservedC[reg] then
+                    score = 4
+                elseif reg == fixed[v] then
+                    score = 3
+                elseif reg == copied then
+                    score = 2
+                end
+                if score > rank then
+                    selected, rank = reg, score
+                end
+            elseif conflicts == 1 and (victim == 0 or a.finish[conflict] > a.finish[victim]) then
+                victimRegister, victim = reg, conflict
+            end
+        end
+        if selected == 0 and victim ~= 0 and a.finish[victim] > a.finish[v] then
+            selected = victimRegister
+            spill(f, a, victim)
+        end
+        if selected == 0 then
+            spill(f, a, v)
+        else
+            a.location[v] = selected
+            local holders = held[selected] as {integer}
+            holders[#holders + 1] = v
+        end
+    end
+end
+
 local function registers(f: ir.Function, a: allocate.Allocation, target: allocate.Target): nil
     local valid, values = zeros(96), {}
     for class = 1, 2 do
@@ -445,8 +541,11 @@ local function registers(f: ir.Function, a: allocate.Allocation, target: allocat
     table.sort(values, function(x: integer, y: integer): boolean
         return a.start[x] < a.start[y] or a.start[x] == a.start[y] and x < y
     end)
+    if saving then
+        shared(f, a, target, values, hint, fixed)
+    end
     local occupied = zeros(96)
-    for _, v in ipairs(values) do
+    for _, v in ipairs(saving and {} or values) do
         local list = ir.isFloat(f.valueKinds[v]) and target.floatRegisters or target.integerRegisters
         local selected: integer = 0
         local victim: integer = 0
@@ -930,6 +1029,44 @@ local function crossings(f: ir.Function, a: allocate.Allocation): nil
         end
         table.sort(out)
         a.liveOut[b] = out
+    end
+    for v = 1, #f.valueKinds do
+        a.ranges[v] = {}
+    end
+
+    local function range(v: integer, first: integer, last: integer): nil
+        local list = a.ranges[v]
+        list[#list + 1], list[#list + 2] = first, last
+    end
+
+    for b = 1, count do
+        local ends: {[integer]: integer} = {}
+        for v in pairs(liveOut(b)) do
+            ends[v] = a.blockExit[b]
+        end
+        for i = f.blockEnd[b], f.blockStart[b], -1 do
+            local at = 2 * a.instructionPosition[i]
+            for _, result in ipairs({f.result[i], f.result2[i]}) do
+                if result ~= 0 then
+                    range(result, at + 1, ends[result] or at + 1)
+                    ends[result] = nil
+                end
+            end
+            for p = f.firstArg[i], f.firstArg[i] + f.nargs[i] - 1 do
+                if ends[f.args[p]] == nil then
+                    ends[f.args[p]] = at
+                end
+            end
+        end
+        local entry = a.blockEntry[b]
+        for p = f.firstParam[b], f.firstParam[b] + f.nparams[b] - 1 do
+            local parameter = f.params[p]
+            range(parameter, entry, ends[parameter] or entry)
+            ends[parameter] = nil
+        end
+        for v, last in pairs(ends) do
+            range(v, entry, last)
+        end
     end
     for v = 1, #f.valueKinds do
         a.acrossInternal[v], a.acrossC[v] = false, false
