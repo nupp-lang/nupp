@@ -415,7 +415,7 @@ for _, handler in ipairs(dofile(ROOT .. "/tests/core/s0/budgets.lua")) do
                 for block, start in ipairs(f.blockStart) do
                     local parameters = {}
                     for p = f.firstParam[block], f.firstParam[block] + f.nparams[block] - 1 do
-                        parameters[#parameters + 1] = "v" .. f.params[p]
+                        parameters[#parameters + 1] = "v" .. f.params[p] .. (a.used[f.params[p]] == false and "" or "*")
                     end
                     print(("block%d(%s):"):format(block, table.concat(parameters, ", ")))
                     for at = start, f.blockEnd[block] do

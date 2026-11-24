@@ -292,8 +292,12 @@ function helpers.transparent(
             then
                 return false
             end
+            -- A literal folded into the producer is in no register.
             for p = f.firstArg[producer], f.firstArg[producer] + f.nargs[producer] - 1 do
-                if location[f.args[p]] == location[result] then
+                local operand = f.args[p]
+                local definition = f.definitions[operand]
+                local folded = definition > 0 and omitted[definition] == true and f.op[definition] == ICONST
+                if not folded and location[operand] == location[result] then
                     return false
                 end
             end

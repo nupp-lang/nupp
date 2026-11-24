@@ -254,6 +254,63 @@ block0(v0: i64, v1: i64):
             end
         },
         {
+            -- A shift reaches the add it feeds past a load whose address was
+            -- fused into it: a fused add writes no register of its own. Nor
+            -- does the literal shift amount, which the allocator may have
+            -- placed where that load writes.
+            name = "shiftpastfused",
+            text = [[
+function %pastfused(i64, i64) -> i64 tail {
+    ss0 = explicit_slot 16, align = 16
+block0(v0: i64, v1: i64):
+    v2 = stack_addr.i64 ss0
+    store v0, v2
+    store v1, v2+8
+    v3 = load.i64 v2
+    v4 = iconst.i64 4
+    v5 = ishl v3, v4
+    v6 = iconst.i64 8
+    v7 = iadd v2, v6
+    v8 = load.i64 v7
+    v9 = iadd v8, v5
+    return v9
+}
+]],
+            runs = {{args = {2, 3}, result = 35}},
+            check = function(codes)
+                assert(inspect.count(codes, "pastfused", inspect.isShiftImmediate) == 0, "the shift is not fused")
+            end
+        },
+        {
+            -- The same, from an argument's fields: base + 48 shifted, added
+            -- to base + 40, as a code-end bound is.
+            name = "shiftpastfieldload",
+            text = [[
+function %fields(i64, i64) -> i64 tail {
+block0(v0: i64, v1: i64):
+    v2 = iconst.i64 48
+    v3 = iadd v0, v2
+    v4 = load.i64 v3
+    v5 = iconst.i64 4
+    v6 = ishl v4, v5
+    v7 = iconst.i64 40
+    v8 = iadd v0, v7
+    v9 = load.i64 v8
+    v10 = iadd v9, v6
+    v11 = icmp ult v1, v10
+    brif v11, block1(v6), block2(v6)
+block1(v12: i64):
+    return v10
+block2(v13: i64):
+    return v1
+}
+]],
+            runs = {},
+            check = function(codes)
+                assert(inspect.count(codes, "fields", inspect.isShiftImmediate) == 0, "the shift is not fused")
+            end
+        },
+        {
             -- An indirect target loaded for its call alone is loaded into x16.
             name = "dispatch",
             text = [[
