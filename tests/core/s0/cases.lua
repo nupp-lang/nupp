@@ -443,6 +443,31 @@ block0(v0: i64, v1: i64):
             end
         },
         {
+            -- Values saved across a call where they are saved lazily (the
+            -- function dispatches by a tail call) are saved and reloaded in
+            -- pairs.
+            name = "pairedsaves",
+            text = identity
+            .. [[
+function %saves(i64, i64) -> i64 tail {
+    sig0 = (i64) -> i64 tail
+    fn0 = %identity sig0
+block0(v0: i64, v1: i64):
+    v2 = iconst.i64 3
+    v3 = iadd v0, v2
+    v4 = call fn0(v1)
+    v5 = iadd v4, v0
+    v6 = iadd v5, v1
+    v7 = iadd v6, v3
+    return_call fn0(v7)
+}
+]],
+            runs = {{args = {10, 20}, result = 63}},
+            check = function(codes)
+                assert(inspect.count(codes, "saves", inspect.isStorePair) == 1, "the saves are not paired")
+            end
+        },
+        {
             -- An indirect target loaded for its call alone is loaded into x16.
             name = "dispatch",
             text = [[

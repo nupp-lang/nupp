@@ -11,6 +11,6 @@ return {
     {name = "K", budget = {44, 19}, clang = {57, 26}},
     {name = "GetUpval", budget = {37, 16}, clang = {36, 15}},
     {name = "GetCell", budget = {34, 15}},
-    {name = "Eq", budget = {65, 40}},
-    {name = "GetIdx", budget = {108, 60}}
+    {name = "Eq", budget = {57, 32}},
+    {name = "GetIdx", budget = {102, 54}}
 }

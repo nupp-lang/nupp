@@ -307,6 +307,11 @@ function inspect.isAddImmediateOne(word)
     return word & 0xfffffc00 == 0x91000400
 end
 
+-- stp of two 64-bit registers at a signed offset.
+function inspect.isStorePair(word)
+    return word & 0xffc00000 == 0xa9000000
+end
+
 -- b: an unconditional branch.
 function inspect.isBranch(word)
     return word & 0xfc000000 == 0x14000000

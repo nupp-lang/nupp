@@ -784,8 +784,62 @@ function selector.run(f: ir.Function, a: allocate.Allocation): selector.Code
     local moveTarget = selector.target()
     local moveWorkspace = allocate.workspace()
 
+    local track = {
+        current = {} as {[integer]: boolean},
+        saved = {} as {integer},
+        exits = {} as {[integer]: {[integer]: boolean}},
+        predecessors = {} as {{integer}},
+        -- Whether the instruction selected last left its narrow result
+        -- zero-extended already.
+        extended = false,
+        -- The call arguments made in their registers after the moves.
+        late = {} as {integer},
+        -- A function that dispatches (a tail call) saves lazily: a value is
+        -- stored before a call it is live across, unless this block stored
+        -- it already, and every block ends with what is live out of it in
+        -- its registers. Its paths that call nothing touch no save slot.
+        lazy = false,
+        stored = {} as {[integer]: boolean},
+        -- Each value's uses (prepare).
+        uses = {} as {integer},
+        -- The blocks selected, in order, and which those are (emittedBlocks).
+        emitted = {} as {integer},
+        reached = {} as {[integer]: boolean},
+        -- How many named edges enter each block (namedPredecessors).
+        named = {} as {integer},
+        -- The word a conditional compare was selected at, until its block's
+        -- branch: nothing may come between them.
+        chained = 0,
+        -- The first word a pair may begin at: the current block's first.
+        pairFloor = 1
+    }
+
+    -- Two 64-bit loads or stores of neighbouring words from one base, the
+    -- second just after the first in one block, are one pair (saves around a
+    -- call, their reloads after it). A load pairs only when the first leaves
+    -- the base and the second's register alone.
     local function emit(word: integer): nil
         assert(word >= 0 and word <= 0xffffffff, "S0 select: codeword range")
+        local last = #code.words
+        local before = last >= track.pairFloor and code.words[last] or 0
+        local kind = word & 0xffc00000
+        if (kind == 0xf9400000 or kind == 0xf9000000) and before & 0xffc00000 == kind then
+            local rt, base, at = word & 31, (word >> 5) & 31, ((word >> 10) & 0xfff) * 8
+            local first, firstBase, firstAt = before & 31, (before >> 5) & 31, ((before >> 10) & 0xfff) * 8
+            local load = kind == 0xf9400000
+            local clear = not load or first ~= base and first ~= rt
+            if base == firstBase and clear and (rt ~= first or not load) then
+                if at == firstAt + 8 and firstAt <= 504 then
+                    code.words[last] = load and arm.ldp(64, first, rt, base, firstAt, 0)
+                        or arm.stp(64, first, rt, base, firstAt, 0)
+                    return
+                elseif at == firstAt - 8 and rt ~= first then
+                    code.words[last] = load and arm.ldp(64, rt, first, base, at, 0)
+                        or arm.stp(64, rt, first, base, at, 0)
+                    return
+                end
+            end
+        end
         code.words[#code.words + 1] = word
     end
 
@@ -879,33 +933,6 @@ function selector.run(f: ir.Function, a: allocate.Allocation): selector.Code
     -- `saved` lists the values with a save slot, and `exits` what each
     -- selected block leaves current.
     -- One table: every local of this function is a slot of the core's frame.
-    local track = {
-        current = {} as {[integer]: boolean},
-        saved = {} as {integer},
-        exits = {} as {[integer]: {[integer]: boolean}},
-        predecessors = {} as {{integer}},
-        -- Whether the instruction selected last left its narrow result
-        -- zero-extended already.
-        extended = false,
-        -- The call arguments made in their registers after the moves.
-        late = {} as {integer},
-        -- A function that dispatches (a tail call) saves lazily: a value is
-        -- stored before a call it is live across, unless this block stored
-        -- it already, and every block ends with what is live out of it in
-        -- its registers. Its paths that call nothing touch no save slot.
-        lazy = false,
-        stored = {} as {[integer]: boolean},
-        -- Each value's uses (prepare).
-        uses = {} as {integer},
-        -- The blocks selected, in order, and which those are (emittedBlocks).
-        emitted = {} as {integer},
-        reached = {} as {[integer]: boolean},
-        -- How many named edges enter each block (namedPredecessors).
-        named = {} as {integer},
-        -- The word a conditional compare was selected at, until its block's
-        -- branch: nothing may come between them.
-        chained = 0
-    }
     for _, op in ipairs(f.op) do
         track.lazy = track.lazy or op == RETURN_CALL or op == RETURN_CALL_INDIRECT
     end
@@ -1681,6 +1708,7 @@ function selector.run(f: ir.Function, a: allocate.Allocation): selector.Code
         local nextBlock = track.emitted[order + 1] or 0
         local fusedCondition: integer = -1
         code.blockWord[block] = #code.words + 1
+        track.pairFloor = #code.words + 1
         if #track.saved > 0 and track.lazy then
             -- Every predecessor left what is live here in its registers.
             track.current, track.stored = {}, {}
