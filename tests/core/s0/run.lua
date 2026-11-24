@@ -63,6 +63,7 @@ local allocate = require("s0lab.allocate")
 local check = require("s0lab.allocationcheck")
 local selector = require("s0lab.select")
 local arm = require("s0lab.arm64")
+local ir = require("s0lab.ir")
 local transport = require("nupp.core.transportbundle")
 local cases = dofile(ROOT .. "/tests/core/s0/cases.lua")
 
@@ -276,6 +277,11 @@ function inspect.isAddZero(word)
     return word & 0xfffffc00 == 0x91000000
 end
 
+-- add xd, xn, xm, lsl #amount (a shifted register operand).
+function inspect.isAddShifted(word)
+    return word & 0xffe00000 == 0x8b000000 and (word >> 10) & 63 ~= 0
+end
+
 -- mov x0, xn (orr x0, xzr, xn).
 function inspect.isMoveToFirst(word)
     return word & 0xffe0ffff == 0xaa0003e0
@@ -405,6 +411,39 @@ for _, handler in ipairs(dofile(ROOT .. "/tests/core/s0/budgets.lua")) do
             local a = allocate.run(f, target)
             check.run(f, target, a)
             local words = selector.run(f, a).words
+            if os.getenv("NUPP_S0_IR") == "1" then
+                for block, start in ipairs(f.blockStart) do
+                    local parameters = {}
+                    for p = f.firstParam[block], f.firstParam[block] + f.nparams[block] - 1 do
+                        parameters[#parameters + 1] = "v" .. f.params[p]
+                    end
+                    print(("block%d(%s):"):format(block, table.concat(parameters, ", ")))
+                    for at = start, f.blockEnd[block] do
+                        local args = {}
+                        for p = f.firstArg[at], f.firstArg[at] + f.nargs[at] - 1 do
+                            args[#args + 1] = "v" .. f.args[p]
+                        end
+                        for e = f.firstEdge[at], f.firstEdge[at] + f.nedges[at] - 1 do
+                            local edge = {}
+                            for p = 0, f.edgeNargs[e] - 1 do
+                                edge[#edge + 1] = "v" .. f.edgeArgs[f.edgeFirstArg[e] + p]
+                            end
+                            args[#args + 1] = ("block%d(%s)"):format(f.edgeTarget[e], table.concat(edge, ", "))
+                        end
+                        print(
+                            ("  %3d %s%s %s imm %d aux %d%s"):format(
+                                at,
+                                f.result[at] ~= 0 and ("v" .. f.result[at] .. " = ") or "",
+                                ir.opNames[f.op[at]],
+                                table.concat(args, ", "),
+                                f.imm[at],
+                                f.aux[at],
+                                a.saveSlot[f.result[at]] and a.saveSlot[f.result[at]] > 0 and " saved" or ""
+                            )
+                        )
+                    end
+                end
+            end
             if os.getenv("NUPP_S0_DISASSEMBLE") == "1" then
                 disassemble(handler.name, words)
             end

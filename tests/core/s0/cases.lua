@@ -205,6 +205,33 @@ block2():
             end
         },
         {
+            -- A copy between two indexed words is a load and a store, each
+            -- with the scaled index in its address: the load of the stored
+            -- value, though nearer the store, is not the store's address.
+            name = "indexedcopy",
+            text = [[
+function %copy(i64, i64, i64) -> i64 tail {
+    ss0 = explicit_slot 32, align = 16
+block0(v0: i64, v1: i64, v2: i64):
+    v3 = stack_addr.i64 ss0
+    store v2, v3+8
+    v4 = iconst.i64 8
+    v5 = imul v1, v4
+    v6 = iadd v3, v5
+    v7 = load.i64 v6
+    v8 = imul v0, v4
+    v9 = iadd v3, v8
+    store v7, v9
+    v10 = load.i64 v3
+    return v10
+}
+]],
+            runs = {{args = {0, 1, 42}, result = 42}},
+            check = function(codes)
+                assert(inspect.count(codes, "copy", inspect.isAddShifted) == 0, "an indexed address is added apart")
+            end
+        },
+        {
             -- An indirect target loaded for its call alone is loaded into x16.
             name = "dispatch",
             text = [[

@@ -468,9 +468,12 @@ local function prepare(
                 previous = previous - 1
             end
             -- So does a producer further back, when nothing between writes
-            -- where its operands are or has an effect (transparent).
+            -- where its operands are or has an effect (transparent). A load
+            -- or store fuses only its address: a store's value, though made
+            -- nearer, is no address.
             if (memory or arithmetic or op == BAND) and f.nargs[at] >= 1 then
-                for position = 1, math.min(f.nargs[at], 2) do
+                local address = op == STORE and 2 or 1
+                for position = memory and address or 1, memory and address or math.min(f.nargs[at], 2) do
                     local definition = colDefinitions[colArgs[first + position - 1]]
                     if definition >= start
                         and definition < previous
