@@ -401,16 +401,19 @@ local function prepare(
                     and bits(colValueKinds[value]) >= 32
                 then
                     local literal = colImm[definition] & (width == 64 and -1 or 0xffffffff)
-                    local amount: integer = -1
+                    -- A mask may be negative (its high bits set), so
+                    -- whether there is one is kept apart from its value.
+                    local amount: integer = 0
+                    local encodes = false
                     if bitwise and logical(literal, width) >= 0 then
-                        amount = literal
+                        amount, encodes = literal, true
                     elseif op == IMUL and literal > 1 and (literal & (literal - 1)) == 0 then
-                        amount = 0
+                        encodes = true
                         while (1 << amount) ~= literal do
                             amount = amount + 1
                         end
                     end
-                    if amount >= 0 then
+                    if encodes then
                         immediates[at], immediateArgs[at] = amount, position
                         folded[definition] = (folded[definition] or 0) + 1
                     end

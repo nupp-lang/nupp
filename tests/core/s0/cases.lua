@@ -422,6 +422,25 @@ block2():
             end
         },
         {
+            -- A mask with its high bits set (-4, ~3) is a logical immediate.
+            name = "negativemask",
+            text = [[
+function %mask(i64, i64) -> i64 tail {
+block0(v0: i64, v1: i64):
+    v2 = iconst.i64 -4
+    v3 = band v0, v2
+    v4 = iconst.i64 0x7fff000000000000
+    v5 = band v1, v4
+    v6 = iadd v3, v5
+    return v6
+}
+]],
+            runs = {{args = {7, 0}, result = 4}, {args = {-1, -1}, result = 0x7ffefffffffffffc}},
+            check = function(codes)
+                assert(inspect.count(codes, "mask", inspect.isMoveWide) == 0, "a mask is made in a register")
+            end
+        },
+        {
             -- An indirect target loaded for its call alone is loaded into x16.
             name = "dispatch",
             text = [[

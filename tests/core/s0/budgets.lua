@@ -8,7 +8,7 @@ return {
     {name = "Move", budget = {23, 12}, clang = {22, 11}},
     {name = "Jmp", budget = {22, 8}, clang = {29, 17}},
     {name = "JmpIf", budget = {23, 10}, clang = {35, 19}},
-    {name = "K", budget = {47, 19}, clang = {57, 26}},
+    {name = "K", budget = {45, 19}, clang = {57, 26}},
     {name = "GetUpval", budget = {37, 16}, clang = {36, 15}},
     {name = "GetCell", budget = {32, 14}},
     {name = "Eq", budget = {65, 40}},
