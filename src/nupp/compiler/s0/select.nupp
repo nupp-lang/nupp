@@ -833,7 +833,7 @@ function selector.run(f: ir.Function, a: allocate.Allocation): selector.Code
                     code.words[last] = load and arm.ldp(64, first, rt, base, firstAt, 0)
                         or arm.stp(64, first, rt, base, firstAt, 0)
                     return
-                elseif at == firstAt - 8 and rt ~= first then
+                elseif at == firstAt - 8 and at <= 504 and rt ~= first then
                     code.words[last] = load and arm.ldp(64, rt, first, base, at, 0)
                         or arm.stp(64, rt, first, base, at, 0)
                     return
@@ -2026,8 +2026,12 @@ function selector.run(f: ir.Function, a: allocate.Allocation): selector.Code
                                 alone = alone and track.named[track.emitted[back]] == 1
                                 back = back - 1
                             end
+                            -- Only where no reload can come between the
+                            -- compare and its branch: nothing is saved, or it
+                            -- is saved lazily (every block starts current).
                             if fused
                                 and alone
+                                and (#track.saved == 0 or track.lazy)
                                 and code.blockWord[block] == #code.words + 1
                                 and localWord[#localWord] == #code.words
                                 and (pending >> 32) > 0
