@@ -265,11 +265,52 @@ const BRIF: 52 = ir.OP_BRIF as 52
 const RETURN: 53 = ir.OP_RETURN as 53
 const TRAP: 54 = ir.OP_TRAP as 54
 
+-- Selection's helpers, in one table: every local of the module is a slot of
+-- its chunk's frame on the core, which holds fewer than 250.
+local helpers = {}
+
+-- Whether the instructions between `producer` and `consumer` leave the
+-- producer's operands where they are: each selects as nothing, or computes a
+-- value without an effect into a register none of the operands is in.
+function helpers.transparent(
+    f: ir.Function,
+    location: {integer},
+    dead: {[integer]: boolean},
+    omitted: {[integer]: boolean},
+    producer: integer,
+    consumer: integer
+): boolean
+    for at = producer + 1, consumer - 1 do
+        local op, result = f.op[at], f.result[at]
+        local quiet = dead[at] or omitted[at] and op == ICONST
+        if not quiet then
+            local pure = op <= IMUL or op >= UMULHI and op <= SELECT or op >= IREDUCE and op <= STACK_ADDR
+            if not (pure or op == LOAD or op == SLOAD)
+                or result == 0
+                or f.result2[at] ~= 0
+                or location[result] <= 0
+            then
+                return false
+            end
+            for p = f.firstArg[producer], f.firstArg[producer] + f.nargs[producer] - 1 do
+                if location[f.args[p]] == location[result] then
+                    return false
+                end
+            end
+        end
+    end
+
+    return true
+end
+
 -- What selection decides before it emits anything: each value's uses, the
 -- operations it drops, the literals it folds into an instruction and the
 -- instruction pairs it fuses (recipes).
 local function prepare(
-    f: ir.Function
+    f: ir.Function,
+    used: {boolean},
+    location: {integer},
+    reached: {[integer]: boolean}
 ): ({integer}, {[integer]: integer}, {[integer]: integer}, {[integer]: boolean}, {[integer]: {integer}})
     local colArgs = f.args
     local colAux = f.aux
@@ -285,13 +326,30 @@ local function prepare(
     for value = 1, #colValueKinds do
         uses[value] = 0
     end
+    -- Only what a branch reaches uses anything (helpers.emittedBlocks).
+    local reaching: {boolean} = {}
+    for block, start in ipairs(f.blockStart) do
+        for at = start, f.blockEnd[block] do
+            reaching[at] = reached[block] == true
+        end
+    end
     for at = 1, #colOp do
-        for p = colFirstArg[at], colFirstArg[at] + f.nargs[at] - 1 do
+        for p = colFirstArg[at], reaching[at] and colFirstArg[at] + f.nargs[at] - 1 or colFirstArg[at] - 1 do
             uses[colArgs[p]] = uses[colArgs[p]] + 1
         end
     end
-    for _, value in ipairs(f.edgeArgs) do
-        uses[value] = uses[value] + 1
+    -- An edge no instruction names (a threaded jump's, allocate.simplify) is
+    -- never taken.
+    for at = 1, #colOp do
+        for e = f.firstEdge[at], reaching[at] and f.firstEdge[at] + f.nedges[at] - 1 or f.firstEdge[at] - 1 do
+            local parameters = f.firstParam[f.edgeTarget[e]]
+            for p = 0, f.edgeNargs[e] - 1 do
+                if used[f.params[parameters + p]] ~= false then
+                    local value = f.edgeArgs[f.edgeFirstArg[e] + p]
+                    uses[value] = uses[value] + 1
+                end
+            end
+        end
     end
     -- Operations without effects whose results nothing reads, which
     -- simplification leaves behind (allocate.simplify), are not selected.
@@ -315,6 +373,9 @@ local function prepare(
     local immediates: {[integer]: integer} = {}
     local immediateArgs: {[integer]: integer} = {}
     local omitted: {[integer]: boolean} = {}
+    -- How many of each literal's uses take it as an immediate: one that
+    -- every use does is not made at all.
+    local folded: {[integer]: integer} = {}
     for at, opid in ipairs(colOp) do
         local op = (dead[at] or f.nargs[at] ~= 2) and 0 or opid
         local shift = op == ISHL or op == USHR or op == SSHR
@@ -344,9 +405,7 @@ local function prepare(
                     end
                     if amount >= 0 then
                         immediates[at], immediateArgs[at] = amount, position
-                        if uses[value] == 1 then
-                            omitted[definition] = true
-                        end
+                        folded[definition] = (folded[definition] or 0) + 1
                     end
                 end
             end
@@ -379,11 +438,14 @@ local function prepare(
                     )
                 then
                     immediates[at], immediateArgs[at] = literal, position
-                    if uses[value] == 1 then
-                        omitted[definition] = true
-                    end
+                    folded[definition] = (folded[definition] or 0) + 1
                 end
             end
+        end
+    end
+    for definition, count in pairs(folded) do
+        if count == uses[f.result[definition]] then
+            omitted[definition] = true
         end
     end
     -- Recipes contain producer opcode, encoding fields, then expanded operands.
@@ -400,6 +462,23 @@ local function prepare(
             local previous = at - 1
             if op == BAND and colOp[previous] == ICONST then
                 previous = previous - 1
+            end
+            -- What selects as nothing keeps the producer's operands in place.
+            while previous > start and (dead[previous] or omitted[previous] and colOp[previous] == ICONST) do
+                previous = previous - 1
+            end
+            -- So does a producer further back, when nothing between writes
+            -- where its operands are or has an effect (transparent).
+            if (memory or arithmetic or op == BAND) and f.nargs[at] >= 1 then
+                for position = 1, math.min(f.nargs[at], 2) do
+                    local definition = colDefinitions[colArgs[first + position - 1]]
+                    if definition >= start
+                        and definition < previous
+                        and helpers.transparent(f, location, dead, omitted, definition, at)
+                    then
+                        previous = definition
+                    end
+                end
             end
             if previous >= start and (memory or (arithmetic or op == BAND) and not recipes[previous]) then
                 local value, producer = f.result[previous], colOp[previous]
@@ -480,7 +559,12 @@ local function prepare(
 end
 
 -- Reloads what edge `e` moves into a parameter that is read, with `hold`.
-local function holdEdge(f: ir.Function, a: allocate.Allocation, hold: function(integer, boolean): nil, e: integer): nil
+function helpers.holdEdge(
+    f: ir.Function,
+    a: allocate.Allocation,
+    hold: function(integer, boolean): nil,
+    e: integer
+): nil
     local first = f.firstParam[f.edgeTarget[e]]
     for p = 0, f.edgeNargs[e] - 1 do
         if a.used[f.params[first + p]] ~= false then
@@ -489,8 +573,75 @@ local function holdEdge(f: ir.Function, a: allocate.Allocation, hold: function(i
     end
 end
 
+-- Saving lazily, reloads with `hold` what is live out of `block` that a call
+-- left stale.
+function helpers.holdLive(
+    a: allocate.Allocation,
+    lazy: boolean,
+    hold: function(integer, boolean): nil,
+    block: integer
+): nil
+    if lazy then
+        for _, value in ipairs(a.liveOut[block]) do
+            hold(value, false)
+        end
+    end
+end
+
+-- The blocks of the allocation's order that a branch reaches from the entry:
+-- a jump threaded past a block (allocate.simplify) may leave none that does.
+function helpers.emittedBlocks(f: ir.Function, a: allocate.Allocation): ({integer}, {[integer]: boolean})
+    local reached: {boolean} = {true}
+    local pending: {integer} = {1}
+    while #pending > 0 do
+        local b = table.remove(pending) as integer
+        for i = f.blockStart[b], f.blockEnd[b] do
+            for e = f.firstEdge[i], f.firstEdge[i] + f.nedges[i] - 1 do
+                local target = f.edgeTarget[e]
+                if not reached[target] then
+                    reached[target] = true
+                    pending[#pending + 1] = target
+                end
+            end
+        end
+    end
+    local emitted: {integer} = {}
+    for _, b in ipairs(a.blockOrder) do
+        if reached[b] then
+            emitted[#emitted + 1] = b
+        end
+    end
+
+    return emitted, reached
+end
+
+-- Whether the 64-bit load of `rt` from `rn` plus `offset` joined the load
+-- emitted last in `words` as one load pair: that one reads the word beside
+-- it from the same base, which it does not replace, and it is in this block
+-- (the words from `first`), so no branch lands between the two.
+function helpers.paired(words: {integer}, first: integer, rt: integer, rn: integer, offset: integer): boolean
+    local last = #words
+    local word = last >= first and words[last] or 0
+    if word & 0xffc00000 ~= 0xf9400000 then
+        return false
+    end
+    local before, base, at = word & 31, (word >> 5) & 31, ((word >> 10) & 0xfff) * 8
+    if base ~= rn or before == rn or before == rt or rt == 31 or before == 31 then
+        return false
+    end
+    if offset == at + 8 and at <= 504 then
+        words[last] = arm.ldp(64, before, rt, rn, at, 0)
+        return true
+    elseif offset == at - 8 and offset >= 0 then
+        words[last] = arm.ldp(64, rt, before, rn, offset, 0)
+        return true
+    end
+
+    return false
+end
+
 -- Each block's predecessor blocks.
-local function predecessorsOf(f: ir.Function): {{integer}}
+function helpers.predecessorsOf(f: ir.Function): {{integer}}
     local predecessors: {{integer}} = {}
     local blockOf: {integer} = {}
     for b, start in ipairs(f.blockStart) do
@@ -510,7 +661,7 @@ end
 -- The saved values current on entry to a block whose predecessors are
 -- `list`: those every predecessor leaves current, or none when one of them
 -- (a back edge) is not selected yet.
-local function entryState(list: {integer}, exits: {[integer]: {[integer]: boolean}}): {[integer]: boolean}
+function helpers.entryState(list: {integer}, exits: {[integer]: {[integer]: boolean}}): {[integer]: boolean}
     local entering: {[integer]: boolean} = {}
     for _, predecessor in ipairs(list) do
         if exits[predecessor] == nil then
@@ -694,8 +845,22 @@ function selector.run(f: ir.Function, a: allocate.Allocation): selector.Code
         -- zero-extended already.
         extended = false,
         -- The call arguments made in their registers after the moves.
-        late = {} as {integer}
+        late = {} as {integer},
+        -- A function that dispatches (a tail call) saves lazily: a value is
+        -- stored before a call it is live across, unless this block stored
+        -- it already, and every block ends with what is live out of it in
+        -- its registers. Its paths that call nothing touch no save slot.
+        lazy = false,
+        stored = {} as {[integer]: boolean},
+        -- Each value's uses (prepare).
+        uses = {} as {integer},
+        -- The blocks selected, in order, and which those are (emittedBlocks).
+        emitted = {} as {integer},
+        reached = {} as {[integer]: boolean}
     }
+    for _, op in ipairs(f.op) do
+        track.lazy = track.lazy or op == RETURN_CALL or op == RETURN_CALL_INDIRECT
+    end
     for value, slot in ipairs(a.saveSlot) do
         if slot ~= 0 then
             track.saved[#track.saved + 1] = value
@@ -706,7 +871,9 @@ function selector.run(f: ir.Function, a: allocate.Allocation): selector.Code
     -- otherwise reloads it if a call left its register stale.
     local function hold(value: integer, defining: boolean): nil
         if a.saveSlot[value] ~= 0 and (defining or not track.current[value]) then
-            memory(a.location[value], spillOffset(-a.saveSlot[value]), defining)
+            if not (defining and track.lazy) then
+                memory(a.location[value], spillOffset(-a.saveSlot[value]), defining)
+            end
             track.current[value] = true
         end
     end
@@ -1234,6 +1401,15 @@ function selector.run(f: ir.Function, a: allocate.Allocation): selector.Code
         local rd: integer = 0
         local indirect = op == CALL_INDIRECT or op == RETURN_CALL_INDIRECT
         local tail = op == RETURN_CALL or op == RETURN_CALL_INDIRECT
+        -- Saving lazily, what is live across the call goes to its slot first,
+        -- while its register still holds it: the argument moves may not.
+        for _, value in ipairs(track.lazy and not tail and a.callLive[at] or {}) do
+            if a.saveSlot[value] ~= 0 and not track.stored[value] then
+                assert(track.current[value], "S0 select: a lazily saved value is stale before its store")
+                memory(a.location[value], spillOffset(-a.saveSlot[value]), true)
+                track.stored[value] = true
+            end
+        end
         local signature = f.signatures[indirect and f.aux[at] or f.importSignatures[f.aux[at]]]
         local name = not indirect and f.importNames[f.aux[at]] or ""
         -- The fast path's first operand is the function, which goes
@@ -1298,6 +1474,21 @@ function selector.run(f: ir.Function, a: allocate.Allocation): selector.Code
             end
         end
         if parallel then
+            -- An indirect target loaded just before, for this call alone, is
+            -- loaded into x16 itself.
+            local callee = shift == 1 and args[firstArg] or 0
+            local word = #code.words > 0 and code.words[#code.words] or 0
+            if indirect
+                and transportDestinations[1] == 17
+                and transportSources[1] > 0
+                and transportSources[1] <= 32
+                and track.uses[callee] == 1
+                and word & 31 == target.register(transportSources[1])
+                and ((word >> 22) == 0x3e5 or (word & 0xffe00c00) == 0xf8600800)
+            then
+                code.words[#code.words] = (word & -32) | 16
+                transportSources[1] = 17
+            end
             -- x16 holds the indirect target; call destinations never
             -- include spills.
             moveTarget.scratchInt = 18
@@ -1431,16 +1622,24 @@ function selector.run(f: ir.Function, a: allocate.Allocation): selector.Code
         end
     end
 
-    local uses, immediates, immediateArgs, omitted, recipes = prepare(f)
+    track.emitted, track.reached = helpers.emittedBlocks(f, a)
+    local uses, immediates, immediateArgs, omitted, recipes = prepare(f, a.used, a.location, track.reached)
+    track.uses = uses
     -- Which saved values each block leaves current (`current`): a block
     -- starts with what all its predecessors leave (entryState).
-    track.predecessors = #track.saved > 0 and predecessorsOf(f) or {}
-    for order, block in ipairs(a.blockOrder) do
-        local nextBlock = a.blockOrder[order + 1] or 0
+    track.predecessors = #track.saved > 0 and helpers.predecessorsOf(f) or {}
+    for order, block in ipairs(track.emitted) do
+        local nextBlock = track.emitted[order + 1] or 0
         local fusedCondition: integer = -1
         code.blockWord[block] = #code.words + 1
-        if #track.saved > 0 then
-            track.current = entryState(track.predecessors[block], track.exits)
+        if #track.saved > 0 and track.lazy then
+            -- Every predecessor left what is live here in its registers.
+            track.current, track.stored = {}, {}
+            for _, value in ipairs(track.saved) do
+                track.current[value] = true
+            end
+        elseif #track.saved > 0 then
+            track.current = helpers.entryState(track.predecessors[block], track.exits)
             for p = f.firstParam[block], f.firstParam[block] + f.nparams[block] - 1 do
                 if a.used[f.params[p]] ~= false then
                     hold(f.params[p], true)
@@ -1479,7 +1678,8 @@ function selector.run(f: ir.Function, a: allocate.Allocation): selector.Code
             local rd: integer = 0
             local _ = switch op do
                 case JUMP -> do
-                    holdEdge(f, a, hold, f.firstEdge[at])
+                    helpers.holdLive(a, track.lazy, hold, block)
+                    helpers.holdEdge(f, a, hold, f.firstEdge[at])
                     edge(f.firstEdge[at], nextBlock)
                     yield true
                 end
@@ -1494,8 +1694,9 @@ function selector.run(f: ir.Function, a: allocate.Allocation): selector.Code
                     -- Only loads restore borrowed scratch after CMP; flags survive.
                     -- The final edge can fall through, after its own parallel moves.
                     local first, last = f.firstEdge[at], f.firstEdge[at] + 1
-                    holdEdge(f, a, hold, first)
-                    holdEdge(f, a, hold, last)
+                    helpers.holdLive(a, track.lazy, hold, block)
+                    helpers.holdEdge(f, a, hold, first)
+                    helpers.holdEdge(f, a, hold, last)
                     local skip = condition ~ 1
                     if f.edgeTarget[first] == nextBlock and f.edgeTarget[last] ~= nextBlock then
                         first, last, skip = last, first, condition
@@ -1847,6 +2048,11 @@ function selector.run(f: ir.Function, a: allocate.Allocation): selector.Code
                                 emit(arm.str(bytes, value, address, offset))
                             elseif op == SLOAD and bytes == 4 and machine(valueKind) == 64 then
                                 emit(arm.ldrsw(value, address, offset))
+                            elseif op == LOAD
+                                and bytes == 8
+                                and helpers.paired(code.words, code.blockWord[block], value, address, offset)
+                            then
+                                track.extended = true
                             else
                                 emit(arm.ldr(bytes, value, address, offset))
                                 if op == SLOAD then
@@ -1871,11 +2077,11 @@ function selector.run(f: ir.Function, a: allocate.Allocation): selector.Code
     local redirects: {[integer]: integer} = {}
     -- A block that only jumps on, moving nothing, is skipped: branches to it
     -- go where it goes. One that stores its parameters on entry is not.
-    for order = #a.blockOrder, 1, -1 do
-        local block = a.blockOrder[order]
+    for order = #track.emitted, 1, -1 do
+        local block = track.emitted[order]
         local at = f.blockStart[block]
         local edge = f.firstEdge[at]
-        local after = order < #a.blockOrder and code.blockWord[a.blockOrder[order + 1]] or #code.words + 1
+        local after = order < #track.emitted and code.blockWord[track.emitted[order + 1]] or #code.words + 1
         if at == f.blockEnd[block]
             and colOp[at] == JUMP
             and a.nmoves[edge] == 0

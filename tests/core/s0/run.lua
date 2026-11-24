@@ -217,9 +217,49 @@ function inspect.count(codes, name, predicate)
 end
 
 inspect.arm = arm
-inspect.isLoad = function(word)
-    -- Loads and stores of general and FP registers: the load/store class.
-    return word & 0x0a000000 == 0x08000000
+
+-- A 64-bit store to the arena frame (x23).
+function inspect.isFrameStore(word)
+    return word & 0xffc00000 == 0xf9000000 and (word >> 5) & 31 == 23
+end
+
+function inspect.isConditionalBranch(word)
+    return word & 0xff000010 == 0x54000000
+end
+
+-- cset: csinc wd, wzr, wzr, cond.
+function inspect.isConditionalSet(word)
+    return word & 0xffff0fe0 == 0x1a9f07e0
+end
+
+-- ldp of two 64-bit registers at a signed offset.
+function inspect.isLoadPair(word)
+    return word & 0xffc00000 == 0xa9400000
+end
+
+-- madd (mul is madd with xzr).
+function inspect.isMultiply(word)
+    return word & 0x7fe08000 == 0x1b000000
+end
+
+-- ubfm/sbfm (lsl, lsr, asr by an immediate) on 64 bits.
+function inspect.isShiftImmediate(word)
+    return word & 0xff800000 == 0xd3000000 or word & 0xff800000 == 0x93000000
+end
+
+-- movz or movn: a literal made in a register.
+function inspect.isMoveWide(word)
+    return word & 0x1f800000 == 0x12800000
+end
+
+-- add xd, xn, #0.
+function inspect.isAddZero(word)
+    return word & 0xfffffc00 == 0x91000000
+end
+
+-- mov x16, xn (orr x16, xzr, xn).
+function inspect.isMoveToScratch(word)
+    return word & 0xffe0ffff == 0xaa0003f0
 end
 
 local only = {}
@@ -235,7 +275,7 @@ for _, case in ipairs(cases(inspect)) do
             local ok, problem = pcall(function()
                 local codes, order = select(case.text, spill)
                 local entry = case.entry or order[#order]
-                local image, words = bundle(codes, order, entry, #case.runs[1].args)
+                local image, words = bundle(codes, order, entry, case.runs[1] and #case.runs[1].args or 0)
                 if os.getenv("NUPP_S0_DISASSEMBLE") == "1" and not spill then
                     disassemble(case.name, words)
                 end

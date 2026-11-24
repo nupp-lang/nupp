@@ -45,6 +45,11 @@ record allocate.Allocation
     -- Whether a block parameter is read anywhere; an edge does not move a
     -- value into one that is not.
     used: {boolean}
+    -- The values live across each call, by its instruction, and live at the
+    -- end of each block: where a value with a save slot is stored and
+    -- reloaded when the selector saves it lazily.
+    callLive: {[integer]: {integer}}
+    liveOut: {{integer}}
     conservativeBlocks: integer
     conservativeValues: integer
 end
@@ -84,7 +89,9 @@ local function newAllocation(f: ir.Function): allocate.Allocation
         conservativeValues = 0,
         spillSlots = 0,
         saveSlot = zeros(#f.valueKinds),
-        used = {}
+        used = {},
+        callLive = {},
+        liveOut = {}
     )
 end
 
@@ -650,6 +657,101 @@ local IADD, ISUB, IMUL = ir.opcode("iadd"), ir.opcode("isub"), ir.opcode("imul")
 local BAND, BOR, BXOR = ir.opcode("band"), ir.opcode("bor"), ir.opcode("bxor")
 local ISHL, USHR, SSHR = ir.opcode("ishl"), ir.opcode("ushr"), ir.opcode("sshr")
 
+local BRIF, JUMP = ir.opcode("brif"), ir.opcode("jump")
+
+-- Threads edges through blocks that only branch on one of their parameters
+-- (`and`/`or` conditions merge that way): an edge carrying the branch it
+-- leaves by's own condition into such a block knows where it goes, and goes
+-- there; a jump into one becomes the branch itself. `resolved` names values
+-- through the aliases made so far. A jump's old edge stays in the columns,
+-- named by no instruction.
+local function thread(f: ir.Function, resolved: function(integer): integer): nil
+    local blockOf: {integer} = {}
+    for b, start in ipairs(f.blockStart) do
+        for i = start, f.blockEnd[b] do
+            blockOf[i] = b
+        end
+    end
+
+    -- The parameter position block `b` branches on, if that is all it does.
+    local function tested(b: integer): integer
+        local i = f.blockStart[b]
+        if i ~= f.blockEnd[b] or f.op[i] ~= BRIF or b == 1 then
+            return -1
+        end
+        local condition = resolved(f.args[f.firstArg[i]])
+        for p = 0, f.nparams[b] - 1 do
+            if f.params[f.firstParam[b] + p] == condition then
+                return p
+            end
+        end
+
+        return -1
+    end
+
+    -- Appends the arguments of block `m`'s edge `taken` as edge `e` (into
+    -- `m`) supplies them: `m`'s parameters become what `e` passes for them.
+    local function compose(e: integer, m: integer, taken: integer): (integer, integer)
+        local first = #f.edgeArgs + 1
+        for p = 0, f.edgeNargs[taken] - 1 do
+            local value = resolved(f.edgeArgs[f.edgeFirstArg[taken] + p])
+            for q = 0, f.nparams[m] - 1 do
+                if f.params[f.firstParam[m] + q] == value then
+                    value = resolved(f.edgeArgs[f.edgeFirstArg[e] + q])
+                end
+            end
+            f.edgeArgs[#f.edgeArgs + 1] = value
+        end
+
+        return first, f.edgeNargs[taken]
+    end
+
+    local changed = true
+    local rounds: integer = 0
+    while changed and rounds < 8 do
+        changed, rounds = false, rounds + 1
+        for i, op in ipairs(f.op) do
+            if op == BRIF then
+                local condition = resolved(f.args[f.firstArg[i]])
+                for side = 0, 1 do
+                    local e = f.firstEdge[i] + side
+                    local m = f.edgeTarget[e]
+                    local position = tested(m)
+                    if m ~= blockOf[i]
+                        and position >= 0
+                        and resolved(f.edgeArgs[f.edgeFirstArg[e] + position]) == condition
+                    then
+                        -- The condition holds on the first edge and fails on the
+                        -- second.
+                        local taken = f.firstEdge[f.blockStart[m]] + side
+                        local first, count = compose(e, m, taken)
+                        f.edgeTarget[e], f.edgeFirstArg[e], f.edgeNargs[e] = f.edgeTarget[taken], first, count
+                        changed = true
+                    end
+                end
+            elseif op == JUMP then
+                local e = f.firstEdge[i]
+                local m = f.edgeTarget[e]
+                local position = tested(m)
+                if m ~= blockOf[i] and position >= 0 then
+                    local branch = f.blockStart[m]
+                    local edges = #f.edgeTarget + 1
+                    for side = 0, 1 do
+                        local first, count = compose(e, m, f.firstEdge[branch] + side)
+                        local at = edges + side
+                        f.edgeFrom[at], f.edgeTarget[at] = i, f.edgeTarget[f.firstEdge[branch] + side]
+                        f.edgeFirstArg[at], f.edgeNargs[at] = first, count
+                    end
+                    f.args[#f.args + 1] = resolved(f.edgeArgs[f.edgeFirstArg[e] + position])
+                    f.op[i], f.firstArg[i], f.nargs[i] = BRIF, #f.args, 1
+                    f.firstEdge[i], f.nedges[i] = edges, 2
+                    changed = true
+                end
+            end
+        end
+    end
+end
+
 -- Forwards the operand of an operation that leaves it unchanged (adding
 -- zero, multiplying by one, masking with all ones) to every use of its
 -- result, and leaves the operation with no operands for the selector to drop.
@@ -707,6 +809,7 @@ function allocate.simplify(f: ir.Function): nil
             end
         end
     end
+    thread(f, resolved)
     -- A block parameter every edge sets to one other value (or to itself)
     -- is that value, which then dominates the block: SSA construction passes
     -- each live value through every block this way.
@@ -818,11 +921,15 @@ local function crossings(f: ir.Function, a: allocate.Allocation): nil
     -- loop's blocks need not follow one another, so the latest back edge
     -- does not bound where a value live around the loop is still needed.
     for b = 1, count do
+        local out: {integer} = {}
         for v in pairs(liveOut(b)) do
+            out[#out + 1] = v
             if a.finish[v] < a.blockExit[b] then
                 a.finish[v] = a.blockExit[b]
             end
         end
+        table.sort(out)
+        a.liveOut[b] = out
     end
     for v = 1, #f.valueKinds do
         a.acrossInternal[v], a.acrossC[v] = false, false
@@ -831,13 +938,17 @@ local function crossings(f: ir.Function, a: allocate.Allocation): nil
         walk(b, function(i: integer, live: {[integer]: boolean}): nil
             local signature = f.op[i] == CALL and f.importSignatures[f.aux[i]] or f.aux[i]
             local internal = f.signatures[signature].convention == ir.INTERNAL
+            local across: {integer} = {}
+            a.callLive[i] = across
             for v in pairs(live) do
+                across[#across + 1] = v
                 if internal then
                     a.acrossInternal[v] = true
                 else
                     a.acrossC[v] = true
                 end
             end
+            table.sort(across)
         end)
     end
 end
