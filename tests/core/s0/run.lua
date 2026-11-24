@@ -63,6 +63,7 @@ local allocate = require("s0lab.allocate")
 local check = require("s0lab.allocationcheck")
 local selector = require("s0lab.select")
 local inliner = require("s0lab.inline")
+local json = require("serde.json")
 local arm = require("s0lab.arm64")
 local ir = require("s0lab.ir")
 local transport = require("nupp.core.transportbundle")
@@ -149,6 +150,7 @@ local function select(text, spill, inlined)
         end
         check.run(f, target, a)
         codes[f.name] = selector.run(f, a)
+        json.encodevalue(codes[f.name])
         order[#order + 1] = f.name
     end
 
@@ -455,7 +457,10 @@ for _, handler in ipairs(dofile(ROOT .. "/tests/core/s0/budgets.lua")) do
             local target = selector.target()
             local a = allocate.run(f, target)
             check.run(f, target, a)
-            local words = selector.run(f, a).words
+            local selected = selector.run(f, a)
+            -- The build caches what selection makes as JSON.
+            json.encodevalue(selected)
+            local words = selected.words
             if os.getenv("NUPP_S0_IR") == "1" then
                 for block, start in ipairs(f.blockStart) do
                     local parameters = {}

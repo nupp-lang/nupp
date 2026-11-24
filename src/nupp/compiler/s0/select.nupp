@@ -2232,6 +2232,11 @@ function selector.run(f: ir.Function, a: allocate.Allocation): selector.Code
         local offset = (code.blockWord[redirects[block] or block] - word) * 4
         code.words[word] = condition < 0 and arm.b(offset) or arm.b_cond(condition, offset)
     end
+    -- A block no branch reaches (merged, passed by) is not selected: its
+    -- first word is zero, so the table has no holes (the build caches it).
+    for block = 1, #f.blockStart do
+        code.blockWord[block] = code.blockWord[block] or 0
+    end
 
     return code
 end
