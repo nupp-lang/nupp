@@ -33,7 +33,8 @@ block0(v0: i64, v1: i64):
             -- a call) and only jumps on is still entered: branches to it
             -- were once sent past it, and the call's result added garbage.
             name = "parameterstore",
-            text = identity .. [[
+            text = identity
+            .. [[
 function %merge(i64, i64) -> i64 tail {
     sig0 = (i64) -> i64 tail
     fn0 = %identity sig0

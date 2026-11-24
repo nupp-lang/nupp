@@ -187,8 +187,11 @@ local function disassemble(name, words)
     write(raw, le(words, 4))
     write(OUT .. "/" .. name .. ".s", '.text\n.globl _code\n_code:\n.incbin "' .. raw .. '"\n')
     local status, text = shell(
-        "clang -c -arch arm64 -o " .. quote(OUT .. "/" .. name .. ".o") .. " " .. quote(OUT .. "/" .. name .. ".s")
-        .. " && objdump -d --no-show-raw-insn " .. quote(OUT .. "/" .. name .. ".o")
+        "clang -c -arch arm64 -o " .. quote(
+            OUT .. "/" .. name .. ".o"
+        ) .. " " .. quote(
+            OUT .. "/" .. name .. ".s"
+        ) .. " && objdump -d --no-show-raw-insn " .. quote(OUT .. "/" .. name .. ".o")
     )
     print(status == 0 and text or "disassembly failed: " .. text)
 end
