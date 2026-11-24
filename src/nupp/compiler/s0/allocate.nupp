@@ -437,6 +437,21 @@ local function shared(
     fixed: {integer}
 ): nil
     local held: {[integer]: {integer}} = {}
+    -- What spilling a value costs: a reload at each of its uses. The value
+    -- that costs least is spilled, so one used everywhere keeps its
+    -- register however long it lives.
+    local uses: {integer} = zeros(#f.valueKinds)
+    for _, value in ipairs(f.args) do
+        uses[value] = uses[value] + 1
+    end
+    for _, value in ipairs(f.edgeArgs) do
+        uses[value] = uses[value] + 1
+    end
+
+    local function weight(w: integer): integer
+        return uses[w] + 1
+    end
+
     for _, v in ipairs(values) do
         local list = ir.isFloat(f.valueKinds[v]) and target.floatRegisters or target.integerRegisters
         local copied = hint[v] ~= 0 and a.location[hint[v]] or 0
@@ -478,11 +493,11 @@ local function shared(
                 if score > rank then
                     selected, rank = reg, score
                 end
-            elseif conflicts == 1 and (victim == 0 or a.finish[conflict] > a.finish[victim]) then
+            elseif conflicts == 1 and (victim == 0 or weight(conflict) < weight(victim)) then
                 victimRegister, victim = reg, conflict
             end
         end
-        if selected == 0 and victim ~= 0 and a.finish[victim] > a.finish[v] then
+        if selected == 0 and victim ~= 0 and weight(victim) < weight(v) then
             selected = victimRegister
             spill(f, a, victim)
         end

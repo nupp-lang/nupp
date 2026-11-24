@@ -457,6 +457,12 @@ for _, handler in ipairs(dofile(ROOT .. "/tests/core/s0/budgets.lua")) do
             local target = selector.target()
             local a = allocate.run(f, target)
             check.run(f, target, a)
+            if os.getenv("NUPP_S0_ALLOCATION") == "1" then
+                for p = f.firstParam[1], f.firstParam[1] + f.nparams[1] - 1 do
+                    local v = f.params[p]
+                    print(("param v%d at %d save %d interval %d-%d"):format(v, a.location[v], a.saveSlot[v], a.start[v], a.finish[v]))
+                end
+            end
             local selected = selector.run(f, a)
             -- The build caches what selection makes as JSON.
             json.encodevalue(selected)
