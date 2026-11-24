@@ -743,6 +743,94 @@ function allocate.simplify(f: ir.Function): nil
     end
 end
 
+-- Which values a call crosses while they are live, by dataflow rather than
+-- by interval: an interval spans every call between its ends, on paths that
+-- never read the value again too. Saving, only these need a save slot.
+local function crossings(f: ir.Function, a: allocate.Allocation): nil
+    local count = #f.blockStart
+    local liveIn: {{[integer]: boolean}} = {}
+    local sizes: {integer} = {}
+    for b = 1, count do
+        liveIn[b], sizes[b] = {}, 0
+    end
+
+    -- What is live at the end of block `b`.
+    local function liveOut(b: integer): {[integer]: boolean}
+        local live: {[integer]: boolean} = {}
+        for i = f.blockStart[b], f.blockEnd[b] do
+            for e = f.firstEdge[i], f.firstEdge[i] + f.nedges[i] - 1 do
+                local target = f.edgeTarget[e]
+                for v in pairs(liveIn[target]) do
+                    live[v] = true
+                end
+                for p = 0, f.edgeNargs[e] - 1 do
+                    if a.used[f.params[f.firstParam[target] + p]] ~= false then
+                        live[f.edgeArgs[f.edgeFirstArg[e] + p]] = true
+                    end
+                end
+            end
+        end
+
+        return live
+    end
+
+    -- Walks block `b` backwards from what is live at its end; `call` sees
+    -- what is live across each call.
+    local function walk(b: integer, call: (function(integer, {[integer]: boolean}): nil)?): {[integer]: boolean}
+        local live = liveOut(b)
+        for i = f.blockEnd[b], f.blockStart[b], -1 do
+            if f.result[i] ~= 0 then
+                live[f.result[i]] = nil
+            end
+            if f.result2[i] ~= 0 then
+                live[f.result2[i]] = nil
+            end
+            if call ~= nil and (f.op[i] == CALL or f.op[i] == INDIRECT) then
+                call(i, live)
+            end
+            for p = f.firstArg[i], f.firstArg[i] + f.nargs[i] - 1 do
+                live[f.args[p]] = true
+            end
+        end
+        for p = f.firstParam[b], f.firstParam[b] + f.nparams[b] - 1 do
+            live[f.params[p]] = nil
+        end
+
+        return live
+    end
+
+    local changed = true
+    while changed do
+        changed = false
+        for b = count, 1, -1 do
+            local live = walk(b, nil)
+            local size: integer = 0
+            for _ in pairs(live) do
+                size = size + 1
+            end
+            if size ~= sizes[b] then
+                liveIn[b], sizes[b], changed = live, size, true
+            end
+        end
+    end
+    for v = 1, #f.valueKinds do
+        a.acrossInternal[v], a.acrossC[v] = false, false
+    end
+    for b = 1, count do
+        walk(b, function(i: integer, live: {[integer]: boolean}): nil
+            local signature = f.op[i] == CALL and f.importSignatures[f.aux[i]] or f.aux[i]
+            local internal = f.signatures[signature].convention == ir.INTERNAL
+            for v in pairs(live) do
+                if internal then
+                    a.acrossInternal[v] = true
+                else
+                    a.acrossC[v] = true
+                end
+            end
+        end)
+    end
+end
+
 function allocate.run(f: ir.Function, target: allocate.Target): allocate.Allocation
     if target.saveAcrossCalls == true then
         allocate.simplify(f)
@@ -752,6 +840,9 @@ function allocate.run(f: ir.Function, target: allocate.Target): allocate.Allocat
         a.used = usedParameters(f)
     end
     intervals(f, a)
+    if target.saveAcrossCalls == true then
+        crossings(f, a)
+    end
     registers(f, a, target)
     local source: {integer} = {}
     local destination: {integer} = {}

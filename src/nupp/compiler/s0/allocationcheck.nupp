@@ -9,9 +9,34 @@ local function slot(location: integer): integer
     return location > 0 and location or 96 - location
 end
 
+-- The block parameters something reads, directly or through an edge into
+-- one that is read; an edge need not assign the others.
+local function readParameters(f: ir.Function): {boolean}
+    local read: {boolean} = {}
+    for i = 1, #f.op do
+        for p = f.firstArg[i], f.firstArg[i] + f.nargs[i] - 1 do
+            read[f.args[p]] = true
+        end
+    end
+    local changed = true
+    while changed do
+        changed = false
+        for e = 1, #f.edgeTarget do
+            for p = 0, f.edgeNargs[e] - 1 do
+                local value = f.edgeArgs[f.edgeFirstArg[e] + p]
+                if read[f.params[f.firstParam[f.edgeTarget[e]] + p]] and not read[value] then
+                    read[value], changed = true, true
+                end
+            end
+        end
+    end
+
+    return read
+end
+
 -- Independent backwards dataflow is intentionally confined to the checker.
 -- It neither consumes production intervals nor trusts production live-in sets.
-local function liveIn(f: ir.Function): {{boolean}}
+local function liveIn(f: ir.Function, read: {boolean}): {{boolean}}
     local live: {{boolean}} = {}
     for b = 1, #f.blockStart do
         live[b] = {}
@@ -29,8 +54,10 @@ local function liveIn(f: ir.Function): {{boolean}}
                             values[v] = true
                         end
                     end
-                    for p = f.edgeFirstArg[e], f.edgeFirstArg[e] + f.edgeNargs[e] - 1 do
-                        values[f.edgeArgs[p]] = true
+                    for p = 0, f.edgeNargs[e] - 1 do
+                        if read[f.params[f.firstParam[target] + p]] then
+                            values[f.edgeArgs[f.edgeFirstArg[e] + p]] = true
+                        end
                     end
                 end
                 if f.result[i] ~= 0 then
@@ -57,34 +84,9 @@ local function liveIn(f: ir.Function): {{boolean}}
     return live
 end
 
--- The block parameters something reads, directly or through an edge into
--- one that is read; an edge need not assign the others.
-local function readParameters(f: ir.Function): {boolean}
-    local read: {boolean} = {}
-    for i = 1, #f.op do
-        for p = f.firstArg[i], f.firstArg[i] + f.nargs[i] - 1 do
-            read[f.args[p]] = true
-        end
-    end
-    local changed = true
-    while changed do
-        changed = false
-        for e = 1, #f.edgeTarget do
-            for p = 0, f.edgeNargs[e] - 1 do
-                local value = f.edgeArgs[f.edgeFirstArg[e] + p]
-                if read[f.params[f.firstParam[f.edgeTarget[e]] + p]] and not read[value] then
-                    read[value], changed = true, true
-                end
-            end
-        end
-    end
-
-    return read
-end
-
 function check.run(f: ir.Function, target: allocate.Target, a: allocate.Allocation): boolean
-    local live = liveIn(f)
     local read = readParameters(f)
+    local live = liveIn(f, read)
     for v, slot in ipairs(a.saveSlot) do
         assert(
             slot == 0 or a.location[v] > 0 and slot <= a.spillSlots and target.saveAcrossCalls == true,
@@ -111,7 +113,13 @@ function check.run(f: ir.Function, target: allocate.Target, a: allocate.Allocati
 
         local function place(v: integer): nil
             local at = slot(a.location[v])
-            assert(state[at] == nil or state[at] == v, "S0 checker: live-in interference")
+            if state[at] ~= nil and state[at] ~= v then
+                error(
+                    (
+                        "S0 checker: live-in interference in %s block %d: values %d and %d at %d"
+                    ):format(f.name, b, state[at] as integer, v, at)
+                )
+            end
             state[at] = v
         end
 
@@ -155,7 +163,13 @@ function check.run(f: ir.Function, target: allocate.Target, a: allocate.Allocati
                 local destination = f.edgeTarget[e]
                 for v = 1, #f.valueKinds do
                     if live[destination][v] then
-                        assert(after[slot(a.location[v])] == v, "S0 checker: edge loses live value")
+                        if after[slot(a.location[v])] ~= v then
+                            error(
+                                (
+                                    "S0 checker: edge %d of block %d in %s loses live value %d at %d"
+                                ):format(e, b, f.name, v, a.location[v])
+                            )
+                        end
                     end
                 end
                 for p = 0, f.edgeNargs[e] - 1 do
