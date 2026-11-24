@@ -664,23 +664,28 @@ function helpers.paired(words: {integer}, first: integer, rt: integer, rn: integ
     return false
 end
 
--- How many edges an instruction in a reached block names into each block.
-function helpers.namedPredecessors(f: ir.Function, reached: {[integer]: boolean}): {integer}
+-- How many edges an instruction in a reached block names into each block,
+-- and the blocks they come from.
+function helpers.namedPredecessors(f: ir.Function, reached: {[integer]: boolean}): ({integer}, {{integer}})
     local counts: {integer} = {}
+    local sources: {{integer}} = {}
     for b = 1, #f.blockStart do
-        counts[b] = 0
+        counts[b], sources[b] = 0, {}
     end
     for b, start in ipairs(f.blockStart) do
         if reached[b] then
             for i = start, f.blockEnd[b] do
                 for e = f.firstEdge[i], f.firstEdge[i] + f.nedges[i] - 1 do
-                    counts[f.edgeTarget[e]] = counts[f.edgeTarget[e]] + 1
+                    local into = f.edgeTarget[e]
+                    counts[into] = counts[into] + 1
+                    local list = sources[into]
+                    list[#list + 1] = b
                 end
             end
         end
     end
 
-    return counts
+    return counts, sources
 end
 
 -- Each block's predecessor blocks.
@@ -807,6 +812,10 @@ function selector.run(f: ir.Function, a: allocate.Allocation): selector.Code
         reached = {} as {[integer]: boolean},
         -- How many named edges enter each block (namedPredecessors).
         named = {} as {integer},
+        -- The blocks those edges come from.
+        sources = {} as {{integer}},
+        -- Saving lazily, the values each selected block leaves stored.
+        storedExits = {} as {[integer]: {[integer]: boolean}},
         -- The word a conditional compare was selected at, until its block's
         -- branch: nothing may come between them.
         chained = 0,
@@ -1700,7 +1709,7 @@ function selector.run(f: ir.Function, a: allocate.Allocation): selector.Code
     track.emitted, track.reached = helpers.emittedBlocks(f, a)
     local uses, immediates, immediateArgs, omitted, recipes = prepare(f, a.used, a.location, track.reached)
     track.uses = uses
-    track.named = helpers.namedPredecessors(f, track.reached)
+    track.named, track.sources = helpers.namedPredecessors(f, track.reached)
     -- Which saved values each block leaves current (`current`): a block
     -- starts with what all its predecessors leave (entryState).
     track.predecessors = #track.saved > 0 and helpers.predecessorsOf(f) or {}
@@ -1710,10 +1719,24 @@ function selector.run(f: ir.Function, a: allocate.Allocation): selector.Code
         code.blockWord[block] = #code.words + 1
         track.pairFloor = #code.words + 1
         if #track.saved > 0 and track.lazy then
-            -- Every predecessor left what is live here in its registers.
+            -- Every predecessor left what is live here in its registers. A
+            -- slot every one of them (all selected already) stored still
+            -- holds its value: each value has its own, and none changes.
             track.current, track.stored = {}, {}
             for _, value in ipairs(track.saved) do
                 track.current[value] = true
+            end
+            local sources = track.sources[block]
+            local known = #sources > 0
+            for _, source in ipairs(sources) do
+                known = known and track.storedExits[source] ~= nil
+            end
+            for _, value in ipairs(known and track.saved or {}) do
+                local everywhere = true
+                for _, source in ipairs(sources) do
+                    everywhere = everywhere and track.storedExits[source][value] == true
+                end
+                track.stored[value] = everywhere or nil
             end
         elseif #track.saved > 0 then
             track.current = helpers.entryState(track.predecessors[block], track.exits)
@@ -2206,6 +2229,7 @@ function selector.run(f: ir.Function, a: allocate.Allocation): selector.Code
             code.opWords[colOp[at]] = code.opWords[colOp[at]] + #code.words - before
         end
         track.exits[block] = track.current
+        track.storedExits[block] = track.stored
     end
     local redirects: {[integer]: integer} = {}
     -- A block that only jumps on, moving nothing, is skipped: branches to it
