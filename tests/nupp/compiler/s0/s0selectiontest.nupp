@@ -29,7 +29,8 @@ block0(v0: i64, v1: i64):
 ]]
     for _, spill in ipairs({false, true}) do
         local code = compile(leaf, spill)
-        assert(code.frameBytes % 16 == 0 and code.words[1] == arm.str(8, 30, 23, 0))
+        -- A leaf keeps LR in place: nothing saves it.
+        assert(code.frameBytes % 16 == 0 and code.words[1] ~= arm.str(8, 30, 23, 0))
         assert(code.words[#code.words] == arm.ret(30))
         assert(code.opCounts[ir.opcode("iadd")] == 1 and code.opCounts[ir.opcode("return")] == 1)
         assert(#code.fixupWord == 0)

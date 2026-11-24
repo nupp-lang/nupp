@@ -479,6 +479,16 @@ local function prepare(
     return uses, immediates, immediateArgs, omitted, recipes
 end
 
+-- Reloads what edge `e` moves into a parameter that is read, with `hold`.
+local function holdEdge(f: ir.Function, a: allocate.Allocation, hold: function(integer, boolean): nil, e: integer): nil
+    local first = f.firstParam[f.edgeTarget[e]]
+    for p = 0, f.edgeNargs[e] - 1 do
+        if a.used[f.params[first + p]] ~= false then
+            hold(f.edgeArgs[f.edgeFirstArg[e] + p], false)
+        end
+    end
+end
+
 -- Each block's predecessor blocks.
 local function predecessorsOf(f: ir.Function): {{integer}}
     local predecessors: {{integer}} = {}
@@ -525,8 +535,21 @@ local function entryState(list: {integer}, exits: {[integer]: {[integer]: boolea
     return entering
 end
 
+-- Scratch the selection of one function reuses throughout, kept here rather
+-- than as locals of selector.run: every local of a function is a slot of the
+-- core's frame, which holds fewer than 250. Selection is not reentrant.
+local regs: {integer} = {}
+local transportSources: {integer} = {}
+local transportDestinations: {integer} = {}
+local transportKinds: {integer} = {}
+local abiRegisters: {integer} = {}
+-- Where abi puts what the registers do not hold, and the registers a
+-- staged call restores.
+local abiOffsets: {integer}, abiSizes: {integer}, stagedRegisters: {integer} = {}, {}, {}
+-- The fast path's argument kinds, past its function, by signature.
+local registerParams: {[any]: {integer}} = setmetatable({}, {__mode = "k"})
+
 function selector.run(f: ir.Function, a: allocate.Allocation): selector.Code
-    local stackValues = stackBorrowed(f)
     local code = selector.Code(
         words = {},
         fixupWord = {},
@@ -564,14 +587,6 @@ function selector.run(f: ir.Function, a: allocate.Allocation): selector.Code
     local occupiedStamp: integer = 0
     local usedStamp: integer = 0
     local borrowedCount: integer = 0
-    local regs: {integer} = {}
-    local transportSources: {integer} = {}
-    local transportDestinations: {integer} = {}
-    local transportKinds: {integer} = {}
-    local abiRegisters: {integer} = {}
-    -- Where abi puts what the registers do not hold, and the registers a
-    -- staged call restores.
-    local abiOffsets: {integer}, abiSizes: {integer}, stagedRegisters: {integer} = {}, {}, {}
     local moveTarget = selector.target()
     local moveWorkspace = allocate.workspace()
 
@@ -667,14 +682,19 @@ function selector.run(f: ir.Function, a: allocate.Allocation): selector.Code
     -- where it is defined, a call that clobbers the register marks it stale,
     -- and its next use reloads it (Allocation.saveSlot). `current` holds the
     -- values whose register is known to hold them here.
-    -- `saved` lists the values with a save slot, `exits` what each selected
-    -- block leaves current, and `calls` whether the function calls (LR).
+    -- `saved` lists the values with a save slot, and `exits` what each
+    -- selected block leaves current.
     -- One table: every local of this function is a slot of the core's frame.
     local track = {
         current = {} as {[integer]: boolean},
         saved = {} as {integer},
         exits = {} as {[integer]: {[integer]: boolean}},
-        calls = false
+        predecessors = {} as {{integer}},
+        -- Whether the instruction selected last left its narrow result
+        -- zero-extended already.
+        extended = false,
+        -- The call arguments made in their registers after the moves.
+        late = {} as {integer}
     }
     for value, slot in ipairs(a.saveSlot) do
         if slot ~= 0 then
@@ -688,16 +708,6 @@ function selector.run(f: ir.Function, a: allocate.Allocation): selector.Code
         if a.saveSlot[value] ~= 0 and (defining or not track.current[value]) then
             memory(a.location[value], spillOffset(-a.saveSlot[value]), defining)
             track.current[value] = true
-        end
-    end
-
-    -- Reloads what edge `e` moves into a parameter that is read.
-    local function holdEdge(e: integer): nil
-        local first = f.firstParam[f.edgeTarget[e]]
-        for p = 0, f.edgeNargs[e] - 1 do
-            if a.used[f.params[first + p]] ~= false then
-                hold(f.edgeArgs[f.edgeFirstArg[e] + p], false)
-            end
         end
     end
 
@@ -1172,8 +1182,6 @@ function selector.run(f: ir.Function, a: allocate.Allocation): selector.Code
     -- stack's extent. Past the registers, and for each variadic argument,
     -- this is Apple's arm64 convention: a named argument at its own
     -- alignment, a variadic one in an 8-byte slot.
-    -- The fast path's argument kinds, past its function, by signature.
-    local registerParams: {[any]: {integer}} = setmetatable({}, {__mode = "k"})
 
     local function abi(kinds: {integer}, fixed: integer?): integer
         local ints: integer = 0
@@ -1201,13 +1209,6 @@ function selector.run(f: ir.Function, a: allocate.Allocation): selector.Code
         return align(offset, 16)
     end
 
-    -- A function that calls nothing (tail calls aside) leaves LR where it is.
-    for _, op in ipairs(f.op) do
-        track.calls = track.calls or op == CALL or op == CALL_INDIRECT
-    end
-    if track.calls then
-        emit(arm.str(8, 30, 23, 0))
-    end
     assert(abi(f.signature.params, nil) == 0, "S0 select: stack ABI parameters unsupported")
     local incoming, incomingLocations = abiRegisters, transportDestinations
     for p, physical in ipairs(incoming) do
@@ -1220,23 +1221,226 @@ function selector.run(f: ir.Function, a: allocate.Allocation): selector.Code
     -- to it. The rest are read from `f`: every local is a slot of the frame,
     -- and the native core holds a function to fewer than 250.
     local colArgs = f.args
-    local colAux = f.aux
-    local colFirstArg = f.firstArg
     local colImm = f.imm
     local colOp = f.op
     local colValueKinds = f.valueKinds
     local allocationLocation = a.location
 
+    -- Selects call instruction `at`, whose operation is `op` and whose
+    -- operands are `nargs` of `args` from `firstArg`. Its own function: the
+    -- selection loop's locals are slots of the core's frame, fewer than 250.
+    local function selectCall(at: integer, op: integer, args: {integer}, firstArg: integer, nargs: integer): nil
+        local result, kind, second = f.result[at], f.kind[at], f.result2[at]
+        local rd: integer = 0
+        local indirect = op == CALL_INDIRECT or op == RETURN_CALL_INDIRECT
+        local tail = op == RETURN_CALL or op == RETURN_CALL_INDIRECT
+        local signature = f.signatures[indirect and f.aux[at] or f.importSignatures[f.aux[at]]]
+        local name = not indirect and f.importNames[f.aux[at]] or ""
+        -- The fast path's first operand is the function, which goes
+        -- where an indirect call's target does.
+        local registered = name:sub(1, #ROUTINE_REGISTERS) == ROUTINE_REGISTERS
+        local params = signature.params
+        if registered then
+            params = registerParams[signature] or table.move(params, 2, #params, 1, {})
+            registerParams[signature] = params
+        end
+        local stackBytes = abi(params, signature.fixed)
+        assert(
+            stackBytes == 0 or signature.convention == ir.C and not tail,
+            "S0 select: stack ABI arguments need a C call"
+        )
+        local registers = abiRegisters
+        local shift = (indirect or registered) and 1 or 0
+        assert(nargs == #registers + shift, "S0 select: call arity")
+        if stackBytes > 0 then
+            -- What the registers do not hold goes on the C stack
+            -- below sp, which Nupp code leaves aligned.
+            assert(stackBytes < 4096, "S0 select: C stack argument extent")
+            emit(arm.sub_imm(64, 31, 31, stackBytes, 0))
+            for p, physical in ipairs(registers) do
+                if physical == 0 then
+                    local value = args[firstArg + shift + p - 1]
+                    local valueKind = colValueKinds[value]
+                    local reg = source(value)
+                    emit(
+                        ir.isFloat(valueKind) and arm.str_fp(bits(valueKind), reg, 31, abiOffsets[p])
+                        or arm.str(abiSizes[p], reg, 31, abiOffsets[p])
+                    )
+                    finish(0, 0)
+                end
+            end
+        end
+        local parallel = true
+        local count: integer = 0
+        -- A literal or frame address that is not in a register
+        -- is made in its argument register once the moves are done.
+        local late = track.late as {integer}
+        for p = #late, 1, -1 do
+            late[p] = nil
+        end
+        for p = 1, nargs do
+            local value = args[firstArg + p - 1]
+            assert(not tail or not stackBorrowed(f)[value], "S0 select: tail call retains stack address")
+            local physical = p <= shift and 17 or registers[p - shift]
+            if physical ~= 0 then
+                local location, remat = allocationLocation[value], a.rematerialize[value]
+                parallel = parallel and location ~= 0
+                hold(value, false)
+                if location < 0 and remat ~= 0 and (colOp[remat] == ICONST or colOp[remat] == STACK_ADDR) then
+                    late[#late + 1] = p
+                else
+                    parallel = parallel and (location > 0 or remat == 0)
+                    count = count + 1
+                    transportSources[
+                        count
+                    ], transportDestinations[count], transportKinds[count] = location, physical, colValueKinds[value]
+                end
+            end
+        end
+        if parallel then
+            -- x16 holds the indirect target; call destinations never
+            -- include spills.
+            moveTarget.scratchInt = 18
+            transport(count)
+            moveTarget.scratchInt = 17
+            for _, p in ipairs(late) do
+                local remat = a.rematerialize[args[firstArg + p - 1]]
+                local reg = target.register(p <= shift and 17 or registers[p - shift])
+                if colOp[remat] == ICONST then
+                    constant(reg, colImm[remat], machine(colValueKinds[args[firstArg + p - 1]]))
+                else
+                    addOffset(reg, 23, code.stackOffsets[f.aux[remat]] + colImm[remat])
+                end
+            end
+        else
+            local staged: integer = 0
+            for p = 1, nargs do
+                local physical = p <= shift and 17 or registers[p - shift]
+                if physical ~= 0 then
+                    local value = args[firstArg + p - 1]
+                    local reg = source(value)
+                    save(ir.isFloat(colValueKinds[value]) and reg + 65 or reg + 1, stageBase + staged * 8)
+                    finish(0, 0)
+                    stagedRegisters[staged + 1] = physical
+                    staged = staged + 1
+                end
+            end
+            for p = 1, staged do
+                restore(stagedRegisters[p], stageBase + (p - 1) * 8)
+            end
+        end
+        -- LR is saved around each call, which then leaves it as
+        -- it was: a function's paths that call nothing touch no
+        -- memory for it.
+        if not tail then
+            emit(arm.str(8, 30, 23, 0))
+        end
+        if signature.convention == ir.INTERNAL then
+            if not tail then
+                addOffset(23, 23, code.frameBytes)
+            end
+            if indirect then
+                emit(tail and arm.br(16) or arm.blr(16))
+            else
+                symbolic(tail and selector.B26 or selector.BL26, name)
+            end
+            if not tail then
+                local high, low = code.frameBytes >> 12, code.frameBytes & 4095
+                if high ~= 0 then
+                    emit(arm.sub_imm(64, 23, 23, high, 1))
+                end
+                if low ~= 0 then
+                    emit(arm.sub_imm(64, 23, 23, low, 0))
+                end
+            end
+        elseif name:sub(1, #FOREIGN_PREFIX) == FOREIGN_PREFIX then
+            assert(not tail and nargs == 0, "S0 select: foreign resolution takes nothing")
+            resolve(name)
+        elseif registered then
+            assert(not tail and stackBytes == 0, "S0 select: the fast path passes registers alone")
+            emit(arm.blr(16))
+        elseif name == ROUTINE_CALL then
+            assert(not tail and nargs == 1, "S0 select: a foreign call takes its block")
+            foreignCall(CALL_REGISTERS, CALL_REGISTERS, CALL_STACK_WORDS, true)
+        elseif name:sub(1, #ROUTINE_CALL + 1) == ROUTINE_CALL .. "\0" then
+            local integers, floats, words, answer = name:match("^routine\0call\0(%d+)\0(%d+)\0(%d+)\0(%w+)$")
+            assert(not tail and nargs <= 1 and answer ~= nil, "S0 select: a foreign call takes its block")
+            local counted = {tonumber(integers) as integer, tonumber(floats) as integer, tonumber(words) as integer}
+            assert(
+                counted[1] <= CALL_REGISTERS and counted[2] <= CALL_REGISTERS and counted[3] <= CALL_STACK_WORDS,
+                "S0 select: a foreign call's shape"
+            )
+            foreignCall(counted[1], counted[2], counted[3], false)
+        elseif name == ROUTINE_COLLECTOR then
+            assert(not tail and nargs == 0, "S0 select: the collector takes nothing")
+            foreignCollector()
+        elseif name == ROUTINE_ATOMIC_LOAD then
+            -- The sequentially consistent word at base (x0) plus
+            -- offset (x1).
+            assert(not tail and nargs == 2, "S0 select: an atomic load takes base and offset")
+            emit(arm.add_reg(64, 16, 0, 1, 0))
+            emit(arm.ldar(0, 16))
+        elseif name == ROUTINE_ATOMIC_CAS then
+            -- Base (x0) plus offset (x1): replaced by x3 when it
+            -- is x2; x0 answers the word it was.
+            assert(not tail and nargs == 4, "S0 select: a compare-and-swap takes four words")
+            emit(arm.add_reg(64, 16, 0, 1, 0))
+            emit(arm.mov_reg(64, 0, 2))
+            emit(arm.casal(0, 3, 16))
+        elseif name:sub(1, #ROUTINE_CELLS) == ROUTINE_CELLS then
+            assert(not tail and nargs == 0, "S0 select: the symbol table takes nothing")
+            emit(arm.ldr(8, 0, 22, (tonumber(name:sub(#ROUTINE_CELLS + 1)) as integer) * 8))
+        else
+            if not indirect then
+                symbolic(selector.IMPORT_LOAD, name)
+            end
+            emit(tail and arm.br(16) or arm.blr(16))
+        end
+        popStack(stackBytes)
+        if not tail then
+            emit(arm.ldr(8, 30, 23, 0))
+        end
+        -- What the call may clobber is stale.
+        for _, value in ipairs(tail and {} or track.saved) do
+            if signature.convention == ir.INTERNAL or not moveTarget.preservedC[allocationLocation[value]] then
+                track.current[value] = nil
+            end
+        end
+        if not tail and second ~= 0 then
+            assert(
+                result ~= 0 and not ir.isFloat(kind) and not ir.isFloat(f.kind2[at]),
+                "S0 select: paired call requires integers"
+            )
+            save(1, stageBase);
+            save(2, stageBase + 8)
+            for p = 1, 2 do
+                local value = p == 1 and result or second
+                rd = destination(value)
+                restore(rd + 1, stageBase + (p - 1) * 8)
+                finish(value, rd)
+            end
+        elseif not tail and result ~= 0 then
+            rd = destination(result)
+            -- Nupp code answers a narrow result extended, as finish leaves
+            -- it.
+            local internal = signature.convention == ir.INTERNAL
+            if rd ~= 0 or not internal then
+                emit(ir.isFloat(kind) and arm.fmov(bits(kind), rd, 0) or arm.mov_reg(machine(kind), rd, 0))
+            end
+            finish(result, rd, internal)
+        end
+    end
+
     local uses, immediates, immediateArgs, omitted, recipes = prepare(f)
     -- Which saved values each block leaves current (`current`): a block
     -- starts with what all its predecessors leave (entryState).
-    local predecessors = #track.saved > 0 and predecessorsOf(f) or {}
+    track.predecessors = #track.saved > 0 and predecessorsOf(f) or {}
     for order, block in ipairs(a.blockOrder) do
         local nextBlock = a.blockOrder[order + 1] or 0
         local fusedCondition: integer = -1
         code.blockWord[block] = #code.words + 1
         if #track.saved > 0 then
-            track.current = entryState(predecessors[block], track.exits)
+            track.current = entryState(track.predecessors[block], track.exits)
             for p = f.firstParam[block], f.firstParam[block] + f.nparams[block] - 1 do
                 if a.used[f.params[p]] ~= false then
                     hold(f.params[p], true)
@@ -1248,7 +1452,7 @@ function selector.run(f: ir.Function, a: allocate.Allocation): selector.Code
             local op, result, kind = colOp[at], f.result[at], f.kind[at]
             local recipe = recipes[at]
             local args = recipe or colArgs
-            local firstArg, nargs = recipe and 4 or colFirstArg[at], recipe and #recipe - 3 or f.nargs[at]
+            local firstArg, nargs = recipe and 4 or f.firstArg[at], recipe and #recipe - 3 or f.nargs[at]
             if omitted[at] then
                 op, nargs = ICONST, 0
             end
@@ -1256,7 +1460,7 @@ function selector.run(f: ir.Function, a: allocate.Allocation): selector.Code
             local fused = op == ICMP
                 and at < f.blockEnd[block]
                 and colOp[at + 1] == BRIF
-                and colArgs[colFirstArg[at + 1]] == result
+                and colArgs[f.firstArg[at + 1]] == result
                 and uses[result] == 1
             borrowedCount, occupiedStamp, usedStamp = 0, occupiedStamp + 1, usedStamp + 1
             for p = firstArg, firstArg + nargs - 1 do
@@ -1275,7 +1479,7 @@ function selector.run(f: ir.Function, a: allocate.Allocation): selector.Code
             local rd: integer = 0
             local _ = switch op do
                 case JUMP -> do
-                    holdEdge(f.firstEdge[at])
+                    holdEdge(f, a, hold, f.firstEdge[at])
                     edge(f.firstEdge[at], nextBlock)
                     yield true
                 end
@@ -1290,8 +1494,8 @@ function selector.run(f: ir.Function, a: allocate.Allocation): selector.Code
                     -- Only loads restore borrowed scratch after CMP; flags survive.
                     -- The final edge can fall through, after its own parallel moves.
                     local first, last = f.firstEdge[at], f.firstEdge[at] + 1
-                    holdEdge(first)
-                    holdEdge(last)
+                    holdEdge(f, a, hold, first)
+                    holdEdge(f, a, hold, last)
                     local skip = condition ~ 1
                     if f.edgeTarget[first] == nextBlock and f.edgeTarget[last] ~= nextBlock then
                         first, last, skip = last, first, condition
@@ -1334,219 +1538,11 @@ function selector.run(f: ir.Function, a: allocate.Allocation): selector.Code
                         hold(args[firstArg + p - 1], false)
                     end
                     transport(nargs)
-                    if track.calls then
-                        emit(arm.ldr(8, 30, 23, 0))
-                    end
                     emit(arm.ret(30))
                     yield true
                 end
                 case TRAP -> emit(arm.brk(colImm[at]))
-                case CALL, CALL_INDIRECT, RETURN_CALL, RETURN_CALL_INDIRECT -> do
-                    local indirect = op == CALL_INDIRECT or op == RETURN_CALL_INDIRECT
-                    local tail = op == RETURN_CALL or op == RETURN_CALL_INDIRECT
-                    local signature = f.signatures[indirect and colAux[at] or f.importSignatures[colAux[at]]]
-                    local name = not indirect and f.importNames[colAux[at]] or ""
-                    -- The fast path's first operand is the function, which goes
-                    -- where an indirect call's target does.
-                    local registered = name:sub(1, #ROUTINE_REGISTERS) == ROUTINE_REGISTERS
-                    local params = signature.params
-                    if registered then
-                        params = registerParams[signature] or table.move(params, 2, #params, 1, {})
-                        registerParams[signature] = params
-                    end
-                    local stackBytes = abi(params, signature.fixed)
-                    assert(
-                        stackBytes == 0 or signature.convention == ir.C and not tail,
-                        "S0 select: stack ABI arguments need a C call"
-                    )
-                    local registers = abiRegisters
-                    local shift = (indirect or registered) and 1 or 0
-                    assert(nargs == #registers + shift, "S0 select: call arity")
-                    if stackBytes > 0 then
-                        -- What the registers do not hold goes on the C stack
-                        -- below sp, which Nupp code leaves aligned.
-                        assert(stackBytes < 4096, "S0 select: C stack argument extent")
-                        emit(arm.sub_imm(64, 31, 31, stackBytes, 0))
-                        for p, physical in ipairs(registers) do
-                            if physical == 0 then
-                                local value = args[firstArg + shift + p - 1]
-                                local valueKind = colValueKinds[value]
-                                local reg = source(value)
-                                emit(
-                                    ir.isFloat(valueKind) and arm.str_fp(bits(valueKind), reg, 31, abiOffsets[p])
-                                    or arm.str(abiSizes[p], reg, 31, abiOffsets[p])
-                                )
-                                finish(0, 0)
-                            end
-                        end
-                    end
-                    local parallel = true
-                    local count: integer = 0
-                    -- A literal or frame address that is not in a register
-                    -- is made in its argument register once the moves are done.
-                    local late: {integer} = {}
-                    for p = 1, nargs do
-                        local value = args[firstArg + p - 1]
-                        assert(not tail or not stackValues[value], "S0 select: tail call retains stack address")
-                        local physical = p <= shift and 17 or registers[p - shift]
-                        if physical ~= 0 then
-                            local location, remat = allocationLocation[value], a.rematerialize[value]
-                            parallel = parallel and location ~= 0
-                            hold(value, false)
-                            if location < 0
-                                and remat ~= 0
-                                and (colOp[remat] == ICONST or colOp[remat] == STACK_ADDR)
-                            then
-                                late[#late + 1] = p
-                            else
-                                parallel = parallel and (location > 0 or remat == 0)
-                                count = count + 1
-                                transportSources[
-                                    count
-                                ], transportDestinations[
-                                    count
-                                ], transportKinds[count] = location, physical, colValueKinds[value]
-                            end
-                        end
-                    end
-                    if parallel then
-                        -- x16 holds the indirect target; call destinations never
-                        -- include spills.
-                        moveTarget.scratchInt = 18
-                        transport(count)
-                        moveTarget.scratchInt = 17
-                        for _, p in ipairs(late) do
-                            local remat = a.rematerialize[args[firstArg + p - 1]]
-                            local reg = target.register(p <= shift and 17 or registers[p - shift])
-                            if colOp[remat] == ICONST then
-                                constant(reg, colImm[remat], machine(colValueKinds[args[firstArg + p - 1]]))
-                            else
-                                addOffset(reg, 23, code.stackOffsets[colAux[remat]] + colImm[remat])
-                            end
-                        end
-                    else
-                        local staged: integer = 0
-                        for p = 1, nargs do
-                            local physical = p <= shift and 17 or registers[p - shift]
-                            if physical ~= 0 then
-                                local value = args[firstArg + p - 1]
-                                local reg = source(value)
-                                save(ir.isFloat(colValueKinds[value]) and reg + 65 or reg + 1, stageBase + staged * 8)
-                                finish(0, 0)
-                                stagedRegisters[staged + 1] = physical
-                                staged = staged + 1
-                            end
-                        end
-                        for p = 1, staged do
-                            restore(stagedRegisters[p], stageBase + (p - 1) * 8)
-                        end
-                    end
-                    if tail and track.calls then
-                        emit(arm.ldr(8, 30, 23, 0))
-                    end
-                    if signature.convention == ir.INTERNAL then
-                        if not tail then
-                            addOffset(23, 23, code.frameBytes)
-                        end
-                        if indirect then
-                            emit(tail and arm.br(16) or arm.blr(16))
-                        else
-                            symbolic(tail and selector.B26 or selector.BL26, name)
-                        end
-                        if not tail then
-                            local high, low = code.frameBytes >> 12, code.frameBytes & 4095
-                            if high ~= 0 then
-                                emit(arm.sub_imm(64, 23, 23, high, 1))
-                            end
-                            if low ~= 0 then
-                                emit(arm.sub_imm(64, 23, 23, low, 0))
-                            end
-                        end
-                    elseif name:sub(1, #FOREIGN_PREFIX) == FOREIGN_PREFIX then
-                        assert(not tail and nargs == 0, "S0 select: foreign resolution takes nothing")
-                        resolve(name)
-                    elseif registered then
-                        assert(not tail and stackBytes == 0, "S0 select: the fast path passes registers alone")
-                        emit(arm.blr(16))
-                    elseif name == ROUTINE_CALL then
-                        assert(not tail and nargs == 1, "S0 select: a foreign call takes its block")
-                        foreignCall(CALL_REGISTERS, CALL_REGISTERS, CALL_STACK_WORDS, true)
-                    elseif name:sub(1, #ROUTINE_CALL + 1) == ROUTINE_CALL .. "\0" then
-                        local integers, floats, words, answer = name:match(
-                            "^routine\0call\0(%d+)\0(%d+)\0(%d+)\0(%w+)$"
-                        )
-                        assert(not tail and nargs <= 1 and answer ~= nil, "S0 select: a foreign call takes its block")
-                        local counted = {
-                            tonumber(integers) as integer,
-                            tonumber(floats) as integer,
-                            tonumber(words) as integer
-                        }
-                        assert(
-                            counted[1] <= CALL_REGISTERS
-                            and counted[2] <= CALL_REGISTERS
-                            and counted[3] <= CALL_STACK_WORDS,
-                            "S0 select: a foreign call's shape"
-                        )
-                        foreignCall(counted[1], counted[2], counted[3], false)
-                    elseif name == ROUTINE_COLLECTOR then
-                        assert(not tail and nargs == 0, "S0 select: the collector takes nothing")
-                        foreignCollector()
-                    elseif name == ROUTINE_ATOMIC_LOAD then
-                        -- The sequentially consistent word at base (x0) plus
-                        -- offset (x1).
-                        assert(not tail and nargs == 2, "S0 select: an atomic load takes base and offset")
-                        emit(arm.add_reg(64, 16, 0, 1, 0))
-                        emit(arm.ldar(0, 16))
-                    elseif name == ROUTINE_ATOMIC_CAS then
-                        -- Base (x0) plus offset (x1): replaced by x3 when it
-                        -- is x2; x0 answers the word it was.
-                        assert(not tail and nargs == 4, "S0 select: a compare-and-swap takes four words")
-                        emit(arm.add_reg(64, 16, 0, 1, 0))
-                        emit(arm.mov_reg(64, 0, 2))
-                        emit(arm.casal(0, 3, 16))
-                    elseif name:sub(1, #ROUTINE_CELLS) == ROUTINE_CELLS then
-                        assert(not tail and nargs == 0, "S0 select: the symbol table takes nothing")
-                        emit(arm.ldr(8, 0, 22, (tonumber(name:sub(#ROUTINE_CELLS + 1)) as integer) * 8))
-                    else
-                        if not indirect then
-                            symbolic(selector.IMPORT_LOAD, name)
-                        end
-                        emit(tail and arm.br(16) or arm.blr(16))
-                    end
-                    popStack(stackBytes)
-                    -- What the call may clobber is stale.
-                    for _, value in ipairs(tail and {} or track.saved) do
-                        if signature.convention == ir.INTERNAL
-                            or not moveTarget.preservedC[allocationLocation[value]]
-                        then
-                            track.current[value] = nil
-                        end
-                    end
-                    if not tail and second ~= 0 then
-                        assert(
-                            result ~= 0 and not ir.isFloat(kind) and not ir.isFloat(f.kind2[at]),
-                            "S0 select: paired call requires integers"
-                        )
-                        save(1, stageBase);
-                        save(2, stageBase + 8)
-                        for p = 1, 2 do
-                            local value = p == 1 and result or second
-                            rd = destination(value)
-                            restore(rd + 1, stageBase + (p - 1) * 8)
-                            finish(value, rd)
-                        end
-                    elseif not tail and result ~= 0 then
-                        rd = destination(result)
-                        -- Nupp code answers a narrow result extended, as finish leaves
-                        -- it.
-                        local internal = signature.convention == ir.INTERNAL
-                        if rd ~= 0 or not internal then
-                            emit(ir.isFloat(kind) and arm.fmov(bits(kind), rd, 0) or arm.mov_reg(machine(kind), rd, 0))
-                        end
-                        finish(result, rd, internal)
-                    end
-                    yield true
-                end
+                case CALL, CALL_INDIRECT, RETURN_CALL, RETURN_CALL_INDIRECT -> selectCall(at, op, args, firstArg, nargs)
                 else -> do
                     for p = 1, nargs do
                         local value = args[firstArg + p - 1]
@@ -1556,8 +1552,7 @@ function selector.run(f: ir.Function, a: allocate.Allocation): selector.Code
                         rd = destination(result)
                     end
                     local width = machine(kind)
-                    -- Whether the result is already zero-extended from its width.
-                    local extended = false
+                    track.extended = false
                     local x, y, z = nargs >= 1 and regs[1]
                         or 0, nargs >= 2 and regs[2]
                         or 0, nargs >= 3 and regs[3]
@@ -1570,7 +1565,7 @@ function selector.run(f: ir.Function, a: allocate.Allocation): selector.Code
                                     colImm[at] & ((1 << bits(kind)) - 1 | (bits(kind) == 64 and -1 or 0)),
                                     width
                                 )
-                                extended = true
+                                track.extended = true
                             end
                             yield true
                         end
@@ -1580,7 +1575,7 @@ function selector.run(f: ir.Function, a: allocate.Allocation): selector.Code
                             emit(arm.fmov_from_int(bits(kind), rd, temp))
                             yield true
                         end
-                        case STACK_ADDR -> addOffset(rd, 23, code.stackOffsets[colAux[at]] + colImm[at])
+                        case STACK_ADDR -> addOffset(rd, 23, code.stackOffsets[f.aux[at]] + colImm[at])
                         case IADD, ISUB -> do
                             if recipe and recipe[1] == IMUL then
                                 emit(op == IADD and arm.madd(width, rd, x, y, z) or arm.msub(width, rd, x, y, z))
@@ -1720,7 +1715,7 @@ function selector.run(f: ir.Function, a: allocate.Allocation): selector.Code
                             yield true
                         end
                         case ICMP -> do
-                            local condition = colAux[at]
+                            local condition = f.aux[at]
                             local operandKind = colValueKinds[colArgs[firstArg]]
                             local w = machine(operandKind)
                             if condition >= SIGNED_LT and condition <= SIGNED_GE and bits(operandKind) < 32 then
@@ -1746,15 +1741,15 @@ function selector.run(f: ir.Function, a: allocate.Allocation): selector.Code
                                 fusedCondition = cc
                             else
                                 emit(arm.cset(32, rd, cc))
-                                extended = true
+                                track.extended = true
                             end
                             yield true
                         end
                         case FCMP -> do
-                            local condition = colAux[at]
+                            local condition = f.aux[at]
                             emit(arm.fcmp(bits(colValueKinds[colArgs[firstArg]]), x, y))
                             local cc = floatConditions[condition]
-                            extended = true
+                            track.extended = true
                             if cc ~= nil then
                                 emit(arm.cset(32, rd, cc))
                             elseif condition == UNORDERED_EQ then
@@ -1785,7 +1780,7 @@ function selector.run(f: ir.Function, a: allocate.Allocation): selector.Code
                                 op == SEXTEND and arm.sbfm(width, rd, x, 0, retained - 1)
                                 or arm.ubfm(width, rd, x, 0, retained - 1)
                             )
-                            extended = op ~= SEXTEND
+                            track.extended = op ~= SEXTEND
                             yield true
                         end
                         case BITCAST -> do
@@ -1834,7 +1829,7 @@ function selector.run(f: ir.Function, a: allocate.Allocation): selector.Code
                         case LOAD, SLOAD, STORE -> do
                             local store = op == STORE
                             local valueKind = store and colValueKinds[args[firstArg]] or kind
-                            local bytes = (colAux[at] ~= 0 and colAux[at] or bits(valueKind)) // 8
+                            local bytes = (f.aux[at] ~= 0 and f.aux[at] or bits(valueKind)) // 8
                             local address, value = store and y or x, store and x or rd
                             local offset = recipe and recipe[2] or colImm[at]
                             if offset < 0 or offset % bytes ~= 0 or offset // bytes >= 4096 then
@@ -1857,14 +1852,14 @@ function selector.run(f: ir.Function, a: allocate.Allocation): selector.Code
                                 if op == SLOAD then
                                     emit(arm.sbfm(machine(valueKind), value, value, 0, bytes * 8 - 1))
                                 else
-                                    extended = bytes * 8 <= bits(valueKind)
+                                    track.extended = bytes * 8 <= bits(valueKind)
                                 end
                             end
                             yield true
                         end
                         else -> error("S0 select: unsupported operation " .. tostring(ir.opNames[op]))
                     end
-                    finish((fused or omitted[at]) and 0 or result, rd, extended)
+                    finish((fused or omitted[at]) and 0 or result, rd, track.extended)
                     yield true
                 end
             end
