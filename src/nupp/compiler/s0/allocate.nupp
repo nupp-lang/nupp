@@ -1090,6 +1090,387 @@ local function crossings(f: ir.Function, a: allocate.Allocation): nil
     end
 end
 
+local OP_ICMP_DECIDED = ir.opcode("icmp")
+local OP_ICONST_DECIDED = ir.opcode("iconst")
+
+-- Whether `x` is below `y` as unsigned 64-bit integers: flipping the sign
+-- bit orders them as signed comparison does.
+local function unsignedBelow(x: integer, y: integer): boolean
+    return (x ~ math.mininteger) < (y ~ math.mininteger)
+end
+
+-- Whether 64-bit integer comparison `condition` holds of `x` and `y`, or nil
+-- for a condition this does not decide.
+local function holds(condition: integer, x: integer, y: integer): boolean?
+    local name = ir.conditionNames[condition]
+    if name == "eq" then
+        return x == y
+    elseif name == "ne" then
+        return x ~= y
+    elseif name == "slt" then
+        return x < y
+    elseif name == "sle" then
+        return x <= y
+    elseif name == "sgt" then
+        return x > y
+    elseif name == "sge" then
+        return x >= y
+    elseif name == "ult" then
+        return unsignedBelow(x, y)
+    elseif name == "ule" then
+        return x == y or unsignedBelow(x, y)
+    elseif name == "ugt" then
+        return unsignedBelow(y, x)
+    elseif name == "uge" then
+        return x == y or unsignedBelow(y, x)
+    end
+
+    return nil
+end
+
+-- Has instruction `i` name, in place of its edge `replaced`, an edge to
+-- `target` passing `args`. Its old edges stay in the columns, named by no
+-- instruction (as a threaded jump's do).
+local function replaceEdge(f: ir.Function, i: integer, replaced: integer, target: integer, args: {integer}): nil
+    local first = #f.edgeTarget + 1
+    for e = f.firstEdge[i], f.firstEdge[i] + f.nedges[i] - 1 do
+        local at = #f.edgeTarget + 1
+        f.edgeFrom[at] = i
+        if e == replaced then
+            f.edgeTarget[at], f.edgeFirstArg[at], f.edgeNargs[at] = target, #f.edgeArgs + 1, #args
+            for _, value in ipairs(args) do
+                f.edgeArgs[#f.edgeArgs + 1] = value
+            end
+        else
+            f.edgeTarget[at], f.edgeFirstArg[at], f.edgeNargs[at] = f.edgeTarget[e], f.edgeFirstArg[e], f.edgeNargs[e]
+        end
+    end
+    f.firstEdge[i] = first
+end
+
+-- Sends edges past blocks that decide nothing for them: an edge passing a
+-- literal into a block that only compares that parameter with a literal and
+-- branches goes where the branch would, and an edge into a block that only
+-- jumps goes where it jumps. An inlined check's failure (returning zero) then
+-- reaches the caller's failing path without testing the zero again. A block
+-- whose values are read beyond it is passed by only when every such reader
+-- is under the successor the edge no longer reaches, which it alone enters.
+local function decided(f: ir.Function): nil
+    local count = #f.blockStart
+    local blockOf: {integer} = {}
+    for b, start in ipairs(f.blockStart) do
+        for i = start, f.blockEnd[b] do
+            blockOf[i] = b
+        end
+    end
+
+    -- The block that makes `value` (a parameter's is its block).
+    local function maker(value: integer): integer
+        local definition = f.definitions[value]
+        return definition > 0 and blockOf[definition] or -definition
+    end
+
+    -- What the edges named now imply, made again after each redirect:
+    -- each value's readers and the blocks reading it beyond its maker,
+    -- each block's entries and immediate dominator.
+    local readers: {integer} = {}
+    local outside: {[integer]: {[integer]: boolean}} = {}
+    local into: {integer} = {}
+    local used: {boolean} = {}
+    local dominator: {integer} = {}
+
+    local function analyze(): nil
+        readers, outside, into = zeros(#f.valueKinds), {}, zeros(count)
+        used = usedParameters(f)
+
+        local function read(value: integer, block: integer): nil
+            readers[value] = readers[value] + 1
+            if maker(value) ~= block then
+                local blocks = outside[value] or {}
+                blocks[block], outside[value] = true, blocks
+            end
+        end
+
+        local successors: {{integer}} = {}
+        for b = 1, count do
+            successors[b] = {}
+        end
+        for i = 1, #f.op do
+            for e = f.firstEdge[i], f.firstEdge[i] + f.nedges[i] - 1 do
+                local list = successors[blockOf[i]]
+                list[#list + 1] = f.edgeTarget[e]
+            end
+        end
+        -- Dominators by the iterative method over reverse postorder.
+        local post: {integer} = {}
+        local seen: {boolean} = {true}
+        local stack: {integer} = {1}
+        local cursor: {integer} = {1}
+        while #stack > 0 do
+            local b = stack[#stack]
+            local next = successors[b][cursor[#cursor]]
+            if next == nil then
+                post[#post + 1] = b
+                stack[#stack], cursor[#cursor] = nil, nil
+            else
+                cursor[#cursor] = cursor[#cursor] + 1
+                if not seen[next] then
+                    seen[next] = true
+                    stack[#stack + 1], cursor[#cursor + 1] = next, 1
+                end
+            end
+        end
+        local rank: {integer} = zeros(count)
+        for r, b in ipairs(post) do
+            rank[b] = r
+        end
+        -- Only blocks a path reaches read anything or enter anything: one
+        -- threading passed by still names its edges.
+        for i = 1, #f.op do
+            if seen[blockOf[i]] then
+                for p = f.firstArg[i], f.firstArg[i] + f.nargs[i] - 1 do
+                    read(f.args[p], blockOf[i])
+                end
+                for e = f.firstEdge[i], f.firstEdge[i] + f.nedges[i] - 1 do
+                    into[f.edgeTarget[e]] = into[f.edgeTarget[e]] + 1
+                    for p = 0, f.edgeNargs[e] - 1 do
+                        -- What an unread parameter is passed is not read.
+                        if used[f.params[f.firstParam[f.edgeTarget[e]] + p]] then
+                            read(f.edgeArgs[f.edgeFirstArg[e] + p], blockOf[i])
+                        end
+                    end
+                end
+            end
+        end
+        local predecessors: {{integer}} = {}
+        for b = 1, count do
+            predecessors[b] = {}
+        end
+        for b = 1, count do
+            for _, s in ipairs(seen[b] and successors[b] or {}) do
+                local list = predecessors[s]
+                list[#list + 1] = b
+            end
+        end
+        dominator = zeros(count)
+        dominator[1] = 1
+        local changed = true
+        while changed do
+            changed = false
+            for r = #post - 1, 1, -1 do
+                local b = post[r]
+                local chosen: integer = 0
+                for _, p in ipairs(predecessors[b]) do
+                    if dominator[p] ~= 0 then
+                        if chosen == 0 then
+                            chosen = p
+                        else
+                            local x, y = p, chosen
+                            while x ~= y do
+                                while rank[x] < rank[y] do
+                                    x = dominator[x]
+                                end
+                                while rank[y] < rank[x] do
+                                    y = dominator[y]
+                                end
+                            end
+                            chosen = x
+                        end
+                    end
+                end
+                if chosen ~= 0 and dominator[b] ~= chosen then
+                    dominator[b], changed = chosen, true
+                end
+            end
+        end
+    end
+
+    -- Whether block `n` dominates block `b`.
+    local function dominates(n: integer, b: integer): boolean
+        while b ~= n and dominator[b] ~= 0 and dominator[b] ~= b do
+            b = dominator[b]
+        end
+
+        return b == n
+    end
+
+    -- Whether block `m` makes a value (a parameter or a result) read beyond
+    -- it other than under block `allowed` (zero allows none).
+    local function escapes(m: integer, allowed: integer): boolean
+        local function beyond(value: integer): boolean
+            for block in pairs(outside[value] or {}) do
+                if allowed == 0 or not dominates(allowed, block) then
+                    return true
+                end
+            end
+
+            return false
+        end
+
+        for p = f.firstParam[m], f.firstParam[m] + f.nparams[m] - 1 do
+            if beyond(f.params[p]) then
+                return true
+            end
+        end
+        for i = f.blockStart[m], f.blockEnd[m] do
+            if f.result[i] ~= 0 and beyond(f.result[i]) then
+                return true
+            end
+        end
+
+        return false
+    end
+
+    -- The literal value `value` is, if it is one.
+    local function literal(value: integer): integer?
+        local definition = f.definitions[value]
+        if definition > 0 and f.op[definition] == OP_ICONST_DECIDED and f.valueKinds[value] == ir.I64 then
+            return f.imm[definition]
+        end
+
+        return nil
+    end
+
+    -- Whether what block `m`'s edge `e` passes (to parameters read) is there
+    -- without `m`.
+    local function passable(m: integer, e: integer): boolean
+        for p = 0, f.edgeNargs[e] - 1 do
+            local value = f.edgeArgs[f.edgeFirstArg[e] + p]
+            local read = used[f.params[f.firstParam[f.edgeTarget[e]] + p]]
+            if read and f.definitions[value] > 0 and maker(value) == m then
+                return false
+            end
+        end
+
+        return true
+    end
+
+    -- For block `m`, when it only compares a parameter with a literal and
+    -- branches on that: the comparison, the parameter's position and
+    -- whether it is compared first.
+    local function test(m: integer): (integer, integer, boolean)
+        local branch = f.blockEnd[m]
+        if m == 1 or f.op[branch] ~= BRIF then
+            return 0, -1, false
+        end
+        local compare: integer = 0
+        for i = f.blockStart[m], branch - 1 do
+            if f.op[i] == OP_ICMP_DECIDED and compare == 0 then
+                compare = i
+            elseif f.op[i] ~= OP_ICONST_DECIDED then
+                return 0, -1, false
+            end
+        end
+        if compare == 0
+            or f.args[f.firstArg[branch]] ~= f.result[compare]
+            or readers[f.result[compare]] ~= 1
+            or not passable(m, f.firstEdge[branch])
+            or not passable(m, f.firstEdge[branch] + 1)
+        then
+            return 0, -1, false
+        end
+        local x, y = f.args[f.firstArg[compare]], f.args[f.firstArg[compare] + 1]
+        for p = 0, f.nparams[m] - 1 do
+            local parameter = f.params[f.firstParam[m] + p]
+            if parameter == x and literal(y) ~= nil then
+                return compare, p, true
+            elseif parameter == y and literal(x) ~= nil then
+                return compare, p, false
+            end
+        end
+
+        return 0, -1, false
+    end
+
+    -- For block `m`, when it only jumps (making literals nothing beyond it
+    -- reads): its jump's edge.
+    local function forwards(m: integer): integer
+        local jump = f.blockEnd[m]
+        if m == 1
+            or f.op[jump] ~= JUMP
+            or f.edgeTarget[f.firstEdge[jump]] == m
+            or not passable(m, f.firstEdge[jump])
+            or escapes(m, 0)
+        then
+            return 0
+        end
+        for i = f.blockStart[m], jump - 1 do
+            if f.op[i] ~= OP_ICONST_DECIDED then
+                return 0
+            end
+        end
+
+        return f.firstEdge[jump]
+    end
+
+    -- The arguments block `m`'s edge `taken` passes, its parameters being
+    -- what edge `e` into it passes for them.
+    local function composed(e: integer, m: integer, taken: integer): {integer}
+        local args: {integer} = {}
+        for p = 0, f.edgeNargs[taken] - 1 do
+            local value = f.edgeArgs[f.edgeFirstArg[taken] + p]
+            for q = 0, f.nparams[m] - 1 do
+                if f.params[f.firstParam[m] + q] == value then
+                    value = f.edgeArgs[f.edgeFirstArg[e] + q]
+                end
+            end
+            args[#args + 1] = value
+        end
+
+        return args
+    end
+
+    -- Where edge `e` (into `m`) goes instead, or zero.
+    local function instead(e: integer, m: integer): integer
+        local compare, position, first = test(m)
+        local passed = position >= 0 and literal(f.edgeArgs[f.edgeFirstArg[e] + position]) or nil
+        if passed == nil then
+            return forwards(m)
+        end
+        local fixed = literal(f.args[f.firstArg[compare] + (first and 1 or 0)]) as integer
+        local outcome: boolean? = nil
+        if first then
+            outcome = holds(f.aux[compare], passed, fixed)
+        else
+            outcome = holds(f.aux[compare], fixed, passed)
+        end
+        if outcome == nil then
+            return 0
+        end
+        local branch = f.blockEnd[m]
+        local taken = f.firstEdge[branch] + (outcome and 0 or 1)
+        local other = f.edgeTarget[f.firstEdge[branch] + (outcome and 1 or 0)]
+        local alone = into[other] == 1 and other ~= f.edgeTarget[taken] and other or 0
+
+        return escapes(m, alone) and 0 or taken
+    end
+
+    local instructions = #f.op
+    local changed = true
+    local rounds: integer = 0
+    -- One redirect a round; each passes a block by, and the blocks bound
+    -- how many there can be (a cycle of empty blocks would not end).
+    while changed and rounds < 4 * count do
+        changed, rounds = false, rounds + 1
+        analyze()
+        for i = 1, instructions do
+            for e = f.firstEdge[i], f.firstEdge[i] + f.nedges[i] - 1 do
+                local m = f.edgeTarget[e]
+                local taken = blockOf[i] ~= m and instead(e, m) or 0
+                if taken ~= 0 and f.edgeTarget[taken] ~= m then
+                    replaceEdge(f, i, e, f.edgeTarget[taken], composed(e, m, taken))
+                    changed = true
+                    -- What the analysis says holds no longer: start again.
+                    break
+                end
+            end
+            if changed then
+                break
+            end
+        end
+    end
+end
+
 -- Sends every edge into a block to an identical one instead, so the copies
 -- (each check's failing path, as lowering makes one per check) are selected
 -- once and branches to them can share a target. Blocks are identical when
@@ -1323,6 +1704,7 @@ function allocate.run(f: ir.Function, target: allocate.Target): allocate.Allocat
     if target.saveAcrossCalls == true then
         allocate.simplify(f)
         common(f)
+        decided(f)
         merge(f)
     end
     local a = newAllocation(f)

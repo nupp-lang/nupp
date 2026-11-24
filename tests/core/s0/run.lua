@@ -307,6 +307,11 @@ function inspect.isAddImmediateOne(word)
     return word & 0xfffffc00 == 0x91000400
 end
 
+-- b: an unconditional branch.
+function inspect.isBranch(word)
+    return word & 0xfc000000 == 0x14000000
+end
+
 -- bl: a call.
 function inspect.isBranchLink(word)
     return word & 0xfc000000 == 0x94000000

@@ -419,6 +419,8 @@ block2():
             runs = {{args = {8, 1}, result = 9}, {args = {9, 5}, result = 5}, {args = {0, 7}, result = 7}},
             check = function(codes)
                 assert(inspect.count(codes, "caller", inspect.isBranchLink) == 0, "the leaf is still called")
+                -- The check's zero goes straight to the zero path.
+                assert(inspect.count(codes, "caller", inspect.isBranch) == 0, "a known zero is tested again")
             end
         },
         {
