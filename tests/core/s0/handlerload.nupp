@@ -1,0 +1,31 @@
+module handlerload
+
+-- Reads a runtime function's s0 machine IR, as handlers/*.json keeps it, into
+-- the staged backend's function record (run.lua stages s0lab first).
+local json = require("serde.json")
+local ir = require("s0lab.ir")
+
+local function signature(t: any): ir.Signature
+    return ir.Signature(params = t.params, results = t.results, convention = t.convention, fixed = t.fixed)
+end
+
+export function load(text: string): ir.Function
+    local t: any = json.decodevalue(text)
+    local f = ir.new(t.name, signature(t.signature))
+    local signatures: {ir.Signature} = {}
+    for i, s in ipairs(t.signatures as {any}) do
+        signatures[i] = signature(s)
+    end
+    f.signatures = signatures
+    f.importNames, f.importSignatures = t.importNames, t.importSignatures
+    f.stackBytes, f.stackAlign = t.stackBytes, t.stackAlign
+    f.op, f.result, f.result2, f.kind, f.kind2 = t.op, t.result, t.result2, t.kind, t.kind2
+    f.firstArg, f.nargs, f.args, f.imm, f.aux = t.firstArg, t.nargs, t.args, t.imm, t.aux
+    f.firstEdge, f.nedges, f.valueKinds, f.definitions = t.firstEdge, t.nedges, t.valueKinds, t.definitions
+    f.blockStart, f.blockEnd = t.blockStart, t.blockEnd
+    f.firstParam, f.nparams, f.params = t.firstParam, t.nparams, t.params
+    f.edgeFrom, f.edgeTarget, f.edgeFirstArg = t.edgeFrom, t.edgeTarget, t.edgeFirstArg
+    f.edgeNargs, f.edgeArgs = t.edgeNargs, t.edgeArgs
+
+    return f
+end

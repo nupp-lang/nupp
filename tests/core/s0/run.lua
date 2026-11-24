@@ -336,5 +336,94 @@ for _, case in ipairs(cases(inspect)) do
         end
     end
 end
+-- Where control can go after the instruction at `index` (1-based) of
+-- `words`: nowhere for an indirect branch, a return or a trap, the target for
+-- an unconditional branch, else the next word and any conditional target.
+local function successors(words, index)
+    local word = words[index]
+    local function offset(low, size)
+        local field = (word >> low) & ((1 << size) - 1)
+        if field >= 1 << (size - 1) then
+            field = field - (1 << size)
+        end
+
+        return index + field
+    end
+    if word & 0xfffffc1f == 0xd61f0000 or word & 0xfffffc1f == 0xd65f0000 or word & 0xffe0001f == 0xd4200000 then
+        return {}
+    end
+    if word & 0xfc000000 == 0x14000000 then
+        return {offset(0, 26)}
+    end
+    local targets = {index + 1}
+    if word & 0xff000010 == 0x54000000 or word & 0x7e000000 == 0x34000000 then
+        targets[2] = offset(5, 19)
+    elseif word & 0x7e000000 == 0x36000000 then
+        targets[2] = offset(5, 14)
+    end
+
+    return targets
+end
+
+-- The shortest path from the entry to an indirect branch (br): its length in
+-- instructions and the loads and stores on it.
+local function dispatchPath(words)
+    local from, queue, head = {[1] = 0}, {1}, 1
+    while queue[head] do
+        local index = queue[head]
+        head = head + 1
+        if words[index] & 0xfffffc1f == 0xd61f0000 then
+            local count, memory = 0, 0
+            while index ~= 0 do
+                count = count + 1
+                if (words[index] >> 25) & 5 == 4 then
+                    memory = memory + 1
+                end
+                index = from[index]
+            end
+
+            return count, memory
+        end
+        for _, target in ipairs(successors(words, index)) do
+            if words[target] and from[target] == nil then
+                from[target] = index
+                queue[#queue + 1] = target
+            end
+        end
+    end
+
+    return nil, nil
+end
+
+-- The real handlers, selected from their IR, held to their budgets.
+local loader = require("handlerload")
+for _, handler in ipairs(dofile(ROOT .. "/tests/core/s0/budgets.lua")) do
+    if next(only) == nil or only[handler.name] then
+        local ok, problem = pcall(function()
+            local f = loader.load(assert(read(ROOT .. "/tests/core/s0/handlers/" .. handler.name .. ".json")))
+            local target = selector.target()
+            local a = allocate.run(f, target)
+            check.run(f, target, a)
+            local words = selector.run(f, a).words
+            if os.getenv("NUPP_S0_DISASSEMBLE") == "1" then
+                disassemble(handler.name, words)
+            end
+            local count, memory = dispatchPath(words)
+            assert(count, "no path reaches the dispatch")
+            local clang = handler.clang and ("clang %d/%d"):format(handler.clang[1], handler.clang[2]) or "no oracle"
+            print(("%-9s %3d/%-3d %s, %d words in all"):format(handler.name, count, memory, clang, #words))
+            assert(
+                count <= handler.budget[1] and memory <= handler.budget[2],
+                ("over budget %d/%d"):format(handler.budget[1], handler.budget[2])
+            )
+        end)
+        if ok then
+            passed = passed + 1
+        else
+            failed = failed + 1
+            print("FAIL " .. handler.name .. ": " .. tostring(problem))
+        end
+    end
+end
 print(("%d passed, %d failed"):format(passed, failed))
 os.exit(failed == 0 and 0 or 1)
