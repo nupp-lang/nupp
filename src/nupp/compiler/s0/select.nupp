@@ -1869,11 +1869,21 @@ function selector.run(f: ir.Function, a: allocate.Allocation): selector.Code
         track.exits[block] = track.current
     end
     local redirects: {[integer]: integer} = {}
+    -- A block that only jumps on, moving nothing, is skipped: branches to it
+    -- go where it goes. One that stores its parameters on entry is not.
     for order = #a.blockOrder, 1, -1 do
         local block = a.blockOrder[order]
         local at = f.blockStart[block]
         local edge = f.firstEdge[at]
-        if at == f.blockEnd[block] and colOp[at] == JUMP and a.nmoves[edge] == 0 then
+        local after = order < #a.blockOrder and code.blockWord[a.blockOrder[order + 1]] or #code.words + 1
+        if at == f.blockEnd[block]
+            and colOp[at] == JUMP
+            and a.nmoves[edge] == 0
+            and (
+                after == code.blockWord[block]
+                or after == code.blockWord[block] + 1 and code.words[code.blockWord[block]] & 0xfc000000 == 0x14000000
+            )
+        then
             local targetBlock = f.edgeTarget[edge]
             redirects[block] = redirects[targetBlock] or targetBlock
         end
