@@ -109,7 +109,10 @@ function selector.target(): allocate.Target
         preservedInternal = internal,
         preservedC = c,
         scratchInt = 17,
-        scratchFloat = 96
+        scratchFloat = 96,
+        saveAcrossCalls = true,
+        integerArguments = target.cIntegerArguments,
+        floatArguments = target.cFloatArguments
     )
 end
 
@@ -207,61 +210,322 @@ local function stackBorrowed(f: ir.Function): {boolean}
     return borrowed
 end
 
+const ICONST: 1 = ir.OP_ICONST as 1
+const FCONST: 2 = ir.OP_FCONST as 2
+const IADD: 3 = ir.OP_IADD as 3
+const ISUB: 4 = ir.OP_ISUB as 4
+const IMUL: 5 = ir.OP_IMUL as 5
+const UDIV: 6 = ir.OP_UDIV as 6
+const SDIV: 7 = ir.OP_SDIV as 7
+const UREM: 8 = ir.OP_UREM as 8
+const SREM: 9 = ir.OP_SREM as 9
+const UMULHI: 10 = ir.OP_UMULHI as 10
+const SMULHI: 11 = ir.OP_SMULHI as 11
+const BAND: 12 = ir.OP_BAND as 12
+const BOR: 13 = ir.OP_BOR as 13
+const BXOR: 14 = ir.OP_BXOR as 14
+const BNOT: 15 = ir.OP_BNOT as 15
+const ISHL: 16 = ir.OP_ISHL as 16
+const USHR: 17 = ir.OP_USHR as 17
+const SSHR: 18 = ir.OP_SSHR as 18
+const POPCNT: 19 = ir.OP_POPCNT as 19
+const ICMP: 20 = ir.OP_ICMP as 20
+const FCMP: 21 = ir.OP_FCMP as 21
+const SELECT: 22 = ir.OP_SELECT as 22
+const LOAD: 23 = ir.OP_LOAD as 23
+const SLOAD: 24 = ir.OP_SLOAD as 24
+const STORE: 25 = ir.OP_STORE as 25
+const IREDUCE: 26 = ir.OP_IREDUCE as 26
+const UEXTEND: 27 = ir.OP_UEXTEND as 27
+const SEXTEND: 28 = ir.OP_SEXTEND as 28
+const BITCAST: 29 = ir.OP_BITCAST as 29
+const FPROMOTE: 30 = ir.OP_FPROMOTE as 30
+const FDEMOTE: 31 = ir.OP_FDEMOTE as 31
+const FADD: 32 = ir.OP_FADD as 32
+const FSUB: 33 = ir.OP_FSUB as 33
+const FMUL: 34 = ir.OP_FMUL as 34
+const FDIV: 35 = ir.OP_FDIV as 35
+const FNEG: 36 = ir.OP_FNEG as 36
+const FABS: 37 = ir.OP_FABS as 37
+const SQRT: 38 = ir.OP_SQRT as 38
+const FLOOR: 39 = ir.OP_FLOOR as 39
+const CEIL: 40 = ir.OP_CEIL as 40
+const FMA: 41 = ir.OP_FMA as 41
+const FCVT_FROM_SINT: 42 = ir.OP_FCVT_FROM_SINT as 42
+const FCVT_FROM_UINT: 43 = ir.OP_FCVT_FROM_UINT as 43
+const FCVT_TO_SINT_SAT: 44 = ir.OP_FCVT_TO_SINT_SAT as 44
+const FCVT_TO_UINT_SAT: 45 = ir.OP_FCVT_TO_UINT_SAT as 45
+const STACK_ADDR: 46 = ir.OP_STACK_ADDR as 46
+const CALL: 47 = ir.OP_CALL as 47
+const CALL_INDIRECT: 48 = ir.OP_CALL_INDIRECT as 48
+const RETURN_CALL: 49 = ir.OP_RETURN_CALL as 49
+const RETURN_CALL_INDIRECT: 50 = ir.OP_RETURN_CALL_INDIRECT as 50
+const JUMP: 51 = ir.OP_JUMP as 51
+const BRIF: 52 = ir.OP_BRIF as 52
+const RETURN: 53 = ir.OP_RETURN as 53
+const TRAP: 54 = ir.OP_TRAP as 54
+
+-- What selection decides before it emits anything: each value's uses, the
+-- operations it drops, the literals it folds into an instruction and the
+-- instruction pairs it fuses (recipes).
+local function prepare(
+    f: ir.Function
+): ({integer}, {[integer]: integer}, {[integer]: integer}, {[integer]: boolean}, {[integer]: {integer}})
+    local colArgs = f.args
+    local colAux = f.aux
+    local colDefinitions = f.definitions
+    local colFirstArg = f.firstArg
+    local colImm = f.imm
+    local colKind = f.kind
+    local colOp = f.op
+    local colValueKinds = f.valueKinds
+    -- Edge arguments count as uses too: a branch may both test a boolean and
+    -- carry it into a successor. Only its sole adjacent test can use flags.
+    local uses: {integer} = {}
+    for value = 1, #colValueKinds do
+        uses[value] = 0
+    end
+    for at = 1, #colOp do
+        for p = colFirstArg[at], colFirstArg[at] + f.nargs[at] - 1 do
+            uses[colArgs[p]] = uses[colArgs[p]] + 1
+        end
+    end
+    for _, value in ipairs(f.edgeArgs) do
+        uses[value] = uses[value] + 1
+    end
+    -- Operations without effects whose results nothing reads, which
+    -- simplification leaves behind (allocate.simplify), are not selected.
+    -- Uses of their operands do not count.
+    local dead: {[integer]: boolean} = {}
+    local changed = true
+    while changed do
+        changed = false
+        for at = #colOp, 1, -1 do
+            local op, result = colOp[at], f.result[at]
+            local pure = op <= IMUL or op >= UMULHI and op <= SELECT or op >= IREDUCE and op <= STACK_ADDR
+            if pure and not dead[at] and result ~= 0 and f.result2[at] == 0 and uses[result] == 0 then
+                dead[at], changed = true, true
+                for p = colFirstArg[at], colFirstArg[at] + f.nargs[at] - 1 do
+                    uses[colArgs[p]] = uses[colArgs[p]] - 1
+                end
+            end
+        end
+    end
+    -- Decide folds before emission so a sole-use literal has no machine result.
+    local immediates: {[integer]: integer} = {}
+    local immediateArgs: {[integer]: integer} = {}
+    local omitted: {[integer]: boolean} = {}
+    for at, opid in ipairs(colOp) do
+        local op = (dead[at] or f.nargs[at] ~= 2) and 0 or opid
+        local shift = op == ISHL or op == USHR or op == SSHR
+        local arithmetic = op == IADD or op == ISUB
+        local bitwise = op == BAND or op == BOR or op == BXOR
+        if bitwise or op == IMUL then
+            -- A mask the logical immediates encode, or a multiplier that is
+            -- a power of two, which becomes a shift; either operand may be it.
+            local width = machine(colKind[at])
+            for position = 2, 1, -1 do
+                local value = colArgs[colFirstArg[at] + position - 1]
+                local definition = colDefinitions[value]
+                if immediates[at] == nil
+                    and definition > 0
+                    and colOp[definition] == ICONST
+                    and bits(colValueKinds[value]) >= 32
+                then
+                    local literal = colImm[definition] & (width == 64 and -1 or 0xffffffff)
+                    local amount: integer = -1
+                    if bitwise and logical(literal, width) >= 0 then
+                        amount = literal
+                    elseif op == IMUL and literal > 1 and (literal & (literal - 1)) == 0 then
+                        amount = 0
+                        while (1 << amount) ~= literal do
+                            amount = amount + 1
+                        end
+                    end
+                    if amount >= 0 then
+                        immediates[at], immediateArgs[at] = amount, position
+                        if uses[value] == 1 then
+                            omitted[definition] = true
+                        end
+                    end
+                end
+            end
+        end
+        if shift or arithmetic or op == ICMP then
+            local position: integer = 2
+            local value = colArgs[colFirstArg[at] + 1]
+            local definition = colDefinitions[value]
+            if op == IADD and (definition <= 0 or colOp[definition] ~= ICONST) then
+                position, value = 1, colArgs[colFirstArg[at]]
+                definition = colDefinitions[value]
+            end
+            local width = bits(colValueKinds[value])
+            if definition > 0 and colOp[definition] == ICONST and width >= 32 then
+                local literal = colImm[definition]
+                if width == 32 then
+                    literal = literal & 0xffffffff
+                    if arithmetic and literal >= 0x80000000 then
+                        literal = literal - 0x100000000
+                    end
+                end
+                if shift then
+                    literal = literal & (width - 1)
+                end
+                if shift
+                    or (
+                        literal >= (arithmetic and -16773120 or 0)
+                        and literal <= 16773120
+                        and (math.abs(literal) < 4096 or literal % 4096 == 0)
+                    )
+                then
+                    immediates[at], immediateArgs[at] = literal, position
+                    if uses[value] == 1 then
+                        omitted[definition] = true
+                    end
+                end
+            end
+        end
+    end
+    -- Recipes contain producer opcode, encoding fields, then expanded operands.
+    -- Only adjacency (or an omitted literal gap) preserves allocated lifetimes.
+    local recipes: {[integer]: {integer}} = {}
+    for block, start in ipairs(f.blockStart) do
+        for at = start + 1, f.blockEnd[block] do
+            local op, first = colOp[at], colFirstArg[at]
+            if dead[at] then
+                op = 0
+            end
+            local memory = op == LOAD or op == SLOAD or op == STORE
+            local arithmetic = op == IADD or op == ISUB
+            local previous = at - 1
+            if op == BAND and colOp[previous] == ICONST then
+                previous = previous - 1
+            end
+            if previous >= start and (memory or (arithmetic or op == BAND) and not recipes[previous]) then
+                local value, producer = f.result[previous], colOp[previous]
+                local position = (op == STORE or op == ISUB) and 2 or 1
+                if op == IADD and colArgs[first] ~= value then
+                    position = 2
+                end
+                local width = bits(colKind[previous])
+                if value ~= 0 and uses[value] == 1 and colArgs[first + position - 1] == value and width >= 32 then
+                    local left, right = colArgs[colFirstArg[previous]], colArgs[colFirstArg[previous] + 1]
+                    local amount = immediates[previous]
+                    local recipe: {integer}? = nil
+                    if memory and producer == IADD and width == 64 then
+                        local kind = op == STORE and colValueKinds[colArgs[first]] or colKind[at]
+                        local bytes = (colAux[at] ~= 0 and colAux[at] or bits(kind)) // 8
+                        local mul = recipes[previous]
+                        local indexed = kind == ir.I64 and bytes == 8 and op ~= SLOAD and colImm[at] == 0
+                        if mul and mul[1] == ISHL and mul[2] == 3 and indexed then
+                            recipe = op == STORE and {IMUL, 0, 0, colArgs[first], mul[4], mul[5]}
+                                or {IMUL, 0, 0, mul[4], mul[5]}
+                        elseif mul and mul[1] == IMUL and indexed then
+                            local index, scale = mul[4], mul[5]
+                            local definition = colDefinitions[scale]
+                            if definition > 0 and colOp[definition] == ICONST and colImm[definition] == 8 then
+                                recipe = op == STORE and {IMUL, 0, 0, colArgs[first], mul[6], index}
+                                    or {IMUL, 0, 0, mul[6], index}
+                                omitted[definition] = uses[scale] == 1 or omitted[definition] == true
+                            end
+                        elseif amount ~= nil then
+                            local offset = amount + colImm[at]
+                            local base = immediateArgs[previous] == 1 and right or left
+                            if offset >= 0 and offset % bytes == 0 and offset // bytes < 4096 then
+                                recipe = op == STORE and {producer, offset, 0, colArgs[first], base}
+                                    or {producer, offset, 0, base}
+                            end
+                        end
+                    elseif arithmetic and width == bits(colKind[at]) and immediates[at] == nil then
+                        local other = colArgs[first + 2 - position]
+                        if producer == IMUL and amount == nil then
+                            recipe = {producer, 0, 0, left, right, other}
+                        elseif producer == IMUL then
+                            local base: integer = immediateArgs[previous] == 1 and right or left
+                            recipe = {ISHL, amount as integer, 0, other, base}
+                        elseif producer == ISHL and amount ~= nil then
+                            recipe = {producer, amount, 0, other, left}
+                        end
+                    elseif op == BAND and producer == USHR and amount ~= nil and width == bits(colKind[at]) then
+                        local maskValue = colArgs[first + 1]
+                        local definition = colDefinitions[maskValue]
+                        if definition > 0
+                            and colOp[definition] == ICONST
+                            and (previous == at - 1 or definition == at - 1 and uses[maskValue] == 1)
+                        then
+                            local mask = colImm[definition] & (width == 64 and -1 or 0xffffffff)
+                            local n, _, last = logical(mask, width)
+                            if mask > 0 and (mask & (mask + 1)) == 0 and n >= 0 and last + amount < width then
+                                recipe = {producer, amount, last + amount, left}
+                                if uses[maskValue] == 1 then
+                                    omitted[definition] = true
+                                end
+                            end
+                        end
+                    end
+                    if recipe then
+                        recipes[at], omitted[previous] = recipe, true
+                    end
+                end
+            end
+        end
+    end
+
+    -- A dropped operation is selected as an omitted literal is: as nothing.
+    for at in pairs(dead) do
+        omitted[at] = true
+    end
+
+    return uses, immediates, immediateArgs, omitted, recipes
+end
+
+-- Each block's predecessor blocks.
+local function predecessorsOf(f: ir.Function): {{integer}}
+    local predecessors: {{integer}} = {}
+    local blockOf: {integer} = {}
+    for b, start in ipairs(f.blockStart) do
+        predecessors[b] = {}
+        for i = start, f.blockEnd[b] do
+            blockOf[i] = b
+        end
+    end
+    for e, to in ipairs(f.edgeTarget) do
+        local list = predecessors[to]
+        list[#list + 1] = blockOf[f.edgeFrom[e]]
+    end
+
+    return predecessors
+end
+
+-- The saved values current on entry to a block whose predecessors are
+-- `list`: those every predecessor leaves current, or none when one of them
+-- (a back edge) is not selected yet.
+local function entryState(list: {integer}, exits: {[integer]: {[integer]: boolean}}): {[integer]: boolean}
+    local entering: {[integer]: boolean} = {}
+    for _, predecessor in ipairs(list) do
+        if exits[predecessor] == nil then
+            return entering
+        end
+    end
+    if #list == 0 then
+        return entering
+    end
+    local firstExit = exits[list[1]] as {[integer]: boolean}
+    for value in pairs(firstExit) do
+        local everywhere = true
+        for k = 2, #list do
+            local other = exits[list[k]] as {[integer]: boolean}
+            everywhere = everywhere and other[value] == true
+        end
+        if everywhere then
+            entering[value] = true
+        end
+    end
+
+    return entering
+end
+
 function selector.run(f: ir.Function, a: allocate.Allocation): selector.Code
-    const ICONST: 1 = ir.OP_ICONST as 1
-    const FCONST: 2 = ir.OP_FCONST as 2
-    const IADD: 3 = ir.OP_IADD as 3
-    const ISUB: 4 = ir.OP_ISUB as 4
-    const IMUL: 5 = ir.OP_IMUL as 5
-    const UDIV: 6 = ir.OP_UDIV as 6
-    const SDIV: 7 = ir.OP_SDIV as 7
-    const UREM: 8 = ir.OP_UREM as 8
-    const SREM: 9 = ir.OP_SREM as 9
-    const UMULHI: 10 = ir.OP_UMULHI as 10
-    const SMULHI: 11 = ir.OP_SMULHI as 11
-    const BAND: 12 = ir.OP_BAND as 12
-    const BOR: 13 = ir.OP_BOR as 13
-    const BXOR: 14 = ir.OP_BXOR as 14
-    const BNOT: 15 = ir.OP_BNOT as 15
-    const ISHL: 16 = ir.OP_ISHL as 16
-    const USHR: 17 = ir.OP_USHR as 17
-    const SSHR: 18 = ir.OP_SSHR as 18
-    const POPCNT: 19 = ir.OP_POPCNT as 19
-    const ICMP: 20 = ir.OP_ICMP as 20
-    const FCMP: 21 = ir.OP_FCMP as 21
-    const SELECT: 22 = ir.OP_SELECT as 22
-    const LOAD: 23 = ir.OP_LOAD as 23
-    const SLOAD: 24 = ir.OP_SLOAD as 24
-    const STORE: 25 = ir.OP_STORE as 25
-    const IREDUCE: 26 = ir.OP_IREDUCE as 26
-    const UEXTEND: 27 = ir.OP_UEXTEND as 27
-    const SEXTEND: 28 = ir.OP_SEXTEND as 28
-    const BITCAST: 29 = ir.OP_BITCAST as 29
-    const FPROMOTE: 30 = ir.OP_FPROMOTE as 30
-    const FDEMOTE: 31 = ir.OP_FDEMOTE as 31
-    const FADD: 32 = ir.OP_FADD as 32
-    const FSUB: 33 = ir.OP_FSUB as 33
-    const FMUL: 34 = ir.OP_FMUL as 34
-    const FDIV: 35 = ir.OP_FDIV as 35
-    const FNEG: 36 = ir.OP_FNEG as 36
-    const FABS: 37 = ir.OP_FABS as 37
-    const SQRT: 38 = ir.OP_SQRT as 38
-    const FLOOR: 39 = ir.OP_FLOOR as 39
-    const CEIL: 40 = ir.OP_CEIL as 40
-    const FMA: 41 = ir.OP_FMA as 41
-    const FCVT_FROM_SINT: 42 = ir.OP_FCVT_FROM_SINT as 42
-    const FCVT_FROM_UINT: 43 = ir.OP_FCVT_FROM_UINT as 43
-    const FCVT_TO_SINT_SAT: 44 = ir.OP_FCVT_TO_SINT_SAT as 44
-    const FCVT_TO_UINT_SAT: 45 = ir.OP_FCVT_TO_UINT_SAT as 45
-    const STACK_ADDR: 46 = ir.OP_STACK_ADDR as 46
-    const CALL: 47 = ir.OP_CALL as 47
-    const CALL_INDIRECT: 48 = ir.OP_CALL_INDIRECT as 48
-    const RETURN_CALL: 49 = ir.OP_RETURN_CALL as 49
-    const RETURN_CALL_INDIRECT: 50 = ir.OP_RETURN_CALL_INDIRECT as 50
-    const JUMP: 51 = ir.OP_JUMP as 51
-    const BRIF: 52 = ir.OP_BRIF as 52
-    const RETURN: 53 = ir.OP_RETURN as 53
-    const TRAP: 54 = ir.OP_TRAP as 54
     local stackValues = stackBorrowed(f)
     local code = selector.Code(
         words = {},
@@ -288,6 +552,8 @@ function selector.run(f: ir.Function, a: allocate.Allocation): selector.Code
         code.opWords[op], code.opCounts[op] = 0, 0
     end
     local localWord: {integer} = {}
+    -- A local branch's block, and above bit 32 its condition plus one (zero
+    -- for an unconditional branch).
     local localBlock: {integer} = {}
     local borrowed: {integer} = {}
     local occupied: {integer} = {}
@@ -397,6 +663,44 @@ function selector.run(f: ir.Function, a: allocate.Allocation): selector.Code
         memory(reg, offset, false)
     end
 
+    -- A value with a save slot keeps its register: it is written to the slot
+    -- where it is defined, a call that clobbers the register marks it stale,
+    -- and its next use reloads it (Allocation.saveSlot). `current` holds the
+    -- values whose register is known to hold them here.
+    -- `saved` lists the values with a save slot, `exits` what each selected
+    -- block leaves current, and `calls` whether the function calls (LR).
+    -- One table: every local of this function is a slot of the core's frame.
+    local track = {
+        current = {} as {[integer]: boolean},
+        saved = {} as {integer},
+        exits = {} as {[integer]: {[integer]: boolean}},
+        calls = false
+    }
+    for value, slot in ipairs(a.saveSlot) do
+        if slot ~= 0 then
+            track.saved[#track.saved + 1] = value
+        end
+    end
+
+    -- Writes a saved value to its slot where it is `defining` it, and
+    -- otherwise reloads it if a call left its register stale.
+    local function hold(value: integer, defining: boolean): nil
+        if a.saveSlot[value] ~= 0 and (defining or not track.current[value]) then
+            memory(a.location[value], spillOffset(-a.saveSlot[value]), defining)
+            track.current[value] = true
+        end
+    end
+
+    -- Reloads what edge `e` moves into a parameter that is read.
+    local function holdEdge(e: integer): nil
+        local first = f.firstParam[f.edgeTarget[e]]
+        for p = 0, f.edgeNargs[e] - 1 do
+            if a.used[f.params[first + p]] ~= false then
+                hold(f.edgeArgs[f.edgeFirstArg[e] + p], false)
+            end
+        end
+    end
+
     local function temporary(floating: boolean): integer
         local first, last = floating and 96 or 18, floating and 65 or 1
         for p = first, last, -1 do
@@ -419,6 +723,7 @@ function selector.run(f: ir.Function, a: allocate.Allocation): selector.Code
         local location, kind = a.location[value], f.valueKinds[value]
         assert(location ~= 0, "S0 select: unallocated source")
         if location > 0 then
+            hold(value, false)
             return target.register(location)
         end
         local reg = temporary(ir.isFloat(kind))
@@ -440,14 +745,17 @@ function selector.run(f: ir.Function, a: allocate.Allocation): selector.Code
         return location > 0 and target.register(location) or temporary(ir.isFloat(f.valueKinds[value]))
     end
 
-    local function finish(value: integer, reg: integer): nil
+    -- `extended`: the instruction already left a narrow result zero-extended.
+    local function finish(value: integer, reg: integer, extended: boolean?): nil
         if value ~= 0 then
             local kind = f.valueKinds[value]
-            if kind == ir.I8 or kind == ir.I16 then
+            if (kind == ir.I8 or kind == ir.I16) and not extended then
                 emit(arm.ubfm(32, reg, reg, 0, bits(kind) - 1))
             end
             if a.location[value] < 0 then
                 save(ir.isFloat(kind) and reg + 65 or reg + 1, spillOffset(a.location[value]))
+            else
+                hold(value, true)
             end
         end
         for p = borrowedCount, 1, -1 do
@@ -893,7 +1201,13 @@ function selector.run(f: ir.Function, a: allocate.Allocation): selector.Code
         return align(offset, 16)
     end
 
-    emit(arm.str(8, 30, 23, 0))
+    -- A function that calls nothing (tail calls aside) leaves LR where it is.
+    for _, op in ipairs(f.op) do
+        track.calls = track.calls or op == CALL or op == CALL_INDIRECT
+    end
+    if track.calls then
+        emit(arm.str(8, 30, 23, 0))
+    end
     assert(abi(f.signature.params, nil) == 0, "S0 select: stack ABI parameters unsupported")
     local incoming, incomingLocations = abiRegisters, transportDestinations
     for p, physical in ipairs(incoming) do
@@ -907,150 +1221,31 @@ function selector.run(f: ir.Function, a: allocate.Allocation): selector.Code
     -- and the native core holds a function to fewer than 250.
     local colArgs = f.args
     local colAux = f.aux
-    local colDefinitions = f.definitions
     local colFirstArg = f.firstArg
     local colImm = f.imm
-    local colKind = f.kind
     local colOp = f.op
     local colValueKinds = f.valueKinds
     local allocationLocation = a.location
 
-    -- Edge arguments count as uses too: a branch may both test a boolean and
-    -- carry it into a successor. Only its sole adjacent test can use flags.
-    local uses: {integer} = {}
-    for value = 1, #colValueKinds do
-        uses[value] = 0
-    end
-    for _, value in ipairs(colArgs) do
-        uses[value] = uses[value] + 1
-    end
-    for _, value in ipairs(f.edgeArgs) do
-        uses[value] = uses[value] + 1
-    end
-    -- Decide folds before emission so a sole-use literal has no machine result.
-    local immediates: {[integer]: integer} = {}
-    local immediateArgs: {[integer]: integer} = {}
-    local omitted: {[integer]: boolean} = {}
-    for at, op in ipairs(colOp) do
-        local shift = op == ISHL or op == USHR or op == SSHR
-        local arithmetic = op == IADD or op == ISUB
-        if shift or arithmetic or op == ICMP then
-            local position: integer = 2
-            local value = colArgs[colFirstArg[at] + 1]
-            local definition = colDefinitions[value]
-            if op == IADD and (definition <= 0 or colOp[definition] ~= ICONST) then
-                position, value = 1, colArgs[colFirstArg[at]]
-                definition = colDefinitions[value]
-            end
-            local width = bits(colValueKinds[value])
-            if definition > 0 and colOp[definition] == ICONST and width >= 32 then
-                local literal = colImm[definition]
-                if width == 32 then
-                    literal = literal & 0xffffffff
-                    if arithmetic and literal >= 0x80000000 then
-                        literal = literal - 0x100000000
-                    end
-                end
-                if shift then
-                    literal = literal & (width - 1)
-                end
-                if shift
-                    or (
-                        literal >= (arithmetic and -16773120 or 0)
-                        and literal <= 16773120
-                        and (math.abs(literal) < 4096 or literal % 4096 == 0)
-                    )
-                then
-                    immediates[at], immediateArgs[at] = literal, position
-                    if uses[value] == 1 then
-                        omitted[definition] = true
-                    end
-                end
-            end
-        end
-    end
-    -- Recipes contain producer opcode, encoding fields, then expanded operands.
-    -- Only adjacency (or an omitted literal gap) preserves allocated lifetimes.
-    local recipes: {[integer]: {integer}} = {}
-    for block, start in ipairs(f.blockStart) do
-        for at = start + 1, f.blockEnd[block] do
-            local op, first = colOp[at], colFirstArg[at]
-            local memory = op == LOAD or op == SLOAD or op == STORE
-            local arithmetic = op == IADD or op == ISUB
-            local previous = at - 1
-            if op == BAND and colOp[previous] == ICONST then
-                previous = previous - 1
-            end
-            if previous >= start and (memory or (arithmetic or op == BAND) and not recipes[previous]) then
-                local value, producer = f.result[previous], colOp[previous]
-                local position = (op == STORE or op == ISUB) and 2 or 1
-                if op == IADD and colArgs[first] ~= value then
-                    position = 2
-                end
-                local width = bits(colKind[previous])
-                if value ~= 0 and uses[value] == 1 and colArgs[first + position - 1] == value and width >= 32 then
-                    local left, right = colArgs[colFirstArg[previous]], colArgs[colFirstArg[previous] + 1]
-                    local amount = immediates[previous]
-                    local recipe: {integer}? = nil
-                    if memory and producer == IADD and width == 64 then
-                        local kind = op == STORE and colValueKinds[colArgs[first]] or colKind[at]
-                        local bytes = (colAux[at] ~= 0 and colAux[at] or bits(kind)) // 8
-                        local mul = recipes[previous]
-                        local indexed = kind == ir.I64 and bytes == 8 and op ~= SLOAD and colImm[at] == 0
-                        if mul and mul[1] == IMUL and indexed then
-                            local index, scale = mul[4], mul[5]
-                            local definition = colDefinitions[scale]
-                            if definition > 0 and colOp[definition] == ICONST and colImm[definition] == 8 then
-                                recipe = op == STORE and {IMUL, 0, 0, colArgs[first], mul[6], index}
-                                    or {IMUL, 0, 0, mul[6], index}
-                                omitted[definition] = uses[scale] == 1 or omitted[definition] == true
-                            end
-                        elseif amount ~= nil then
-                            local offset = amount + colImm[at]
-                            local base = immediateArgs[previous] == 1 and right or left
-                            if offset >= 0 and offset % bytes == 0 and offset // bytes < 4096 then
-                                recipe = op == STORE and {producer, offset, 0, colArgs[first], base}
-                                    or {producer, offset, 0, base}
-                            end
-                        end
-                    elseif arithmetic and width == bits(colKind[at]) and immediates[at] == nil then
-                        local other = colArgs[first + 2 - position]
-                        if producer == IMUL then
-                            recipe = {producer, 0, 0, left, right, other}
-                        elseif producer == ISHL and amount ~= nil then
-                            recipe = {producer, amount, 0, other, left}
-                        end
-                    elseif op == BAND and producer == USHR and amount ~= nil and width == bits(colKind[at]) then
-                        local maskValue = colArgs[first + 1]
-                        local definition = colDefinitions[maskValue]
-                        if definition > 0
-                            and colOp[definition] == ICONST
-                            and (previous == at - 1 or definition == at - 1 and uses[maskValue] == 1)
-                        then
-                            local mask = colImm[definition] & (width == 64 and -1 or 0xffffffff)
-                            local n, _, last = logical(mask, width)
-                            if mask > 0 and (mask & (mask + 1)) == 0 and n >= 0 and last + amount < width then
-                                recipe = {producer, amount, last + amount, left}
-                                if uses[maskValue] == 1 then
-                                    omitted[definition] = true
-                                end
-                            end
-                        end
-                    end
-                    if recipe then
-                        recipes[at], omitted[previous] = recipe, true
-                    end
-                end
-            end
-        end
-    end
+    local uses, immediates, immediateArgs, omitted, recipes = prepare(f)
+    -- Which saved values each block leaves current (`current`): a block
+    -- starts with what all its predecessors leave (entryState).
+    local predecessors = #track.saved > 0 and predecessorsOf(f) or {}
     for order, block in ipairs(a.blockOrder) do
         local nextBlock = a.blockOrder[order + 1] or 0
         local fusedCondition: integer = -1
         code.blockWord[block] = #code.words + 1
+        if #track.saved > 0 then
+            track.current = entryState(predecessors[block], track.exits)
+            for p = f.firstParam[block], f.firstParam[block] + f.nparams[block] - 1 do
+                if a.used[f.params[p]] ~= false then
+                    hold(f.params[p], true)
+                end
+            end
+        end
         for at = f.blockStart[block], f.blockEnd[block] do
             local before = #code.words
-            local op, result, kind = colOp[at], f.result[at], colKind[at]
+            local op, result, kind = colOp[at], f.result[at], f.kind[at]
             local recipe = recipes[at]
             local args = recipe or colArgs
             local firstArg, nargs = recipe and 4 or colFirstArg[at], recipe and #recipe - 3 or f.nargs[at]
@@ -1079,7 +1274,11 @@ function selector.run(f: ir.Function, a: allocate.Allocation): selector.Code
             end
             local rd: integer = 0
             local _ = switch op do
-                case JUMP -> edge(f.firstEdge[at], nextBlock)
+                case JUMP -> do
+                    holdEdge(f.firstEdge[at])
+                    edge(f.firstEdge[at], nextBlock)
+                    yield true
+                end
                 case BRIF -> do
                     local condition = fusedCondition
                     if condition < 0 then
@@ -1091,15 +1290,28 @@ function selector.run(f: ir.Function, a: allocate.Allocation): selector.Code
                     -- Only loads restore borrowed scratch after CMP; flags survive.
                     -- The final edge can fall through, after its own parallel moves.
                     local first, last = f.firstEdge[at], f.firstEdge[at] + 1
+                    holdEdge(first)
+                    holdEdge(last)
                     local skip = condition ~ 1
                     if f.edgeTarget[first] == nextBlock and f.edgeTarget[last] ~= nextBlock then
                         first, last, skip = last, first, condition
                     end
-                    local branch = #code.words + 1
-                    emit(arm.b_cond(skip, 0))
-                    edge(first, 0)
-                    code.words[branch] = arm.b_cond(skip, (#code.words + 1 - branch) * 4)
-                    edge(last, nextBlock)
+                    -- An edge that moves nothing is a conditional branch.
+                    if a.nmoves[last] == 0 and a.nmoves[first] ~= 0 and f.edgeTarget[last] ~= nextBlock then
+                        first, last, skip = last, first, skip ~ 1
+                    end
+                    if a.nmoves[first] == 0 then
+                        localWord[#localWord + 1] = #code.words + 1
+                        localBlock[#localBlock + 1] = f.edgeTarget[first] | (((skip ~ 1) + 1) << 32)
+                        emit(arm.b_cond(skip ~ 1, 0))
+                        edge(last, nextBlock)
+                    else
+                        local branch = #code.words + 1
+                        emit(arm.b_cond(skip, 0))
+                        edge(first, 0)
+                        code.words[branch] = arm.b_cond(skip, (#code.words + 1 - branch) * 4)
+                        edge(last, nextBlock)
+                    end
                     fusedCondition = -1
                     yield true
                 end
@@ -1118,8 +1330,13 @@ function selector.run(f: ir.Function, a: allocate.Allocation): selector.Code
                             and 65
                             or p, colValueKinds[value]
                     end
+                    for p = 1, nargs do
+                        hold(args[firstArg + p - 1], false)
+                    end
                     transport(nargs)
-                    emit(arm.ldr(8, 30, 23, 0))
+                    if track.calls then
+                        emit(arm.ldr(8, 30, 23, 0))
+                    end
                     emit(arm.ret(30))
                     yield true
                 end
@@ -1165,18 +1382,31 @@ function selector.run(f: ir.Function, a: allocate.Allocation): selector.Code
                     end
                     local parallel = true
                     local count: integer = 0
+                    -- A literal or frame address that is not in a register
+                    -- is made in its argument register once the moves are done.
+                    local late: {integer} = {}
                     for p = 1, nargs do
                         local value = args[firstArg + p - 1]
                         assert(not tail or not stackValues[value], "S0 select: tail call retains stack address")
                         local physical = p <= shift and 17 or registers[p - shift]
                         if physical ~= 0 then
-                            parallel = parallel and allocationLocation[value] ~= 0 and a.rematerialize[value] == 0
-                            count = count + 1
-                            transportSources[
-                                count
-                            ], transportDestinations[
-                                count
-                            ], transportKinds[count] = allocationLocation[value], physical, colValueKinds[value]
+                            local location, remat = allocationLocation[value], a.rematerialize[value]
+                            parallel = parallel and location ~= 0
+                            hold(value, false)
+                            if location < 0
+                                and remat ~= 0
+                                and (colOp[remat] == ICONST or colOp[remat] == STACK_ADDR)
+                            then
+                                late[#late + 1] = p
+                            else
+                                parallel = parallel and (location > 0 or remat == 0)
+                                count = count + 1
+                                transportSources[
+                                    count
+                                ], transportDestinations[
+                                    count
+                                ], transportKinds[count] = location, physical, colValueKinds[value]
+                            end
                         end
                     end
                     if parallel then
@@ -1185,6 +1415,15 @@ function selector.run(f: ir.Function, a: allocate.Allocation): selector.Code
                         moveTarget.scratchInt = 18
                         transport(count)
                         moveTarget.scratchInt = 17
+                        for _, p in ipairs(late) do
+                            local remat = a.rematerialize[args[firstArg + p - 1]]
+                            local reg = target.register(p <= shift and 17 or registers[p - shift])
+                            if colOp[remat] == ICONST then
+                                constant(reg, colImm[remat], machine(colValueKinds[args[firstArg + p - 1]]))
+                            else
+                                addOffset(reg, 23, code.stackOffsets[colAux[remat]] + colImm[remat])
+                            end
+                        end
                     else
                         local staged: integer = 0
                         for p = 1, nargs do
@@ -1202,7 +1441,7 @@ function selector.run(f: ir.Function, a: allocate.Allocation): selector.Code
                             restore(stagedRegisters[p], stageBase + (p - 1) * 8)
                         end
                     end
-                    if tail then
+                    if tail and track.calls then
                         emit(arm.ldr(8, 30, 23, 0))
                     end
                     if signature.convention == ir.INTERNAL then
@@ -1275,6 +1514,14 @@ function selector.run(f: ir.Function, a: allocate.Allocation): selector.Code
                         emit(tail and arm.br(16) or arm.blr(16))
                     end
                     popStack(stackBytes)
+                    -- What the call may clobber is stale.
+                    for _, value in ipairs(tail and {} or track.saved) do
+                        if signature.convention == ir.INTERNAL
+                            or not moveTarget.preservedC[allocationLocation[value]]
+                        then
+                            track.current[value] = nil
+                        end
+                    end
                     if not tail and second ~= 0 then
                         assert(
                             result ~= 0 and not ir.isFloat(kind) and not ir.isFloat(f.kind2[at]),
@@ -1290,8 +1537,13 @@ function selector.run(f: ir.Function, a: allocate.Allocation): selector.Code
                         end
                     elseif not tail and result ~= 0 then
                         rd = destination(result)
-                        emit(ir.isFloat(kind) and arm.fmov(bits(kind), rd, 0) or arm.mov_reg(machine(kind), rd, 0))
-                        finish(result, rd)
+                        -- Nupp code answers a narrow result extended, as finish leaves
+                        -- it.
+                        local internal = signature.convention == ir.INTERNAL
+                        if rd ~= 0 or not internal then
+                            emit(ir.isFloat(kind) and arm.fmov(bits(kind), rd, 0) or arm.mov_reg(machine(kind), rd, 0))
+                        end
+                        finish(result, rd, internal)
                     end
                     yield true
                 end
@@ -1304,6 +1556,8 @@ function selector.run(f: ir.Function, a: allocate.Allocation): selector.Code
                         rd = destination(result)
                     end
                     local width = machine(kind)
+                    -- Whether the result is already zero-extended from its width.
+                    local extended = false
                     local x, y, z = nargs >= 1 and regs[1]
                         or 0, nargs >= 2 and regs[2]
                         or 0, nargs >= 3 and regs[3]
@@ -1311,7 +1565,12 @@ function selector.run(f: ir.Function, a: allocate.Allocation): selector.Code
                     local _ = switch op do
                         case ICONST -> do
                             if not omitted[at] then
-                                constant(rd, colImm[at], width)
+                                constant(
+                                    rd,
+                                    colImm[at] & ((1 << bits(kind)) - 1 | (bits(kind) == 64 and -1 or 0)),
+                                    width
+                                )
+                                extended = true
                             end
                             yield true
                         end
@@ -1342,7 +1601,15 @@ function selector.run(f: ir.Function, a: allocate.Allocation): selector.Code
                             end
                             yield true
                         end
-                        case IMUL -> emit(arm.madd(width, rd, x, y, 31))
+                        case IMUL -> do
+                            if immediate ~= nil then
+                                local base = immediateArg == 1 and y or x
+                                emit(arm.ubfm(width, rd, base, -immediate & (width - 1), width - 1 - immediate))
+                            else
+                                emit(arm.madd(width, rd, x, y, 31))
+                            end
+                            yield true
+                        end
                         case UMULHI, SMULHI -> do
                             assert(width == 64, "S0 select: narrow multiply-high unsupported")
                             emit(op == UMULHI and arm.umulh(rd, x, y) or arm.smulh(rd, x, y))
@@ -1353,18 +1620,18 @@ function selector.run(f: ir.Function, a: allocate.Allocation): selector.Code
                                 emit(arm.ubfm(width, rd, x, recipe[2], recipe[3]))
                                 yield true
                             end
-                            local definition = colDefinitions[colArgs[firstArg + 1]]
                             local n: integer = -1
                             local r: integer = 0
                             local s: integer = 0
-                            if definition > 0 and colOp[definition] == ICONST then
-                                n, r, s = logical(colImm[definition], width)
+                            local operand = immediateArg == 1 and y or x
+                            if immediate ~= nil then
+                                n, r, s = logical(immediate, width)
                             end
                             if n >= 0 then
                                 emit(
-                                    op == BAND and arm.and_imm(width, rd, x, n, r, s)
-                                    or op == BOR and arm.orr_imm(width, rd, x, n, r, s)
-                                    or arm.eor_imm(width, rd, x, n, r, s)
+                                    op == BAND and arm.and_imm(width, rd, operand, n, r, s)
+                                    or op == BOR and arm.orr_imm(width, rd, operand, n, r, s)
+                                    or arm.eor_imm(width, rd, operand, n, r, s)
                                 )
                             else
                                 emit(
@@ -1479,6 +1746,7 @@ function selector.run(f: ir.Function, a: allocate.Allocation): selector.Code
                                 fusedCondition = cc
                             else
                                 emit(arm.cset(32, rd, cc))
+                                extended = true
                             end
                             yield true
                         end
@@ -1486,6 +1754,7 @@ function selector.run(f: ir.Function, a: allocate.Allocation): selector.Code
                             local condition = colAux[at]
                             emit(arm.fcmp(bits(colValueKinds[colArgs[firstArg]]), x, y))
                             local cc = floatConditions[condition]
+                            extended = true
                             if cc ~= nil then
                                 emit(arm.cset(32, rd, cc))
                             elseif condition == UNORDERED_EQ then
@@ -1516,6 +1785,7 @@ function selector.run(f: ir.Function, a: allocate.Allocation): selector.Code
                                 op == SEXTEND and arm.sbfm(width, rd, x, 0, retained - 1)
                                 or arm.ubfm(width, rd, x, 0, retained - 1)
                             )
+                            extended = op ~= SEXTEND
                             yield true
                         end
                         case BITCAST -> do
@@ -1586,19 +1856,22 @@ function selector.run(f: ir.Function, a: allocate.Allocation): selector.Code
                                 emit(arm.ldr(bytes, value, address, offset))
                                 if op == SLOAD then
                                     emit(arm.sbfm(machine(valueKind), value, value, 0, bytes * 8 - 1))
+                                else
+                                    extended = bytes * 8 <= bits(valueKind)
                                 end
                             end
                             yield true
                         end
                         else -> error("S0 select: unsupported operation " .. tostring(ir.opNames[op]))
                     end
-                    finish((fused or omitted[at]) and 0 or result, rd)
+                    finish((fused or omitted[at]) and 0 or result, rd, extended)
                     yield true
                 end
             end
             code.opCounts[colOp[at]] = code.opCounts[colOp[at]] + 1
             code.opWords[colOp[at]] = code.opWords[colOp[at]] + #code.words - before
         end
+        track.exits[block] = track.current
     end
     local redirects: {[integer]: integer} = {}
     for order = #a.blockOrder, 1, -1 do
@@ -1611,8 +1884,9 @@ function selector.run(f: ir.Function, a: allocate.Allocation): selector.Code
         end
     end
     for p, word in ipairs(localWord) do
-        local block = localBlock[p]
-        code.words[word] = arm.b((code.blockWord[redirects[block] or block] - word) * 4)
+        local block, condition = localBlock[p] & 0xffffffff, (localBlock[p] >> 32) - 1
+        local offset = (code.blockWord[redirects[block] or block] - word) * 4
+        code.words[word] = condition < 0 and arm.b(offset) or arm.b_cond(condition, offset)
     end
 
     return code

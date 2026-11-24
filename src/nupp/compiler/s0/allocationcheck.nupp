@@ -57,8 +57,40 @@ local function liveIn(f: ir.Function): {{boolean}}
     return live
 end
 
+-- The block parameters something reads, directly or through an edge into
+-- one that is read; an edge need not assign the others.
+local function readParameters(f: ir.Function): {boolean}
+    local read: {boolean} = {}
+    for i = 1, #f.op do
+        for p = f.firstArg[i], f.firstArg[i] + f.nargs[i] - 1 do
+            read[f.args[p]] = true
+        end
+    end
+    local changed = true
+    while changed do
+        changed = false
+        for e = 1, #f.edgeTarget do
+            for p = 0, f.edgeNargs[e] - 1 do
+                local value = f.edgeArgs[f.edgeFirstArg[e] + p]
+                if read[f.params[f.firstParam[f.edgeTarget[e]] + p]] and not read[value] then
+                    read[value], changed = true, true
+                end
+            end
+        end
+    end
+
+    return read
+end
+
 function check.run(f: ir.Function, target: allocate.Target, a: allocate.Allocation): boolean
     local live = liveIn(f)
+    local read = readParameters(f)
+    for v, slot in ipairs(a.saveSlot) do
+        assert(
+            slot == 0 or a.location[v] > 0 and slot <= a.spillSlots and target.saveAcrossCalls == true,
+            "S0 checker: invalid save slot"
+        )
+    end
     local valid: {boolean} = {}
     for _, r in ipairs(target.integerRegisters) do
         valid[r] = true
@@ -104,8 +136,10 @@ function check.run(f: ir.Function, target: allocate.Target, a: allocate.Allocati
                 use(f.args[p])
             end
             for e = f.firstEdge[i], f.firstEdge[i] + f.nedges[i] - 1 do
-                for p = f.edgeFirstArg[e], f.edgeFirstArg[e] + f.edgeNargs[e] - 1 do
-                    use(f.edgeArgs[p])
+                for p = 0, f.edgeNargs[e] - 1 do
+                    if read[f.params[f.firstParam[f.edgeTarget[e]] + p]] then
+                        use(f.edgeArgs[f.edgeFirstArg[e] + p])
+                    end
                 end
                 local after: {integer} = {}
                 for at, value in pairs(state) do
@@ -127,15 +161,19 @@ function check.run(f: ir.Function, target: allocate.Target, a: allocate.Allocati
                 for p = 0, f.edgeNargs[e] - 1 do
                     local value = f.edgeArgs[f.edgeFirstArg[e] + p]
                     local parameter = f.params[f.firstParam[destination] + p]
-                    assert(after[slot(a.location[parameter])] == value, "S0 checker: parallel edge assignment")
+                    assert(
+                        not read[parameter] or after[slot(a.location[parameter])] == value,
+                        "S0 checker: parallel edge assignment"
+                    )
                 end
             end
             if f.op[i] == ir.opcode("call") or f.op[i] == ir.opcode("call_indirect") then
                 local signature = f.op[i] == ir.opcode("call") and f.importSignatures[f.aux[i]] or f.aux[i]
                 local preserved = f.signatures[signature].convention == ir.INTERNAL and target.preservedInternal
                     or target.preservedC
+                -- A value with a save slot is reloaded into its own register.
                 for r = 1, 96 do
-                    if not preserved[r] then
+                    if not preserved[r] and (state[r] == nil or a.saveSlot[state[r] as integer] == 0) then
                         state[r] = nil
                     end
                 end

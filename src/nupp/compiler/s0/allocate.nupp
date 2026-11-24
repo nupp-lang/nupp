@@ -10,6 +10,15 @@ record allocate.Target
     preservedC: {boolean}
     scratchInt: integer
     scratchFloat: integer
+    -- A value live across a call that clobbers its register keeps that
+    -- register and a save slot (Allocation.saveSlot), which the selector
+    -- writes at its definition and reloads after such a call; without this,
+    -- the value is spilled for its whole life.
+    saveAcrossCalls: boolean?
+    -- Where each argument of the convention goes (allocator IDs), to hint
+    -- the values that a call takes, a function receives or a return gives.
+    integerArguments: {integer}?
+    floatArguments: {integer}?
 end
 
 record allocate.Allocation
@@ -31,6 +40,11 @@ record allocate.Allocation
     spillKinds: {integer}
     spillValues: {integer}
     spillSlots: integer
+    -- A register-allocated value's save slot (spill numbering), or 0.
+    saveSlot: {integer}
+    -- Whether a block parameter is read anywhere; an edge does not move a
+    -- value into one that is not.
+    used: {boolean}
     conservativeBlocks: integer
     conservativeValues: integer
 end
@@ -68,7 +82,9 @@ local function newAllocation(f: ir.Function): allocate.Allocation
         spillValues = {},
         conservativeBlocks = 0,
         conservativeValues = 0,
-        spillSlots = 0
+        spillSlots = 0,
+        saveSlot = zeros(#f.valueKinds),
+        used = {}
     )
 end
 
@@ -244,7 +260,9 @@ local function intervals(f: ir.Function, a: allocate.Allocation): nil
                 for p = 0, f.edgeNargs[e] - 1 do
                     local v, parameter = f.edgeArgs[f.edgeFirstArg[e] + p], f.params[f.firstParam[target] + p]
                     assert(f.valueKinds[v] == f.valueKinds[parameter], "S0 allocation: edge type")
-                    add(v, 2 * a.instructionPosition[i])
+                    if a.used[parameter] ~= false then
+                        add(v, 2 * a.instructionPosition[i])
+                    end
                 end
             end
         end
@@ -309,6 +327,72 @@ local function spill(f: ir.Function, a: allocate.Allocation, v: integer): nil
     a.spillValues[a.spillSlots] = v
 end
 
+-- The registers a convention places `kinds` in, in order, for hinting:
+-- 0 for one it does not place in a register.
+local function placed(kinds: {integer}, target: allocate.Target, shift: integer): {integer}
+    local result: {integer} = {}
+    local integers, floats = target.integerArguments or {}, target.floatArguments or {}
+    local ints: integer = 0
+    local fps: integer = 0
+    for p, kind in ipairs(kinds) do
+        if ir.isFloat(kind) then
+            fps = fps + 1
+            result[p + shift] = floats[fps] or 0
+        else
+            ints = ints + 1
+            result[p + shift] = integers[ints] or 0
+        end
+    end
+
+    return result
+end
+
+-- Where the convention would put each value at the definitions and uses a
+-- call, entry or return fixes: a register that, when free, saves a move.
+local function placements(f: ir.Function, target: allocate.Target): {integer}
+    local fixed = zeros(#f.valueKinds)
+    if target.integerArguments == nil then
+        return fixed
+    end
+    local entry = placed(f.signature.params, target, 0)
+    for p = 0, f.nparams[1] - 1 do
+        fixed[f.params[f.firstParam[1] + p]] = entry[p + 1] or 0
+    end
+    local integers, floats = target.integerArguments or {}, target.floatArguments or {}
+    local RETURN = ir.opcode("return")
+    local TAIL, TAIL_INDIRECT = ir.opcode("return_call"), ir.opcode("return_call_indirect")
+    for i, op in ipairs(f.op) do
+        local first = f.firstArg[i]
+        if op == CALL or op == INDIRECT or op == TAIL or op == TAIL_INDIRECT then
+            local indirect = op == INDIRECT or op == TAIL_INDIRECT
+            local signature = f.signatures[indirect and f.aux[i] or f.importSignatures[f.aux[i]]]
+            if signature.convention == ir.INTERNAL then
+                local shift = indirect and 1 or 0
+                local places = placed(signature.params, target, shift)
+                for p = 1 + shift, f.nargs[i] do
+                    local value = f.args[first + p - 1]
+                    if fixed[value] == 0 then
+                        fixed[value] = places[p] or 0
+                    end
+                end
+            end
+            local result = f.result[i]
+            if result ~= 0 and f.result2[i] == 0 then
+                fixed[result] = ir.isFloat(f.valueKinds[result]) and (floats[1] or 0) or (integers[1] or 0)
+            end
+        elseif op == RETURN then
+            for p = 1, f.nargs[i] do
+                local value = f.args[first + p - 1]
+                if fixed[value] == 0 then
+                    fixed[value] = ir.isFloat(f.valueKinds[value]) and (floats[1] or 0) or (integers[p] or 0)
+                end
+            end
+        end
+    end
+
+    return fixed
+end
+
 local function registers(f: ir.Function, a: allocate.Allocation, target: allocate.Target): nil
     local valid, values = zeros(96), {}
     for class = 1, 2 do
@@ -329,6 +413,7 @@ local function registers(f: ir.Function, a: allocate.Allocation, target: allocat
         target.scratchInt >= 1 and target.scratchInt <= 31 and target.scratchFloat >= 65 and target.scratchFloat <= 96,
         "S0 allocation: scratch class"
     )
+    local saving = target.saveAcrossCalls == true
     local hint = zeros(#f.valueKinds)
     for e = 1, #f.edgeTarget do
         local b = f.edgeTarget[e]
@@ -344,6 +429,7 @@ local function registers(f: ir.Function, a: allocate.Allocation, target: allocat
             hint[f.result[i]] = f.args[f.firstArg[i]]
         end
     end
+    local fixed = placements(f, target)
     for v = 1, #f.valueKinds do
         if f.valueKinds[v] ~= 0 then
             values[#values + 1] = v
@@ -357,18 +443,32 @@ local function registers(f: ir.Function, a: allocate.Allocation, target: allocat
         local list = ir.isFloat(f.valueKinds[v]) and target.floatRegisters or target.integerRegisters
         local selected: integer = 0
         local victim: integer = 0
-        local preferred = hint[v] ~= 0 and a.location[hint[v]] or 0
+        local copied = hint[v] ~= 0 and a.location[hint[v]] or 0
+        local placedAt = fixed[v]
+        -- Saving, a value that only C calls cross keeps a register they
+        -- preserve when one is free, and needs no save then.
+        local keep = saving and a.acrossC[v] and not a.acrossInternal[v]
+        local rank: integer = 0
         for _, reg in ipairs(list) do
             local old = occupied[reg]
             if old ~= 0 and a.finish[old] < a.start[v] then
                 occupied[reg], old = 0, 0
             end
-            if (not a.acrossInternal[v] or target.preservedInternal[reg])
+            if saving
+                or (not a.acrossInternal[v] or target.preservedInternal[reg])
                 and (not a.acrossC[v] or target.preservedC[reg])
             then
                 if old == 0 then
-                    if selected == 0 or reg == preferred then
-                        selected = reg
+                    local score: integer = 1
+                    if keep and target.preservedC[reg] then
+                        score = 4
+                    elseif reg == placedAt then
+                        score = 3
+                    elseif reg == copied then
+                        score = 2
+                    end
+                    if score > rank then
+                        selected, rank = reg, score
                     end
                 elseif victim == 0 or a.finish[old] > a.finish[victim] then
                     victim = old
@@ -383,6 +483,21 @@ local function registers(f: ir.Function, a: allocate.Allocation, target: allocat
             spill(f, a, v)
         else
             a.location[v], occupied[selected] = selected, v
+        end
+    end
+    if saving then
+        for _, v in ipairs(values) do
+            local location = a.location[v]
+            if location > 0
+                and (
+                    a.acrossInternal[v] and not target.preservedInternal[location]
+                    or a.acrossC[v] and not target.preservedC[location]
+                )
+            then
+                a.spillSlots = a.spillSlots + 1
+                a.spillKinds[a.spillSlots], a.spillValues[a.spillSlots] = f.valueKinds[v], v
+                a.saveSlot[v] = a.spillSlots
+            end
         end
     end
 end
@@ -501,8 +616,141 @@ function allocate.parallel(
     end
 end
 
+-- Whether each block parameter is read: by an instruction, or by an edge
+-- into a parameter that is. False marks one nothing reads.
+local function usedParameters(f: ir.Function): {boolean}
+    local used: {boolean} = {}
+    for i = 1, #f.op do
+        for p = f.firstArg[i], f.firstArg[i] + f.nargs[i] - 1 do
+            used[f.args[p]] = true
+        end
+    end
+    local changed = true
+    while changed do
+        changed = false
+        for e = 1, #f.edgeTarget do
+            local first = f.firstParam[f.edgeTarget[e]]
+            for p = 0, f.edgeNargs[e] - 1 do
+                local value = f.edgeArgs[f.edgeFirstArg[e] + p]
+                if used[f.params[first + p]] and not used[value] then
+                    used[value], changed = true, true
+                end
+            end
+        end
+    end
+    local result: {boolean} = {}
+    for _, parameter in ipairs(f.params) do
+        result[parameter] = used[parameter] == true
+    end
+
+    return result
+end
+
+local IADD, ISUB, IMUL = ir.opcode("iadd"), ir.opcode("isub"), ir.opcode("imul")
+local BAND, BOR, BXOR = ir.opcode("band"), ir.opcode("bor"), ir.opcode("bxor")
+local ISHL, USHR, SSHR = ir.opcode("ishl"), ir.opcode("ushr"), ir.opcode("sshr")
+
+-- Forwards the operand of an operation that leaves it unchanged (adding
+-- zero, multiplying by one, masking with all ones) to every use of its
+-- result, and leaves the operation with no operands for the selector to drop.
+function allocate.simplify(f: ir.Function): nil
+    local alias: {[integer]: integer} = {}
+
+    local function resolved(value: integer): integer
+        local seen: integer = 0
+        while alias[value] ~= nil do
+            value, seen = alias[value] as integer, seen + 1
+            assert(seen <= #f.valueKinds, "S0 allocation: alias cycle")
+        end
+
+        return value
+    end
+
+    local function literal(value: integer, width: integer): integer?
+        local definition = f.definitions[value]
+        if definition > 0 and f.op[definition] == ICONST then
+            return f.imm[definition] & (width == 64 and -1 or 0xffffffff)
+        end
+
+        return nil
+    end
+
+    for at, op in ipairs(f.op) do
+        local result = f.result[at]
+        local kind = f.kind[at]
+        if result ~= 0
+            and f.nargs[at] == 2
+            and f.result2[at] == 0
+            and (kind == ir.I32 or kind == ir.I64)
+            and f.valueKinds[result] == kind
+        then
+            local first = f.firstArg[at]
+            local x, y = resolved(f.args[first]), resolved(f.args[first + 1])
+            local width = kind == ir.I64 and 64 or 32
+            local ones = width == 64 and -1 or 0xffffffff
+            local lx, ly = literal(x, width), literal(y, width)
+            local kept: integer = 0
+            if op == IADD or op == BOR or op == BXOR then
+                kept = ly == 0 and x or lx == 0 and y or 0
+            elseif op == ISUB then
+                kept = ly == 0 and x or 0
+            elseif op == ISHL or op == USHR or op == SSHR then
+                kept = ly ~= nil and ((ly as integer) & (width - 1)) == 0 and x or 0
+            elseif op == BAND then
+                kept = ly == ones and x or lx == ones and y or 0
+            elseif op == IMUL then
+                kept = ly == 1 and x or lx == 1 and y or 0
+            end
+            if kept ~= 0 and f.valueKinds[kept] == kind then
+                alias[result] = kept
+                f.nargs[at] = 0
+            end
+        end
+    end
+    -- A block parameter every edge sets to one other value (or to itself)
+    -- is that value, which then dominates the block: SSA construction passes
+    -- each live value through every block this way.
+    local changed = true
+    while changed do
+        changed = false
+        local same: {[integer]: integer} = {}
+        for e, block in ipairs(f.edgeTarget) do
+            if block ~= 1 then
+                for p = 0, f.edgeNargs[e] - 1 do
+                    local parameter = f.params[f.firstParam[block] + p]
+                    local value = resolved(f.edgeArgs[f.edgeFirstArg[e] + p])
+                    local seen = same[parameter]
+                    if alias[parameter] == nil and value ~= parameter and seen ~= -1 then
+                        same[parameter] = (seen == nil or seen == value) and value or -1
+                    end
+                end
+            end
+        end
+        for parameter, value in pairs(same) do
+            if value > 0 then
+                alias[parameter], changed = value, true
+            end
+        end
+    end
+    if next(alias) == nil then
+        return
+    end
+    for p, value in ipairs(f.args) do
+        f.args[p] = resolved(value)
+    end
+    for p, value in ipairs(f.edgeArgs) do
+        f.edgeArgs[p] = resolved(value)
+    end
+end
+
 function allocate.run(f: ir.Function, target: allocate.Target): allocate.Allocation
+    if target.saveAcrossCalls == true then
+        allocate.simplify(f)
+    end
     local a = newAllocation(f)
+    if target.saveAcrossCalls == true then
+        a.used = usedParameters(f)
+    end
     intervals(f, a)
     registers(f, a, target)
     local source: {integer} = {}
@@ -514,11 +762,18 @@ function allocate.run(f: ir.Function, target: allocate.Target): allocate.Allocat
         for p = #source, f.edgeNargs[e] + 1, -1 do
             source[p], destination[p], kinds[p] = nil, nil, nil
         end
+        local count: integer = 0
         for p = 0, f.edgeNargs[e] - 1 do
             local v, parameter = f.edgeArgs[f.edgeFirstArg[e] + p], f.params[f.firstParam[b] + p]
-            source[
-                p + 1
-            ], destination[p + 1], kinds[p + 1] = a.location[v], a.location[parameter], f.valueKinds[parameter]
+            if a.used[parameter] ~= false then
+                count = count + 1
+                source[
+                    count
+                ], destination[count], kinds[count] = a.location[v], a.location[parameter], f.valueKinds[parameter]
+            end
+        end
+        for p = #source, count + 1, -1 do
+            source[p], destination[p], kinds[p] = nil, nil, nil
         end
         a.firstMove[e] = #a.moveSource + 1
         allocate.parallel(source, destination, kinds, target, a, workspace)
