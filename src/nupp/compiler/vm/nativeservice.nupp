@@ -1132,22 +1132,28 @@ end
 
 export function entryBindings(ctx: any, node: any?): nil
     local item = graphs[ctx.g]
-    if item and item.scoped and item.handler then
-        -- The handler's context (its fifth parameter) holds the entry's scope.
-        local constants = unit.ownerModule(item.owner, "nupp.runtime.core.context").exportedConstants
-        local at = need(tonumber(constants.SERVICE_SCOPE), "context lacks SERVICE_SCOPE")
-        local site = node or item.owner.node
-        local offset = ctx.emit(site, "NativeConstant", {tostring(at)}, "int64")
-        local access = {source = "live", kind = "voidptr", width = 8, signed = false, write = false}
-        ctx.bind(item.key, ctx.emit(site, "NativeLoad", {5, offset, access}, "voidptr"))
-    elseif item and item.scoped then
+    if item and item.scoped and not item.handler then
         ctx.bind(item.key, item.scopeParameter)
     end
 end
 
+-- A handler reads the entry's scope from its context (its fifth parameter)
+-- where it makes a scoped call, not on entry: only the entry shim writes
+-- that slot, and a handler's fast path makes no such call. Across a call it
+-- costs what a saved copy would, a load.
 export function scope(ctx: any): integer
     local item = need(graphs[ctx.g], "service graph required")
     need(item.scoped, "service has no scope operand")
+    if item.handler then
+        local constants = unit.ownerModule(item.owner, "nupp.runtime.core.context").exportedConstants
+        local at = need(tonumber(constants.SERVICE_SCOPE), "context lacks SERVICE_SCOPE")
+        local site = item.owner.node
+        local offset = ctx.emit(site, "NativeConstant", {tostring(at)}, "int64")
+        local access = {source = "live", kind = "voidptr", width = 8, signed = false, write = false}
+
+        return ctx.emit(site, "NativeLoad", {5, offset, access}, "voidptr")
+    end
+
     return ctx.storage(item.key)
 end
 
