@@ -282,6 +282,11 @@ function inspect.isAddShifted(word)
     return word & 0xffe00000 == 0x8b000000 and (word >> 10) & 63 ~= 0
 end
 
+-- ccmp, by a register or an immediate.
+function inspect.isConditionalCompare(word)
+    return word & 0x7fe00400 == 0x7a400000
+end
+
 -- bl: a call.
 function inspect.isBranchLink(word)
     return word & 0xfc000000 == 0x94000000

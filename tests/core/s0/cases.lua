@@ -343,6 +343,7 @@ block4():
             runs = {{args = {1, 2}, result = 3}, {args = {11, 2}, result = 7}, {args = {1, 12}, result = 7}},
             check = function(codes)
                 assert(inspect.count(codes, "checks", inspect.isBranchLink) == 1, "the failing block is selected twice")
+                assert(inspect.count(codes, "checks", inspect.isConditionalCompare) == 1, "the second check is not chained")
             end
         },
         {

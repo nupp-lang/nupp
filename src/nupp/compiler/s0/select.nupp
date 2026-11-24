@@ -13,6 +13,9 @@ const BORROW_LOAD: 23 = ir.OP_LOAD as 23
 const BORROW_SLOAD: 24 = ir.OP_SLOAD as 24
 const BORROW_STACK_ADDR: 46 = ir.OP_STACK_ADDR as 46
 local integerConditions = {0, 1, 11, 13, 12, 10, 3, 9, 8, 2}
+-- Flags (NZCV) under which each condition code (EQ 0 through LE 13) holds:
+-- what a conditional compare sets when it does not compare.
+local holdingFlags = {[0] = 4, 0, 2, 0, 8, 0, 1, 0, 2, 0, 0, 8, 0, 4}
 local floatConditions: {
     [integer]: integer
 } = {[1] = 0, [2] = 1, [11] = 7, [12] = 6, [13] = 4, [14] = 9, [15] = 12, [16] = 10, [19] = 6}
@@ -658,6 +661,25 @@ function helpers.paired(words: {integer}, first: integer, rt: integer, rn: integ
     return false
 end
 
+-- How many edges an instruction in a reached block names into each block.
+function helpers.namedPredecessors(f: ir.Function, reached: {[integer]: boolean}): {integer}
+    local counts: {integer} = {}
+    for b = 1, #f.blockStart do
+        counts[b] = 0
+    end
+    for b, start in ipairs(f.blockStart) do
+        if reached[b] then
+            for i = start, f.blockEnd[b] do
+                for e = f.firstEdge[i], f.firstEdge[i] + f.nedges[i] - 1 do
+                    counts[f.edgeTarget[e]] = counts[f.edgeTarget[e]] + 1
+                end
+            end
+        end
+    end
+
+    return counts
+end
+
 -- Each block's predecessor blocks.
 function helpers.predecessorsOf(f: ir.Function): {{integer}}
     local predecessors: {{integer}} = {}
@@ -874,7 +896,12 @@ function selector.run(f: ir.Function, a: allocate.Allocation): selector.Code
         uses = {} as {integer},
         -- The blocks selected, in order, and which those are (emittedBlocks).
         emitted = {} as {integer},
-        reached = {} as {[integer]: boolean}
+        reached = {} as {[integer]: boolean},
+        -- How many named edges enter each block (namedPredecessors).
+        named = {} as {integer},
+        -- The word a conditional compare was selected at, until its block's
+        -- branch: nothing may come between them.
+        chained = 0
     }
     for _, op in ipairs(f.op) do
         track.lazy = track.lazy or op == RETURN_CALL or op == RETURN_CALL_INDIRECT
@@ -1643,6 +1670,7 @@ function selector.run(f: ir.Function, a: allocate.Allocation): selector.Code
     track.emitted, track.reached = helpers.emittedBlocks(f, a)
     local uses, immediates, immediateArgs, omitted, recipes = prepare(f, a.used, a.location, track.reached)
     track.uses = uses
+    track.named = helpers.namedPredecessors(f, track.reached)
     -- Which saved values each block leaves current (`current`): a block
     -- starts with what all its predecessors leave (entryState).
     track.predecessors = #track.saved > 0 and helpers.predecessorsOf(f) or {}
@@ -1715,6 +1743,13 @@ function selector.run(f: ir.Function, a: allocate.Allocation): selector.Code
                     helpers.holdLive(a, track.lazy, hold, block)
                     helpers.holdEdge(f, a, hold, first)
                     helpers.holdEdge(f, a, hold, last)
+                    -- A chained compare's flags reach its branch directly:
+                    -- a reload between would run on the chained path too.
+                    assert(
+                        track.chained == 0 or track.chained == #code.words,
+                        "S0 select: a reload between a conditional compare and its branch"
+                    )
+                    track.chained = 0
                     local skip = condition ~ 1
                     if f.edgeTarget[first] == nextBlock and f.edgeTarget[last] ~= nextBlock then
                         first, last, skip = last, first, condition
@@ -1943,7 +1978,53 @@ function selector.run(f: ir.Function, a: allocate.Allocation): selector.Code
                                 emit(arm.sbfm(32, ty, y, 0, bits(operandKind) - 1));
                                 x, y = tx, ty
                             end
-                            if immediate ~= nil then
+                            local cc = assert(integerConditions[condition], "S0 select: integer comparison")
+                            -- A block whose first act is this test, entered
+                            -- only by falling through from a branch to where
+                            -- this test may branch too, chains it: that branch
+                            -- goes, and this compares only when it would not
+                            -- have been taken, else sets flags that go there.
+                            -- Blocks that selected nothing between (a jump
+                            -- that falls through) are passed through, each
+                            -- entered by that fall alone.
+                            local pending = #localBlock > 0 and localBlock[#localBlock] or 0
+                            local toTaken: integer = 0
+                            local alone = true
+                            local back = order
+                            while back >= 1 and code.blockWord[track.emitted[back]] == #code.words + 1 do
+                                alone = alone and track.named[track.emitted[back]] == 1
+                                back = back - 1
+                            end
+                            if fused
+                                and alone
+                                and code.blockWord[block] == #code.words + 1
+                                and localWord[#localWord] == #code.words
+                                and (pending >> 32) > 0
+                                and (immediate == nil or immediate >= 0 and immediate < 32)
+                            then
+                                local edges = f.firstEdge[at + 1]
+                                local into = pending & 0xffffffff
+                                if f.edgeTarget[edges] == into and f.edgeTarget[edges + 1] ~= into then
+                                    toTaken = edges
+                                elseif f.edgeTarget[edges + 1] == into and f.edgeTarget[edges] ~= into then
+                                    toTaken = edges + 1
+                                end
+                                if toTaken ~= 0 and a.nmoves[toTaken] ~= 0 then
+                                    toTaken = 0
+                                end
+                            end
+                            if toTaken ~= 0 then
+                                local unless = ((pending >> 32) - 1) ~ 1
+                                local flags = holdingFlags[toTaken == f.firstEdge[at + 1] and cc or cc ~ 1]
+                                code.words[#code.words] = nil
+                                localWord[#localWord], localBlock[#localBlock] = nil, nil
+                                code.blockWord[block] = #code.words + 1
+                                emit(
+                                    immediate ~= nil and arm.ccmp_imm(w, x, immediate, flags, unless)
+                                    or arm.ccmp_reg(w, x, y, flags, unless)
+                                )
+                                track.chained = #code.words
+                            elseif immediate ~= nil then
                                 emit(
                                     arm.cmp_imm(
                                         w,
@@ -1955,7 +2036,6 @@ function selector.run(f: ir.Function, a: allocate.Allocation): selector.Code
                             else
                                 emit(arm.cmp_reg(w, x, y))
                             end
-                            local cc = assert(integerConditions[condition], "S0 select: integer comparison")
                             if fused then
                                 fusedCondition = cc
                             else

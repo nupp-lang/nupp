@@ -203,6 +203,15 @@ function arm64.ccmp_reg(bits: integer, rn: integer, rm: integer, nzcv: integer, 
         | unsigned(nzcv, 16)
 end
 
+function arm64.ccmp_imm(bits: integer, rn: integer, imm: integer, nzcv: integer, condition: integer): integer
+    return width(bits)
+        | 0x7a400800
+        | (unsigned(imm, 32) << 16)
+        | (unsigned(condition, 16) << 12)
+        | (reg(rn) << 5)
+        | unsigned(nzcv, 16)
+end
+
 function arm64.b(offset: integer): integer
     return 0x14000000 | signed(offset, 26, 4)
 end
