@@ -13,6 +13,6 @@ return {
     {name = "GetCell", budget = {34, 15}},
     {name = "Eq", budget = {54, 28}},
     {name = "GetIdx", budget = {87, 36}},
-    {name = "CallK", budget = {107, 56}},
-    {name = "Ret", budget = {58, 31}}
+    {name = "CallK", budget = {105, 55}},
+    {name = "Ret", budget = {56, 30}}
 }

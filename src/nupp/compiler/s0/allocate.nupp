@@ -1611,6 +1611,8 @@ local OP_IREDUCE, OP_LAST_CONVERSION = ir.opcode("ireduce"), ir.opcode("fcvt_to_
 local OP_IADD = ir.opcode("iadd")
 local OP_ICONST = ir.opcode("iconst")
 local OP_CALL, OP_CALL_INDIRECT = ir.opcode("call"), ir.opcode("call_indirect")
+local OP_LOAD_COMMON, OP_SLOAD_COMMON = ir.opcode("load"), ir.opcode("sload")
+local OP_STORE_COMMON = ir.opcode("store")
 
 -- Computes each pure operation once along a run of blocks each entered from
 -- the one before alone (so what the first computed dominates the rest): a
@@ -1658,6 +1660,8 @@ local function common(f: ir.Function): nil
     local visited: {boolean} = {}
     local blocks: {integer} = {1}
     local tables: {{[string]: integer}} = {{}}
+    -- Which keys name loads.
+    local loaded: {[string]: boolean} = {}
     while #blocks > 0 do
         local b, inherited = blocks[#blocks], tables[#tables]
         blocks[#blocks], tables[#tables] = nil, nil
@@ -1671,8 +1675,20 @@ local function common(f: ir.Function): nil
                 local op = f.op[i]
                 if op == OP_CALL or op == OP_CALL_INDIRECT then
                     available = {}
+                elseif op == OP_STORE_COMMON then
+                    -- Any store may change what any load read: loads are
+                    -- made afresh after one.
+                    local kept: {[string]: integer} = {}
+                    for key, value in pairs(available) do
+                        if not loaded[key] then
+                            kept[key] = value
+                        end
+                    end
+                    available = kept
                 end
-                local pure = op >= OP_IADD and op <= OP_IMUL
+                local load = op == OP_LOAD_COMMON or op == OP_SLOAD_COMMON
+                local pure = load
+                    or op >= OP_IADD and op <= OP_IMUL
                     or op >= OP_UMULHI and op <= OP_SELECT
                     or op >= OP_IREDUCE and op <= OP_LAST_CONVERSION
                 if pure and f.result[i] ~= 0 and f.result2[i] == 0 and f.nargs[i] > 0 then
@@ -1688,10 +1704,18 @@ local function common(f: ir.Function): nil
                             or tostring(value)
                     end
                     local key = table.concat(fields, " ")
+                    if load then
+                        loaded[key] = true
+                    end
                     local first = available[key]
                     if first ~= nil then
                         alias[f.result[i]] = first
                         f.nargs[i] = 0
+                        -- A load left so is no load: an unread literal,
+                        -- which selection drops as it drops the rest.
+                        if load then
+                            f.op[i], f.imm[i], f.aux[i] = OP_ICONST, 0, 0
+                        end
                     else
                         available[key] = f.result[i]
                     end

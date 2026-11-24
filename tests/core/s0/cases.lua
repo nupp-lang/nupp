@@ -468,6 +468,42 @@ block0(v0: i64, v1: i64):
             end
         },
         {
+            -- A field loaded again with no store or call between is the
+            -- first load's value; after a store it is loaded afresh.
+            name = "loadagain",
+            text = [[
+function %again(i64, i64) -> i64 tail {
+    ss0 = explicit_slot 16, align = 16
+block0(v0: i64, v1: i64):
+    v2 = stack_addr.i64 ss0
+    store v0, v2
+    v3 = load.i64 v2
+    v4 = iconst.i64 6
+    v5 = icmp eq v3, v4
+    brif v5, block1(), block2()
+block1():
+    v6 = iconst.i64 1
+    return v6
+block2():
+    v7 = load.i64 v2
+    v8 = iconst.i64 9
+    v9 = icmp eq v7, v8
+    brif v9, block3(), block4()
+block3():
+    v10 = iconst.i64 2
+    return v10
+block4():
+    store v1, v2
+    v11 = load.i64 v2
+    return v11
+}
+]],
+            runs = {{args = {6, 0}, result = 1}, {args = {9, 0}, result = 2}, {args = {4, 33}, result = 33}},
+            check = function(codes)
+                assert(inspect.count(codes, "again", inspect.isLoad64) == 2, "a field is loaded again unchanged")
+            end
+        },
+        {
             -- An indirect target loaded for its call alone is loaded into x16.
             name = "dispatch",
             text = [[

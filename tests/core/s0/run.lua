@@ -314,6 +314,11 @@ function inspect.isStorePair(word)
     return word & 0xffc00000 == 0xa9000000
 end
 
+-- ldr of a 64-bit register at an unsigned offset.
+function inspect.isLoad64(word)
+    return word & 0xffc00000 == 0xf9400000
+end
+
 -- b: an unconditional branch.
 function inspect.isBranch(word)
     return word & 0xfc000000 == 0x14000000
