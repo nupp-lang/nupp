@@ -6,11 +6,11 @@
 -- (bench/codegen-oracle/handlers.c) at clang -O2: the target.
 return {
     {name = "Move", budget = {24, 12}, clang = {22, 11}},
-    {name = "Jmp", budget = {23, 8}, clang = {29, 17}},
+    {name = "Jmp", budget = {22, 8}, clang = {29, 17}},
     {name = "JmpIf", budget = {23, 10}, clang = {35, 19}},
     {name = "K", budget = {48, 19}, clang = {57, 26}},
     {name = "GetUpval", budget = {39, 16}, clang = {36, 15}},
     {name = "GetCell", budget = {51, 32}},
     {name = "Eq", budget = {67, 40}},
-    {name = "GetIdx", budget = {142, 89}}
+    {name = "GetIdx", budget = {141, 89}}
 }

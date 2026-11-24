@@ -1090,9 +1090,130 @@ local function crossings(f: ir.Function, a: allocate.Allocation): nil
     end
 end
 
+-- Sends every edge into a block to an identical one instead, so the copies
+-- (each check's failing path, as lowering makes one per check) are selected
+-- once and branches to them can share a target. Blocks are identical when
+-- neither reads a parameter and their instructions match, a block's own
+-- values named by position, with edges to the same blocks passing the same
+-- values to what those blocks read. An edge redirected to a block with fewer
+-- parameters, all unread and of the kinds it passes first, passes only those.
+local function merge(f: ir.Function): nil
+    local used = usedParameters(f)
+    local count = #f.blockStart
+    local blockOf: {integer} = {}
+    for b, start in ipairs(f.blockStart) do
+        for i = start, f.blockEnd[b] do
+            blockOf[i] = b
+        end
+    end
+    local representative: {integer} = {}
+    local unread: {boolean} = {}
+    for b = 1, count do
+        representative[b], unread[b] = b, b ~= 1
+        for p = f.firstParam[b], f.firstParam[b] + f.nparams[b] - 1 do
+            if used[f.params[p]] then
+                unread[b] = false
+            end
+        end
+    end
+
+    -- A value as block `b` names it: by position when `b` makes it.
+    local function named(b: integer, value: integer): string
+        local definition = f.definitions[value]
+        if definition > 0 and blockOf[definition] == b then
+            return (value == f.result2[definition] and "S" or "L") .. tostring(definition - f.blockStart[b])
+        end
+
+        return "V" .. tostring(value)
+    end
+
+    -- Whether edges into `keep` may carry what edges into `drop` passed.
+    local function fits(keep: integer, drop: integer): boolean
+        if f.nparams[keep] > f.nparams[drop] then
+            return false
+        end
+        for p = 0, f.nparams[keep] - 1 do
+            if f.valueKinds[f.params[f.firstParam[keep] + p]] ~= f.valueKinds[f.params[f.firstParam[drop] + p]] then
+                return false
+            end
+        end
+
+        return true
+    end
+
+    local changed = true
+    local rounds: integer = 0
+    while changed and rounds < 8 do
+        changed, rounds = false, rounds + 1
+        local byKey: {[string]: integer} = {}
+        for b = 2, count do
+            if unread[b] and representative[b] == b then
+                local parts: {string} = {}
+                for i = f.blockStart[b], f.blockEnd[b] do
+                    local fields: {
+                        string
+                    } = {
+                        tostring(f.op[i]),
+                        tostring(f.kind[i]),
+                        tostring(f.kind2[i]),
+                        tostring(f.imm[i]),
+                        tostring(f.aux[i]),
+                        f.result[i] ~= 0 and "r" or "-",
+                        f.result2[i] ~= 0 and "r" or "-"
+                    }
+                    for p = f.firstArg[i], f.firstArg[i] + f.nargs[i] - 1 do
+                        fields[#fields + 1] = named(b, f.args[p])
+                    end
+                    for e = f.firstEdge[i], f.firstEdge[i] + f.nedges[i] - 1 do
+                        local into = representative[f.edgeTarget[e]]
+                        fields[#fields + 1] = "->" .. tostring(into)
+                        for p = 0, f.nparams[into] - 1 do
+                            local read = used[f.params[f.firstParam[into] + p]]
+                            fields[#fields + 1] = read and named(b, f.edgeArgs[f.edgeFirstArg[e] + p]) or "_"
+                        end
+                    end
+                    parts[#parts + 1] = table.concat(fields, " ")
+                end
+                local key = table.concat(parts, "|")
+                local kept = byKey[key]
+                if kept == nil then
+                    byKey[key] = b
+                elseif fits(kept, b) or fits(b, kept) then
+                    local keep, drop = kept, b
+                    if not fits(kept, b) then
+                        keep, drop, byKey[key] = b, kept, b
+                    end
+                    representative[drop], changed = keep, true
+                end
+            end
+        end
+        -- An instruction branching to a dropped block names new edges; its
+        -- old ones stay in the columns, named by no instruction (as a
+        -- threaded jump's do), and keep the dropped block ordered.
+        for i = 1, #f.op do
+            local redirected = false
+            for e = f.firstEdge[i], f.firstEdge[i] + f.nedges[i] - 1 do
+                redirected = redirected or representative[f.edgeTarget[e]] ~= f.edgeTarget[e]
+            end
+            if redirected then
+                local first = #f.edgeTarget + 1
+                for e = f.firstEdge[i], f.firstEdge[i] + f.nedges[i] - 1 do
+                    local keep = representative[f.edgeTarget[e]]
+                    local at = #f.edgeTarget + 1
+                    f.edgeFrom[at], f.edgeTarget[at] = i, keep
+                    f.edgeFirstArg[at] = f.edgeFirstArg[e]
+                    f.edgeNargs[at] = keep == f.edgeTarget[e] and f.edgeNargs[e] or f.nparams[keep]
+                end
+                f.firstEdge[i] = first
+            end
+        end
+    end
+end
+
 function allocate.run(f: ir.Function, target: allocate.Target): allocate.Allocation
     if target.saveAcrossCalls == true then
         allocate.simplify(f)
+        merge(f)
     end
     local a = newAllocation(f)
     if target.saveAcrossCalls == true then

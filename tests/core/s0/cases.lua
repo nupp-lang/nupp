@@ -311,6 +311,41 @@ block2(v13: i64):
             end
         },
         {
+            -- Checks that fail the same way share one failing block, though
+            -- each passes on different (unread) values: the second check's
+            -- branch goes where the first's does.
+            name = "sharedfailure",
+            text = identity
+            .. [[
+function %checks(i64, i64) -> i64 tail {
+    sig0 = (i64) -> i64 tail
+    fn0 = %identity sig0
+block0(v0: i64, v1: i64):
+    v2 = iconst.i64 10
+    v3 = icmp uge v0, v2
+    brif v3, block1(v0), block2()
+block1(v4: i64):
+    v5 = iconst.i64 7
+    v6 = call fn0(v5)
+    return v6
+block2():
+    v7 = icmp uge v1, v2
+    brif v7, block3(v0, v1), block4()
+block3(v8: i64, v9: i64):
+    v10 = iconst.i64 7
+    v11 = call fn0(v10)
+    return v11
+block4():
+    v12 = iadd v0, v1
+    return v12
+}
+]],
+            runs = {{args = {1, 2}, result = 3}, {args = {11, 2}, result = 7}, {args = {1, 12}, result = 7}},
+            check = function(codes)
+                assert(inspect.count(codes, "checks", inspect.isBranchLink) == 1, "the failing block is selected twice")
+            end
+        },
+        {
             -- An indirect target loaded for its call alone is loaded into x16.
             name = "dispatch",
             text = [[

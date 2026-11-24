@@ -282,6 +282,11 @@ function inspect.isAddShifted(word)
     return word & 0xffe00000 == 0x8b000000 and (word >> 10) & 63 ~= 0
 end
 
+-- bl: a call.
+function inspect.isBranchLink(word)
+    return word & 0xfc000000 == 0x94000000
+end
+
 -- mov x0, xn (orr x0, xzr, xn).
 function inspect.isMoveToFirst(word)
     return word & 0xffe0ffff == 0xaa0003e0
