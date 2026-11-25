@@ -324,6 +324,15 @@ function inspect.isFrameLoad(word)
     return word & 0xffc00000 == 0xf9400000 and (word >> 5) & 31 == 23 and word & 31 ~= 30
 end
 
+-- str x30, [x23] and ldr x30, [x23]: LR to and from the frame's first word.
+function inspect.isLinkSave(word)
+    return word == 0xf90002fe
+end
+
+function inspect.isLinkLoad(word)
+    return word == 0xf94002fe
+end
+
 -- b: an unconditional branch.
 function inspect.isBranch(word)
     return word & 0xfc000000 == 0x14000000

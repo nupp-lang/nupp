@@ -679,6 +679,24 @@ function helpers.paired(words: {integer}, first: integer, rt: integer, rn: integ
     return false
 end
 
+-- Whether instruction `at` (a branch) goes anywhere that may be entered with
+-- LR as it was: a block with another way in, or one selected before this.
+function helpers.joins(f: ir.Function, named: {integer}, emitted: {integer}, order: integer, at: integer): boolean
+    for e = f.firstEdge[at], f.firstEdge[at] + f.nedges[at] - 1 do
+        local into = f.edgeTarget[e]
+        if named[into] ~= 1 then
+            return true
+        end
+        for earlier = 1, order do
+            if emitted[earlier] == into then
+                return true
+            end
+        end
+    end
+
+    return false
+end
+
 -- How many edges an instruction in a reached block names into each block,
 -- and the blocks they come from.
 function helpers.namedPredecessors(f: ir.Function, reached: {[integer]: boolean}): ({integer}, {{integer}})
@@ -835,7 +853,13 @@ function selector.run(f: ir.Function, a: allocate.Allocation): selector.Code
         -- branch: nothing may come between them.
         chained = 0,
         -- The first word a pair may begin at: the current block's first.
-        pairFloor = 1
+        pairFloor = 1,
+        -- Whether this path has stored LR in the frame's first word, whether
+        -- a call left LR stale, and both as each selected block leaves them.
+        lrSaved = false,
+        lrStale = false,
+        lrSavedExits = {} as {[integer]: boolean},
+        lrStaleExits = {} as {[integer]: boolean}
     }
 
     -- Two 64-bit loads or stores of neighbouring words from one base, the
@@ -846,6 +870,13 @@ function selector.run(f: ir.Function, a: allocate.Allocation): selector.Code
         assert(word >= 0 and word <= 0xffffffff, "S0 select: codeword range")
         local last = #code.words
         local before = last >= track.pairFloor and code.words[last] or 0
+        -- Lowering the frame after a call and raising it again for the next
+        -- leave it where it is.
+        local frame = 23 | (23 << 5)
+        if word & 0xff8003ff == 0x91000000 | frame and before == word | 0x40000000 then
+            code.words[last] = nil
+            return
+        end
         local kind = word & 0xffc00000
         if (kind == 0xf9400000 or kind == 0xf9000000) and before & 0xffc00000 == kind then
             local rt, base, at = word & 31, (word >> 5) & 31, ((word >> 10) & 0xfff) * 8
@@ -1619,11 +1650,15 @@ function selector.run(f: ir.Function, a: allocate.Allocation): selector.Code
                 restore(stagedRegisters[p], stageBase + (p - 1) * 8)
             end
         end
-        -- LR is saved around each call, which then leaves it as
-        -- it was: a function's paths that call nothing touch no
-        -- memory for it.
-        if not tail then
+        -- LR is stored once on a path, at its first call, and loaded again
+        -- only before the function leaves (or joins a path that did not
+        -- call): its paths that call nothing touch no memory for it.
+        if not tail and not track.lrSaved then
             emit(arm.str(8, 30, 23, 0))
+            track.lrSaved = true
+        elseif tail and track.lrStale then
+            emit(arm.ldr(8, 30, 23, 0))
+            track.lrStale = false
         end
         if signature.convention == ir.INTERNAL then
             if not tail then
@@ -1688,7 +1723,7 @@ function selector.run(f: ir.Function, a: allocate.Allocation): selector.Code
         end
         popStack(stackBytes)
         if not tail then
-            emit(arm.ldr(8, 30, 23, 0))
+            track.lrStale = true
         end
         -- What the call may clobber is stale.
         for _, value in ipairs(tail and {} or track.saved) do
@@ -1733,6 +1768,13 @@ function selector.run(f: ir.Function, a: allocate.Allocation): selector.Code
         local fusedCondition: integer = -1
         code.blockWord[block] = #code.words + 1
         track.pairFloor = #code.words + 1
+        -- A block entered one way only takes up LR as that way leaves it;
+        -- any other is entered with LR as it was (helpers.joins).
+        local single = track.sources[block]
+        track.lrSaved, track.lrStale = false, false
+        if #single == 1 and track.lrSavedExits[single[1]] ~= nil then
+            track.lrSaved, track.lrStale = track.lrSavedExits[single[1]], track.lrStaleExits[single[1]]
+        end
         if #track.saved > 0 and track.lazy then
             -- Every predecessor left what is live here in its registers. A
             -- slot every one of them (all selected already) stored still
@@ -1795,6 +1837,10 @@ function selector.run(f: ir.Function, a: allocate.Allocation): selector.Code
             local rd: integer = 0
             local _ = switch op do
                 case JUMP -> do
+                    if track.lrStale and helpers.joins(f, track.named, track.emitted, order, at) then
+                        emit(arm.ldr(8, 30, 23, 0))
+                        track.lrStale = false
+                    end
                     helpers.holdLive(a, track.lazy, hold, block)
                     helpers.holdEdge(f, a, hold, f.firstEdge[at])
                     edge(f.firstEdge[at], nextBlock)
@@ -1811,6 +1857,11 @@ function selector.run(f: ir.Function, a: allocate.Allocation): selector.Code
                     -- Only loads restore borrowed scratch after CMP; flags survive.
                     -- The final edge can fall through, after its own parallel moves.
                     local first, last = f.firstEdge[at], f.firstEdge[at] + 1
+                    -- A way into a join leaves LR as it was (flags survive a load).
+                    if track.lrStale and helpers.joins(f, track.named, track.emitted, order, at) then
+                        emit(arm.ldr(8, 30, 23, 0))
+                        track.lrStale = false
+                    end
                     helpers.holdLive(a, track.lazy, hold, block)
                     helpers.holdEdge(f, a, hold, first)
                     helpers.holdEdge(f, a, hold, last)
@@ -1863,6 +1914,10 @@ function selector.run(f: ir.Function, a: allocate.Allocation): selector.Code
                         hold(args[firstArg + p - 1], false)
                     end
                     transport(nargs)
+                    if track.lrStale then
+                        emit(arm.ldr(8, 30, 23, 0))
+                        track.lrStale = false
+                    end
                     emit(arm.ret(30))
                     yield true
                 end
@@ -2072,6 +2127,7 @@ function selector.run(f: ir.Function, a: allocate.Allocation): selector.Code
                             if fused
                                 and alone
                                 and (#track.saved == 0 or track.lazy)
+                                and not track.lrStale
                                 and code.blockWord[block] == #code.words + 1
                                 and localWord[#localWord] == #code.words
                                 and (pending >> 32) > 0
@@ -2250,6 +2306,7 @@ function selector.run(f: ir.Function, a: allocate.Allocation): selector.Code
         end
         track.exits[block] = track.current
         track.storedExits[block] = track.stored
+        track.lrSavedExits[block], track.lrStaleExits[block] = track.lrSaved, track.lrStale
     end
     local redirects: {[integer]: integer} = {}
     -- A block that only jumps on, moving nothing, is skipped: branches to it

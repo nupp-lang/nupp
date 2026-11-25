@@ -632,6 +632,35 @@ block5():
             end
         },
         {
+            -- LR is stored once however many calls follow, and loaded again
+            -- once, where the calling path joins one that did not call.
+            name = "linkonce",
+            text = identity
+            .. [[
+function %link(i64, i64) -> i64 tail {
+    sig0 = (i64) -> i64 tail
+    fn0 = %identity sig0
+block0(v0: i64, v1: i64):
+    brif v0, block1(), block2()
+block1():
+    v2 = call fn0(v1)
+    v3 = call fn0(v2)
+    v4 = call fn0(v3)
+    jump block3(v4)
+block2():
+    jump block3(v1)
+block3(v5: i64):
+    v6 = iadd v5, v1
+    return v6
+}
+]],
+            runs = {{args = {1, 5}, result = 10}, {args = {0, 7}, result = 14}},
+            check = function(codes)
+                assert(inspect.count(codes, "link", inspect.isLinkSave) == 1, "LR is stored at each call")
+                assert(inspect.count(codes, "link", inspect.isLinkLoad) == 1, "LR is loaded after each call")
+            end
+        },
+        {
             -- An indirect target loaded for its call alone is loaded into x16.
             name = "dispatch",
             text = [[
