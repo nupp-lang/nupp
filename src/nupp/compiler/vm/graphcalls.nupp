@@ -1360,6 +1360,49 @@ export function coreLibraryField(node: any): string?
 end
 
 -- The library function a call names, whether or not it is lowered as one.
+-- The library functions a local bound to one may stand for: those whose
+-- call is the library call alone. One that calls a function it is given
+-- (string.gsub, table.sort, pcall) lowers that call at its own callsite,
+-- which a call through a local does not have.
+const aliasable: {
+    [string]: boolean
+} = {
+    ["string.byte"] = true,
+    ["string.char"] = true,
+    ["string.find"] = true,
+    ["string.format"] = true,
+    ["string.len"] = true,
+    ["string.lower"] = true,
+    ["string.match"] = true,
+    ["string.rep"] = true,
+    ["string.reverse"] = true,
+    ["string.sub"] = true,
+    ["string.upper"] = true,
+    ["math.abs"] = true,
+    ["math.ceil"] = true,
+    ["math.floor"] = true,
+    ["math.max"] = true,
+    ["math.min"] = true,
+    ["math.sqrt"] = true,
+    ["table.concat"] = true,
+    ["table.insert"] = true,
+    ["table.remove"] = true,
+    type = true
+}
+
+-- The library function local `node` was bound to by the checker
+-- (`definition.libraryAlias`) while nothing assigns it again, when it is
+-- one a call through the local may stand for; otherwise nil.
+local function libraryAlias(node: any): string?
+    local definition = node and node.kind == "name" and node.token and node.token.definition
+    if type(definition) ~= "table" or definition.reassigned then
+        return nil
+    end
+    local alias = definition.libraryAlias
+
+    return alias and aliasable[alias] and alias or nil
+end
+
 local function libraryName(call: any): string?
     if dynamicRequire(call) then
         return "require.dynamic"
@@ -1413,6 +1456,10 @@ local function libraryName(call: any): string?
         -- `math.random` is also a standard module path, which the checker
         -- resolves as one: its root is then not the prelude's name.
         name = "math.random"
+    elseif call and call.kind == "call" and libraryAlias(call.obj) ~= nil then
+        -- A local bound to a library function and never assigned again
+        -- (`local byte = string.byte`) calls that function.
+        name = libraryAlias(call.obj)
     end
     -- The prelude's `unpack` is `table.unpack`.
     if name == "unpack" then

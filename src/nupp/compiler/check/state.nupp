@@ -113,6 +113,7 @@ export type Definition = {
     qualifiedRootDefinition: any,
     requiredModule: string?,
     exactCallExport: any,
+    libraryAlias: string?,
     scalarIntrinsic: string?,
     namespacePath: string?,
     mutationSummaryKnown: boolean?,

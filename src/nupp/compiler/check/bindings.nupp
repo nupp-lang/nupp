@@ -31,6 +31,32 @@ local type Type = T.Type
 --- A node of the tree being checked.
 local type Node = cst.Node
 
+-- The file the prelude's declarations (Lua's globals) come from.
+const PRELUDE_FILE = "nupp:lua.d.nupp"
+
+-- The library function `node` names when it is one of the prelude's, or
+-- a field of one of its tables (`string.byte`), or nil. A local bound to one
+-- and never assigned again names that function wherever it is called
+-- (graphcalls.libraryName), as `local byte = string.byte` means.
+local function preludeLibrary(node: any): string?
+    local function prelude(name: any): boolean
+        local token = name.kind == "name" and name.token or nil
+        local definition = token and token.definition
+
+        return definition ~= nil and definition.filename == PRELUDE_FILE
+    end
+
+    if node == nil then
+        return nil
+    elseif node.kind == "name" and prelude(node) then
+        return node.token.text
+    elseif node.kind == "dotIndex" and node.name and node.obj and prelude(node.obj) then
+        return node.obj.token.text .. "." .. node.name.text
+    end
+
+    return nil
+end
+
 --- Installs the binding and assignment statements on a run.
 ---
 --- @param c the run's state
@@ -396,6 +422,9 @@ export function install(c: state.Checker): state.StatHandlers
             if boundEntry then
                 if boundEntry.definition and initNode then
                     boundEntry.definition.initialized = true
+                end
+                if boundEntry.definition then
+                    boundEntry.definition.libraryAlias = preludeLibrary(boundInitializer)
                 end
                 boundEntry.annotationNode = stat.types and stat.types[j] or nil
                 c.fixedWidth.setBinding(boundEntry, initNode, fixedResultIndex)
