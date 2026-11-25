@@ -816,6 +816,50 @@ export function coregetslot(t: heap.ValueTable*, key: uint64): uint64
     return ownedgetslot(t, key, true)
 end
 
+-- The value under `key` in core hash part `t`, nil for none. A key that
+-- equals only itself (any but an uninterned string) is found by comparing
+-- words along its probe; a deleted entry's marker is passed over, as the
+-- key was put back where its marker was.
+export function coregetvalue(t: heap.ValueTable*, key: uint64): uint64
+    @unsafe do
+        local text = corestring(key)
+        if text ~= 0ULL
+            and native.word(native.load8(native.pointer(text), native.fieldOffset<heap.Header>("flags")))
+            & heap.F_INTERNED == 0ULL
+        then
+            local slot = ownedgetslot(t, key, true)
+            if slot == 0ULL then
+                return values.NIL
+            end
+
+            return native.load64(native.pointer(slot), 0)
+        end
+        local base = t.ptr
+        local mask = t.mask
+        local bucket: uint64 = 0ULL
+        if text ~= 0ULL then
+            bucket = corestringhash(text) & mask
+        else
+            bucket = objecthash.slotHash(key) & mask
+        end
+        local probes: uint64 = 0ULL
+        while probes < t.capacity do
+            local entry = base + bucket * 16ULL
+            local found = native.load64(native.pointer(entry), 0)
+            if found == key then
+                return native.load64(native.pointer(entry), 8)
+            end
+            if found == values.NIL then
+                return values.NIL
+            end
+            bucket = (bucket + 1ULL) & mask
+            probes = probes + 1ULL
+        end
+
+        return values.NIL
+    end
+end
+
 export function coreposition(t: heap.ValueTable*, key: uint64): uint64
     return ownedposition(t, key, true)
 end

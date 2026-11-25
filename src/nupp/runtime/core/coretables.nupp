@@ -444,7 +444,6 @@ end
 -- The value at `key`, nil when absent. A packed table's wide integer
 -- element is boxed here, which can collect.
 export function get(table: uint64, key: uint64): uint64
-    strings.prepare(key)
     @unsafe do
         local o = native.pointer(table) as heap.Header*
         local index = position(key)
@@ -482,12 +481,9 @@ export function get(table: uint64, key: uint64): uint64
         if t.ptr == 0ULL then
             return values.NIL
         end
-        local slot = hashes.coregetslot(t, key)
-        if slot == 0ULL then
-            return values.NIL
-        end
+        strings.prepare(key)
 
-        return native.load64(native.pointer(slot), 0)
+        return hashes.coregetvalue(t, key)
     end
 end
 
