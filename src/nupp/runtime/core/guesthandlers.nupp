@@ -864,6 +864,18 @@ export function GetIdx(pc: voidptr, regs: voidptr, ints: voidptr, floats: voidpt
         header = guestmeta.objectIndex(ctx, slots.readValue(frame, regs, object))
     end
     local keyValue = slots.readValue(frame, regs, key)
+    -- A key no normalization changes (an object or an integer) is read from
+    -- the table directly; its metatable is reached only for a key it lacks.
+    local keyTag = keyValue & values.TAG_MASK
+    if header ~= 0ULL and (keyTag == values.TAG_OBJ or keyTag == values.TAG_INTEGER) then
+        local direct = tables.get(header, keyValue)
+        if direct ~= values.NIL or tables.meta(header) == values.NIL then
+            slots.writeValue(frame, regs, dst, direct)
+            local following = native.address(pc) + ops.INSTRUCTION_BYTES
+
+            return native.dispatch(native.pointer(following), regs, ints, floats, ctx, frame)
+        end
+    end
     local value = values.NIL
     if header == 0ULL then
         -- A userdata whose __index is a function is read through it.
