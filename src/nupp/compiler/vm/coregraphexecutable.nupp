@@ -470,7 +470,9 @@ export function derive(g: any, catalog: any): any
     end
 
     -- `results` call results come first, from the slots after the callee.
-    local function edgeCopies(edge: any, position: integer, results: integer): nil
+    -- `following` is the block emitted next when these copies end the block:
+    -- an edge into it falls through rather than jumping.
+    local function edgeCopies(edge: any, position: integer, results: integer, following: integer?): nil
         local params = g.blocks[edge.target].params
         local destinations, sources = {}, {}
         local offset: integer = results
@@ -485,10 +487,14 @@ export function derive(g: any, catalog: any): any
         for _, move in ipairs(copies.schedule(destinations, sources, scratch)) do
             emit({"Move", move[1], move[2]}, position)
         end
-        jump(edge.target, position)
+        if edge.target ~= following then
+            jump(edge.target, position)
+        end
     end
 
-    for _, block in ipairs(g.blocks) do
+    for blockIndex, block in ipairs(g.blocks) do
+        local nextBlock = g.blocks[blockIndex + 1]
+        local following: integer? = nextBlock and nextBlock.id or nil
         starts[block.id] = #instructions + 1
         for at, op in ipairs(block.op) do
             local args, dst, position = block.args[at], block.dst[at], block.pos[at]
@@ -624,14 +630,14 @@ export function derive(g: any, catalog: any): any
                 yield nil
             end
             case "jump" -> do
-                edgeCopies(term.edges[1], position, 0)
+                edgeCopies(term.edges[1], position, 0, following)
                 yield nil
             end
             case "branch" -> do
                 local at = emit({"JmpIf", physical(term.value), 0}, position)
                 edgeCopies(term.edges[2], position, 0)
                 instructions[at][3] = #instructions - at
-                edgeCopies(term.edges[1], position, 0)
+                edgeCopies(term.edges[1], position, 0, following)
                 yield nil
             end
             case "invoke" -> do
@@ -708,7 +714,12 @@ export function derive(g: any, catalog: any): any
                     discarded = term.result == nil,
                     inLoop = inLoop[block.id] == true
                 }
-                edgeCopies(term.edges[1], position, term.results and #term.results or term.result ~= nil and 1 or 0)
+                edgeCopies(
+                    term.edges[1],
+                    position,
+                    term.results and #term.results or term.result ~= nil and 1 or 0,
+                    following
+                )
                 yield nil
             end
             else -> error("core executable: unsupported terminator", 0)
