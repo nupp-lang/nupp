@@ -17,6 +17,10 @@ const values = require("nupp.runtime.vm.values")
 const tables = require("nupp.runtime.core.coretables")
 const strings = require("nupp.runtime.core.corestrings")
 const ints = require("nupp.runtime.core.coreintegers")
+
+-- How many string constants the entry keeps made (a power of two): the slot
+-- of one is its catalog address's words modulo this.
+const CONSTANT_SLOTS: uint64 = 4096ULL
 const catalog = require("nupp.runtime.core.guestcatalog")
 const frames = require("nupp.runtime.core.frames")
 const guestentry = require("nupp.runtime.core.guestentry")
@@ -155,6 +159,11 @@ export struct Services
     storagebytes: uint64
     pool: uint64
     poolbytes: uint64
+    -- The string constants made, by where each is in the catalog: a slot's
+    -- key (the constant's address) in the first half of the mapping, its
+    -- string in the second, which is rooted (stringConstant).
+    constants: uint64
+    constantsbytes: uint64
     -- The initializers' storage, its stride and their count: their frame
     -- stacks' chunks past the pool, which close unmaps.
     stacks: uint64
@@ -309,6 +318,11 @@ local function initializeHeap(
             slot = slot + 1ULL
         end
         collector.register(h, world, native.sizeOf<instances.World>() // 8ULL)
+        -- The string constants made are roots while they are kept.
+        local constants = native.load64(services, native.fieldOffset<Services>("constants"))
+        if constants ~= 0ULL then
+            collector.register(h, constants + CONSTANT_SLOTS * 8ULL, CONSTANT_SLOTS)
+        end
         -- Errors survive positioning, cleanup calls and recovery until their
         -- destination frame holds them. The fields between them are scalars.
         native.store64(services, native.fieldOffset<Services>("raised"), 0ULL)
@@ -405,6 +419,9 @@ export function open(
     if poolBytes ~= 0ULL and mapEntry(services, native.fieldOffset<Services>("pool"), poolBytes) == 0ULL then
         return 0ULL
     end
+    if mapEntry(services, native.fieldOffset<Services>("constants"), CONSTANT_SLOTS * 16ULL) == 0ULL then
+        return 0ULL
+    end
     local metadata = roundUp(native.sizeOf<arena.Chunk>(), native.alignmentOf<arena.Arena>())
     local header = roundUp(metadata + native.sizeOf<arena.Arena>(), 16ULL)
     local mapped = roundUp(HEAP_BYTES + header, os.pageSize())
@@ -467,6 +484,7 @@ export function close(services: voidptr): nil
     native.store64(services, native.fieldOffset<Services>("foreignClosures"), 0ULL)
     local address = native.load64(services, native.fieldOffset<Services>("heap"))
     if address == 0ULL then
+        unmapEntry(services, native.fieldOffset<Services>("constants"))
         unmapEntry(services, native.fieldOffset<Services>("pool"))
         unmapEntry(services, native.fieldOffset<Services>("storage"))
         return
@@ -491,6 +509,7 @@ export function close(services: voidptr): nil
     native.store64(services, native.fieldOffset<Services>("heap"), 0ULL)
     native.store64(services, native.fieldOffset<Services>("arena"), 0ULL)
     releaseStacks(services)
+    unmapEntry(services, native.fieldOffset<Services>("constants"))
     unmapEntry(services, native.fieldOffset<Services>("pool"))
     unmapEntry(services, native.fieldOffset<Services>("storage"))
 end
@@ -678,11 +697,29 @@ end
 export function stringConstant(ctx: voidptr, owner: uint64, word: uint64): uint64
     @unsafe do
         local at = catalog.base(native.loadPointer(ctx, context.CATALOG), owner) + (word & values.PAYLOAD)
-        return strings.make(
+        -- Made once and kept by where it is: interning hashes its bytes.
+        local services = native.loadPointer(ctx, context.SERVICE_SCOPE)
+        local constants = native.load64(services, native.fieldOffset<Services>("constants"))
+        local slot = (at >> 3ULL) & (CONSTANT_SLOTS - 1ULL)
+        if constants ~= 0ULL and native.load64(native.pointer(constants), native.index(slot * 8ULL)) == at then
+            return native.load64(native.pointer(constants), native.index((CONSTANT_SLOTS + slot) * 8ULL))
+                & values.PAYLOAD
+        end
+        local made = strings.make(
             native.pointer(guestHeap(ctx)) as heap.Heap*,
             at + 8ULL,
             native.load64(native.pointer(at), 0)
         )
+        if constants ~= 0ULL and made ~= 0ULL then
+            native.store64(native.pointer(constants), native.index(slot * 8ULL), at)
+            native.store64(
+                native.pointer(constants),
+                native.index((CONSTANT_SLOTS + slot) * 8ULL),
+                values.TAG_OBJ | made
+            )
+        end
+
+        return made
     end
 end
 
