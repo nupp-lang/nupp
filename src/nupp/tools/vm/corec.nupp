@@ -1,0 +1,42 @@
+module nupp.tools.vm.corec
+
+--[[
+`nupp __core-c OUTPUT`: the native core's runtime, from the checkout
+NUPP_COMPILER_ROOT names, as C (nupp.compiler.cemit): a header and a source
+per runtime module and the dispatch table, written into OUTPUT, which
+scripts/core-c builds the C bridge from.
+]]
+
+const USAGE = "usage: nupp __core-c OUTPUT"
+const USAGE_STATUS = 2
+const FAILURE_STATUS = 1
+
+local function fail(message: string, status: integer): integer
+    io.stderr:write("nupp: ", message, "\n")
+
+    return status
+end
+
+--- Runs the command with `argv`, the arguments after its name.
+---
+--- @return the process exit status
+export function main(argv: {string}): integer
+    local output = argv[1]
+    if output == nil or output == "" or #argv > 1 then
+        return fail(USAGE, USAGE_STATUS)
+    end
+    local root = os.getenv("NUPP_COMPILER_ROOT")
+    if root == nil or root == "" then
+        return fail("__core-c emits the checkout NUPP_COMPILER_ROOT names, and none is named", FAILURE_STATUS)
+    end
+    local ok, problem = pcall(function(): nil
+        local cemit = require("nupp.compiler.cemit")
+        local functions, modules = cemit.emit(root as string, output as string)
+        io.stderr:write(("nupp: %d functions in %d modules\n"):format(functions, modules))
+    end)
+    if not ok then
+        return fail(tostring(problem), FAILURE_STATUS)
+    end
+
+    return 0
+end

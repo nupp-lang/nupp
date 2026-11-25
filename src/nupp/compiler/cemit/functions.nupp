@@ -1,0 +1,107 @@
+module nupp.compiler.cemit.functions
+
+-- One Nupp function as one C function: its doc comment, its signature (a
+-- function that may fail takes the service scope last; a handler takes the
+-- dispatch convention and reads the scope from its context), its owners
+-- declared first, its body, and the `failed:` label that closes the owners
+-- open when a call fails.
+local names = require("nupp.compiler.cemit.names")
+local types = require("nupp.compiler.cemit.types")
+local closure = require("nupp.compiler.cemit.closure")
+local writer = require("nupp.compiler.cemit.writer")
+local statements = require("nupp.compiler.cemit.statements")
+
+-- The C signature of `fn`, `static` when its module does not export it.
+export function signature(state: any, fn: any): string
+    local params: {string} = {}
+    for index, parameter in ipairs(fn.body.params) do
+        params[index] = types.declare(state, fn.parameterTypes[index], names.localName(parameter.name.text))
+    end
+    if closure.takesScope(state, fn) then
+        params[#params + 1] = "servicescope_ServiceScope *serviceScope"
+    end
+    local result = fn.resultType and types.ctype(state, fn.resultType) or "void"
+    local head = types.spell(result, state.functionC[fn])
+    if state.handler[fn] then
+        head = "NUPP_HANDLER " .. head
+    end
+    local exported = fn.scope.exports[fn.name] ~= nil
+    local list = #params > 0 and table.concat(params, ", ") or "void"
+
+    return (exported and "" or "static ") .. head .. "(" .. list .. ")"
+end
+
+-- The comment block directly above source line `at`, as C comment lines.
+local function docComment(m: any, at: integer): {string}
+    local found: {string} = {}
+    local index = at - 1
+    while index > 0 do
+        local body = (m.lines[index] or ""):match("^%-%-%-?%s?(.*)$")
+        if body == nil then
+            break
+        end
+        table.insert(found, 1, ((body as string):gsub("%*/", "* /")))
+        index = index - 1
+    end
+    if #found == 0 then
+        return {}
+    end
+    if #found == 1 then
+        return {"/* " .. found[1] .. " */"}
+    end
+    local lines: {string} = {"/* " .. found[1]}
+    for k = 2, #found do
+        lines[#lines + 1] = "   " .. found[k]
+    end
+    lines[#lines] = lines[#lines] .. " */"
+
+    return lines
+end
+
+-- `fn` of module `m` as C lines.
+export function emit(state: any, m: any, fn: any): {string}
+    local w = writer.new(state, m, fn)
+    w.handler = state.handler[fn] == true
+    for _, parameter in ipairs(fn.body.params) do
+        writer.declareParameter(w, parameter.name)
+    end
+    writer.reserveLocals(w, fn.body.body, {})
+    statements.hoistOwners(w, fn.body.body)
+    local stats = fn.body.body.stats or {}
+    if #stats > 0 and stats[#stats].kind == "pragmaStmt" then
+        -- The common shape: a few locals, then the rest under @unsafe.
+        w.wholeBody = stats[#stats]
+    end
+    local first, _ = statements.span(fn.node)
+    w.lastLine = first
+    statements.body(w, fn.body.body)
+    if w.hasOwners then
+        writer.blank(w)
+        w.out[#w.out + 1] = "failed:"
+        statements.failedLabel(w)
+        local value = w.handler and "0" or types.zero(state, fn.resultType)
+        writer.line(w, value and ("return " .. value .. ";") or "return;")
+    end
+    local lines = docComment(m, first)
+    lines[#lines + 1] = signature(state, fn) .. " {"
+    if w.handler and state.scoped[fn] then
+        local used = false
+        for _, textLine in ipairs(w.out) do
+            if textLine:find("serviceScope", 1, true) then
+                used = true
+                break
+            end
+        end
+        if used then
+            lines[
+                #lines + 1
+            ] = "    servicescope_ServiceScope *serviceScope = " .. "native_loadPointer(ctx, CONTEXT_SERVICE_SCOPE);"
+        end
+    end
+    for _, textLine in ipairs(w.out) do
+        lines[#lines + 1] = textLine
+    end
+    lines[#lines + 1] = "}"
+
+    return lines
+end

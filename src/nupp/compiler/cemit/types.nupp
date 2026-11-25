@@ -1,0 +1,171 @@
+module nupp.compiler.cemit.types
+
+-- Nupp's checked types as C's: the scalars as <stdint.h> spells them, a
+-- pointer to a struct as a pointer to its C struct, a Boolean union as
+-- `bool`. Every struct a type names is recorded, so its module's header
+-- defines it.
+
+const SCALARS: {
+    [string]: string
+} = {
+    uint64 = "uint64_t",
+    int64 = "int64_t",
+    uint32 = "uint32_t",
+    int32 = "int32_t",
+    uint16 = "uint16_t",
+    int16 = "int16_t",
+    uint8 = "uint8_t",
+    int8 = "int8_t",
+    float64 = "double",
+    float32 = "float",
+    boolean = "bool",
+    voidptr = "void *",
+    integer = "int64_t",
+    number = "double",
+    ["nil"] = "void"
+}
+
+-- The wrappers a value's representation does not depend on, and the field
+-- that holds what each wraps.
+const WRAPPERS: {
+    [string]: string
+} = {borrowed = "inner", exclusive = "inner", const = "inner", owned = "inner", literal = "base", optional = "inner"}
+
+-- `t` without its wrappers.
+export function strip(t: any): any
+    while t ~= nil and WRAPPERS[t.tag] ~= nil do
+        t = t[WRAPPERS[t.tag]]
+    end
+
+    return t
+end
+
+-- The tag of `t` without its wrappers, or nil.
+export function tag(t: any): string?
+    local s = strip(t)
+    return s and s.tag or nil
+end
+
+-- The affine type `t` is, under its wrappers, or nil.
+export function affine(t: any): any
+    while t ~= nil and (t.tag == "borrowed" or t.tag == "exclusive" or t.tag == "const" or t.tag == "owned") do
+        t = t.inner
+    end
+    if t ~= nil and t.tag == "affine" then
+        return t
+    end
+
+    return nil
+end
+
+-- The C name of struct `t` (a nominal struct or a cdef struct), recorded in
+-- `state.structs` with the module that declares it.
+export function structName(state: any, t: any): string
+    local name = t.name as string
+    if t.moduleName ~= nil then
+        name = state.prefixes[t.moduleName] .. "_" .. name
+    end
+    if state.structs[name] == nil then
+        state.structs[name] = {type = t, moduleName = t.moduleName, name = name}
+    end
+    -- The module being emitted includes the header that defines it.
+    if state.using ~= nil then
+        state.using[name] = true
+    end
+
+    return name
+end
+
+local function booleanUnion(t: any): boolean
+    for _, member in ipairs(t.members) do
+        local m = strip(member)
+        if not (m ~= nil and (m.tag == "boolean" or m.tag == "true" or m.tag == "false")) then
+            return false
+        end
+    end
+
+    return true
+end
+
+-- The C spelling of `t`.
+export function ctype(state: any, t: any): string
+    t = strip(t)
+    if t == nil then
+        return "void"
+    end
+    local scalar = SCALARS[t.tag]
+    if scalar ~= nil then
+        return scalar
+    elseif t.tag == "ptr" then
+        local elem = strip(t.elem)
+        if elem ~= nil and elem.tag == "nominal" then
+            return structName(state, elem) .. " *"
+        end
+        return ctype(state, elem) .. " *"
+    elseif t.tag == "nominal" and t.declKind == "struct" then
+        return structName(state, t)
+    elseif t.tag == "affine" then
+        return ctype(state, t.inner or t.base or t[1])
+    elseif t.tag == "true" or t.tag == "false" then
+        return "bool"
+    elseif t.tag == "union" then
+        if booleanUnion(t) then
+            return "bool"
+        end
+        -- T? spelled as a union with nil.
+        for _, member in ipairs(t.members) do
+            local m = strip(member)
+            if m ~= nil and m.tag ~= "nil" then
+                return ctype(state, m)
+            end
+        end
+    end
+    error("cemit: no C type for " .. tostring(t.tag))
+end
+
+-- A declaration of `name` as `t`: `T name`, or `T *name`.
+export function declare(state: any, t: any, name: string): string
+    return spell(ctype(state, t), name)
+end
+
+-- `name` declared with C type text `c`.
+export function spell(c: string, name: string): string
+    if c:sub(-1) == "*" then
+        return c .. name
+    end
+
+    return c .. " " .. name
+end
+
+-- Whether `t` is spelled as a C pointer.
+export function isPointer(state: any, t: any): boolean
+    return ctype(state, t):sub(-1) == "*"
+end
+
+-- The type of field `field` of struct `t`.
+export function fieldType(t: any, field: string): any
+    local ft = t.byname[field]
+    if ft ~= nil and ft.tag == nil and ft.type ~= nil then
+        return ft.type
+    end
+
+    return ft
+end
+
+-- The value a function answers when it fails: zero of its result's kind.
+export function zero(state: any, t: any): string?
+    local s = strip(t)
+    if s == nil or s.tag == "nil" then
+        return nil
+    elseif s.tag == "float64" or s.tag == "float32" then
+        return "0.0"
+    elseif s.tag == "boolean" then
+        return "false"
+    elseif s.tag == "nominal" then
+        return "(" .. ctype(state, s) .. "){0}"
+    elseif isPointer(state, s) then
+        return "NULL"
+    end
+
+    return "0"
+end

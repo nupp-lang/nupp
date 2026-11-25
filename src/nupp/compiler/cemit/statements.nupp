@@ -1,0 +1,451 @@
+module nupp.compiler.cemit.statements
+
+-- Checked Nupp statements as C statements, with the comments the source
+-- puts between them. Control flow keeps its shape: `if`/`elseif`/`else`,
+-- `while`, `repeat`. An affine local (an owner: a string builder, an arena)
+-- is closed where its scope ends, at a return and at a break out of its loop
+-- unless something took it, and at the function's `failed:` label when a
+-- call fails while it is open.
+local cst = require("nupp.compiler.syntax.cst")
+local unit = require("nupp.compiler.vm.nativeunit")
+local names = require("nupp.compiler.cemit.names")
+local types = require("nupp.compiler.cemit.types")
+local closure = require("nupp.compiler.cemit.closure")
+local writer = require("nupp.compiler.cemit.writer")
+local expressions = require("nupp.compiler.cemit.expressions")
+
+const INTRINSICS = "nupp.runtime.vm.intrinsics"
+
+local expr = expressions.expression
+local text = expressions.text
+local line = writer.line
+
+-- The first and last source lines a node spans.
+export function span(node: any): (integer, integer)
+    local first: integer = math.maxinteger
+    local last: integer = 0
+    local seen: {[any]: boolean} = {}
+
+    local function visit(n: any): nil
+        if type(n) ~= "table" or seen[n] then
+            return
+        end
+        seen[n] = true
+        if cst.isToken(n) then
+            local at = n.line
+            if type(at) == "number" then
+                first = math.min(first, at as integer)
+                last = math.max(last, at as integer)
+            end
+            return
+        end
+        -- The concrete children, in order: a node's integer keys.
+        for _, child in ipairs(n) do
+            visit(child)
+        end
+    end
+
+    visit(node)
+
+    return first, last
+end
+
+-- The source's comment lines between `after` and `before`, as C comments.
+export function comments(w: any, after: integer, before: integer): nil
+    local lines = w.module.lines
+    local block: {string} = {}
+    for at = after + 1, before - 1 do
+        local textLine = lines[at]
+        local body = textLine and textLine:match("^%s*%-%-%-?%s?(.*)$")
+        if body ~= nil and not textLine:match("^%s*%-%-%[") then
+            block[#block + 1] = (body as string):gsub("%*/", "* /")
+        elseif #block > 0 then
+            break
+        end
+    end
+    if #block == 0 then
+        return
+    end
+    if #block == 1 then
+        line(w, "/* " .. block[1] .. " */")
+        return
+    end
+    line(w, "/* " .. block[1])
+    for index = 2, #block - 1 do
+        line(w, "   " .. block[index])
+    end
+    line(w, "   " .. block[#block] .. " */")
+end
+
+------------------------------------------------------------------------------
+-- Owners.
+
+local function cleanupCall(w: any, owner: any): string
+    local cleanup = assert(owner.type.cleanups and owner.type.cleanups[1], "cemit: affine without a cleanup")
+    local moduleName, name = (cleanup.key as string):match("^(.-)#(.+)$")
+    local m = assert(w.state.modules[moduleName], "cemit: cleanup module " .. tostring(moduleName))
+    local target = assert(m.scope.functions[name], "cemit: cleanup " .. tostring(cleanup.key))
+    local list = {owner.name}
+    if closure.takesScope(w.state, target) then
+        list[#list + 1] = "serviceScope"
+    end
+
+    return w.state.functionC[target] .. "(" .. table.concat(list, ", ") .. ");"
+end
+
+-- Closes the owners in scope above block level `level`, innermost first.
+local function closeOwners(w: any, level: integer): nil
+    for index = #w.cleanups, 1, -1 do
+        local owner = w.cleanups[index]
+        if owner.level > level then
+            line(w, "if (" .. owner.flag .. ") {")
+            line(w, "    " .. cleanupCall(w, owner))
+            line(w, "}")
+        end
+    end
+end
+
+-- The `failed:` label's cleanup of every owner, for writer `w`.
+export function failedLabel(w: any): nil
+    for _, owner in ipairs(w.ownerList) do
+        line(w, "if (" .. owner.flag .. ") {")
+        line(w, "    " .. cleanupCall(w, owner))
+        line(w, "}")
+    end
+end
+
+-- The owners `body` declares, declared at the function's top (they are
+-- closed at its `failed:` label, whatever block they were in).
+export function hoistOwners(w: any, body: any): nil
+    w.ownerList = {}
+    local seen: {[any]: boolean} = {}
+
+    local function visit(node: any): nil
+        if type(node) ~= "table" or seen[node] then
+            return
+        end
+        seen[node] = true
+        if node.kind == "localStmt" and #node.names == 1 and node.exprs and node.exprs[1] then
+            local token = node.names[1]
+            local t = token.definition and token.definition.type
+            local affine = types.affine(t)
+            if affine ~= nil then
+                local name = writer.fresh(w, names.localName(token.text))
+                local owner = {name = name, flag = writer.fresh(w, name .. "Owned"), type = affine, level = 0}
+                w.hoisted[token.definition] = owner
+                w.cnames[token.definition] = name
+                w.ownerList[#w.ownerList + 1] = owner
+                line(w, types.declare(w.state, t, name) .. " = NULL;")
+                line(w, "bool " .. owner.flag .. " = false;")
+                w.hasOwners = true
+            end
+        end
+        for key, value in pairs(node) do
+            if type(value) == "table"
+                and (
+                    key == "stats"
+                    or key == "body"
+                    or key == "clauses"
+                    or key == "stat"
+                    or key == "elseClause"
+                    or type(key) == "number"
+                )
+            then
+                visit(value)
+            end
+        end
+    end
+
+    visit(body)
+end
+
+------------------------------------------------------------------------------
+-- Statements.
+
+local block: function(any, any, boolean?): nil
+
+local function localStmt(w: any, s: any): nil
+    local tokens, exprs = s.names, s.exprs or {}
+    if #tokens == 1 and tokens[1].text == "_" and exprs[1] ~= nil then
+        -- A value discarded.
+        local value = exprs[1].kind == "call" and expressions.checkedCall(w, exprs[1], false, nil)
+            or exprs[1].kind ~= "call" and expr(w, exprs[1])
+            or nil
+        if value ~= nil and value ~= true then
+            line(w, "(void)" .. text(value) .. ";")
+        end
+        return
+    end
+    if #tokens == 1 then
+        local token = tokens[1]
+        local t = token.definition and token.definition.type or (exprs[1] and exprs[1].inferredType)
+        local owner = token.definition and w.hoisted[token.definition]
+
+        local function left(): string
+            if owner ~= nil then
+                return owner.name
+            end
+            return types.declare(w.state, t, writer.declareLocal(w, token))
+        end
+
+        if exprs[1] == nil then
+            line(w, left() .. ";")
+        elseif exprs[1].kind == "call" then
+            if expressions.checkedCall(w, exprs[1], true, left) == nil then
+                return
+            end
+        else
+            local value = expr(w, exprs[1])
+            line(w, left() .. " = " .. text(value) .. ";")
+        end
+        if owner ~= nil then
+            owner.level = #w.blocks
+            line(w, owner.flag .. " = true;")
+            w.owners[token.definition] = owner
+            w.cleanups[#w.cleanups + 1] = owner
+        end
+        return
+    end
+    assert(#exprs == #tokens, "cemit: a local statement with multiple results")
+    local values = expressions.operands(w, exprs)
+    for index, token in ipairs(tokens) do
+        local t = token.definition and token.definition.type or exprs[index].inferredType
+        line(w, types.declare(w.state, t, writer.declareLocal(w, token)) .. " = " .. text(values[index]) .. ";")
+    end
+end
+
+local function assignStmt(w: any, s: any): nil
+    local targets, exprs = s.targets, s.exprs
+    if #targets == 1 and #exprs == 1 and exprs[1].kind == "call" then
+        expressions.checkedCall(w, exprs[1], true, function(): string
+            return text(expr(w, targets[1]))
+        end)
+        return
+    end
+    if #targets == 1 and #exprs == 1 then
+        local value = expr(w, exprs[1])
+        line(w, text(expr(w, targets[1])) .. " = " .. text(value) .. ";")
+        return
+    end
+    assert(#targets == #exprs, "cemit: assignment arity")
+    local held: {string} = {}
+    for index, value in ipairs(expressions.operands(w, exprs)) do
+        local name = writer.fresh(w, "assigned")
+        line(w, types.declare(w.state, exprs[index].inferredType, name) .. " = " .. text(value) .. ";")
+        held[index] = name
+    end
+    for index, target in ipairs(targets) do
+        line(w, text(expr(w, target)) .. " = " .. held[index] .. ";")
+    end
+end
+
+local function returnStmt(w: any, s: any): nil
+    local e = s.exprs and s.exprs[1]
+    if e == nil then
+        closeOwners(w, 0)
+        line(w, "return;")
+        return
+    end
+    -- A handler's transfers: dispatch, failure, and a tail call of another handler.
+    if w.handler and e.kind == "call" then
+        local moduleName, name = expressions.member(e.obj)
+        if moduleName == INTRINSICS and name == "dispatch" then
+            line(w, "NUPP_MUSTTAIL return " .. text(expr(w, e)) .. ";")
+            return
+        elseif moduleName == INTRINSICS and name == "fail" then
+            line(w, "return 0;")
+            return
+        end
+        local ok, target = pcall(unit.callee, w.fn, e)
+        if ok and target ~= nil and w.state.handler[target] then
+            local call = expressions.call(w, e)
+            line(w, "NUPP_MUSTTAIL return " .. text(call) .. ";")
+            return
+        end
+    end
+    local value = expr(w, e)
+    if #w.cleanups > 0 then
+        local source = e
+        while source.kind == "paren" do
+            source = source.expr
+        end
+        local moved = source.kind == "name" and source.token.definition and w.owners[source.token.definition]
+        if moved then
+            line(w, moved.flag .. " = false;")
+        end
+        if not value.pure then
+            local name = writer.fresh(w, "answer")
+            line(w, types.declare(w.state, e.inferredType, name) .. " = " .. text(value) .. ";")
+            value = expressions.E(name)
+        end
+        closeOwners(w, 0)
+    end
+    line(w, "return " .. text(value) .. ";")
+end
+
+local function condition(w: any, c: any): string
+    return text(expr(w, c))
+end
+
+local function ifStmt(w: any, s: any): nil
+    local nested: integer = 0
+    for index, clause in ipairs(s.clauses) do
+        if index == 1 then
+            line(w, "if (" .. condition(w, clause.cond) .. ") {")
+        else
+            -- A later condition that needs statements of its own nests.
+            local mark = #w.out
+            w.depth = w.depth + 1
+            local c = condition(w, clause.cond)
+            w.depth = w.depth - 1
+            if #w.out > mark then
+                local pre = writer.take(w, mark)
+                line(w, "} else {")
+                for _, textLine in ipairs(pre) do
+                    w.out[#w.out + 1] = textLine
+                end
+                w.depth = w.depth + 1
+                line(w, "if (" .. c .. ") {")
+                nested = nested + 1
+            else
+                line(w, "} else if (" .. c .. ") {")
+            end
+        end
+        w.depth = w.depth + 1
+        block(w, clause.body)
+        w.depth = w.depth - 1
+    end
+    if s.elseClause and s.elseClause.body then
+        line(w, "} else {")
+        w.depth = w.depth + 1
+        block(w, s.elseClause.body)
+        w.depth = w.depth - 1
+    end
+    for _ = 1, nested do
+        line(w, "}")
+        w.depth = w.depth - 1
+    end
+    line(w, "}")
+end
+
+local function loopBody(w: any, body: any): nil
+    w.depth = w.depth + 1
+    w.loops[#w.loops + 1] = #w.blocks
+    block(w, body)
+    w.loops[#w.loops] = nil
+    w.depth = w.depth - 1
+end
+
+local function whileStmt(w: any, s: any): nil
+    local mark = #w.out
+    w.depth = w.depth + 1
+    local c = condition(w, s.cond)
+    w.depth = w.depth - 1
+    if #w.out > mark then
+        -- The condition needs statements: test it at the top of the loop.
+        local pre = writer.take(w, mark)
+        line(w, "for (;;) {")
+        for _, textLine in ipairs(pre) do
+            w.out[#w.out + 1] = textLine
+        end
+        line(w, "    if (!(" .. c .. ")) {")
+        line(w, "        break;")
+        line(w, "    }")
+    else
+        line(w, "while (" .. c .. ") {")
+    end
+    loopBody(w, s.body)
+    line(w, "}")
+end
+
+local function callStmt(w: any, s: any): nil
+    -- A failure the next statement returns anyway needs no test of its own.
+    local following = w.next
+    local failing = w.handler
+        and following ~= nil
+        and following.kind == "returnStmt"
+        and following.exprs ~= nil
+        and following.exprs[1] ~= nil
+        and following.exprs[1].kind == "call"
+        and select(2, expressions.member(following.exprs[1].obj)) == "fail"
+    w.skipCheck = failing
+    local e = expressions.checkedCall(w, s.expr, false, nil)
+    w.skipCheck = false
+    if e ~= nil and e ~= true then
+        line(w, text(e) .. ";")
+    end
+end
+
+local function statement(w: any, s: any): nil
+    local k = s.kind
+    if k == "localStmt" then
+        localStmt(w, s)
+    elseif k == "assignStmt" then
+        assignStmt(w, s)
+    elseif k == "callStmt" then
+        callStmt(w, s)
+    elseif k == "returnStmt" then
+        returnStmt(w, s)
+    elseif k == "ifStmt" then
+        ifStmt(w, s)
+    elseif k == "whileStmt" then
+        whileStmt(w, s)
+    elseif k == "repeatStmt" then
+        line(w, "do {")
+        loopBody(w, s.body)
+        line(w, "} while (!(" .. condition(w, s.cond) .. "));")
+    elseif k == "breakStmt" then
+        closeOwners(w, w.loops[#w.loops] or 0)
+        line(w, "break;")
+    elseif k == "doStmt" then
+        line(w, "{")
+        w.depth = w.depth + 1
+        block(w, s.body)
+        w.depth = w.depth - 1
+        line(w, "}")
+    elseif k == "pragmaStmt" then
+        if s.stat and s.stat.kind == "doStmt" and w.wholeBody == s then
+            -- `@unsafe do ... end` around the rest of a body adds no block.
+            block(w, s.stat.body, true)
+            return
+        end
+        statement(w, s.stat)
+    elseif k ~= "emptyStmt" then
+        error("cemit: statement " .. tostring(k))
+    end
+end
+
+-- Block `b`'s statements; `flat` emits them in the enclosing C block.
+block = function(w: any, b: any, flat: boolean?): nil
+    local level = flat and #w.blocks or writer.openBlock(w)
+    local stats = b.stats or {}
+    local last: any = nil
+    local previous: integer = w.lastLine or 0
+    for index, s in ipairs(stats) do
+        local first, final = span(s)
+        if first ~= math.maxinteger then
+            comments(w, previous, first)
+            previous = final
+            w.lastLine = final
+        end
+        w.next = stats[index + 1]
+        statement(w, s)
+        last = s
+    end
+    if not flat then
+        local ended = last ~= nil and (last.kind == "returnStmt" or last.kind == "breakStmt")
+        if not ended then
+            closeOwners(w, level - 1)
+        end
+        for index = #w.cleanups, 1, -1 do
+            if w.cleanups[index].level >= level then
+                table.remove(w.cleanups, index)
+            end
+        end
+        writer.closeBlock(w)
+    end
+end
+
+export function body(w: any, b: any): nil
+    block(w, b, true)
+end

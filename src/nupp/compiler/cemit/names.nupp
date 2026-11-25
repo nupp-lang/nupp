@@ -1,0 +1,75 @@
+module nupp.compiler.cemit.names
+
+-- C names for what the native core's Nupp declares: a module's exports are
+-- `prefix_name`, its prefix the module's last segment (its parent's
+-- prepended where two modules share one); its constants `PREFIX_NAME`; a
+-- local keeps its own name unless C reserves it.
+
+-- What C reserves outright, which no identifier may be.
+const KEYWORDS = [[auto break case char const continue default do double else enum extern float for goto if inline
+    int long register restrict return short signed sizeof static struct switch typedef union unsigned void volatile
+    while bool true false]]
+
+-- Names the C library or the emitted code itself declares, which a local or a
+-- module's own function must not take.
+const DECLARED = [[NULL errno stdin stdout stderr main signal alignof offsetof assert exit abort free malloc
+    serviceScope failed]]
+
+local keywords: {[string]: boolean} = {}
+local declared: {[string]: boolean} = {}
+for word in KEYWORDS:gmatch("%S+") do
+    keywords[word] = true
+end
+for word in DECLARED:gmatch("%S+") do
+    declared[word] = true
+end
+
+-- A field's C name: its own, unless it is a keyword.
+export function field(text: string): string
+    if keywords[text] then
+        return text .. "_"
+    end
+
+    return text
+end
+
+-- A local's or a module function's C name.
+export function localName(text: string): string
+    if keywords[text] or declared[text] then
+        return text .. "_"
+    end
+
+    return text
+end
+
+-- The prefixes of a set of module names: each one's last segment, or its
+-- parent's and its own where two share a last segment.
+export function prefixes(moduleNames: {string}): {[string]: string}
+    local counts: {[string]: integer} = {}
+    for _, name in ipairs(moduleNames) do
+        local last = name:match("([^.]+)$") as string
+        counts[last] = (counts[last] or 0) + 1
+    end
+    local result: {[string]: string} = {}
+    for _, name in ipairs(moduleNames) do
+        local parent, last = name:match("([^.]+)%.([^.]+)$")
+        if (counts[last as string] or 0) > 1 then
+            result[name] = (parent as string) .. (last as string)
+        else
+            result[name] = last as string
+        end
+    end
+
+    return result
+end
+
+-- A module constant's macro name.
+export function constant(prefix: string, name: string): string
+    return (prefix .. "_" .. name):upper()
+end
+
+-- A C string literal of `text`.
+export function quoted(text: string): string
+    local escaped = text:gsub("\\", "\\\\"):gsub('"', '\\"'):gsub("\n", "\\n")
+    return '"' .. escaped .. '"'
+end

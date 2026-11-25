@@ -1,0 +1,395 @@
+module nupp.compiler.cemit.modules
+
+-- Each runtime module as a C header and source file. The header holds what
+-- the module declares (its structs, held to the compiler's layout; its
+-- constants; the C functions it declares with `cdef`; its exported
+-- functions); the source holds its functions, including the headers of the
+-- modules it requires.
+local targetlayout = require("nupp.compiler.targetlayout")
+local names = require("nupp.compiler.cemit.names")
+local types = require("nupp.compiler.cemit.types")
+local functions = require("nupp.compiler.cemit.functions")
+
+const TARGET = "aarch64-apple-darwin"
+
+local function sourceLines(path: string): {string}
+    local lines: {string} = {}
+    local file = io.open(path, "rb")
+    if file == nil then
+        return lines
+    end
+    for textLine in file:lines() do
+        lines[#lines + 1] = textLine
+    end
+    file:close()
+
+    return lines
+end
+
+-- A literal constant's C text: suffixed so C reads it at the constant's width.
+local function literal(t: any, raw: string): string
+    local tag = types.tag(t)
+    if raw:match("[UuLl]$") or raw:match("[%.eEpP]") and not raw:match("^0[xX]") then
+        return raw
+    elseif tag == "uint64" then
+        return raw .. "ULL"
+    elseif tag == "int64" or tag == "integer" then
+        return raw .. "LL"
+    end
+
+    return raw
+end
+
+local function requireTarget(e: any): string?
+    if e ~= nil
+        and e.kind == "call"
+        and e.obj.kind == "name"
+        and e.obj.token.text == "require"
+        and e.args.exprs[1] ~= nil
+        and e.args.exprs[1].kind == "string"
+    then
+        return ((e.args.exprs[1].token.text as string):gsub('^"', ""):gsub('"$', ""))
+    end
+
+    return nil
+end
+
+-- Reads every module's top level: constants become macros, structs and C
+-- declarations are recorded for its header, requires for its includes.
+export function prepare(state: any): nil
+    state.constants = {}
+    state.definitions = {}
+    state.foreignHome = {}
+    for _, fn in ipairs(state.functions) do
+        if fn.definition ~= nil then
+            state.definitions[fn.definition] = fn
+        end
+    end
+    for _, name in ipairs(state.moduleNames) do
+        local m = state.modules[name]
+        m.lines = sourceLines(m.scope.path)
+        m.usesStructs = {}
+        m.usesForeign = {}
+        m.requires = {}
+        m.macros = {}
+        m.structDecls = {}
+        m.foreignDecls = {}
+        for _, b in ipairs(m.tree.root.blocks) do
+            for _, stat in ipairs(b.stats) do
+                local d = stat.kind == "exportStmt" and stat.stat or stat
+                if d.kind == "localStmt" and d.isConst and #d.names == 1 and d.exprs and d.exprs[1] then
+                    local value = d.exprs[1]
+                    local required = requireTarget(value)
+                    if required ~= nil then
+                        m.requires[#m.requires + 1] = required
+                    elseif value.kind == "number" then
+                        local token = d.names[1]
+                        local macro = names.constant(m.prefix, token.text)
+                        m.constants[token.text] = macro
+                        local t = token.definition and token.definition.type or value.inferredType
+                        if token.definition ~= nil then
+                            state.constants[token.definition] = macro
+                        end
+                        m.macros[#m.macros + 1] = "#define " .. macro .. " " .. literal(t, value.token.text)
+                    end
+                elseif d.kind == "recordDecl" and d.declKind == "struct" and d.resolvedType then
+                    m.structDecls[#m.structDecls + 1] = types.strip(d.resolvedType)
+                elseif d.kind == "cdefStruct" and d.resolvedType then
+                    m.structDecls[#m.structDecls + 1] = types.strip(d.resolvedType)
+                elseif d.kind == "cdefFunc" then
+                    m.foreignDecls[#m.foreignDecls + 1] = d
+                    local symbol = d.name.text as string
+                    if state.foreignHome[symbol] == nil then
+                        state.foreignHome[symbol] = name
+                    end
+                end
+            end
+        end
+    end
+end
+
+-- The forward typedefs of the structs named in `lines`, which C11 lets
+-- several headers repeat.
+local function forwardDeclarations(state: any, lines: {string}): {string}
+    local found: {[string]: boolean} = {}
+    for _, textLine in ipairs(lines) do
+        for word in textLine:gmatch("[%a_][%w_]*") do
+            if state.structs[word] ~= nil then
+                found[word] = true
+            end
+        end
+    end
+    local sorted: {string} = {}
+    for word in pairs(found) do
+        sorted[#sorted + 1] = word
+    end
+    table.sort(sorted)
+    local result: {string} = {}
+    for _, word in ipairs(sorted) do
+        result[#result + 1] = "typedef struct " .. word .. " " .. word .. ";"
+    end
+
+    return result
+end
+
+local function structDefinition(
+    state: any,
+    t: any,
+    lines: {string},
+    defined: {[string]: boolean},
+    includes: {[string]: boolean}
+): nil
+    local cname = types.structName(state, t)
+    if defined[cname] then
+        return
+    end
+    defined[cname] = true
+    for _, field in ipairs(t.fieldOrder or {}) do
+        local ft = types.strip(types.fieldType(t, field))
+        if ft ~= nil and ft.tag == "nominal" and ft.declKind == "struct" then
+            if ft.moduleName == t.moduleName or ft.moduleName == nil then
+                structDefinition(state, ft, lines, defined, includes)
+            else
+                includes[ft.moduleName] = true
+            end
+        end
+    end
+    lines[#lines + 1] = "struct " .. cname .. " {"
+    for _, field in ipairs(t.fieldOrder or {}) do
+        lines[#lines + 1] = "    " .. types.declare(state, types.fieldType(t, field), names.field(field)) .. ";"
+    end
+    lines[#lines + 1] = "};"
+    local ok, layout = pcall(targetlayout.of, t, TARGET)
+    if ok and layout ~= nil and layout.offsets ~= nil then
+        lines[#lines + 1] = "NUPP_SIZE(" .. cname .. ", " .. tostring(layout.size) .. ");"
+        for _, field in ipairs(t.fieldOrder or {}) do
+            local offset = layout.offsets[field]
+            if offset ~= nil then
+                lines[
+                    #lines + 1
+                ] = "NUPP_OFFSET(" .. cname .. ", " .. names.field(field) .. ", " .. tostring(offset) .. ");"
+            end
+        end
+    end
+    lines[#lines + 1] = ""
+end
+
+-- The module's first comment block: what it is.
+local function moduleComment(m: any): {string}
+    local found: {string} = {}
+    local started = false
+    for index = 1, #m.lines do
+        local textLine = m.lines[index]
+        local body = textLine:match("^%-%-%-?%s?(.*)$")
+        if body ~= nil then
+            started = true
+            found[#found + 1] = ((body as string):gsub("%*/", "* /"))
+        elseif started or not (textLine:match("^module ") or textLine:match("^%s*$")) then
+            break
+        end
+    end
+    local origin = "Emitted from src/" .. m.name:gsub("%.", "/") .. ".nupp by nupp.compiler.cemit."
+    if #found == 0 then
+        return {"/* " .. m.name .. ": " .. origin .. " */"}
+    end
+    local lines: {string} = {"/* " .. m.name .. ": " .. found[1]}
+    for index = 2, #found do
+        lines[#lines + 1] = "   " .. found[index]
+    end
+    lines[#lines + 1] = ""
+    lines[#lines + 1] = "   " .. origin .. " */"
+
+    return lines
+end
+
+-- Module `m`'s header.
+export function header(state: any, m: any): {string}
+    local guard = "NUPP_" .. m.prefix:upper() .. "_H"
+    local body: {string} = {}
+    local includes: {[string]: boolean} = {}
+    local defined: {[string]: boolean} = {}
+    for _, t in ipairs(m.structDecls) do
+        structDefinition(state, t, body, defined, includes)
+    end
+    if #m.macros > 0 then
+        for _, macro in ipairs(m.macros) do
+            body[#body + 1] = macro
+        end
+        body[#body + 1] = ""
+    end
+    local foreign: {string} = {}
+    local emitted: {[string]: boolean} = {}
+    for _, d in ipairs(m.foreignDecls) do
+        local symbol = d.name.text as string
+        if state.foreignHome[symbol] == m.name and not emitted[symbol] then
+            emitted[symbol] = true
+            local sig = d.signatureType
+            local params: {string} = {}
+            for index, p in ipairs(sig.params) do
+                params[index] = types.ctype(state, p)
+            end
+            local result = sig.rets[1] and types.ctype(state, sig.rets[1]) or "void"
+            local library = d.resolvedLibrary
+            if library == nil or library == "<default>" then
+                foreign[
+                    #foreign + 1
+                ] = types.spell(result, symbol) .. "(" .. (#params > 0 and table.concat(params, ", ") or "void") .. ");"
+            else
+                -- A library the runtime opens itself, as s0's code does: the
+                -- symbol is resolved where the library is, when first called.
+                local declared: {string} = {}
+                local passed: {string} = {}
+                for index, param in ipairs(params) do
+                    local argument = "a" .. tostring(index)
+                    declared[index] = types.spell(param, argument)
+                    passed[index] = argument
+                end
+                local pointer = result .. " (*)(" .. (#params > 0 and table.concat(params, ", ") or "void") .. ")"
+                foreign[
+                    #foreign + 1
+                ] = "static inline " .. types.spell(
+                    result,
+                    symbol
+                ) .. "(" .. (#declared > 0 and table.concat(declared, ", ") or "void") .. ") {"
+                foreign[#foreign + 1] = "    static void *symbol;"
+                foreign[#foreign + 1] = "    if (symbol == NULL) {"
+                foreign[
+                    #foreign + 1
+                ] = "        symbol = nupp_resolve(" .. names.quoted(
+                    library as string
+                ) .. ", " .. names.quoted(symbol) .. ");"
+                foreign[#foreign + 1] = "    }"
+                foreign[
+                    #foreign + 1
+                ] = "    " .. (
+                    result == "void" and "" or "return "
+                ) .. "((" .. pointer .. ")symbol)(" .. table.concat(passed, ", ") .. ");"
+                foreign[#foreign + 1] = "}"
+            end
+        end
+    end
+    if #foreign > 0 then
+        body[#body + 1] = "/* The C functions this module calls (cdef). */"
+        for _, textLine in ipairs(foreign) do
+            body[#body + 1] = textLine
+        end
+        body[#body + 1] = ""
+    end
+    for _, fn in ipairs(m.functions) do
+        if m.scope.exports[fn.name] then
+            body[#body + 1] = functions.signature(state, fn) .. ";"
+        end
+    end
+    local lines = moduleComment(m)
+    lines[#lines + 1] = "#ifndef " .. guard
+    lines[#lines + 1] = "#define " .. guard
+    lines[#lines + 1] = ""
+    lines[#lines + 1] = '#include "nuppcore.h"'
+    local sortedIncludes: {string} = {}
+    for name in pairs(includes) do
+        sortedIncludes[#sortedIncludes + 1] = name
+    end
+    table.sort(sortedIncludes)
+    for _, name in ipairs(sortedIncludes) do
+        lines[#lines + 1] = '#include "' .. state.prefixes[name] .. '.h"'
+    end
+    lines[#lines + 1] = ""
+    local forward = forwardDeclarations(state, body)
+    for _, textLine in ipairs(forward) do
+        lines[#lines + 1] = textLine
+    end
+    if #forward > 0 then
+        lines[#lines + 1] = ""
+    end
+    for _, textLine in ipairs(body) do
+        lines[#lines + 1] = textLine
+    end
+    if lines[#lines] ~= "" then
+        lines[#lines + 1] = ""
+    end
+    lines[#lines + 1] = "#endif"
+
+    return lines
+end
+
+-- Module `m`'s source: its functions, after the headers they need.
+export function source(state: any, m: any): {string}
+    local bodies: {string} = {}
+    local statics: {string} = {}
+    state.using = m.usesStructs
+    for _, fn in ipairs(m.functions) do
+        if not m.scope.exports[fn.name] then
+            statics[#statics + 1] = functions.signature(state, fn) .. ";"
+        end
+        for _, textLine in ipairs(functions.emit(state, m, fn)) do
+            bodies[#bodies + 1] = textLine
+        end
+        bodies[#bodies + 1] = ""
+    end
+    state.using = nil
+    -- What the functions reach: the modules this one requires, the modules
+    -- of the structs and C functions they use, and the scope's.
+    local includes: {[string]: boolean} = {[m.name] = true, ["nupp.runtime.core.servicescope"] = true}
+    for _, required in ipairs(m.requires) do
+        if state.modules[required] ~= nil then
+            includes[required] = true
+        end
+    end
+    for cname in pairs(m.usesStructs) do
+        local held = state.structs[cname]
+        if held ~= nil and held.moduleName ~= nil and state.modules[held.moduleName] ~= nil then
+            includes[held.moduleName] = true
+        end
+    end
+    for symbol in pairs(m.usesForeign) do
+        local home = state.foreignHome[symbol]
+        if home ~= nil then
+            includes[home] = true
+        end
+    end
+    local sorted: {string} = {}
+    for name in pairs(includes) do
+        if name ~= m.name then
+            sorted[#sorted + 1] = name
+        end
+    end
+    table.sort(sorted)
+    local lines = moduleComment(m)
+    lines[#lines + 1] = '#include "' .. m.prefix .. '.h"'
+    lines[#lines + 1] = ""
+    for _, name in ipairs(sorted) do
+        lines[#lines + 1] = '#include "' .. state.prefixes[name] .. '.h"'
+    end
+    lines[#lines + 1] = '#include "nuppedges.h"'
+    lines[#lines + 1] = ""
+    if #statics > 0 then
+        for _, textLine in ipairs(statics) do
+            lines[#lines + 1] = textLine
+        end
+        lines[#lines + 1] = ""
+    end
+    for _, textLine in ipairs(bodies) do
+        lines[#lines + 1] = textLine
+    end
+
+    return lines
+end
+
+-- dispatch.c: the handler each opcode dispatches to.
+export function dispatch(state: any): {string}
+    local lines: {
+        string
+    } = {
+        "/* The handler each of the 256 opcodes dispatches to, as the guest shim's",
+        "   table has it (nupp.core.guestshim). Emitted by nupp.compiler.cemit. */",
+        '#include "guesthandlers.h"',
+        "",
+        "const nupp_handler nupp_dispatch[256] = {"
+    }
+    for index = 1, 256 do
+        lines[#lines + 1] = "    guesthandlers_" .. state.dispatch[index] .. ","
+    end
+    lines[#lines + 1] = "};"
+
+    return lines
+end

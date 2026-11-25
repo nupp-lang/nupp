@@ -1,0 +1,150 @@
+module nupp.compiler.cemit.writer
+
+-- One C function as it is written: its lines, the indentation they are at,
+-- the names its locals and temporaries take, and the blocks and loops it is
+-- inside. Statements append lines; an expression that needs statements of
+-- its own (a call that may fail) appends them before the line it is in.
+local names = require("nupp.compiler.cemit.names")
+
+const INDENT = "    "
+
+-- A writer for function `fn` of module `m`, under emission state `state`.
+export function new(state: any, m: any, fn: any): any
+    local used: {[string]: boolean} = {serviceScope = true, failed = true}
+    -- The module's functions, which no local or temporary may hide.
+    for _, other in ipairs(m.functions) do
+        used[state.functionC[other]] = true
+    end
+
+    return {
+        state = state,
+        module = m,
+        fn = fn,
+        out = {},
+        depth = 1,
+        -- Every name the function's C declares, so temporaries take others.
+        used = used,
+        -- The C name of each local, by its checked definition.
+        cnames = {},
+        -- The names each enclosing C block declares, innermost last.
+        blocks = {{}},
+        -- The block level each enclosing loop's body is at.
+        loops = {},
+        -- Affine owners: their entries, by definition, and those in scope.
+        owners = {},
+        cleanups = {},
+        hoisted = {},
+        temporaries = 0
+    }
+end
+
+-- Appends `text` at the current indentation.
+export function line(w: any, text: string): nil
+    w.out[#w.out + 1] = INDENT:rep(w.depth) .. text
+end
+
+-- Appends an empty line.
+export function blank(w: any): nil
+    w.out[#w.out + 1] = ""
+end
+
+-- The lines appended since `mark`, removed.
+export function take(w: any, mark: integer): {string}
+    local taken: {string} = {}
+    for index = mark + 1, #w.out do
+        taken[#taken + 1] = w.out[index]
+        w.out[index] = nil
+    end
+
+    return taken
+end
+
+-- Appends `lines` one level deeper than they were written.
+export function putIndented(w: any, lines: {string}): nil
+    for _, text in ipairs(lines) do
+        w.out[#w.out + 1] = INDENT .. text
+    end
+end
+
+-- A name `base` or `base2`, `base3`...: the first no other name of the
+-- function has.
+export function fresh(w: any, base: string): string
+    local name = base
+    local n: integer = 1
+    while w.used[name] do
+        n = n + 1
+        name = base .. tostring(n)
+    end
+    w.used[name] = true
+
+    return name
+end
+
+-- Reserves the source's own name for every local of `node`, so a temporary
+-- never takes one a later local declares.
+export function reserveLocals(w: any, node: any, seen: any): nil
+    if type(node) ~= "table" or seen[node] then
+        return
+    end
+    seen[node] = true
+    if node.kind == "localStmt" then
+        for _, token in ipairs(node.names) do
+            w.used[names.localName(token.text)] = true
+        end
+    end
+    for key, value in pairs(node) do
+        if type(value) == "table"
+            and (
+                key == "stats"
+                or key == "body"
+                or key == "clauses"
+                or key == "stat"
+                or key == "elseClause"
+                or type(key) == "number"
+            )
+        then
+            reserveLocals(w, value, seen)
+        end
+    end
+end
+
+-- The C name of local `token`, declared in the current block: its own
+-- unless this block already declares it, as Nupp allows and C does not.
+export function declareLocal(w: any, token: any): string
+    local block = w.blocks[#w.blocks]
+    local base = names.localName(token.text)
+    local name = base
+    local n: integer = 1
+    while block[name] do
+        n = n + 1
+        name = base .. tostring(n)
+    end
+    block[name] = true
+    w.used[name] = true
+    if token.definition then
+        w.cnames[token.definition] = name
+    end
+
+    return name
+end
+
+-- A parameter's C name.
+export function declareParameter(w: any, token: any): string
+    local name = names.localName(token.text)
+    w.used[name] = true
+    w.blocks[1][name] = true
+    if token.definition then
+        w.cnames[token.definition] = name
+    end
+
+    return name
+end
+
+export function openBlock(w: any): integer
+    w.blocks[#w.blocks + 1] = {}
+    return #w.blocks
+end
+
+export function closeBlock(w: any): nil
+    w.blocks[#w.blocks] = nil
+end

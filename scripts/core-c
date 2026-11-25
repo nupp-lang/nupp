@@ -1,0 +1,46 @@
+#!/bin/sh
+# Emits the native core's runtime as C and builds the C bridge with it.
+#
+#   scripts/core-c [--emit-only] [--no-format]
+#
+# The runtime's Nupp (src/nupp/runtime) becomes a header and a source per
+# module in build/core-c/src (nupp.compiler.cemit, run by the compiler
+# bin/nupp runs), laid out as the repository's C is (scripts/format-c's pinned
+# tools), and scripts/core-bridge links it with native/corec into
+# build/core-c/bridge/nupp-core, which runs any core bundle's program in place
+# of the runtime code the bundle carries.
+set -eu
+ROOT=$(CDPATH= cd -- "$(dirname "$0")/.." && pwd)
+emit_only=0
+format=1
+for argument in "$@"; do
+    case "$argument" in
+        --emit-only) emit_only=1 ;;
+        --no-format) format=0 ;;
+        *) printf 'usage: scripts/core-c [--emit-only] [--no-format]\n' >&2; exit 2 ;;
+    esac
+done
+die() { printf 'core-c: %s\n' "$*" >&2; exit 1; }
+OUT="$ROOT/build/core-c"
+SOURCE="$OUT/src"
+pending="$OUT/src.$$.pending"
+trap 'rm -rf "$pending"' EXIT
+mkdir -p "$pending"
+NUPP_COMPILER_ROOT="$ROOT" sh "$ROOT/bin/nupp" __core-c "$pending" || die 'emission failed'
+if [ "$format" = 1 ]; then
+    cd "$ROOT"
+    uncrustify=$(sh scripts/toolchain uncrustify)
+    clang_format() {
+        pipx run --spec clang-format==22.1.8 --pip-args=--only-binary=:all: \
+            clang-format --style=file:.clang-format -i "$@"
+    }
+    clang_format "$pending"/*.c "$pending"/*.h
+    "$uncrustify" -q -c .uncrustify.cfg -l C --replace --no-backup "$pending"/*.c "$pending"/*.h
+    clang_format "$pending"/*.c "$pending"/*.h
+fi
+rm -rf "$SOURCE"
+mv "$pending" "$SOURCE"
+if [ "$emit_only" = 1 ]; then
+    exit 0
+fi
+NUPP_CORE_BRIDGE_DIR="$OUT/bridge" sh "$ROOT/scripts/core-bridge" --c-runtime="$SOURCE"

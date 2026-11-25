@@ -4,12 +4,16 @@ set -eu
 ROOT=$(CDPATH= cd -- "$(dirname "$0")/.." && pwd)
 sanitize=${NUPP_CORE_BRIDGE_SANITIZE:-0}
 test=0
+# The runtime emitted as C (scripts/core-c), linked in place of the runtime
+# code a bundle carries.
+c_runtime=
 for argument in "$@"; do
     case "$argument" in
         --sanitize) sanitize=1 ;;
         --test) test=1 ;;
+        --c-runtime=*) c_runtime=${argument#--c-runtime=} ;;
         --win64-contracts | --win64-http-link) ;;
-        *) printf 'usage: scripts/core-bridge [--sanitize] [--test] | --win64-contracts | --win64-http-link\n' >&2; exit 2 ;;
+        *) printf 'usage: scripts/core-bridge [--sanitize] [--test] [--c-runtime=DIR] | --win64-contracts | --win64-http-link\n' >&2; exit 2 ;;
     esac
 done
 defaults=
@@ -216,7 +220,36 @@ if [ "$platform" = Darwin:arm64 ]; then
 else
     compile -I"$icu_include" -c "$http/uriidna.c" -o "$stage/uriidna.o"
 fi
-link_bridge "$common/main.c" "$common/uv.c" -o "$OUT/nupp-core$pending"
+if [ -n "$c_runtime" ]; then
+    # Each module of the emitted runtime and the C beside it (native/corec),
+    # compiled at once and optimized across modules when linked. Handlers
+    # tail-call each other, so the emitted C is held to no warning policy of
+    # its own; the compiler checked the Nupp it came from.
+    corec="$ROOT/native/corec"
+    runtime_objects=
+    pids=
+    for source in "$c_runtime"/*.c "$corec"/*.c "$corec/foreigncall.S"; do
+        object="$stage/runtime-$(basename "$source").o"
+        runtime_objects="$runtime_objects $object"
+        if [ "$platform" = Darwin:arm64 ]; then
+            target_flags="-target arm64-apple-macos11.0 -isysroot $SDKROOT"
+        else
+            target_flags=
+        fi
+        # shellcheck disable=SC2086
+        "$CC" $target_flags -std=c11 -O2 -g -fno-builtin -fwrapv -fno-strict-aliasing -flto=thin -w ${NUPP_CORE_C_FLAGS:-} \
+            -I"$c_runtime" -I"$corec" -c "$source" -o "$object" &
+        pids="$pids $!"
+    done
+    for pid in $pids; do
+        wait "$pid" || die "the C runtime did not compile"
+    done
+    # shellcheck disable=SC2086
+    link_bridge -flto=thin ${NUPP_CORE_C_FLAGS:-} -DNUPP_CORE_C_RUNTIME "$common/main.c" "$common/uv.c" $runtime_objects \
+        -o "$OUT/nupp-core$pending"
+else
+    link_bridge "$common/main.c" "$common/uv.c" -o "$OUT/nupp-core$pending"
+fi
 link_bridge "$common/guard.c" "$common/uv.c" "$ROOT/tests/core/bridgeabi.S" \
     -o "$OUT/nupp-core-guard$pending"
 check_floor "$OUT/nupp-core$pending"

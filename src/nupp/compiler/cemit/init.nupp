@@ -1,0 +1,41 @@
+module nupp.compiler.cemit
+
+-- Emits the native core's runtime as C: one header and one source file per
+-- runtime module, from the checked Nupp the guest runtime is built from,
+-- and the dispatch table. With native/corec (the intrinsics, the edges the
+-- bridge supplies and the entry) it is the runtime the C bridge links.
+local closure = require("nupp.compiler.cemit.closure")
+local modules = require("nupp.compiler.cemit.modules")
+
+local function write(path: string, lines: {string}): nil
+    local file = assert(io.open(path, "wb"))
+    file:write(table.concat(lines, "\n"), "\n")
+    file:close()
+end
+
+-- Writes the C for the runtime under source root `root` into directory
+-- `out`, and answers how many functions and modules it wrote.
+export function emit(root: string, out: string): (integer, integer)
+    local started = os.clock()
+    local state = closure.load(root)
+    io.stderr:write(("cemit: runtime closure %.1fs\n"):format(os.clock() - started))
+    modules.prepare(state)
+    local sources: {[string]: {string}} = {}
+    for _, name in ipairs(state.moduleNames) do
+        local m = state.modules[name]
+        if #m.functions > 0 then
+            sources[name] = modules.source(state, m)
+        end
+    end
+    for _, name in ipairs(state.moduleNames) do
+        local m = state.modules[name]
+        write(out .. "/" .. m.prefix .. ".h", modules.header(state, m))
+        local source = sources[name]
+        if source ~= nil then
+            write(out .. "/" .. m.prefix .. ".c", source)
+        end
+    end
+    write(out .. "/dispatch.c", modules.dispatch(state))
+
+    return #state.functions, #state.moduleNames
+end

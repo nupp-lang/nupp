@@ -1,0 +1,745 @@
+module nupp.compiler.cemit.expressions
+
+-- Checked Nupp expressions as C expressions. Each answers its text and the
+-- precedence of its outermost operator, so parentheses appear only where C
+-- needs them or where C's precedence is the one everyone misremembers. A
+-- call that may fail cannot stay inside an expression: it becomes a
+-- statement of its own, followed by the test of the scope's error, and the
+-- expression reads what it answered.
+local unit = require("nupp.compiler.vm.nativeunit")
+local names = require("nupp.compiler.cemit.names")
+local types = require("nupp.compiler.cemit.types")
+local closure = require("nupp.compiler.cemit.closure")
+local writer = require("nupp.compiler.cemit.writer")
+
+const INTRINSICS = "nupp.runtime.vm.intrinsics"
+const PROGRAM = "nupp.runtime.vm.program"
+const SLOTS = "nupp.runtime.vm.slots"
+const OS = "nupp.runtime.vm.os"
+
+-- C's precedence, tighter binding higher.
+const PREC: {
+    [string]: integer
+} = {
+    ["*"] = 13,
+    ["/"] = 13,
+    ["%"] = 13,
+    ["+"] = 12,
+    ["-"] = 12,
+    ["<<"] = 11,
+    [">>"] = 11,
+    ["<"] = 10,
+    ["<="] = 10,
+    [">"] = 10,
+    [">="] = 10,
+    ["=="] = 9,
+    ["!="] = 9,
+    ["&"] = 8,
+    ["^"] = 7,
+    ["|"] = 6,
+    ["&&"] = 5,
+    ["||"] = 4
+}
+const BITWISE: {[string]: boolean} = {["&"] = true, ["^"] = true, ["|"] = true, ["<<"] = true, [">>"] = true}
+const ARITHMETIC: {[string]: boolean} = {["+"] = true, ["-"] = true, ["*"] = true, ["/"] = true, ["%"] = true}
+const CONDITIONAL: integer = 3
+const ASSIGNMENT: integer = 2
+const UNARY: integer = 14
+const ADDITIVE: integer = 12
+const ATOM: integer = 16
+
+-- The largest literal C reads as `int` without a suffix.
+const INT_MAX: integer = 2147483647
+
+local ARITH_OPS: {
+    [string]: string
+} = {
+    ["+"] = "+",
+    ["-"] = "-",
+    ["*"] = "*",
+    ["&"] = "&",
+    ["|"] = "|",
+    ["~"] = "^",
+    ["<<"] = "<<",
+    [">>"] = ">>",
+    ["/"] = "/"
+}
+local COMPARE_OPS: {
+    [string]: string
+} = {["=="] = "==", ["~="] = "!=", ["<"] = "<", ["<="] = "<=", [">"] = ">", [">="] = ">="}
+
+-- An emitted expression.
+export function E(text: string, prec: integer?): any
+    return {text = text, prec = prec or ATOM}
+end
+
+local function pure(e: any): any
+    e.pure = true
+    return e
+end
+
+-- `e` as an operand at precedence `prec`, on `side` of operator `op`.
+local function wrap(e: any, prec: integer, side: string?, op: string?): string
+    local paren = e.prec < prec or e.prec == prec and side == "right"
+    if not paren and op ~= nil and e.op ~= nil then
+        if BITWISE[op] and ARITHMETIC[e.op] then
+            paren = true
+        elseif BITWISE[e.op]
+            and (BITWISE[op] and e.op ~= op or PREC[op] ~= nil and PREC[op] >= 9 and PREC[op] <= 10)
+        then
+            paren = true
+        end
+    end
+    if paren then
+        return "(" .. e.text .. ")"
+    end
+
+    return e.text
+end
+
+-- A literal operand's text: without its suffix where C's conversions make
+-- it the same number, with it where the other operand is a literal too or
+-- it is shifted, so the arithmetic is done at the width Nupp does it.
+local function literalText(e: any, keep: boolean): string
+    if e.literal and not keep then
+        return e.short or e.text
+    end
+
+    return e.text
+end
+
+local function binary(op: string, l: any, r: any): any
+    local p = PREC[op] as integer
+    local both = l.literal and r.literal
+    local lt = E(literalText(l, both or op == "<<"), l.prec)
+    lt.op = l.op
+    local rt = E(literalText(r, both), r.prec)
+    rt.op = r.op
+    local e = E(wrap(lt, p, "left", op) .. " " .. op .. " " .. wrap(rt, p, "right", op), p)
+    e.op = op
+
+    return e
+end
+
+-- The text of `e` where any value fits: a literal loses its suffix.
+export function text(e: any): string
+    return literalText(e, false)
+end
+
+-- The required module a member expression reads (`values.NIL`), and its member.
+export function member(n: any): (string?, string?)
+    if n.kind ~= "dotIndex" or n.obj.kind ~= "name" then
+        return nil, nil
+    end
+    local definition = n.obj.token.definition
+
+    return definition and definition.requiredModule or nil, n.name.text
+end
+
+local function stringValue(n: any): string
+    assert(n.kind == "string", "cemit: string literal expected")
+    local quoted = n.token.text as string
+    local body = quoted:match('^"(.*)"$') or quoted:match("^'(.*)'$")
+
+    return assert(body, "cemit: simple string literal expected") as string
+end
+
+local function typeArgument(n: any): any
+    local argument = assert(n.typeArgs and n.typeArgs[1], "cemit: type argument expected")
+    local resolved = assert(argument.resolvedType, "cemit: resolved type argument expected")
+    return resolved
+end
+
+local function args(n: any): any
+    return n.args.exprs or {}
+end
+
+local expr: function(any, any): any
+
+-- The statements a failed call ends this function with: its owners' cleanup
+-- through the `failed:` label when it has owners, else a return of zero.
+export function failure(w: any): nil
+    if w.hasOwners then
+        writer.line(w, "goto failed;")
+        return
+    end
+    if w.handler then
+        writer.line(w, "return 0;")
+        return
+    end
+    local value = types.zero(w.state, w.fn.resultType)
+    writer.line(w, value and ("return " .. value .. ";") or "return;")
+end
+
+-- The test of the scope's sticky error after a call that may fail.
+export function failureCheck(w: any): nil
+    if w.skipCheck then
+        return
+    end
+    writer.line(w, "if (serviceScope->error != 0) {")
+    w.depth = w.depth + 1
+    failure(w)
+    w.depth = w.depth - 1
+    writer.line(w, "}")
+end
+
+-- The operands of one operation, in order. When an operand needs statements
+-- of its own, each earlier operand that reads memory is held in a temporary
+-- first, so it is read when the source reads it.
+export function operands(w: any, nodes: any): {any}
+    local values: {any} = {}
+    for index, node in ipairs(nodes) do
+        local mark = #w.out
+        values[index] = expr(w, node)
+        if #w.out > mark then
+            local holds: {string} = {}
+            for j = 1, index - 1 do
+                if not values[j].pure then
+                    local name = writer.fresh(w, "held")
+                    holds[
+                        #holds + 1
+                    ] = (
+                        "    "
+                    ):rep(
+                        w.depth
+                    ) .. types.declare(w.state, nodes[j].inferredType, name) .. " = " .. values[j].text .. ";"
+                    values[j] = pure(E(name))
+                end
+            end
+            for k = #holds, 1, -1 do
+                table.insert(w.out, mark + 1, holds[k])
+            end
+        end
+    end
+
+    return values
+end
+
+local function operandTexts(w: any, nodes: any): {string}
+    local texts: {string} = {}
+    for index, e in ipairs(operands(w, nodes)) do
+        texts[index] = text(e)
+    end
+
+    return texts
+end
+
+local function joined(w: any, nodes: any): string
+    return table.concat(operandTexts(w, nodes), ", ")
+end
+
+------------------------------------------------------------------------------
+-- Intrinsics (nupp.runtime.vm.intrinsics).
+
+-- The struct and field a `native.fieldOffset<T>("f")` names, or nil.
+local function fieldOffsetOf(w: any, n: any): (any, string?)
+    if n.kind ~= "call" then
+        return nil, nil
+    end
+    local moduleName, name = member(n.obj)
+    if moduleName ~= INTRINSICS or name ~= "fieldOffset" then
+        return nil, nil
+    end
+
+    return types.strip(typeArgument(n)), stringValue(args(n)[1])
+end
+
+-- `base` as a pointer to struct `cname`.
+local function structPointer(w: any, baseNode: any, base: any, cname: string): string
+    if types.ctype(w.state, baseNode.inferredType) == cname .. " *" then
+        return wrap(base, ATOM)
+    end
+
+    return "((" .. cname .. " *)" .. wrap(base, UNARY) .. ")"
+end
+
+-- A load or store at a field's offset whose width is the field's own, as
+-- the member access it is: `((frames_Frame *)frame)->valueCount`.
+local FIELD_KINDS: {
+    [string]: string
+} = {
+    load8 = "uint8_t",
+    store8 = "uint8_t",
+    load16 = "uint16_t",
+    store16 = "uint16_t",
+    load32 = "int32_t",
+    store32 = "int32_t",
+    load64 = "uint64_t",
+    store64 = "uint64_t",
+    loadIndex = "int64_t",
+    storeIndex = "int64_t",
+    loadFloat = "double",
+    storeFloat = "double",
+    loadPointer = "*",
+    storePointer = "*"
+}
+
+local function fieldAccess(w: any, n: any, name: string): any
+    local wanted = FIELD_KINDS[name]
+    local a = args(n)
+    if wanted == nil or #a < 2 then
+        return nil
+    end
+    local struct, field = fieldOffsetOf(w, a[2])
+    if struct == nil or field == nil or struct.tag ~= "nominal" or struct.byname == nil then
+        return nil
+    end
+    local ft = types.fieldType(struct, field as string)
+    if ft == nil then
+        return nil
+    end
+    local fc = types.ctype(w.state, ft)
+    if wanted == "*" and fc:sub(-1) ~= "*" or wanted ~= "*" and fc ~= wanted then
+        return nil
+    end
+    local cname = types.structName(w.state, struct)
+    w.module.usesStructs[cname] = true
+    if name:sub(1, 5) == "store" then
+        local values = operands(w, {a[1], a[3]})
+        local target = structPointer(w, a[1], values[1], cname) .. "->" .. names.field(field as string)
+        local e = E(target .. " = " .. text(values[2]), ASSIGNMENT)
+        e.assignment = true
+        return e
+    end
+    local base = expr(w, a[1])
+
+    return E(structPointer(w, a[1], base, cname) .. "->" .. names.field(field as string))
+end
+
+local INTRINSIC: {[string]: function(any, any, any): any} = {}
+
+local function nary(cname: string): function(any, any, any): any
+    return function(w: any, n: any, a: any): any
+        return E(cname .. "(" .. joined(w, a) .. ")")
+    end
+end
+
+local function castTo(ctypeText: string): function(any, any, any): any
+    return function(w: any, n: any, a: any): any
+        local value = expr(w, a[1])
+        if value.literal then
+            return value
+        end
+
+        return E("(" .. ctypeText .. ")" .. wrap(value, UNARY), UNARY)
+    end
+end
+
+INTRINSIC.fieldOffset = function(w: any, n: any, a: any): any
+    local struct, field = fieldOffsetOf(w, n)
+    local cname = types.ctype(w.state, struct)
+    w.module.usesStructs[cname] = true
+    return E("offsetof(" .. cname .. ", " .. names.field(field as string) .. ")")
+end
+INTRINSIC.sizeOf = function(w: any, n: any, a: any): any
+    local c = types.ctype(w.state, typeArgument(n))
+    w.module.usesStructs[c] = true
+    return E("sizeof(" .. c .. ")")
+end
+INTRINSIC.alignmentOf = function(w: any, n: any, a: any): any
+    return E("_Alignof(" .. types.ctype(w.state, typeArgument(n)) .. ")")
+end
+INTRINSIC.dispatch = nary("NUPP_DISPATCH")
+INTRINSIC.fail = function(w: any, n: any, a: any): any
+    return E("0")
+end
+INTRINSIC.stackBytes = function(w: any, n: any, a: any): any
+    local name = writer.fresh(w, "stack")
+    writer.line(w, "_Alignas(16) uint8_t " .. name .. "[" .. text(expr(w, a[1])) .. "];")
+    return pure(E(name))
+end
+INTRINSIC.both = function(w: any, n: any, a: any): any
+    local values = operands(w, a)
+    return binary("&&", values[1], values[2])
+end
+INTRINSIC.either = function(w: any, n: any, a: any): any
+    local values = operands(w, a)
+    return binary("||", values[1], values[2])
+end
+
+local function choose(w: any, n: any, a: any): any
+    local values = operands(w, a)
+    return E(
+        wrap(
+            values[1],
+            CONDITIONAL + 1
+        ) .. " ? " .. wrap(values[2], CONDITIONAL + 1) .. " : " .. wrap(values[3], CONDITIONAL),
+        CONDITIONAL
+    )
+end
+
+INTRINSIC.chooseWord = choose
+INTRINSIC.chooseIndex = choose
+INTRINSIC.index = castTo("int64_t")
+INTRINSIC.word = castTo("uint64_t")
+INTRINSIC.asWord = castTo("uint64_t")
+INTRINSIC.pointer = castTo("void *")
+INTRINSIC.address = castTo("uint64_t")
+INTRINSIC.toFloat = castTo("double")
+INTRINSIC.unsignedFloat = castTo("double")
+INTRINSIC.offset = function(w: any, n: any, a: any): any
+    local values = operands(w, a)
+    local e = E("(uint8_t *)" .. wrap(values[1], UNARY) .. " + " .. wrap(values[2], ADDITIVE, "right", "+"), ADDITIVE)
+    e.op = "+"
+    return e
+end
+INTRINSIC.neg = function(w: any, n: any, a: any): any
+    return E("-" .. wrap(expr(w, a[1]), UNARY), UNARY)
+end
+for _, name in ipairs({
+    "load8",
+    "load16",
+    "load32",
+    "load64",
+    "loadIndex",
+    "loadPointer",
+    "loadFloat",
+    "store8",
+    "store16",
+    "store32",
+    "store64",
+    "storeIndex",
+    "storePointer",
+    "storeFloat",
+    "bits",
+    "fromBits",
+    "floatBits",
+    "floatFromBits",
+    "floor",
+    "ceil",
+    "sqrt",
+    "sqrtFloat",
+    "roundFloat",
+    "fma",
+    "fmaFloat",
+    "unsignedMulHigh",
+    "signedMulHigh",
+    "signedQuotient",
+    "popcount",
+    "toInt",
+    "unsignedInt",
+    "reenter"
+}) do
+    INTRINSIC[name] = nary("native_" .. name)
+end
+
+------------------------------------------------------------------------------
+-- Calls.
+
+-- An argument given to a parameter that takes it: its owner no longer
+-- closes it (an affine value moved).
+local function takeArguments(w: any, n: any): nil
+    local t = n.obj and n.obj.inferredType
+    if t ~= nil and t.tag ~= "func" then
+        t = n.calleeType or n.signatureType or t
+    end
+    local modes = t ~= nil and t.tag == "func" and t.paramPack and t.paramPack.modes or nil
+    if modes == nil then
+        return
+    end
+    for index, argument in ipairs(args(n)) do
+        local source = argument
+        while source.kind == "paren" do
+            source = source.expr
+        end
+        local owner = source.kind == "name" and source.token.definition and w.owners[source.token.definition]
+        if owner and modes[index] == "takes" then
+            writer.line(w, owner.flag .. " = false;")
+        end
+    end
+end
+
+-- A call as an expression, and whether it may fail (so the caller tests
+-- the scope after it). Nil for a raise, which has ended the statement.
+export function call(w: any, n: any): (any, boolean)
+    local state = w.state
+    local moduleName, name = member(n.obj)
+    local a = args(n)
+    if moduleName == INTRINSICS then
+        if name ~= nil then
+            local access = fieldAccess(w, n, name as string)
+            if access ~= nil then
+                return access, false
+            end
+        end
+        local handler = assert(INTRINSIC[name as string], "cemit: intrinsic native." .. tostring(name))
+        return handler(w, n, a), false
+    elseif moduleName == PROGRAM or moduleName == SLOTS then
+        local prefix = moduleName == PROGRAM and "program_" or "slots_"
+        return E(prefix .. (name as string) .. "(" .. joined(w, a) .. ")"), false
+    end
+    local raising = state.closure.raises[n]
+    if raising ~= nil then
+        local message = unit.literalRaise(w.fn, n).literal as string
+        writer.line(
+            w,
+            "NUPP_RAISE(serviceScope, " .. tostring(
+                state.ids[w.fn]
+            ) .. ", " .. tostring(raising.site) .. ", " .. names.quoted(message) .. ");"
+        )
+        failure(w)
+        return nil, false
+    end
+    if n.ownershipIntrinsic ~= nil then
+        -- borrowFrom(view, owner) and its kin: the value is the view.
+        return expr(w, a[1]), false
+    end
+    if n.cdefCall then
+        local symbol = n.obj.token.text as string
+        state.foreign[symbol] = true
+        w.module.usesForeign[symbol] = true
+        return E(symbol .. "(" .. joined(w, a) .. ")"), false
+    end
+    if n.structConstruct or n.constructorCall then
+        local t = types.strip(n.inferredType)
+        return E("(" .. types.ctype(state, t) .. "){" .. joined(w, a) .. "}"), false
+    end
+    local service = state.closure.calls[n]
+    if moduleName == OS then
+        if service == nil then
+            -- The OS edge itself, in the infrastructure the closure leaves raw.
+            return E("os_" .. (name as string) .. "(" .. joined(w, a) .. ")"), false
+        end
+        -- Through the scope's wrapper, as the service closure redirects it.
+        local list = operandTexts(w, a)
+        table.insert(list, 1, "serviceScope")
+        return E(state.functionC[service.target] .. "(" .. table.concat(list, ", ") .. ")"), true
+    end
+    if next(w.owners) ~= nil then
+        takeArguments(w, n)
+    end
+    local target = service and service.target or assert(unit.callee(w.fn, n), "cemit: unresolved call")
+    local cname = assert(state.functionC[target], "cemit: callee outside the runtime: " .. tostring(target.name))
+    local list = operandTexts(w, a)
+    if closure.takesScope(state, target) then
+        list[#list + 1] = "serviceScope"
+        return E(cname .. "(" .. table.concat(list, ", ") .. ")"), true
+    end
+
+    return E(cname .. "(" .. table.concat(list, ", ") .. ")"), state.scoped[target] == true
+end
+
+-- A call whose result `into` (when given) answers the left side to assign:
+-- one that may fail is a statement of its own, tested after; its value is
+-- held in a temporary when an expression reads it. Nil for a raise, for a
+-- call answering nothing, and when `into` took the value.
+export function checkedCall(w: any, n: any, wanted: boolean, into: (function(): string)?): any
+    local e, checked = call(w, n)
+    if e == nil then
+        return nil
+    end
+    if into ~= nil then
+        writer.line(w, into() .. " = " .. text(e) .. ";")
+        if checked then
+            failureCheck(w)
+        end
+        return true
+    end
+    if not checked then
+        return e
+    end
+    local t = types.strip(n.inferredType)
+    if wanted and t ~= nil and t.tag ~= "nil" then
+        local name = writer.fresh(w, "result")
+        writer.line(w, types.declare(w.state, t, name) .. " = " .. text(e) .. ";")
+        failureCheck(w)
+        return pure(E(name))
+    end
+    writer.line(w, text(e) .. ";")
+    failureCheck(w)
+
+    return nil
+end
+
+------------------------------------------------------------------------------
+-- Operators and leaves.
+
+local function kindOf(n: any): string?
+    local t = types.strip(n.inferredType)
+    if t ~= nil and t.tag == "literal" then
+        t = types.strip(t.base)
+    end
+
+    return t and t.tag or nil
+end
+
+local function literalValue(textValue: string): integer?
+    local digits = textValue:gsub("[UuLl]+$", "")
+    return math.tointeger(tonumber(digits))
+end
+
+local function number(n: any): any
+    local raw = n.token.text as string
+    local e = pure(E(raw))
+    if raw:match("^0[xX]") or not raw:match("[%.eEpP]") then
+        local value = literalValue(raw)
+        if value ~= nil then
+            e.literal = true
+            if value >= 0 and value <= INT_MAX then
+                e.short = (raw:gsub("[UuLl]+$", ""))
+            end
+        end
+    end
+
+    return e
+end
+
+local function shortCircuit(w: any, n: any, op: string): any
+    local l = expr(w, n.lhs)
+    local mark = #w.out
+    local r = expr(w, n.rhs)
+    if #w.out == mark then
+        return binary(op == "and" and "&&" or "||", l, r)
+    end
+    -- The right side needs statements: they run only when it is evaluated.
+    local pre = writer.take(w, mark)
+    local name = writer.fresh(w, op == "and" and "both" or "either")
+    writer.line(w, "bool " .. name .. " = " .. text(l) .. ";")
+    writer.line(w, "if (" .. (op == "and" and name or "!" .. name) .. ") {")
+    writer.putIndented(w, pre)
+    writer.line(w, "    " .. name .. " = " .. text(r) .. ";")
+    writer.line(w, "}")
+
+    return pure(E(name))
+end
+
+local function binop(w: any, n: any): any
+    local op = n.op.text as string
+    if op == "and" or op == "or" then
+        return shortCircuit(w, n, op)
+    end
+    local values = operands(w, {n.lhs, n.rhs})
+    local l, r = values[1], values[2]
+    local compare = COMPARE_OPS[op]
+    if compare ~= nil then
+        return binary(compare, l, r)
+    end
+    local kind = kindOf(n)
+    if op == "//" or op == "%" then
+        if kind == "int64" then
+            local fname = op == "//" and "nupp_floordiv" or "nupp_floormod"
+            return E(fname .. "(" .. text(l) .. ", " .. text(r) .. ")")
+        end
+        return binary(op == "//" and "/" or "%", l, r)
+    end
+    if op == "~>>" then
+        -- An arithmetic shift: C shifts a signed value so.
+        return binary(">>", E("(int64_t)" .. wrap(l, UNARY), UNARY), r)
+    end
+    if op == "<<" or op == ">>" then
+        -- A machine shift takes its amount modulo 64; a literal below that
+        -- needs nothing.
+        local amount = r
+        local value = r.literal and literalValue(r.text) or nil
+        if value == nil or value < 0 or value >= 64 then
+            amount = binary("&", r, E("63"))
+        end
+        if op == ">>" and kind == "int64" then
+            return E("(int64_t)((uint64_t)" .. wrap(l, UNARY) .. " >> " .. wrap(amount, UNARY) .. ")", UNARY)
+        end
+        return binary(op, l, amount)
+    end
+
+    return binary(assert(ARITH_OPS[op], "cemit: operator " .. op), l, r)
+end
+
+local function unop(w: any, n: any): any
+    local op = n.op.text as string
+    local value = expr(w, n.operand)
+    if op == "not" then
+        return E("!" .. wrap(value, UNARY), UNARY)
+    elseif op == "-" then
+        return E("-" .. wrap(value, UNARY), UNARY)
+    elseif op == "~" then
+        return E("~" .. wrap(value, UNARY), UNARY)
+    end
+    error("cemit: unary " .. op)
+end
+
+local function name(w: any, n: any): any
+    local definition = n.token.definition
+    if definition ~= nil then
+        local local_ = w.cnames[definition]
+        if local_ ~= nil then
+            return pure(E(local_))
+        end
+        local constant = w.state.constants[definition]
+        if constant ~= nil then
+            return pure(E(constant))
+        end
+        local fn = w.state.definitions and w.state.definitions[definition]
+        if fn ~= nil then
+            return pure(E(w.state.functionC[fn]))
+        end
+    end
+
+    return pure(E(names.localName(n.token.text)))
+end
+
+local function dotIndex(w: any, n: any): any
+    local moduleName, field = member(n)
+    if moduleName ~= nil then
+        local m = w.state.modules[moduleName]
+        local constant = m and m.constants[field]
+        if constant ~= nil then
+            return pure(E(constant))
+        end
+        return E(w.state.prefixes[moduleName] .. "_" .. (field as string))
+    end
+    local object = expr(w, n.obj)
+    local arrow = types.isPointer(w.state, n.obj.inferredType) and "->" or "."
+
+    return E(wrap(object, ATOM) .. arrow .. names.field(n.name.text))
+end
+
+local function cast(w: any, n: any): any
+    local operand = n.expr or n.operand
+    local from = types.strip(operand.inferredType)
+    local to = types.strip(n.inferredType)
+    if from ~= nil and from.tag == "nominal" and to ~= nil and to.tag == "ptr" then
+        -- A struct held by value, as a pointer: its address.
+        return E("&" .. wrap(expr(w, operand), UNARY), UNARY)
+    end
+    local value = expr(w, operand)
+    local target = types.ctype(w.state, n.inferredType)
+    if target == types.ctype(w.state, operand.inferredType) then
+        return value
+    end
+
+    return E("(" .. target .. ")" .. wrap(value, UNARY), UNARY)
+end
+
+expr = function(w: any, n: any): any
+    local k = n.kind
+    if k == "number" then
+        return number(n)
+    elseif k == "name" then
+        return name(w, n)
+    elseif k == "paren" then
+        return expr(w, n.expr)
+    elseif k == "binop" then
+        return binop(w, n)
+    elseif k == "unop" then
+        return unop(w, n)
+    elseif k == "dotIndex" then
+        return dotIndex(w, n)
+    elseif k == "call" then
+        local e = checkedCall(w, n, true, nil)
+        return e or E("0")
+    elseif k == "trueExpr" or k == "true" then
+        return pure(E("true"))
+    elseif k == "falseExpr" or k == "false" then
+        return pure(E("false"))
+    elseif k == "nilExpr" or k == "nil" then
+        return pure(E("NULL"))
+    elseif k == "string" then
+        return pure(E(names.quoted(stringValue(n))))
+    elseif k == "castExpr" then
+        return cast(w, n)
+    end
+    error("cemit: expression " .. tostring(k))
+end
+
+export function expression(w: any, n: any): any
+    return expr(w, n)
+end

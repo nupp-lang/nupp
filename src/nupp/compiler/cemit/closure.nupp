@@ -1,0 +1,165 @@
+module nupp.compiler.cemit.closure
+
+-- What the C runtime is emitted from: the guest runtime's checked modules and
+-- the service closure the bundle's runtime is lowered from
+-- (nupp.compiler.vm.nativeservice), so the two agree on which functions take
+-- the service scope, where each raise is numbered and what every call
+-- reaches. On top of it, the C names and conventions the emitter uses.
+local service = require("nupp.compiler.vm.nativeservice")
+local guestbuild = require("nupp.core.guestbuild")
+local opcodes = require("nupp.compiler.vm.opcodes")
+local corebytecode = require("nupp.compiler.vm.corebytecode")
+local names = require("nupp.compiler.cemit.names")
+local types = require("nupp.compiler.cemit.types")
+
+const HANDLERS = "nupp.runtime.core.guesthandlers"
+const HANDLER_PARAMETERS = 6
+
+-- A function with the dispatch convention: six pointers in, a word out.
+local function handlerShaped(fn: any): boolean
+    local params = fn.body.params
+    if #params ~= HANDLER_PARAMETERS then
+        return false
+    end
+    for index = 1, #params do
+        if types.tag(fn.parameterTypes[index]) ~= "voidptr" then
+            return false
+        end
+    end
+
+    return types.tag(fn.resultType) == "uint64"
+end
+
+-- The runtime modules `start` requires, transitively, that the session
+-- checked: their headers declare what the emitted functions use.
+local function requiredModules(state: any, start: {string}): {string}
+    local seen: {[string]: boolean} = {}
+    local order: {string} = {}
+    local cursor: integer = 1
+    for _, name in ipairs(start) do
+        if not seen[name] then
+            seen[name] = true
+            order[#order + 1] = name
+        end
+    end
+    while cursor <= #order do
+        local scope = state.session.module(order[cursor])
+        local file = io.open(scope.path, "rb")
+        local text = ""
+        if file then
+            text = file:read("*a") or ""
+            file:close()
+        end
+        for name in text:gmatch('require%("(nupp%.runtime%.[%w%.]+)"%)') do
+            if not seen[name] then
+                seen[name] = true
+                if pcall(state.session.module, name) then
+                    order[#order + 1] = name
+                end
+            end
+        end
+        cursor = cursor + 1
+    end
+    table.sort(order)
+
+    return order
+end
+
+-- The handler each of the 256 opcodes dispatches to, by name, as the guest
+-- shim's table has it (nupp.core.guestshim).
+local function dispatchTable(handlers: {[string]: boolean}): {string}
+    local dispatch: {string} = {}
+    for index = 1, 256 do
+        dispatch[index] = "Invalid"
+    end
+    for index, name in ipairs(opcodes.names()) do
+        if handlers[name] then
+            dispatch[index] = name
+        end
+    end
+    for name, id in pairs(corebytecode.coreOnly()) do
+        if handlers[name] then
+            dispatch[id + 1] = name
+        end
+    end
+
+    return dispatch
+end
+
+-- Loads the runtime under source root `root` and answers the emission
+-- state every other part of the emitter reads.
+export function load(root: string): any
+    local fixtures, roots, handlerRoots = guestbuild.runtimeUnits(root, false)
+    local units = service.buildUnits(fixtures, roots, handlerRoots)
+    local closure = service.closure(units.catalog)
+    local state: any = {
+        root = root,
+        session = units.session,
+        closure = closure,
+        modules = {},
+        structs = {},
+        functionC = {},
+        scoped = {},
+        handler = {},
+        ids = {},
+        functions = {},
+        foreign = {}
+    }
+    -- The functions, in the order the closure found them.
+    local moduleNames: {string} = {}
+    local seenModules: {[string]: boolean} = {}
+    for _, item in ipairs(closure.order) do
+        local fn = item.owner
+        state.functions[#state.functions + 1] = fn
+        state.ids[fn] = item.id
+        state.scoped[fn] = item.scoped == true
+        local moduleName = fn.scope.name as string
+        if not seenModules[moduleName] then
+            seenModules[moduleName] = true
+            moduleNames[#moduleNames + 1] = moduleName
+        end
+    end
+    state.moduleNames = requiredModules(state, moduleNames)
+    state.prefixes = names.prefixes(state.moduleNames)
+    for _, name in ipairs(state.moduleNames) do
+        state.modules[
+            name
+        ] = {
+            name = name,
+            prefix = state.prefixes[name],
+            scope = state.session.module(name),
+            tree = state.session.tree(name),
+            functions = {},
+            constants = {}
+        }
+    end
+    local handlerNames: {[string]: boolean} = {}
+    for qualified in pairs(handlerRoots) do
+        handlerNames[qualified:sub(#HANDLERS + 2)] = true
+    end
+    for _, fn in ipairs(state.functions) do
+        local m = state.modules[fn.scope.name]
+        m.functions[#m.functions + 1] = fn
+        if handlerShaped(fn) then
+            state.handler[fn] = true
+        end
+        if m.scope.exports[fn.name] then
+            state.functionC[fn] = m.prefix .. "_" .. fn.name
+        else
+            state.functionC[fn] = names.localName(fn.name)
+        end
+    end
+    state.dispatch = dispatchTable(handlerNames)
+    state.handlerFunctions = {}
+    for name in pairs(handlerNames) do
+        state.handlerFunctions[name] = HANDLERS .. "." .. name
+    end
+
+    return state
+end
+
+-- Whether `fn` takes the service scope as its last parameter: it may fail,
+-- and it is not a handler, which reads the scope from its context.
+export function takesScope(state: any, fn: any): boolean
+    return state.scoped[fn] == true and not state.handler[fn]
+end

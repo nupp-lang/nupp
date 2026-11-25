@@ -193,6 +193,15 @@ function cli.main(argv: {string}): integer
         local emitter = require("nupp.tools.vm.corecompiler") as {main: function({string}): integer}
 
         return emitter.main(rest)
+    elseif name == "__core-c" then
+        -- The native core's runtime as C (scripts/core-c).
+        local rest: {string} = {}
+        for index = 2, #argv do
+            rest[#rest + 1] = argv[index]
+        end
+        local emitter = require("nupp.tools.vm.corec") as {main: function({string}): integer}
+
+        return emitter.main(rest)
     end
     local schemaStatus = writeSchema(argv)
     if schemaStatus ~= nil then
