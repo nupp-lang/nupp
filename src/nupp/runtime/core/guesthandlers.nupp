@@ -62,20 +62,10 @@ export function K(pc: voidptr, regs: voidptr, ints: voidptr, floats: voidptr, ct
     end
     local dst = program.readByte(pc, 1)
     local index = program.readSigned32(pc, 4)
-    if native.word(dst) >= native.load64(frame, native.fieldOffset<frames.Frame>("valueCount")) then
-        ops.fail(ctx, frame, pc, ops.INVALID)
-        return native.fail()
-    end
-    if index < 0 then
-        ops.fail(ctx, frame, pc, ops.INVALID)
-        return native.fail()
-    end
-    -- The constant inline, as guestops.constant reads it.
+    -- Admission keeps every register operand in the window (chunkadmission).
+    -- The constant inline, as guestops.constant reads it. Admission keeps
+    -- its index among its function's constants (chunkadmission).
     local fn = native.pointer(native.load64(frame, native.fieldOffset<frames.Frame>("bodyOwner")))
-    if native.word(index) >= native.load64(fn, native.fieldOffset<catalog.Function>("constantCount")) then
-        ops.fail(ctx, frame, pc, ops.INVALID)
-        return native.fail()
-    end
     local data = native.loadPointer(
         native.loadPointer(ctx, context.CATALOG),
         native.fieldOffset<catalog.Catalog>("data")
@@ -90,15 +80,9 @@ export function K(pc: voidptr, regs: voidptr, ints: voidptr, floats: voidptr, ct
         value = guestscope.integerConstant(ctx, owner, value)
     end
     slots.writeValue(frame, regs, dst, value)
+    -- Admission keeps an instruction that falls through off its function's
+    -- last (chunkadmission): the next one is there.
     local nextPC = native.address(pc) + ops.INSTRUCTION_BYTES
-    local codeBytes = native.load64(
-        frame,
-        native.fieldOffset<frames.Frame>("instructionCount")
-    ) << ops.INSTRUCTION_SHIFT
-    if nextPC >= native.load64(frame, native.fieldOffset<frames.Frame>("code")) + codeBytes then
-        ops.fail(ctx, frame, pc, ops.INVALID)
-        return native.fail()
-    end
 
     return native.dispatch(native.pointer(nextPC), regs, ints, floats, ctx, frame)
 end
@@ -130,10 +114,7 @@ export function Require(
     end
     local dst = program.readByte(pc, 1)
     local target = program.readSigned32(pc, 4)
-    if native.word(dst) >= native.load64(frame, native.fieldOffset<frames.Frame>("valueCount")) then
-        ops.fail(ctx, frame, pc, ops.INVALID)
-        return native.fail()
-    end
+    -- Admission keeps every register operand in the window (chunkadmission).
     if target < 0 then
         ops.fail(ctx, frame, pc, ops.INVALID)
         return native.fail()
@@ -180,15 +161,9 @@ export function Require(
         return native.fail()
     end
     slots.writeValue(frame, regs, dst, value)
+    -- Admission keeps an instruction that falls through off its function's
+    -- last (chunkadmission): the next one is there.
     local nextPC = native.address(pc) + ops.INSTRUCTION_BYTES
-    local codeBytes = native.load64(
-        frame,
-        native.fieldOffset<frames.Frame>("instructionCount")
-    ) << ops.INSTRUCTION_SHIFT
-    if nextPC >= native.load64(frame, native.fieldOffset<frames.Frame>("code")) + codeBytes then
-        ops.fail(ctx, frame, pc, ops.INVALID)
-        return native.fail()
-    end
 
     return native.dispatch(native.pointer(nextPC), regs, ints, floats, ctx, frame)
 end
@@ -214,18 +189,9 @@ export function Add(pc: voidptr, regs: voidptr, ints: voidptr, floats: voidptr, 
     end
     local dst, lhs, rhs = program.readByte(pc, 1), program.readByte(pc, 2), program.readByte(pc, 3)
     local count = native.load64(frame, native.fieldOffset<frames.Frame>("valueCount"))
-    if native.word(dst) >= count then
-        ops.fail(ctx, frame, pc, ops.INVALID)
-        return native.fail()
-    end
-    if native.word(lhs) >= count then
-        ops.fail(ctx, frame, pc, ops.INVALID)
-        return native.fail()
-    end
-    if native.word(rhs) >= count then
-        ops.fail(ctx, frame, pc, ops.INVALID)
-        return native.fail()
-    end
+    -- Admission keeps every register operand in the window (chunkadmission).
+    -- Admission keeps every register operand in the window (chunkadmission).
+    -- Admission keeps every register operand in the window (chunkadmission).
     local left, right = slots.readValue(frame, regs, lhs), slots.readValue(frame, regs, rhs)
     local result = guestarith.arithmetic(guestarith.ADD, left, right)
     if result == values.NIL then
@@ -285,15 +251,9 @@ export function Add(pc: voidptr, regs: voidptr, ints: voidptr, floats: voidptr, 
         return native.fail()
     end
     slots.writeValue(frame, regs, dst, result)
+    -- Admission keeps an instruction that falls through off its function's
+    -- last (chunkadmission): the next one is there.
     local nextPC = native.address(pc) + ops.INSTRUCTION_BYTES
-    local codeBytes = native.load64(
-        frame,
-        native.fieldOffset<frames.Frame>("instructionCount")
-    ) << ops.INSTRUCTION_SHIFT
-    if nextPC >= native.load64(frame, native.fieldOffset<frames.Frame>("code")) + codeBytes then
-        ops.fail(ctx, frame, pc, ops.INVALID)
-        return native.fail()
-    end
 
     return native.dispatch(native.pointer(nextPC), regs, ints, floats, ctx, frame)
 end
@@ -306,18 +266,9 @@ export function Sub(pc: voidptr, regs: voidptr, ints: voidptr, floats: voidptr, 
     end
     local dst, lhs, rhs = program.readByte(pc, 1), program.readByte(pc, 2), program.readByte(pc, 3)
     local count = native.load64(frame, native.fieldOffset<frames.Frame>("valueCount"))
-    if native.word(dst) >= count then
-        ops.fail(ctx, frame, pc, ops.INVALID)
-        return native.fail()
-    end
-    if native.word(lhs) >= count then
-        ops.fail(ctx, frame, pc, ops.INVALID)
-        return native.fail()
-    end
-    if native.word(rhs) >= count then
-        ops.fail(ctx, frame, pc, ops.INVALID)
-        return native.fail()
-    end
+    -- Admission keeps every register operand in the window (chunkadmission).
+    -- Admission keeps every register operand in the window (chunkadmission).
+    -- Admission keeps every register operand in the window (chunkadmission).
     local left, right = slots.readValue(frame, regs, lhs), slots.readValue(frame, regs, rhs)
     local result = guestarith.arithmetic(guestarith.SUB, left, right)
     if result == values.NIL then
@@ -358,15 +309,9 @@ export function Sub(pc: voidptr, regs: voidptr, ints: voidptr, floats: voidptr, 
         return native.fail()
     end
     slots.writeValue(frame, regs, dst, result)
+    -- Admission keeps an instruction that falls through off its function's
+    -- last (chunkadmission): the next one is there.
     local nextPC = native.address(pc) + ops.INSTRUCTION_BYTES
-    local codeBytes = native.load64(
-        frame,
-        native.fieldOffset<frames.Frame>("instructionCount")
-    ) << ops.INSTRUCTION_SHIFT
-    if nextPC >= native.load64(frame, native.fieldOffset<frames.Frame>("code")) + codeBytes then
-        ops.fail(ctx, frame, pc, ops.INVALID)
-        return native.fail()
-    end
 
     return native.dispatch(native.pointer(nextPC), regs, ints, floats, ctx, frame)
 end
@@ -379,18 +324,9 @@ export function Mul(pc: voidptr, regs: voidptr, ints: voidptr, floats: voidptr, 
     end
     local dst, lhs, rhs = program.readByte(pc, 1), program.readByte(pc, 2), program.readByte(pc, 3)
     local count = native.load64(frame, native.fieldOffset<frames.Frame>("valueCount"))
-    if native.word(dst) >= count then
-        ops.fail(ctx, frame, pc, ops.INVALID)
-        return native.fail()
-    end
-    if native.word(lhs) >= count then
-        ops.fail(ctx, frame, pc, ops.INVALID)
-        return native.fail()
-    end
-    if native.word(rhs) >= count then
-        ops.fail(ctx, frame, pc, ops.INVALID)
-        return native.fail()
-    end
+    -- Admission keeps every register operand in the window (chunkadmission).
+    -- Admission keeps every register operand in the window (chunkadmission).
+    -- Admission keeps every register operand in the window (chunkadmission).
     local left, right = slots.readValue(frame, regs, lhs), slots.readValue(frame, regs, rhs)
     local result = guestarith.arithmetic(guestarith.MUL, left, right)
     if result == values.NIL then
@@ -431,15 +367,9 @@ export function Mul(pc: voidptr, regs: voidptr, ints: voidptr, floats: voidptr, 
         return native.fail()
     end
     slots.writeValue(frame, regs, dst, result)
+    -- Admission keeps an instruction that falls through off its function's
+    -- last (chunkadmission): the next one is there.
     local nextPC = native.address(pc) + ops.INSTRUCTION_BYTES
-    local codeBytes = native.load64(
-        frame,
-        native.fieldOffset<frames.Frame>("instructionCount")
-    ) << ops.INSTRUCTION_SHIFT
-    if nextPC >= native.load64(frame, native.fieldOffset<frames.Frame>("code")) + codeBytes then
-        ops.fail(ctx, frame, pc, ops.INVALID)
-        return native.fail()
-    end
 
     return native.dispatch(native.pointer(nextPC), regs, ints, floats, ctx, frame)
 end
@@ -452,18 +382,9 @@ export function Mod(pc: voidptr, regs: voidptr, ints: voidptr, floats: voidptr, 
     end
     local dst, lhs, rhs = program.readByte(pc, 1), program.readByte(pc, 2), program.readByte(pc, 3)
     local count = native.load64(frame, native.fieldOffset<frames.Frame>("valueCount"))
-    if native.word(dst) >= count then
-        ops.fail(ctx, frame, pc, ops.INVALID)
-        return native.fail()
-    end
-    if native.word(lhs) >= count then
-        ops.fail(ctx, frame, pc, ops.INVALID)
-        return native.fail()
-    end
-    if native.word(rhs) >= count then
-        ops.fail(ctx, frame, pc, ops.INVALID)
-        return native.fail()
-    end
+    -- Admission keeps every register operand in the window (chunkadmission).
+    -- Admission keeps every register operand in the window (chunkadmission).
+    -- Admission keeps every register operand in the window (chunkadmission).
     local left, right = slots.readValue(frame, regs, lhs), slots.readValue(frame, regs, rhs)
     local result = guestarith.arithmetic(guestarith.MOD, left, right)
     if result == values.NIL then
@@ -504,15 +425,9 @@ export function Mod(pc: voidptr, regs: voidptr, ints: voidptr, floats: voidptr, 
         return native.fail()
     end
     slots.writeValue(frame, regs, dst, result)
+    -- Admission keeps an instruction that falls through off its function's
+    -- last (chunkadmission): the next one is there.
     local nextPC = native.address(pc) + ops.INSTRUCTION_BYTES
-    local codeBytes = native.load64(
-        frame,
-        native.fieldOffset<frames.Frame>("instructionCount")
-    ) << ops.INSTRUCTION_SHIFT
-    if nextPC >= native.load64(frame, native.fieldOffset<frames.Frame>("code")) + codeBytes then
-        ops.fail(ctx, frame, pc, ops.INVALID)
-        return native.fail()
-    end
 
     return native.dispatch(native.pointer(nextPC), regs, ints, floats, ctx, frame)
 end
@@ -525,18 +440,9 @@ export function Lt(pc: voidptr, regs: voidptr, ints: voidptr, floats: voidptr, c
     end
     local dst, lhs, rhs = program.readByte(pc, 1), program.readByte(pc, 2), program.readByte(pc, 3)
     local count = native.load64(frame, native.fieldOffset<frames.Frame>("valueCount"))
-    if native.word(dst) >= count then
-        ops.fail(ctx, frame, pc, ops.INVALID)
-        return native.fail()
-    end
-    if native.word(lhs) >= count then
-        ops.fail(ctx, frame, pc, ops.INVALID)
-        return native.fail()
-    end
-    if native.word(rhs) >= count then
-        ops.fail(ctx, frame, pc, ops.INVALID)
-        return native.fail()
-    end
+    -- Admission keeps every register operand in the window (chunkadmission).
+    -- Admission keeps every register operand in the window (chunkadmission).
+    -- Admission keeps every register operand in the window (chunkadmission).
     local left, right = slots.readValue(frame, regs, lhs), slots.readValue(frame, regs, rhs)
     local result = guestarith.compare(false, left, right)
     if result > 1ULL then
@@ -570,15 +476,9 @@ export function Lt(pc: voidptr, regs: voidptr, ints: voidptr, floats: voidptr, c
         return native.fail()
     end
     slots.writeValue(frame, regs, dst, native.chooseWord(result == 1ULL, values.TRUE, values.FALSE))
+    -- Admission keeps an instruction that falls through off its function's
+    -- last (chunkadmission): the next one is there.
     local nextPC = native.address(pc) + ops.INSTRUCTION_BYTES
-    local codeBytes = native.load64(
-        frame,
-        native.fieldOffset<frames.Frame>("instructionCount")
-    ) << ops.INSTRUCTION_SHIFT
-    if nextPC >= native.load64(frame, native.fieldOffset<frames.Frame>("code")) + codeBytes then
-        ops.fail(ctx, frame, pc, ops.INVALID)
-        return native.fail()
-    end
 
     return native.dispatch(native.pointer(nextPC), regs, ints, floats, ctx, frame)
 end
@@ -591,18 +491,9 @@ export function Le(pc: voidptr, regs: voidptr, ints: voidptr, floats: voidptr, c
     end
     local dst, lhs, rhs = program.readByte(pc, 1), program.readByte(pc, 2), program.readByte(pc, 3)
     local count = native.load64(frame, native.fieldOffset<frames.Frame>("valueCount"))
-    if native.word(dst) >= count then
-        ops.fail(ctx, frame, pc, ops.INVALID)
-        return native.fail()
-    end
-    if native.word(lhs) >= count then
-        ops.fail(ctx, frame, pc, ops.INVALID)
-        return native.fail()
-    end
-    if native.word(rhs) >= count then
-        ops.fail(ctx, frame, pc, ops.INVALID)
-        return native.fail()
-    end
+    -- Admission keeps every register operand in the window (chunkadmission).
+    -- Admission keeps every register operand in the window (chunkadmission).
+    -- Admission keeps every register operand in the window (chunkadmission).
     local left, right = slots.readValue(frame, regs, lhs), slots.readValue(frame, regs, rhs)
     local result = guestarith.compare(true, left, right)
     if result > 1ULL then
@@ -636,15 +527,9 @@ export function Le(pc: voidptr, regs: voidptr, ints: voidptr, floats: voidptr, c
         return native.fail()
     end
     slots.writeValue(frame, regs, dst, native.chooseWord(result == 1ULL, values.TRUE, values.FALSE))
+    -- Admission keeps an instruction that falls through off its function's
+    -- last (chunkadmission): the next one is there.
     local nextPC = native.address(pc) + ops.INSTRUCTION_BYTES
-    local codeBytes = native.load64(
-        frame,
-        native.fieldOffset<frames.Frame>("instructionCount")
-    ) << ops.INSTRUCTION_SHIFT
-    if nextPC >= native.load64(frame, native.fieldOffset<frames.Frame>("code")) + codeBytes then
-        ops.fail(ctx, frame, pc, ops.INVALID)
-        return native.fail()
-    end
 
     return native.dispatch(native.pointer(nextPC), regs, ints, floats, ctx, frame)
 end
@@ -657,18 +542,9 @@ export function Eq(pc: voidptr, regs: voidptr, ints: voidptr, floats: voidptr, c
     end
     local dst, lhs, rhs = program.readByte(pc, 1), program.readByte(pc, 2), program.readByte(pc, 3)
     local count = native.load64(frame, native.fieldOffset<frames.Frame>("valueCount"))
-    if native.word(dst) >= count then
-        ops.fail(ctx, frame, pc, ops.INVALID)
-        return native.fail()
-    end
-    if native.word(lhs) >= count then
-        ops.fail(ctx, frame, pc, ops.INVALID)
-        return native.fail()
-    end
-    if native.word(rhs) >= count then
-        ops.fail(ctx, frame, pc, ops.INVALID)
-        return native.fail()
-    end
+    -- Admission keeps every register operand in the window (chunkadmission).
+    -- Admission keeps every register operand in the window (chunkadmission).
+    -- Admission keeps every register operand in the window (chunkadmission).
     local left, right = slots.readValue(frame, regs, lhs), slots.readValue(frame, regs, rhs)
     local result = guestarith.equal(left, right)
     -- Two distinct tables are equal when an __eq of theirs says so.
@@ -693,15 +569,9 @@ export function Eq(pc: voidptr, regs: voidptr, ints: voidptr, floats: voidptr, c
         end
     end
     slots.writeValue(frame, regs, dst, native.chooseWord(result == 1ULL, values.TRUE, values.FALSE))
+    -- Admission keeps an instruction that falls through off its function's
+    -- last (chunkadmission): the next one is there.
     local nextPC = native.address(pc) + ops.INSTRUCTION_BYTES
-    local codeBytes = native.load64(
-        frame,
-        native.fieldOffset<frames.Frame>("instructionCount")
-    ) << ops.INSTRUCTION_SHIFT
-    if nextPC >= native.load64(frame, native.fieldOffset<frames.Frame>("code")) + codeBytes then
-        ops.fail(ctx, frame, pc, ops.INVALID)
-        return native.fail()
-    end
 
     return native.dispatch(native.pointer(nextPC), regs, ints, floats, ctx, frame)
 end
@@ -713,20 +583,11 @@ export function Nil(pc: voidptr, regs: voidptr, ints: voidptr, floats: voidptr, 
         return native.fail()
     end
     local dst = program.readByte(pc, 1)
-    if native.word(dst) >= native.load64(frame, native.fieldOffset<frames.Frame>("valueCount")) then
-        ops.fail(ctx, frame, pc, ops.INVALID)
-        return native.fail()
-    end
+    -- Admission keeps every register operand in the window (chunkadmission).
     slots.writeValue(frame, regs, dst, values.NIL)
+    -- Admission keeps an instruction that falls through off its function's
+    -- last (chunkadmission): the next one is there.
     local nextPC = native.address(pc) + ops.INSTRUCTION_BYTES
-    local codeBytes = native.load64(
-        frame,
-        native.fieldOffset<frames.Frame>("instructionCount")
-    ) << ops.INSTRUCTION_SHIFT
-    if nextPC >= native.load64(frame, native.fieldOffset<frames.Frame>("code")) + codeBytes then
-        ops.fail(ctx, frame, pc, ops.INVALID)
-        return native.fail()
-    end
 
     return native.dispatch(native.pointer(nextPC), regs, ints, floats, ctx, frame)
 end
@@ -738,25 +599,12 @@ export function Move(pc: voidptr, regs: voidptr, ints: voidptr, floats: voidptr,
         return native.fail()
     end
     local dst, src = program.readByte(pc, 1), program.readByte(pc, 2)
-    local count = native.load64(frame, native.fieldOffset<frames.Frame>("valueCount"))
-    if native.word(dst) >= count then
-        ops.fail(ctx, frame, pc, ops.INVALID)
-        return native.fail()
-    end
-    if native.word(src) >= count then
-        ops.fail(ctx, frame, pc, ops.INVALID)
-        return native.fail()
-    end
+    -- Admission keeps every register operand in the window (chunkadmission).
+    -- Admission keeps every register operand in the window (chunkadmission).
     slots.writeValue(frame, regs, dst, slots.readValue(frame, regs, src))
+    -- Admission keeps an instruction that falls through off its function's
+    -- last (chunkadmission): the next one is there.
     local nextPC = native.address(pc) + ops.INSTRUCTION_BYTES
-    local codeBytes = native.load64(
-        frame,
-        native.fieldOffset<frames.Frame>("instructionCount")
-    ) << ops.INSTRUCTION_SHIFT
-    if nextPC >= native.load64(frame, native.fieldOffset<frames.Frame>("code")) + codeBytes then
-        ops.fail(ctx, frame, pc, ops.INVALID)
-        return native.fail()
-    end
 
     return native.dispatch(native.pointer(nextPC), regs, ints, floats, ctx, frame)
 end
@@ -790,10 +638,7 @@ export function NewClosure(
     local base, captures = program.readByte(pc, 2), program.readByte(pc, 3)
     local target = program.readWord(pc, 8)
     local count = native.load64(frame, native.fieldOffset<frames.Frame>("valueCount"))
-    if native.word(dst) >= count then
-        ops.fail(ctx, frame, pc, ops.INVALID)
-        return native.fail()
-    end
+    -- Admission keeps every register operand in the window (chunkadmission).
     if native.word(base) >= count then
         ops.fail(ctx, frame, pc, ops.INVALID)
         return native.fail()
@@ -840,15 +685,9 @@ export function NewClosure(
         return native.fail()
     end
     slots.writeValue(frame, regs, dst, handle)
+    -- Admission keeps an instruction that falls through off its function's
+    -- last (chunkadmission): the next one is there.
     local nextPC = native.address(pc) + ops.INSTRUCTION_BYTES
-    local codeBytes = native.load64(
-        frame,
-        native.fieldOffset<frames.Frame>("instructionCount")
-    ) << ops.INSTRUCTION_SHIFT
-    if nextPC >= native.load64(frame, native.fieldOffset<frames.Frame>("code")) + codeBytes then
-        ops.fail(ctx, frame, pc, ops.INVALID)
-        return native.fail()
-    end
 
     return native.dispatch(native.pointer(nextPC), regs, ints, floats, ctx, frame)
 end
@@ -883,25 +722,15 @@ export function NewCell(
     end
     local dst = program.readByte(pc, 1)
     local src = program.readByte(pc, 2)
-    local count = native.load64(frame, native.fieldOffset<frames.Frame>("valueCount"))
-    if native.word(dst) >= count or native.word(src) >= count then
-        ops.fail(ctx, frame, pc, ops.INVALID)
-        return native.fail()
-    end
+    -- Admission keeps every register operand in the window (chunkadmission).
     local header = guestscope.allocate(ctx, heap.KIND_CELL, 1ULL)
     local body = native.load64(native.pointer(header), native.fieldOffset<heap.Header>("auxPtr"))
     native.store64(native.pointer(body), 0, slots.readValue(frame, regs, src))
     guestscope.initialized(ctx, header)
     slots.writeValue(frame, regs, dst, values.TAG_OBJ | header)
+    -- Admission keeps an instruction that falls through off its function's
+    -- last (chunkadmission): the next one is there.
     local nextPC = native.address(pc) + ops.INSTRUCTION_BYTES
-    local codeBytes = native.load64(
-        frame,
-        native.fieldOffset<frames.Frame>("instructionCount")
-    ) << ops.INSTRUCTION_SHIFT
-    if nextPC >= native.load64(frame, native.fieldOffset<frames.Frame>("code")) + codeBytes then
-        ops.fail(ctx, frame, pc, ops.INVALID)
-        return native.fail()
-    end
 
     return native.dispatch(native.pointer(nextPC), regs, ints, floats, ctx, frame)
 end
@@ -934,11 +763,7 @@ export function GetCell(
     end
     local dst = program.readByte(pc, 1)
     local src = program.readByte(pc, 2)
-    local count = native.load64(frame, native.fieldOffset<frames.Frame>("valueCount"))
-    if native.word(dst) >= count or native.word(src) >= count then
-        ops.fail(ctx, frame, pc, ops.INVALID)
-        return native.fail()
-    end
+    -- Admission keeps every register operand in the window (chunkadmission).
     local header = cellHeader(slots.readValue(frame, regs, src))
     if header == 0ULL then
         ops.fail(ctx, frame, pc, ops.INVALID)
@@ -946,15 +771,9 @@ export function GetCell(
     end
     local body = native.load64(native.pointer(header), native.fieldOffset<heap.Header>("auxPtr"))
     slots.writeValue(frame, regs, dst, native.load64(native.pointer(body), 0))
+    -- Admission keeps an instruction that falls through off its function's
+    -- last (chunkadmission): the next one is there.
     local nextPC = native.address(pc) + ops.INSTRUCTION_BYTES
-    local codeBytes = native.load64(
-        frame,
-        native.fieldOffset<frames.Frame>("instructionCount")
-    ) << ops.INSTRUCTION_SHIFT
-    if nextPC >= native.load64(frame, native.fieldOffset<frames.Frame>("code")) + codeBytes then
-        ops.fail(ctx, frame, pc, ops.INVALID)
-        return native.fail()
-    end
 
     return native.dispatch(native.pointer(nextPC), regs, ints, floats, ctx, frame)
 end
@@ -974,26 +793,16 @@ export function SetCell(
     end
     local cell = program.readByte(pc, 1)
     local src = program.readByte(pc, 2)
-    local count = native.load64(frame, native.fieldOffset<frames.Frame>("valueCount"))
-    if native.word(cell) >= count or native.word(src) >= count then
-        ops.fail(ctx, frame, pc, ops.INVALID)
-        return native.fail()
-    end
+    -- Admission keeps every register operand in the window (chunkadmission).
     local header = cellHeader(slots.readValue(frame, regs, cell))
     if header == 0ULL then
         ops.fail(ctx, frame, pc, ops.INVALID)
         return native.fail()
     end
     guestscope.store(ctx, header, 0ULL, slots.readValue(frame, regs, src))
+    -- Admission keeps an instruction that falls through off its function's
+    -- last (chunkadmission): the next one is there.
     local nextPC = native.address(pc) + ops.INSTRUCTION_BYTES
-    local codeBytes = native.load64(
-        frame,
-        native.fieldOffset<frames.Frame>("instructionCount")
-    ) << ops.INSTRUCTION_SHIFT
-    if nextPC >= native.load64(frame, native.fieldOffset<frames.Frame>("code")) + codeBytes then
-        ops.fail(ctx, frame, pc, ops.INVALID)
-        return native.fail()
-    end
 
     return native.dispatch(native.pointer(nextPC), regs, ints, floats, ctx, frame)
 end
@@ -1039,15 +848,9 @@ export function GetUpval(
         dst,
         native.load64(native.pointer(body), native.index((native.word(index) + 1ULL) * 8ULL))
     )
+    -- Admission keeps an instruction that falls through off its function's
+    -- last (chunkadmission): the next one is there.
     local nextPC = native.address(pc) + ops.INSTRUCTION_BYTES
-    local codeBytes = native.load64(
-        frame,
-        native.fieldOffset<frames.Frame>("instructionCount")
-    ) << ops.INSTRUCTION_SHIFT
-    if nextPC >= native.load64(frame, native.fieldOffset<frames.Frame>("code")) + codeBytes then
-        ops.fail(ctx, frame, pc, ops.INVALID)
-        return native.fail()
-    end
 
     return native.dispatch(native.pointer(nextPC), regs, ints, floats, ctx, frame)
 end
@@ -1078,20 +881,11 @@ export function NewTable(
         return native.fail()
     end
     local dst = program.readByte(pc, 1)
-    if native.word(dst) >= native.load64(frame, native.fieldOffset<frames.Frame>("valueCount")) then
-        ops.fail(ctx, frame, pc, ops.INVALID)
-        return native.fail()
-    end
+    -- Admission keeps every register operand in the window (chunkadmission).
     slots.writeValue(frame, regs, dst, values.TAG_OBJ | guestscope.newTable(ctx))
+    -- Admission keeps an instruction that falls through off its function's
+    -- last (chunkadmission): the next one is there.
     local nextPC = native.address(pc) + ops.INSTRUCTION_BYTES
-    local codeBytes = native.load64(
-        frame,
-        native.fieldOffset<frames.Frame>("instructionCount")
-    ) << ops.INSTRUCTION_SHIFT
-    if nextPC >= native.load64(frame, native.fieldOffset<frames.Frame>("code")) + codeBytes then
-        ops.fail(ctx, frame, pc, ops.INVALID)
-        return native.fail()
-    end
 
     return native.dispatch(native.pointer(nextPC), regs, ints, floats, ctx, frame)
 end
@@ -1126,10 +920,7 @@ export function GetIdx(pc: voidptr, regs: voidptr, ints: voidptr, floats: voidpt
     local object = program.readByte(pc, 2)
     local key = program.readByte(pc, 3)
     local count = native.load64(frame, native.fieldOffset<frames.Frame>("valueCount"))
-    if native.word(dst) >= count or native.word(object) >= count or native.word(key) >= count then
-        ops.fail(ctx, frame, pc, ops.INVALID)
-        return native.fail()
-    end
+    -- Admission keeps every register operand in the window (chunkadmission).
     local header = tableHeader(slots.readValue(frame, regs, object))
     if header == 0ULL
         and corestorage.isstorage(slots.readValue(frame, regs, object))
@@ -1198,15 +989,9 @@ export function GetIdx(pc: voidptr, regs: voidptr, ints: voidptr, floats: voidpt
         return native.dispatch(currentPC, currentValues, currentIntegers, currentFloats, ctx, current)
     end
     slots.writeValue(frame, regs, dst, value)
+    -- Admission keeps an instruction that falls through off its function's
+    -- last (chunkadmission): the next one is there.
     local nextPC = native.address(pc) + ops.INSTRUCTION_BYTES
-    local codeBytes = native.load64(
-        frame,
-        native.fieldOffset<frames.Frame>("instructionCount")
-    ) << ops.INSTRUCTION_SHIFT
-    if nextPC >= native.load64(frame, native.fieldOffset<frames.Frame>("code")) + codeBytes then
-        ops.fail(ctx, frame, pc, ops.INVALID)
-        return native.fail()
-    end
 
     return native.dispatch(native.pointer(nextPC), regs, ints, floats, ctx, frame)
 end
@@ -1233,10 +1018,7 @@ export function SetIdx(pc: voidptr, regs: voidptr, ints: voidptr, floats: voidpt
     local key = program.readByte(pc, 2)
     local src = program.readByte(pc, 3)
     local count = native.load64(frame, native.fieldOffset<frames.Frame>("valueCount"))
-    if native.word(object) >= count or native.word(key) >= count or native.word(src) >= count then
-        ops.fail(ctx, frame, pc, ops.INVALID)
-        return native.fail()
-    end
+    -- Admission keeps every register operand in the window (chunkadmission).
     local header = tableHeader(slots.readValue(frame, regs, object))
     if header == 0ULL
         and corestorage.isstorage(slots.readValue(frame, regs, object))
@@ -1310,15 +1092,9 @@ export function SetIdx(pc: voidptr, regs: voidptr, ints: voidptr, floats: voidpt
         ops.fail(ctx, frame, pc, ops.RESOURCE)
         return native.fail()
     end
+    -- Admission keeps an instruction that falls through off its function's
+    -- last (chunkadmission): the next one is there.
     local nextPC = native.address(pc) + ops.INSTRUCTION_BYTES
-    local codeBytes = native.load64(
-        frame,
-        native.fieldOffset<frames.Frame>("instructionCount")
-    ) << ops.INSTRUCTION_SHIFT
-    if nextPC >= native.load64(frame, native.fieldOffset<frames.Frame>("code")) + codeBytes then
-        ops.fail(ctx, frame, pc, ops.INVALID)
-        return native.fail()
-    end
 
     return native.dispatch(native.pointer(nextPC), regs, ints, floats, ctx, frame)
 end
@@ -1332,10 +1108,7 @@ export function Len(pc: voidptr, regs: voidptr, ints: voidptr, floats: voidptr, 
     local dst = program.readByte(pc, 1)
     local src = program.readByte(pc, 2)
     local count = native.load64(frame, native.fieldOffset<frames.Frame>("valueCount"))
-    if native.word(dst) >= count or native.word(src) >= count then
-        ops.fail(ctx, frame, pc, ops.INVALID)
-        return native.fail()
-    end
+    -- Admission keeps every register operand in the window (chunkadmission).
     local value = slots.readValue(frame, regs, src)
     local header = tableHeader(value)
     local size: uint64 = 0ULL
@@ -1370,15 +1143,9 @@ export function Len(pc: voidptr, regs: voidptr, ints: voidptr, floats: voidptr, 
         size = strings.length(text)
     end
     slots.writeValue(frame, regs, dst, values.TAG_INTEGER | size)
+    -- Admission keeps an instruction that falls through off its function's
+    -- last (chunkadmission): the next one is there.
     local nextPC = native.address(pc) + ops.INSTRUCTION_BYTES
-    local codeBytes = native.load64(
-        frame,
-        native.fieldOffset<frames.Frame>("instructionCount")
-    ) << ops.INSTRUCTION_SHIFT
-    if nextPC >= native.load64(frame, native.fieldOffset<frames.Frame>("code")) + codeBytes then
-        ops.fail(ctx, frame, pc, ops.INVALID)
-        return native.fail()
-    end
 
     return native.dispatch(native.pointer(nextPC), regs, ints, floats, ctx, frame)
 end
@@ -1410,11 +1177,7 @@ export function MathFloor(
     end
     local dst = program.readByte(pc, 1)
     local src = program.readByte(pc, 2)
-    local count = native.load64(frame, native.fieldOffset<frames.Frame>("valueCount"))
-    if native.word(dst) >= count or native.word(src) >= count then
-        ops.fail(ctx, frame, pc, ops.INVALID)
-        return native.fail()
-    end
+    -- Admission keeps every register operand in the window (chunkadmission).
     local value = slots.readValue(frame, regs, src)
     local result = value
     if value & 0xffff000000000000ULL ~= values.TAG_INTEGER and not wide.boxed(value) then
@@ -1425,15 +1188,9 @@ export function MathFloor(
         result = floorBits(value)
     end
     slots.writeValue(frame, regs, dst, result)
+    -- Admission keeps an instruction that falls through off its function's
+    -- last (chunkadmission): the next one is there.
     local nextPC = native.address(pc) + ops.INSTRUCTION_BYTES
-    local codeBytes = native.load64(
-        frame,
-        native.fieldOffset<frames.Frame>("instructionCount")
-    ) << ops.INSTRUCTION_SHIFT
-    if nextPC >= native.load64(frame, native.fieldOffset<frames.Frame>("code")) + codeBytes then
-        ops.fail(ctx, frame, pc, ops.INVALID)
-        return native.fail()
-    end
 
     return native.dispatch(native.pointer(nextPC), regs, ints, floats, ctx, frame)
 end
@@ -1958,15 +1715,9 @@ export function LibCall(
         slots.writeValue(frame, regs, dst, result)
     end
     guestscope.libraryReturned(ctx)
+    -- Admission keeps an instruction that falls through off its function's
+    -- last (chunkadmission): the next one is there.
     local nextPC = native.address(pc) + ops.INSTRUCTION_BYTES
-    local codeBytes = native.load64(
-        frame,
-        native.fieldOffset<frames.Frame>("instructionCount")
-    ) << ops.INSTRUCTION_SHIFT
-    if nextPC >= native.load64(frame, native.fieldOffset<frames.Frame>("code")) + codeBytes then
-        ops.fail(ctx, frame, pc, ops.INVALID)
-        return native.fail()
-    end
 
     return native.dispatch(native.pointer(nextPC), regs, ints, floats, ctx, frame)
 end
@@ -1980,11 +1731,7 @@ export function Not(pc: voidptr, regs: voidptr, ints: voidptr, floats: voidptr, 
     end
     local dst = program.readByte(pc, 1)
     local src = program.readByte(pc, 2)
-    local count = native.load64(frame, native.fieldOffset<frames.Frame>("valueCount"))
-    if native.word(dst) >= count or native.word(src) >= count then
-        ops.fail(ctx, frame, pc, ops.INVALID)
-        return native.fail()
-    end
+    -- Admission keeps every register operand in the window (chunkadmission).
     local value = slots.readValue(frame, regs, src)
     slots.writeValue(
         frame,
@@ -1992,15 +1739,9 @@ export function Not(pc: voidptr, regs: voidptr, ints: voidptr, floats: voidptr, 
         dst,
         native.chooseWord(value == values.FALSE or value == values.NIL, values.TRUE, values.FALSE)
     )
+    -- Admission keeps an instruction that falls through off its function's
+    -- last (chunkadmission): the next one is there.
     local nextPC = native.address(pc) + ops.INSTRUCTION_BYTES
-    local codeBytes = native.load64(
-        frame,
-        native.fieldOffset<frames.Frame>("instructionCount")
-    ) << ops.INSTRUCTION_SHIFT
-    if nextPC >= native.load64(frame, native.fieldOffset<frames.Frame>("code")) + codeBytes then
-        ops.fail(ctx, frame, pc, ops.INVALID)
-        return native.fail()
-    end
 
     return native.dispatch(native.pointer(nextPC), regs, ints, floats, ctx, frame)
 end
@@ -2178,10 +1919,7 @@ export function Ret(pc: voidptr, regs: voidptr, ints: voidptr, floats: voidptr, 
         return native.fail()
     end
     local src = program.readByte(pc, 1)
-    if native.word(src) >= native.load64(frame, native.fieldOffset<frames.Frame>("valueCount")) then
-        ops.fail(ctx, frame, pc, ops.INVALID)
-        return native.fail()
-    end
+    -- Admission keeps every register operand in the window (chunkadmission).
     -- Select the produced value while the callee is live; retirement may reuse
     -- its entire reservation. This path always produces exactly one value.
     local value = slots.readValue(frame, regs, src)
@@ -3120,15 +2858,9 @@ export function XPHandle(
         access.refresh(s, current, ctx)
         return native.dispatch(currentPC, currentValues, currentIntegers, currentFloats, ctx, current)
     end
+    -- Admission keeps an instruction that falls through off its function's
+    -- last (chunkadmission): the next one is there.
     local nextPC = native.address(pc) + ops.INSTRUCTION_BYTES
-    local codeBytes = native.load64(
-        frame,
-        native.fieldOffset<frames.Frame>("instructionCount")
-    ) << ops.INSTRUCTION_SHIFT
-    if nextPC >= native.load64(frame, native.fieldOffset<frames.Frame>("code")) + codeBytes then
-        ops.fail(ctx, frame, pc, ops.INVALID)
-        return native.fail()
-    end
 
     return native.dispatch(native.pointer(nextPC), regs, ints, floats, ctx, frame)
 end
@@ -3228,15 +2960,7 @@ export function Jmp(pc: voidptr, regs: voidptr, ints: voidptr, floats: voidptr, 
     -- The branch inline, as guestops.branch makes it: the displacement is a
     -- signed word, so the sum wraps to the target as it would in int64.
     local target = native.address(pc) + ops.INSTRUCTION_BYTES + (native.word(displacement) << ops.INSTRUCTION_SHIFT)
-    local code = native.load64(frame, native.fieldOffset<frames.Frame>("code"))
-    local codeBytes = native.load64(
-        frame,
-        native.fieldOffset<frames.Frame>("instructionCount")
-    ) << ops.INSTRUCTION_SHIFT
-    if target < code or target >= code + codeBytes then
-        ops.fail(ctx, frame, pc, ops.INVALID)
-        return native.fail()
-    end
+    -- Admission lands every branch in its function's code (chunkadmission).
 
     return native.dispatch(native.pointer(target), regs, ints, floats, ctx, frame)
 end
@@ -3248,23 +2972,13 @@ export function JmpIf(pc: voidptr, regs: voidptr, ints: voidptr, floats: voidptr
         return native.fail()
     end
     local src = program.readByte(pc, 1)
-    if native.word(src) >= native.load64(frame, native.fieldOffset<frames.Frame>("valueCount")) then
-        ops.fail(ctx, frame, pc, ops.INVALID)
-        return native.fail()
-    end
+    -- Admission keeps every register operand in the window (chunkadmission).
     -- Lua truthiness: everything but false and nil is true. Before v8 only
     -- Booleans and nil reach a branch.
     local value = slots.readValue(frame, regs, src)
     if value == values.FALSE or value == values.NIL then
+        -- It falls through to an instruction admission keeps there.
         local target = native.address(pc) + ops.INSTRUCTION_BYTES
-        local codeBytes = native.load64(
-            frame,
-            native.fieldOffset<frames.Frame>("instructionCount")
-        ) << ops.INSTRUCTION_SHIFT
-        if target >= native.load64(frame, native.fieldOffset<frames.Frame>("code")) + codeBytes then
-            ops.fail(ctx, frame, pc, ops.INVALID)
-            return native.fail()
-        end
         return native.dispatch(native.pointer(target), regs, ints, floats, ctx, frame)
     end
     local displacement = program.readSigned32(pc, 4)
@@ -3285,15 +2999,7 @@ export function JmpIf(pc: voidptr, regs: voidptr, ints: voidptr, floats: voidptr
     -- The branch inline, as guestops.branch makes it: the displacement is a
     -- signed word, so the sum wraps to the target as it would in int64.
     local target = native.address(pc) + ops.INSTRUCTION_BYTES + (native.word(displacement) << ops.INSTRUCTION_SHIFT)
-    local code = native.load64(frame, native.fieldOffset<frames.Frame>("code"))
-    local codeBytes = native.load64(
-        frame,
-        native.fieldOffset<frames.Frame>("instructionCount")
-    ) << ops.INSTRUCTION_SHIFT
-    if target < code or target >= code + codeBytes then
-        ops.fail(ctx, frame, pc, ops.INVALID)
-        return native.fail()
-    end
+    -- Admission lands every branch in its function's code (chunkadmission).
 
     return native.dispatch(native.pointer(target), regs, ints, floats, ctx, frame)
 end
