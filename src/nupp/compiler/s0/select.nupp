@@ -1739,7 +1739,9 @@ function selector.run(f: ir.Function, a: allocate.Allocation): selector.Code
                 track.stored[value] = everywhere or nil
             end
         elseif #track.saved > 0 then
-            track.current = helpers.entryState(track.predecessors[block], track.exits)
+            -- Its predecessors are those a path reaches: a block threading or
+            -- merging passed by still names edges here, but is not selected.
+            track.current = helpers.entryState(track.sources[block], track.exits)
             for p = f.firstParam[block], f.firstParam[block] + f.nparams[block] - 1 do
                 if a.used[f.params[p]] ~= false then
                     hold(f.params[p], true)

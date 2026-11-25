@@ -319,6 +319,11 @@ function inspect.isLoad64(word)
     return word & 0xffc00000 == 0xf9400000
 end
 
+-- A 64-bit load from the arena frame (x23), the link register's aside.
+function inspect.isFrameLoad(word)
+    return word & 0xffc00000 == 0xf9400000 and (word >> 5) & 31 == 23 and word & 31 ~= 30
+end
+
 -- b: an unconditional branch.
 function inspect.isBranch(word)
     return word & 0xfc000000 == 0x14000000

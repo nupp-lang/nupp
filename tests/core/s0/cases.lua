@@ -504,6 +504,45 @@ block4():
             end
         },
         {
+            -- Saving where values are made (no tail call), a value reloaded
+            -- after a call stays current through the blocks after it.
+            name = "currentafter",
+            text = identity
+            .. [[
+function %after(i64, i64) -> i64 tail {
+    sig0 = (i64) -> i64 tail
+    fn0 = %identity sig0
+block0(v0: i64, v1: i64):
+    v2 = call fn0(v1)
+    v3 = iconst.i64 1
+    v4 = icmp eq v0, v3
+    brif v4, block1(), block2()
+block1():
+    return v2
+block2():
+    v5 = iconst.i64 2
+    v6 = icmp eq v0, v5
+    brif v6, block3(), block4()
+block3():
+    v7 = iadd v2, v2
+    return v7
+block4():
+    v8 = iconst.i64 3
+    v9 = icmp eq v0, v8
+    brif v9, block5(), block6()
+block5():
+    v10 = iadd v2, v0
+    return v10
+block6():
+    return v0
+}
+]],
+            runs = {{args = {1, 5}, result = 5}, {args = {2, 5}, result = 10}, {args = {3, 5}, result = 8}, {args = {4, 5}, result = 4}},
+            check = function(codes)
+                assert(inspect.count(codes, "after", inspect.isFrameLoad) <= 2, "a value is reloaded in each block")
+            end
+        },
+        {
             -- An indirect target loaded for its call alone is loaded into x16.
             name = "dispatch",
             text = [[
