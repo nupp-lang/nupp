@@ -513,6 +513,9 @@ for _, handler in ipairs(dofile(ROOT .. "/tests/core/s0/budgets.lua")) do
             if os.getenv("NUPP_S0_DISASSEMBLE") == "1" then
                 disassemble(handler.name, words)
             end
+            if handler.inspect then
+                return
+            end
             local count, memory = dispatchPath(words)
             assert(count, "no path reaches the dispatch")
             local clang = handler.clang and ("clang %d/%d"):format(handler.clang[1], handler.clang[2]) or "no oracle"

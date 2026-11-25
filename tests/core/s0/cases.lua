@@ -543,6 +543,66 @@ block6():
             end
         },
         {
+            -- Saving where values are made, the parameters a call later
+            -- crosses are stored on entry and stay current in the checks
+            -- before the call: nothing reloads them there.
+            name = "currentbefore",
+            text = identity
+            .. [[
+function %before(i64, i64) -> i64 tail {
+    sig0 = (i64) -> i64 tail
+    fn0 = %identity sig0
+block0(v0: i64, v1: i64):
+    v2 = iconst.i64 0
+    v3 = icmp eq v0, v2
+    brif v3, block1(), block2()
+block1():
+    return v2
+block2():
+    v4 = iconst.i64 8
+    v5 = icmp ult v1, v4
+    brif v5, block1(), block3()
+block3():
+    v6 = iconst.i64 100
+    v7 = icmp ugt v1, v6
+    brif v7, block1(), block4()
+block4():
+    v8 = call fn0(v1)
+    v9 = iadd v8, v0
+    v10 = iadd v9, v1
+    return v10
+}
+]],
+            runs = {{args = {0, 9}, result = 0}, {args = {1, 3}, result = 0}, {args = {1, 300}, result = 0}, {args = {2, 9}, result = 20}},
+            check = function(codes)
+                assert(inspect.count(codes, "before", inspect.isFrameLoad) <= 2, "a parameter is reloaded before the call")
+            end
+        },
+        {
+            -- Storing zero stores the zero register: no literal is made.
+            name = "zerostore",
+            text = [[
+function %zeros(i64, i64) -> i64 tail {
+    ss0 = explicit_slot 32, align = 16
+block0(v0: i64, v1: i64):
+    v2 = stack_addr.i64 ss0
+    store v0, v2
+    store v1, v2+8
+    v3 = iconst.i64 0
+    store v3, v2
+    store v3, v2+16
+    v4 = load.i64 v2
+    v5 = load.i64 v2+8
+    v6 = iadd v4, v5
+    return v6
+}
+]],
+            runs = {{args = {40, 2}, result = 2}},
+            check = function(codes)
+                assert(inspect.count(codes, "zeros", inspect.isMoveWide) == 0, "zero is made in a register to store")
+            end
+        },
+        {
             -- An indirect target loaded for its call alone is loaded into x16.
             name = "dispatch",
             text = [[

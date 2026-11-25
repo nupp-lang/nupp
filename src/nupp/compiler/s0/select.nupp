@@ -453,6 +453,21 @@ local function prepare(
             end
         end
     end
+    -- A store of an integer zero stores the zero register.
+    for at, opid in ipairs(colOp) do
+        if opid == STORE and not dead[at] and f.nargs[at] == 2 then
+            local value = colArgs[colFirstArg[at]]
+            local definition = colDefinitions[value]
+            if definition > 0
+                and colOp[definition] == ICONST
+                and colImm[definition] == 0
+                and not ir.isFloat(colValueKinds[value])
+            then
+                immediates[at], immediateArgs[at] = 0, 1
+                folded[definition] = (folded[definition] or 0) + 1
+            end
+        end
+    end
     for definition, count in pairs(folded) do
         if count == uses[f.result[definition]] then
             omitted[definition] = true
@@ -2190,6 +2205,9 @@ function selector.run(f: ir.Function, a: allocate.Allocation): selector.Code
                             local valueKind = store and colValueKinds[args[firstArg]] or kind
                             local bytes = (f.aux[at] ~= 0 and f.aux[at] or bits(valueKind)) // 8
                             local address, value = store and y or x, store and x or rd
+                            if store and immediateArg == 1 then
+                                value = 31
+                            end
                             local offset = recipe and recipe[2] or colImm[at]
                             if offset < 0 or offset % bytes ~= 0 or offset // bytes >= 4096 then
                                 local temp = temporary(false)

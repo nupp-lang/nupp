@@ -14,5 +14,7 @@ return {
     {name = "Eq", budget = {54, 28}},
     {name = "GetIdx", budget = {87, 36}},
     {name = "CallK", budget = {98, 48}},
-    {name = "Ret", budget = {54, 28}}
+    {name = "Ret", budget = {54, 28}},
+    -- Selected and checked only: a function that does not dispatch.
+    {name = "coreprobe", inspect = true}
 }
