@@ -1078,6 +1078,24 @@ local function lastArgument(call: any): any
     return exprs[#exprs]
 end
 
+-- Whether `call` gives its last argument the last parameter of the function
+-- it calls and none past it: a declared function nothing assigns again, which
+-- takes no `...` and as many parameters as the call has arguments. The last
+-- argument's results past its first would be dropped, so it gives only that.
+local function fillsParameters(call: any): boolean
+    if call == nil or call.kind ~= "call" or call.obj == nil or call.obj.kind ~= "name" then
+        return false
+    end
+    local definition = call.obj.token and call.obj.token.definition
+    if type(definition) ~= "table" or definition.kind ~= "function" or definition.reassigned then
+        return false
+    end
+    local called = call.calleeType or call.signatureType
+    local exprs = call.args and call.args.exprs or {}
+
+    return called ~= nil and called.tag == "func" and not called.vararg and #exprs == #called.params
+end
+
 -- Whether an unchecked tree may take a library function as a value: a name
 -- or field spelled as one, outside a call's callee. A builder reads it to
 -- carry `nupp.runtime.libraryvalues` conservatively before checked lowering.
@@ -1767,6 +1785,9 @@ export function spreadsLast(call: any): boolean
         return false
     end
     local last = lastArgument(call)
+    if last ~= nil and last.kind ~= "vararg" and fillsParameters(call) then
+        return false
+    end
     local library = last ~= nil and last.kind == "call" and coreLibraryCall(last) or nil
 
     return last ~= nil and (last.kind == "vararg" or expandsResults(last) or library == "pcall" or library == "xpcall")
