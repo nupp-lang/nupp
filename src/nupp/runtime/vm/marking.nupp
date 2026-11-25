@@ -47,6 +47,57 @@ export function rootCandidate(h: heap.Heap*, value: uint64): uint64
     return 1ULL
 end
 
+-- Shades the object values among the `count` words at `base`; answers count.
+local function shadeRun(h: heap.Heap*, base: uint64, count: uint64): uint64
+    @unsafe do
+        local at = base
+        local stop = base + count * 8ULL
+        while at < stop do
+            local value = native.load64(native.pointer(at), 0)
+            if value & values.TAG_MASK == values.TAG_OBJ then
+                shadeValue(h, value)
+            end
+            at = at + 8ULL
+        end
+
+        return count
+    end
+end
+
+-- Shades the key and value of each entry of hash part `t` in insertion order
+-- whose value is not nil, as childwalk walks them; answers how many it shaded.
+local function shadePairs(h: heap.Heap*, t: heap.ValueTable*): uint64
+    @unsafe do
+        if t.ptr == 0ULL then
+            return 0ULL
+        end
+        local children: uint64 = 0ULL
+        local position: uint64 = 0ULL
+        while position < t.length do
+            local bucket = native.word(native.load32(native.pointer(t.order), native.index(position * 4ULL)))
+                & values.LOW_WORD
+            if bucket >= t.capacity then
+                return children
+            end
+            local entry = t.ptr + bucket * 16ULL
+            local value = native.load64(native.pointer(entry), 8)
+            if value ~= values.NIL then
+                local key = native.load64(native.pointer(entry), 0)
+                if key & values.TAG_MASK == values.TAG_OBJ then
+                    shadeValue(h, key)
+                end
+                if value & values.TAG_MASK == values.TAG_OBJ then
+                    shadeValue(h, value)
+                end
+                children = children + 2ULL
+            end
+            position = position + 1ULL
+        end
+
+        return children
+    end
+end
+
 -- The driver has handled weak-mode and record-liveness hooks. Every child slot
 -- counts, including scalars and nil. References are already valid owned objects;
 -- only root candidates need the separate live-slot check.
@@ -54,6 +105,25 @@ export function scanStrong(h: heap.Heap*, o: heap.Header*): uint64
     objecttable.coredeadkeys(h, o, 0ULL, 0xffffffffffffffffULL)
     @unsafe do
         local state = childwalk.Cursor(0ULL, 0ULL, values.NIL)
+        -- Tables, closures and cells, most of what is marked, in line: their
+        -- value runs, a table's live pairs, then its metatable.
+        local kind = o.kind as uint64
+        if kind == heap.KIND_TABLE or kind == heap.KIND_CLOSURE or kind == heap.KIND_CELL then
+            local walked = shadeRun(h, o.auxPtr, o.auxLen)
+            if kind == heap.KIND_TABLE then
+                local body = native.pointer(native.address(o as voidptr) + heap.HEADER_BYTES)
+                local hash = native.offset(body, native.fieldOffset<heap.TableBody>("hashPtr")) as heap.ValueTable*
+                walked = walked + shadePairs(h, hash)
+                local meta = (body as heap.TableBody*).meta
+                if meta ~= values.NIL then
+                    shadeValue(h, meta)
+                    walked = walked + 1ULL
+                end
+            end
+            o.color = heap.COLOR_BLACK
+
+            return walked
+        end
         local cursor = state as childwalk.Cursor*
         local children = 0ULL
         while childwalk.childNext(o, cursor) ~= 0ULL do
