@@ -1549,6 +1549,146 @@ local function decided(f: ir.Function): nil
     end
 end
 
+local OP_CALL_HOIST, OP_CALL_INDIRECT_HOIST = ir.opcode("call"), ir.opcode("call_indirect")
+local OP_ICONST_HOIST, OP_JUMP_HOIST = ir.opcode("iconst"), ir.opcode("jump")
+
+-- Makes the literals of a loop that calls nothing once, before it, rather
+-- than each time round: a block of them is put on the one way into the
+-- loop, and the loop reads those. A literal an instruction takes as an
+-- immediate still folds; one a store or a move needs stays in a register
+-- across the loop. A loop is what reaches a back edge's source back from
+-- its header; one with a call in it, or more than one way in, is left.
+local function hoist(f: ir.Function): nil
+    local count = #f.blockStart
+    local blockOf: {integer} = {}
+    for b, start in ipairs(f.blockStart) do
+        for i = start, f.blockEnd[b] do
+            blockOf[i] = b
+        end
+    end
+    local sources: {{integer}} = {}
+    local successors: {{integer}} = {}
+    for b = 1, count do
+        sources[b], successors[b] = {}, {}
+    end
+    for i = 1, #f.op do
+        for e = f.firstEdge[i], f.firstEdge[i] + f.nedges[i] - 1 do
+            local from, into = blockOf[i], f.edgeTarget[e]
+            sources[into][#sources[into] + 1] = from
+            successors[from][#successors[from] + 1] = into
+        end
+    end
+    -- Back edges by a depth-first walk: an edge to a block on the walk's
+    -- stack.
+    local state: {integer} = zeros(count)
+    local backFrom: {[integer]: {integer}} = {}
+    local stack: {integer} = {1}
+    local cursor: {integer} = {1}
+    state[1] = 1
+    while #stack > 0 do
+        local b = stack[#stack]
+        local next = successors[b][cursor[#cursor]]
+        if next == nil then
+            state[b] = 2
+            stack[#stack], cursor[#cursor] = nil, nil
+        else
+            cursor[#cursor] = cursor[#cursor] + 1
+            if state[next] == 0 then
+                state[next] = 1
+                stack[#stack + 1], cursor[#cursor + 1] = next, 1
+            elseif state[next] == 1 then
+                local list = backFrom[next] or {}
+                list[#list + 1], backFrom[next] = b, list
+            end
+        end
+    end
+    local alias: {[integer]: integer} = {}
+    for header, latches in pairs(backFrom) do
+        local inside: {[integer]: boolean} = {[header] = true}
+        local pending: {integer} = {}
+        for _, latch in ipairs(latches) do
+            pending[#pending + 1] = latch
+        end
+        while #pending > 0 do
+            local b = pending[#pending]
+            pending[#pending] = nil
+            if not inside[b] then
+                inside[b] = true
+                for _, from in ipairs(sources[b]) do
+                    pending[#pending + 1] = from
+                end
+            end
+        end
+        local calls = false
+        local literals: {integer} = {}
+        local entering: integer = 0
+        local ways: integer = 0
+        for b in pairs(inside) do
+            for i = f.blockStart[b], f.blockEnd[b] do
+                local op = f.op[i]
+                calls = calls or op == OP_CALL_HOIST or op == OP_CALL_INDIRECT_HOIST
+                if op == OP_ICONST_HOIST and f.result[i] ~= 0 then
+                    literals[#literals + 1] = i
+                end
+            end
+        end
+        for _, from in ipairs(sources[header]) do
+            if not inside[from] then
+                entering, ways = from, ways + 1
+            end
+        end
+        if not calls and ways == 1 and #literals > 0 and header ~= 1 then
+            table.sort(literals)
+            -- The block made before the loop: its literals, then a jump to
+            -- the header passing what the way in passed.
+            local block = #f.blockStart + 1
+            f.blockStart[block] = #f.op + 1
+            f.firstParam[block], f.nparams[block] = #f.params + 1, 0
+            for _, at in ipairs(literals) do
+                local value = #f.valueKinds + 1
+                local to = #f.op + 1
+                f.op[to], f.kind[to], f.imm[to], f.aux[to] = OP_ICONST_HOIST, f.kind[at], f.imm[at], f.aux[at]
+                f.result[to], f.result2[to], f.kind2[to] = value, 0, 0
+                f.firstArg[to], f.nargs[to] = #f.args + 1, 0
+                f.firstEdge[to], f.nedges[to] = #f.edgeTarget + 1, 0
+                f.valueKinds[value], f.definitions[value] = f.valueKinds[f.result[at]], to
+                alias[f.result[at]] = value
+            end
+            local jump = #f.op + 1
+            f.op[jump], f.kind[jump], f.imm[jump], f.aux[jump] = OP_JUMP_HOIST, 0, 0, 0
+            f.result[jump], f.result2[jump], f.kind2[jump] = 0, 0, 0
+            f.firstArg[jump], f.nargs[jump] = #f.args + 1, 0
+            f.firstEdge[jump], f.nedges[jump] = #f.edgeTarget + 1, 1
+            f.blockEnd[block] = jump
+            -- The way in now goes to it, which passes on what it passed.
+            local into: integer = 0
+            for i = f.blockStart[entering], f.blockEnd[entering] do
+                for e = f.firstEdge[i], f.firstEdge[i] + f.nedges[i] - 1 do
+                    if f.edgeTarget[e] == header and into == 0 then
+                        into = e
+                        f.edgeTarget[e] = block
+                    end
+                end
+            end
+            local edge = #f.edgeTarget + 1
+            f.edgeFrom[edge], f.edgeTarget[edge] = jump, header
+            f.edgeFirstArg[edge], f.edgeNargs[edge] = f.edgeFirstArg[into], f.edgeNargs[into]
+            f.edgeNargs[into] = 0
+            -- The block takes no parameters, so the way in passes nothing;
+            -- the jump passes what it did, all made before the loop.
+        end
+    end
+    if next(alias) == nil then
+        return
+    end
+    for p, value in ipairs(f.args) do
+        f.args[p] = alias[value] or value
+    end
+    for p, value in ipairs(f.edgeArgs) do
+        f.edgeArgs[p] = alias[value] or value
+    end
+end
+
 -- Sends every edge into a block to an identical one instead, so the copies
 -- (each check's failing path, as lowering makes one per check) are selected
 -- once and branches to them can share a target. Blocks are identical when
@@ -1808,6 +1948,7 @@ function allocate.run(f: ir.Function, target: allocate.Target): allocate.Allocat
         common(f)
         decided(f)
         merge(f)
+        hoist(f)
     end
     local a = newAllocation(f)
     if target.saveAcrossCalls == true then

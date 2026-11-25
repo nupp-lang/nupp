@@ -718,6 +718,53 @@ block3():
             end
         },
         {
+            -- A literal a loop that calls nothing stores is made once before
+            -- it, not each time round (a frame's registers filled with nil).
+            name = "hoisted",
+            text = [[
+function %fill(i64, i64) -> i64 tail {
+    ss0 = explicit_slot 64, align = 16
+block0(v0: i64, v1: i64):
+    v2 = stack_addr.i64 ss0
+    v3 = iconst.i64 0
+    jump block1(v3)
+block1(v4: i64):
+    v5 = icmp ult v4, v0
+    brif v5, block2(), block3()
+block2():
+    v6 = iconst.i64 8
+    v7 = imul v4, v6
+    v8 = iadd v2, v7
+    v9 = iconst.i64 0x7ff9000000000000
+    store v9, v8
+    v10 = iconst.i64 1
+    v11 = iadd v4, v10
+    jump block1(v11)
+block3():
+    v12 = load.i64 v2
+    v13 = iadd v12, v1
+    return v13
+}
+]],
+            runs = {{args = {4, 1}, result = 0x7ff9000000000001}, {args = {8, 2}, result = 0x7ff9000000000002}},
+            check = function(codes)
+                local words = inspect.words(codes, "fill")
+                -- The literal is made before the loop's back branch's target.
+                local made, back = 0, 0
+                for k, word in ipairs(words) do
+                    if inspect.isMoveWide(word) then
+                        made = k
+                    end
+                    if inspect.isBranch(word) then
+                        back = k
+                    end
+                end
+                assert(made > 0 and back > 0, "no literal or no loop")
+                local target = back + ((words[back] & 0x3ffffff) | ((words[back] & 0x2000000) ~= 0 and ~0x3ffffff or 0))
+                assert(made < target, "a literal is made inside the loop")
+            end
+        },
+        {
             -- An indirect target loaded for its call alone is loaded into x16.
             name = "dispatch",
             text = [[
