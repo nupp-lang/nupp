@@ -587,6 +587,10 @@ export struct Heap
 
     pending: Words*
     pendinghead: uint64
+
+    --- A string builder's owner kept for the next builder (`corestrings`): the
+    --- handle that roots it, or 0.
+    builderSpare: uint64
 end
 
 -- ---- words over mappings ---------------------------------------------------
@@ -1034,6 +1038,7 @@ export function create(borrows a: arena.Arena*): Heap* borrows (a)
         h.tofinalize = zeroWords(a)
         h.pending = zeroWords(a)
         h.pendinghead = 0ULL
+        h.builderSpare = 0ULL
         h.incremental = 0ULL
         h.storageviews = 0ULL
         h.generational = 0ULL

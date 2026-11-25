@@ -47,6 +47,15 @@ export function release(borrows b: Builder*): nil
             b.handle = 0ULL
             b.heap = 0ULL
             collector.handleRelease(h, index)
+            -- The next builder takes the owner on, emptied, while it is clean
+            -- and small: building a string is mostly short concatenations.
+            local d = corestorage.descriptor(owner)
+            if h.builderSpare == 0ULL and d.error == 0ULL and d.cap <= INLINE_LIMIT then
+                storage.reset(d)
+                h.builderSpare = values.TAG_OBJ | owner
+
+                return
+            end
             -- Its checked failure boundary leaves error-path backing for GC.
             -- On ordinary close, reclaim it immediately after unrooting.
             storage.release(corestorage.descriptor(owner))
@@ -56,6 +65,17 @@ end
 
 export function close(takes b: Builder*): nil
     release(b)
+end
+
+-- Releases the owner kept for the next builder, as its heap closes.
+export function dropSpare(h: heap.Heap*): nil
+    @unsafe do
+        local owner = h.builderSpare & values.PAYLOAD
+        h.builderSpare = 0ULL
+        if owner ~= 0ULL then
+            storage.release(corestorage.descriptor(owner))
+        end
+    end
 end
 
 -- The borrowed stack descriptor outlives this lexical guard. Initialize before
@@ -73,7 +93,11 @@ export function open(h: heap.Heap*, b: Builder*): affine(Builder*, close)
             slots = slots + 1ULL
         end
         heap.wordsreserve(h.handleFree, slots)
-        local owner = corestorage.newstorage(h, corestorage.UINT8, 0ULL)
+        local owner = h.builderSpare & values.PAYLOAD
+        h.builderSpare = 0ULL
+        if owner == 0ULL then
+            owner = corestorage.newstorage(h, corestorage.UINT8, 0ULL)
+        end
         if owner == 0ULL then
             error("not enough memory")
         end

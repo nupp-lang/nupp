@@ -328,6 +328,12 @@ local function initializeHeap(
         if constants ~= 0ULL then
             collector.register(h, constants + CONSTANT_SLOTS * 8ULL, CONSTANT_SLOTS)
         end
+        -- The string builder owner kept between builders (corestrings).
+        collector.register(
+            h,
+            native.address(h as voidptr) + native.word(native.fieldOffset<heap.Heap>("builderSpare")),
+            1ULL
+        )
         -- Errors survive positioning, cleanup calls and recovery until their
         -- destination frame holds them. The fields between them are scalars.
         native.store64(services, native.fieldOffset<Services>("raised"), 0ULL)
@@ -502,6 +508,7 @@ export function close(services: voidptr): nil
         gcstats.report(h)
         native.store64(services, native.fieldOffset<Services>("oraclefailures"), h.oracleFailures)
         h.ranges.count = 0ULL
+        strings.dropSpare(h)
         collector.fullCycle(h)
         tables.drain(h)
         heap.destroy(native.pointer(address) as heap.Heap*)
