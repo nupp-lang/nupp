@@ -299,4 +299,59 @@ function M.frozenGraphRouteStillRefusesInvoke()
     )
 end
 
+-- Values a loop carries are one variable across its edges: each keeps one
+-- slot, so the back edge copies nothing (assignSlots' classes).
+function M.loopCarriedValuesKeepTheirSlots()
+    local source = table.concat({
+        "local function scan(text: string, n: integer): number",
+        "    local a: number, b: number, c: number, d: number = 0, 0, 0, 0",
+        "    local i = 1",
+        "    while i <= n do",
+        "        local ch = string.byte(text, i)",
+        "        if ch == 32 then",
+        "            a = a + 1",
+        "        elseif ch == 10 then",
+        "            b = b + 1",
+        "        else",
+        "            c = c + ch",
+        "        end",
+        "        d = d + 1",
+        "        i = i + 1",
+        "    end",
+        "    return a + b + c + d",
+        "end",
+        "return scan(\"hello world\\n\", 12)"
+    }, "\n")
+    local parsed = parser.parse(source, "=core_executable.nupp")
+    test.eq(#parsed.errors, 0)
+    local env = environment.new(".", {memoryOnly = true, cache = false, nativeCompilerServices = false})
+    local diagnostics = checker.check(parsed, "=core_executable.nupp", env, {
+        moduleName = "core_executable",
+        strict = false,
+        lints = {["unused-binding"] = "off"}
+    })
+    local p = program.describe({{
+        name = "core_executable",
+        path = "=core_executable.nupp",
+        parsed = parsed,
+        diagnostics = diagnostics
+    }}, "core_executable")
+    local output = executable.fromChecked(program.compile(p, tagged.forVersion(8)), 8)
+    executable.validate(output)
+    for _, fn in ipairs(output.functions) do
+        local loops, moves = 0, 0
+        for _, instruction in ipairs(fn.instructions) do
+            if instruction[1] == "Move" then
+                moves = moves + 1
+            elseif instruction[1] == "Jmp" and instruction[2] < 0 then
+                loops = loops + 1
+            end
+        end
+        if loops > 0 then
+            -- Only the call staging the byte read moves values.
+            assert(moves <= 2, "a loop's edges copy carried values: " .. moves .. " moves")
+        end
+    end
+end
+
 return M

@@ -77,14 +77,174 @@ end
 -- LibCall carry before their value operands.
 local immediateOperands: {[string]: integer} = {K = 1, Require = 1, GetUpval = 1, Closure = 1, LibCall = 1}
 
+-- The blocks of `g` in reverse postorder from its entry, then any it cannot reach.
+local function reversePostorder(g: any): {any}
+    local order: {any} = {}
+    local visited: {[integer]: boolean} = {}
+
+    local function visit(id: integer): nil
+        visited[id] = true
+        for _, edge in ipairs(g.blocks[id].term.edges or {}) do
+            if not visited[edge.target] then
+                visit(edge.target)
+            end
+        end
+        order[#order + 1] = g.blocks[id]
+    end
+
+    if #g.blocks > 0 then
+        visit(1)
+    end
+    local result: {any} = {}
+    for index = #order, 1, -1 do
+        result[#result + 1] = order[index]
+    end
+    for id, block in ipairs(g.blocks) do
+        if not visited[id] then
+            result[#result + 1] = block
+        end
+    end
+
+    return result
+end
+
 -- Closed blocks keep every non-parameter value inside one block, so a slot is
 -- reused across blocks and, within a block, after the value's last use.
 -- Handlers read their operands before writing the result, so a result may
 -- take the slot of an operand that dies at the same instruction.
+-- Values an edge connects (an argument and the parameter it becomes) are
+-- one variable to the code: they join a class unless the two classes have
+-- members live at once in some block, and each member prefers the slot the
+-- first one assigned took. Values carried through loops and merges then
+-- keep one slot, and an edge's copy of each is a move to itself, which
+-- emits nothing. A value is live in its block from where it is defined (a
+-- parameter before the first instruction) to its last use; a result does
+-- not overlap an operand that dies at the instruction defining it.
 local function assignSlots(g: any): (any, integer)
     local slotOf: {[integer]: integer} = {}
     local highest: integer = 0
+    local parent: {[integer]: integer} = {}
+
+    local function find(value: integer): integer
+        local above = parent[value]
+        if above == nil or above == value then
+            return value
+        end
+        local root = find(above)
+        parent[value] = root
+
+        return root
+    end
+
+    -- Each value's block and live interval, and each class's members by block.
+    local blockOf: {[integer]: integer} = {}
+    local startOf: {[integer]: integer} = {}
+    local endOf: {[integer]: integer} = {}
+    local members: {[integer]: {[integer]: {integer}}} = {}
     for _, block in ipairs(g.blocks) do
+        local count = #block.op
+
+        local function define(value: integer?, at: integer): nil
+            if value ~= nil and value > g.nparams then
+                blockOf[value], startOf[value], endOf[value] = block.id, at, at
+                members[value] = {[block.id] = {value}}
+            end
+        end
+
+        local function use(value: integer?, at: integer): nil
+            if value ~= nil and value > g.nparams and blockOf[value] == block.id then
+                endOf[value] = math.max(endOf[value] as integer, at) as integer
+            end
+        end
+
+        for _, value in ipairs(block.params) do
+            define(value, 0)
+        end
+        for at, op in ipairs(block.op) do
+            local args = block.args[at]
+            for index = (immediateOperands[op] or 0) + 1, #args do
+                use(args[index], at)
+            end
+            local dst = block.dst[at]
+            if dst ~= nil and dst ~= 0 then
+                define(dst, at)
+            end
+        end
+        local term = block.term
+        local closing = count + 1
+        use(term.value, closing)
+        for _, value in ipairs(term.values or {}) do
+            use(value, closing)
+        end
+        use(term.spread, closing)
+        use(term.callee, closing)
+        for _, value in ipairs(term.args or {}) do
+            use(value, closing)
+        end
+        for _, edge in ipairs(term.edges) do
+            for _, value in ipairs(edge.args) do
+                use(value, closing)
+            end
+        end
+    end
+
+    local function overlap(v: integer, w: integer): boolean
+        return (startOf[v] as integer) < (endOf[w] as integer) and (startOf[w] as integer) < (endOf[v] as integer)
+    end
+
+    -- Whether classes `x` and `y` have members live at once in some block.
+    local function interfere(x: integer, y: integer): boolean
+        local mx, my = members[x] as {[integer]: {integer}}, members[y] as {[integer]: {integer}}
+        for block, list in pairs(mx) do
+            local others = my[block]
+            if others ~= nil then
+                for _, v in ipairs(list) do
+                    for _, w in ipairs(others) do
+                        if overlap(v, w) then
+                            return true
+                        end
+                    end
+                end
+            end
+        end
+
+        return false
+    end
+
+    for _, block in ipairs(reversePostorder(g)) do
+        for _, edge in ipairs(block.term.edges or {}) do
+            local params = g.blocks[edge.target].params
+            -- A call's continuation takes its results first; the arguments
+            -- the edge passes fill the parameters after them.
+            local offset = #params - #edge.args
+            for index, value in ipairs(edge.args) do
+                local param = params[index + offset]
+                if param ~= nil and blockOf[value] ~= nil and blockOf[param] ~= nil then
+                    local x, y = find(value), find(param)
+                    if x ~= y and not interfere(x, y) then
+                        parent[x] = y
+                        local target = members[y] as {[integer]: {integer}}
+                        for id, list in pairs(members[x] as {[integer]: {integer}}) do
+                            local into = target[id] or {}
+                            for _, v in ipairs(list) do
+                                into[#into + 1] = v
+                            end
+                            target[id] = into
+                        end
+                        members[x] = nil
+                    end
+                end
+            end
+        end
+    end
+    local classSlot: {[integer]: integer} = {}
+
+    -- The slot `value`'s class took first, if one has.
+    local function preferred(value: integer): integer?
+        return classSlot[find(value)]
+    end
+
+    for _, block in ipairs(reversePostorder(g)) do
         local last: {[integer]: integer} = {}
         local count = #block.op
 
@@ -117,19 +277,70 @@ local function assignSlots(g: any): (any, integer)
         end
         local free: {integer} = {}
         local nextSlot: integer = 0
+        -- The slots some value of this block prefers: a value with no
+        -- preference of its own takes another, so it does not push a
+        -- preferring one out of its slot (and that one the next, and so on).
+        local reserved: {[integer]: boolean} = {}
+        for _, value in ipairs(block.params) do
+            if preferred(value) ~= nil then
+                reserved[preferred(value) as integer] = true
+            end
+        end
+        for _, value in ipairs(block.dst) do
+            if value ~= nil and value ~= 0 and preferred(value) ~= nil then
+                reserved[preferred(value) as integer] = true
+            end
+        end
 
         local function take(value: integer): nil
             local slot: integer
-            if #free > 0 then
+            local wanted = preferred(value)
+            local at: integer? = nil
+            if wanted ~= nil then
+                for index, candidate in ipairs(free) do
+                    if candidate == wanted then
+                        at = index
+                    end
+                end
+            end
+            if at ~= nil then
+                slot = table.remove(free, at as integer) as integer
+            elseif wanted ~= nil and wanted >= nextSlot then
+                -- The slots below it are free until something takes them.
+                for fresh = nextSlot, wanted - 1 do
+                    free[#free + 1] = fresh
+                end
+                nextSlot = wanted + 1
+                slot = wanted
+            else
                 table.sort(free, function(x: integer, y: integer): boolean
                     return x > y
                 end)
-                slot = table.remove(free) as integer
-            else
-                slot = nextSlot
-                nextSlot += 1
+                -- The lowest free slot no other value prefers, else a fresh
+                -- one no other value prefers, else the lowest free slot.
+                local unreserved: integer? = nil
+                for index = #free, 1, -1 do
+                    if not reserved[free[index]] then
+                        unreserved = index
+                        break
+                    end
+                end
+                if unreserved ~= nil then
+                    slot = table.remove(free, unreserved as integer) as integer
+                else
+                    while reserved[nextSlot] do
+                        free[#free + 1] = nextSlot
+                        nextSlot += 1
+                    end
+                    slot = nextSlot
+                    nextSlot += 1
+                end
             end
             slotOf[value] = slot
+            local root = find(value)
+            if classSlot[root] == nil then
+                classSlot[root] = slot
+            end
             highest = math.max(highest, slot + 1) as integer
         end
 
@@ -139,8 +350,14 @@ local function assignSlots(g: any): (any, integer)
             end
         end
 
+        -- Parameters with a preferred slot take it before the others choose.
         for _, value in ipairs(block.params) do
-            if value > g.nparams then
+            if value > g.nparams and preferred(value) ~= nil then
+                take(value)
+            end
+        end
+        for _, value in ipairs(block.params) do
+            if value > g.nparams and slotOf[value] == nil then
                 take(value)
             end
         end
