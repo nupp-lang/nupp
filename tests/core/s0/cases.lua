@@ -685,6 +685,39 @@ block3():
             end
         },
         {
+            -- A loop that calls nothing, after a call (so its values are
+            -- saved): they are made current once before it, not each time
+            -- round it.
+            name = "loopcurrent",
+            text = identity
+            .. [[
+function %scan(i64, i64) -> i64 tail {
+    sig0 = (i64) -> i64 tail
+    fn0 = %identity sig0
+block0(v0: i64, v1: i64):
+    v2 = call fn0(v0)
+    v3 = iconst.i64 0
+    jump block1(v3, v3)
+block1(v4: i64, v5: i64):
+    v6 = icmp ult v4, v1
+    brif v6, block2(), block3()
+block2():
+    v7 = iadd v5, v2
+    v8 = iadd v7, v0
+    v9 = iconst.i64 1
+    v10 = iadd v4, v9
+    jump block1(v10, v8)
+block3():
+    v11 = call fn0(v5)
+    return v11
+}
+]],
+            runs = {{args = {2, 3}, result = 12}, {args = {5, 0}, result = 0}, {args = {1, 4}, result = 8}},
+            check = function(codes)
+                assert(inspect.count(codes, "scan", inspect.isFrameLoad) <= 2, "a saved value is loaded round the loop")
+            end
+        },
+        {
             -- An indirect target loaded for its call alone is loaded into x16.
             name = "dispatch",
             text = [[

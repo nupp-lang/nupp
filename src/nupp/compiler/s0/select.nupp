@@ -747,6 +747,55 @@ end
 -- The saved values current on entry to a block whose predecessors are
 -- `list`: those every predecessor leaves current, or none when one of them
 -- (a back edge) is not selected yet.
+-- The loop headers whose loops call nothing, keyed by block, with the
+-- blocks entering each from outside: a value current at every such entry
+-- stays current round the loop. A header is a block a later-selected block
+-- (its back edge) enters; its loop is what reaches that block back without
+-- passing the header.
+function helpers.callFreeLoops(f: ir.Function, emitted: {integer}, sources: {{integer}}): {[integer]: {integer}}
+    local position: {[integer]: integer} = {}
+    for order, block in ipairs(emitted) do
+        position[block] = order
+    end
+    local headers: {[integer]: {integer}} = {}
+    for _, header in ipairs(emitted) do
+        local entering: {integer} = {}
+        local pending: {integer} = {}
+        for _, from in ipairs(sources[header]) do
+            if position[from] ~= nil and position[from] >= position[header] then
+                pending[#pending + 1] = from
+            elseif position[from] ~= nil then
+                entering[#entering + 1] = from
+            end
+        end
+        if #pending > 0 and #entering > 0 then
+            local inside: {[integer]: boolean} = {[header] = true}
+            local calls = false
+            while #pending > 0 and not calls do
+                local b = pending[#pending]
+                pending[#pending] = nil
+                if not inside[b] then
+                    inside[b] = true
+                    for i = f.blockStart[b], f.blockEnd[b] do
+                        calls = calls or f.op[i] == CALL or f.op[i] == CALL_INDIRECT
+                    end
+                    for _, from in ipairs(sources[b]) do
+                        pending[#pending + 1] = from
+                    end
+                end
+            end
+            for i = f.blockStart[header], f.blockEnd[header] do
+                calls = calls or f.op[i] == CALL or f.op[i] == CALL_INDIRECT
+            end
+            if not calls then
+                headers[header] = entering
+            end
+        end
+    end
+
+    return headers
+end
+
 function helpers.entryState(list: {integer}, exits: {[integer]: {[integer]: boolean}}): {[integer]: boolean}
     local entering: {[integer]: boolean} = {}
     for _, predecessor in ipairs(list) do
@@ -852,6 +901,10 @@ function selector.run(f: ir.Function, a: allocate.Allocation): selector.Code
         named = {} as {integer},
         -- The blocks those edges come from.
         sources = {} as {{integer}},
+        -- The headers of loops that call nothing, with their entries from
+        -- outside (callFreeLoops), and the blocks that are such entries.
+        loops = {} as {[integer]: {integer}},
+        entersLoop = {} as {[integer]: boolean},
         -- Saving lazily, the values each selected block leaves stored.
         storedExits = {} as {[integer]: {[integer]: boolean}},
         -- The word a conditional compare was selected at, until its block's
@@ -1774,6 +1827,14 @@ function selector.run(f: ir.Function, a: allocate.Allocation): selector.Code
     local uses, immediates, immediateArgs, omitted, recipes = prepare(f, a.used, a.location, track.reached, a)
     track.uses = uses
     track.named, track.sources = helpers.namedPredecessors(f, track.reached)
+    if #track.saved > 0 and not track.lazy then
+        track.loops = helpers.callFreeLoops(f, track.emitted, track.sources)
+        for _, entering in pairs(track.loops) do
+            for _, from in ipairs(entering) do
+                track.entersLoop[from] = true
+            end
+        end
+    end
     -- Which saved values each block leaves current (`current`): a block
     -- starts with what all its predecessors leave (entryState).
     track.predecessors = #track.saved > 0 and helpers.predecessorsOf(f) or {}
@@ -1812,7 +1873,10 @@ function selector.run(f: ir.Function, a: allocate.Allocation): selector.Code
         elseif #track.saved > 0 then
             -- Its predecessors are those a path reaches: a block threading or
             -- merging passed by still names edges here, but is not selected.
-            track.current = helpers.entryState(track.sources[block], track.exits)
+            -- A loop that calls nothing is entered with what its entries
+            -- leave current (each holds what it leaves live): nothing in it
+            -- makes a value stale on the way round.
+            track.current = helpers.entryState(track.loops[block] or track.sources[block], track.exits)
             for p = f.firstParam[block], f.firstParam[block] + f.nparams[block] - 1 do
                 if a.used[f.params[p]] ~= false then
                     hold(f.params[p], true)
@@ -1855,7 +1919,7 @@ function selector.run(f: ir.Function, a: allocate.Allocation): selector.Code
                         emit(arm.ldr(8, 30, 23, 0))
                         track.lrStale = false
                     end
-                    helpers.holdLive(a, track.lazy, hold, block)
+                    helpers.holdLive(a, track.lazy or track.entersLoop[block] == true, hold, block)
                     helpers.holdEdge(f, a, hold, f.firstEdge[at])
                     edge(f.firstEdge[at], nextBlock)
                     yield true
@@ -1876,7 +1940,7 @@ function selector.run(f: ir.Function, a: allocate.Allocation): selector.Code
                         emit(arm.ldr(8, 30, 23, 0))
                         track.lrStale = false
                     end
-                    helpers.holdLive(a, track.lazy, hold, block)
+                    helpers.holdLive(a, track.lazy or track.entersLoop[block] == true, hold, block)
                     helpers.holdEdge(f, a, hold, first)
                     helpers.holdEdge(f, a, hold, last)
                     -- A chained compare's flags reach its branch directly:
@@ -2142,6 +2206,7 @@ function selector.run(f: ir.Function, a: allocate.Allocation): selector.Code
                                 and alone
                                 and (#track.saved == 0 or track.lazy)
                                 and not track.lrStale
+                                and not track.entersLoop[block]
                                 and code.blockWord[block] == #code.words + 1
                                 and localWord[#localWord] == #code.words
                                 and (pending >> 32) > 0
