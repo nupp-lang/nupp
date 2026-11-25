@@ -1360,13 +1360,38 @@ local function decided(f: ir.Function): nil
         return true
     end
 
-    -- For block `m`, when it only compares a parameter with a literal and
-    -- branches on that: the comparison, the parameter's position and
-    -- whether it is compared first.
+    -- Whether literal `value`, of any integer width, is true (nonzero), or
+    -- nil when `value` is no literal.
+    local function truth(value: integer): boolean?
+        local definition = f.definitions[value]
+        local kind = f.valueKinds[value]
+        if definition > 0 and f.op[definition] == OP_ICONST_DECIDED and not ir.isFloat(kind) then
+            local bits = kind == ir.I8 and 8 or kind == ir.I16 and 16 or kind == ir.I32 and 32 or 64
+            local mask = bits == 64 and -1 or (1 << bits) - 1
+            return f.imm[definition] & mask ~= 0
+        end
+
+        return nil
+    end
+
+    -- For block `m`, when it only branches on a parameter, or compares one
+    -- with a literal and branches on that: the comparison (the branch
+    -- itself for the first), the parameter's position and whether it is
+    -- compared first.
     local function test(m: integer): (integer, integer, boolean)
         local branch = f.blockEnd[m]
         if m == 1 or f.op[branch] ~= BRIF then
             return 0, -1, false
+        end
+        local condition = f.args[f.firstArg[branch]]
+        local direct = passable(m, f.firstEdge[branch]) and passable(m, f.firstEdge[branch] + 1)
+        for i = f.blockStart[m], branch - 1 do
+            direct = direct and f.op[i] == OP_ICONST_DECIDED
+        end
+        for p = 0, direct and f.nparams[m] - 1 or -1 do
+            if f.params[f.firstParam[m] + p] == condition then
+                return branch, p, true
+            end
         end
         local compare: integer = 0
         for i = f.blockStart[m], branch - 1 do
@@ -1438,16 +1463,24 @@ local function decided(f: ir.Function): nil
     -- Where edge `e` (into `m`) goes instead, or zero.
     local function instead(e: integer, m: integer): integer
         local compare, position, first = test(m)
-        local passed = position >= 0 and literal(f.edgeArgs[f.edgeFirstArg[e] + position]) or nil
-        if passed == nil then
-            return forwards(m)
-        end
-        local fixed = literal(f.args[f.firstArg[compare] + (first and 1 or 0)]) as integer
         local outcome: boolean? = nil
-        if first then
-            outcome = holds(f.aux[compare], passed, fixed)
+        if position >= 0 and f.op[compare] == BRIF then
+            -- A branch on the parameter itself goes by the literal's truth.
+            outcome = truth(f.edgeArgs[f.edgeFirstArg[e] + position])
+            if outcome == nil then
+                return forwards(m)
+            end
         else
-            outcome = holds(f.aux[compare], fixed, passed)
+            local passed = position >= 0 and literal(f.edgeArgs[f.edgeFirstArg[e] + position]) or nil
+            if passed == nil then
+                return forwards(m)
+            end
+            local fixed = literal(f.args[f.firstArg[compare] + (first and 1 or 0)]) as integer
+            if first then
+                outcome = holds(f.aux[compare], passed, fixed)
+            else
+                outcome = holds(f.aux[compare], fixed, passed)
+            end
         end
         if outcome == nil then
             return 0
@@ -1469,6 +1502,18 @@ local function decided(f: ir.Function): nil
         changed, rounds = false, rounds + 1
         analyze()
         for i = 1, instructions do
+            -- A branch on a literal is a jump where the literal sends it; its
+            -- other edge stays in the columns, named by no instruction.
+            local known = f.op[i] == BRIF and truth(f.args[f.firstArg[i]]) or nil
+            if known ~= nil then
+                local kept = f.firstEdge[i] + (known and 0 or 1)
+                local at = #f.edgeTarget + 1
+                f.edgeFrom[at], f.edgeTarget[at] = i, f.edgeTarget[kept]
+                f.edgeFirstArg[at], f.edgeNargs[at] = f.edgeFirstArg[kept], f.edgeNargs[kept]
+                f.op[i], f.nargs[i], f.firstEdge[i], f.nedges[i] = JUMP, 0, at, 1
+                changed = true
+                break
+            end
             for e = f.firstEdge[i], f.firstEdge[i] + f.nedges[i] - 1 do
                 local m = f.edgeTarget[e]
                 local taken = blockOf[i] ~= m and instead(e, m) or 0

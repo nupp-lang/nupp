@@ -603,6 +603,35 @@ block0(v0: i64, v1: i64):
             end
         },
         {
+            -- A condition merged through a parameter that one way in passes a
+            -- literal for goes straight where that literal sends it.
+            name = "literalcondition",
+            text = [[
+function %merged(i64, i64) -> i64 tail {
+block0(v0: i64, v1: i64):
+    v2 = iconst.i64 5
+    v3 = icmp ult v0, v2
+    brif v3, block1(), block2()
+block1():
+    v4 = iconst.i8 1
+    jump block3(v4)
+block2():
+    v5 = icmp ult v1, v2
+    jump block3(v5)
+block3(v6: i8):
+    brif v6, block4(), block5()
+block4():
+    return v0
+block5():
+    return v1
+}
+]],
+            runs = {{args = {1, 9}, result = 1}, {args = {9, 1}, result = 9}, {args = {9, 9}, result = 9}},
+            check = function(codes)
+                assert(inspect.count(codes, "merged", inspect.isMoveWide) == 0, "a literal condition is made and tested")
+            end
+        },
+        {
             -- An indirect target loaded for its call alone is loaded into x16.
             name = "dispatch",
             text = [[
