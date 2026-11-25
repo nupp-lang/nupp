@@ -1,0 +1,92 @@
+module nupp.runtime.core.gcstats
+
+-- `GC_STATS`: when the variable is set, a heap's collection counters are
+-- written to standard error as it closes, one `gc NAME VALUE` line each, as
+-- the Rust VM reported them. A leaf has no data, so each name is its bytes
+-- as one little-endian word.
+const native = require("nupp.runtime.vm.intrinsics")
+const heap = require("nupp.runtime.vm.heap")
+
+cdef function getenv(borrows name: voidptr): voidptr
+cdef function calloc(count: uint64, size: uint64): voidptr
+cdef function free(borrows block: voidptr)
+cdef function write(fd: int64, borrows buffer: voidptr, count: uint64): int64
+
+const STDERR: int64 = 2
+const LINE_BYTES: uint64 = 48ULL
+const DIGITS_END: uint64 = 40ULL
+const BASE: uint64 = 10ULL
+const ZERO: uint64 = 48ULL
+const SPACE: uint64 = 32ULL
+const NEWLINE: uint64 = 10ULL
+const BYTE: uint64 = 0xffULL
+const BYTE_BITS: uint64 = 8ULL
+
+-- "GC_STATS", and "gc " before each name.
+const VARIABLE: uint64 = 0x53544154535f4347ULL
+const PREFIX: uint64 = 0x206367ULL
+
+-- Stores the bytes of `word` at `at` up to its first zero byte, and answers
+-- where the next byte goes.
+local function bytes(buffer: voidptr, at: uint64, word: uint64): uint64
+    local next = at
+    local rest = word
+    @unsafe do
+        while rest ~= 0ULL do
+            native.store8(buffer, native.index(next), rest & BYTE)
+            next = next + 1ULL
+            rest = rest >> BYTE_BITS
+        end
+    end
+
+    return next
+end
+
+-- Writes `gc NAME VALUE` and a newline, the value in decimal.
+local function line(buffer: voidptr, name: uint64, value: uint64): nil
+    local at = bytes(buffer, bytes(buffer, 0ULL, PREFIX), name)
+    @unsafe do
+        native.store8(buffer, native.index(at), SPACE)
+        local _ = write(STDERR, buffer, at + 1ULL)
+        local digit = DIGITS_END
+        native.store8(buffer, native.index(digit), NEWLINE)
+        local rest = value
+        repeat
+            digit = digit - 1ULL
+            native.store8(buffer, native.index(digit), ZERO + rest % BASE)
+            rest = rest // BASE
+        until rest == 0ULL
+        local _ = write(STDERR, native.offset(buffer, native.index(digit)), DIGITS_END + 1ULL - digit)
+    end
+end
+
+-- Reports `h`'s counters when `GC_STATS` is set.
+export function report(h: heap.Heap*): nil
+    @unsafe do
+        local buffer = calloc(LINE_BYTES, 1ULL)
+        if native.address(buffer) == 0ULL then
+            return
+        end
+        native.store64(buffer, 0, VARIABLE)
+        native.store8(buffer, 8, 0ULL)
+        if native.address(getenv(buffer)) ~= 0ULL then
+            line(buffer, 0x73656c637963ULL, h.stats.cycles) -- cycles
+            line(buffer, 0x73726f6e696dULL, h.stats.minors) -- minors
+            line(buffer, 0x636f6c6c61ULL, h.stats.allocated) -- alloc
+            line(buffer, 0x6465657266ULL, h.stats.freed) -- freed
+            line(buffer, 0x64656e6e616373ULL, h.stats.scanned) -- scanned
+            line(buffer, 0x7470657773ULL, h.stats.swept) -- swept
+            line(buffer, 0x6465746f6d6f7270ULL, h.stats.promoted) -- promoted
+            line(buffer, 0x7265626d656d6572ULL, h.stats.remembers) -- remember
+            line(buffer, 0x6b72616d64726163ULL, h.stats.cardmarks) -- cardmark
+            line(buffer, 0x72656972726162ULL, h.stats.barrierGrays) -- barrier
+            line(buffer, 0x73746f6f72ULL, h.stats.rootWalks) -- roots
+            line(buffer, 0x646e6163746f6f72ULL, h.stats.rootCandidates) -- rootcand
+            line(buffer, 0x6576696c6b616570ULL, h.stats.peakLive) -- peaklive
+            line(buffer, 0x6576696cULL, h.liveBytes) -- live
+            line(buffer, 0x657361626e6567ULL, h.genbase) -- genbase
+            line(buffer, 0x7465736d656d6572ULL, h.remembered.count) -- rememset
+        end
+        free(buffer)
+    end
+end

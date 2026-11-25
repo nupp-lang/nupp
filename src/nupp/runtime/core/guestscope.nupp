@@ -27,6 +27,7 @@ const guestentry = require("nupp.runtime.core.guestentry")
 const instances = require("nupp.runtime.core.instances")
 const stacks = require("nupp.runtime.core.stacks")
 const foreignabi = require("nupp.runtime.core.foreignabi")
+const gcstats = require("nupp.runtime.core.gcstats")
 
 -- The Services fields the collector roots, from `running` through
 -- `structtypes`.
@@ -493,6 +494,7 @@ export function close(services: voidptr): nil
         -- Unrooted, a last cycle retires every table so its owned parts are
         -- released before the heap goes.
         local h = native.pointer(address) as heap.Heap*
+        gcstats.report(h)
         native.store64(services, native.fieldOffset<Services>("oraclefailures"), h.oracleFailures)
         h.ranges.count = 0ULL
         collector.fullCycle(h)
