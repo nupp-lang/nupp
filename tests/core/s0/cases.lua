@@ -661,6 +661,30 @@ block3(v5: i64):
             end
         },
         {
+            -- A literal an edge passes is made where its parameter is: it
+            -- holds no register of its own on the way, and is not moved.
+            name = "edgeliteral",
+            text = [[
+function %pick(i64, i64) -> i64 tail {
+block0(v0: i64, v1: i64):
+    v2 = iconst.i64 7
+    v3 = iconst.i64 9
+    brif v0, block1(v2), block2()
+block1(v4: i64):
+    v5 = iadd v4, v1
+    return v5
+block2():
+    brif v1, block1(v3), block3()
+block3():
+    return v0
+}
+]],
+            runs = {{args = {1, 5}, result = 12}, {args = {0, 5}, result = 14}, {args = {0, 0}, result = 0}},
+            check = function(codes)
+                assert(inspect.count(codes, "pick", inspect.isMoveRegister) == 0, "a literal is made and then moved")
+            end
+        },
+        {
             -- An indirect target loaded for its call alone is loaded into x16.
             name = "dispatch",
             text = [[

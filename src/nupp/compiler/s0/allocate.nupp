@@ -37,6 +37,9 @@ record allocate.Allocation
     moveSource: {integer}
     moveTarget: {integer}
     moveKind: {integer}
+    -- For a move whose source is 0, the literal it makes (its definition):
+    -- an edge passing a literal makes it where the parameter goes.
+    moveLiteral: {integer}
     spillKinds: {integer}
     spillValues: {integer}
     spillSlots: integer
@@ -54,6 +57,9 @@ record allocate.Allocation
     -- last positions, in no order. Saving, values whose ranges do not meet
     -- share a register, holes in an interval included.
     ranges: {{integer}}
+    -- Whether an edge makes the integer literals it passes where their
+    -- parameters are (passesLiteral), so they are not read from a register.
+    edgeLiterals: boolean
     conservativeBlocks: integer
     conservativeValues: integer
 end
@@ -87,8 +93,10 @@ local function newAllocation(f: ir.Function): allocate.Allocation
         moveSource = {},
         moveTarget = {},
         moveKind = {},
+        moveLiteral = {},
         spillKinds = {},
         spillValues = {},
+        edgeLiterals = false,
         conservativeBlocks = 0,
         conservativeValues = 0,
         spillSlots = 0,
@@ -98,6 +106,14 @@ local function newAllocation(f: ir.Function): allocate.Allocation
         liveOut = {},
         ranges = {}
     )
+end
+
+-- Whether an edge passing `value` for `parameter` makes it there, a literal,
+-- rather than moving it: the literal is then not read at the edge.
+function allocate.passesLiteral(f: ir.Function, a: allocate.Allocation, parameter: integer, value: integer): boolean
+    local definition = f.definitions[value]
+
+    return a.edgeLiterals and definition > 0 and f.op[definition] == ICONST and not ir.isFloat(f.valueKinds[parameter])
 end
 
 local function dominates(parent: {integer}, ancestor: integer, block: integer): boolean
@@ -272,7 +288,7 @@ local function intervals(f: ir.Function, a: allocate.Allocation): nil
                 for p = 0, f.edgeNargs[e] - 1 do
                     local v, parameter = f.edgeArgs[f.edgeFirstArg[e] + p], f.params[f.firstParam[target] + p]
                     assert(f.valueKinds[v] == f.valueKinds[parameter], "S0 allocation: edge type")
-                    if a.used[parameter] ~= false then
+                    if a.used[parameter] ~= false and not allocate.passesLiteral(f, a, parameter, v) then
                         add(v, 2 * a.instructionPosition[i])
                     end
                 end
@@ -644,6 +660,7 @@ local function appendMove(a: allocate.Allocation, source: integer, destination: 
     a.moveSource[
         #a.moveSource + 1
     ], a.moveTarget[#a.moveTarget + 1], a.moveKind[#a.moveKind + 1] = source, destination, kind
+    a.moveLiteral[#a.moveSource] = 0
 end
 
 -- Inputs and outputs are parallel assignments. A destination becomes ready when
@@ -982,8 +999,9 @@ local function crossings(f: ir.Function, a: allocate.Allocation): nil
                     live[v] = true
                 end
                 for p = 0, f.edgeNargs[e] - 1 do
-                    if a.used[f.params[f.firstParam[target] + p]] ~= false then
-                        live[f.edgeArgs[f.edgeFirstArg[e] + p]] = true
+                    local parameter, value = f.params[f.firstParam[target] + p], f.edgeArgs[f.edgeFirstArg[e] + p]
+                    if a.used[parameter] ~= false and not allocate.passesLiteral(f, a, parameter, value) then
+                        live[value] = true
                     end
                 end
             end
@@ -1794,6 +1812,7 @@ function allocate.run(f: ir.Function, target: allocate.Target): allocate.Allocat
     local a = newAllocation(f)
     if target.saveAcrossCalls == true then
         a.used = usedParameters(f)
+        a.edgeLiterals = true
     end
     intervals(f, a)
     if target.saveAcrossCalls == true then
@@ -1810,9 +1829,13 @@ function allocate.run(f: ir.Function, target: allocate.Target): allocate.Allocat
             source[p], destination[p], kinds[p] = nil, nil, nil
         end
         local count: integer = 0
+        local literals: {integer} = {}
         for p = 0, f.edgeNargs[e] - 1 do
             local v, parameter = f.edgeArgs[f.edgeFirstArg[e] + p], f.params[f.firstParam[b] + p]
-            if a.used[parameter] ~= false then
+            if a.used[parameter] ~= false and allocate.passesLiteral(f, a, parameter, v) then
+                -- Made where it goes, after the moves: it reads nothing.
+                literals[#literals + 1] = parameter
+            elseif a.used[parameter] ~= false then
                 count = count + 1
                 source[
                     count
@@ -1824,6 +1847,15 @@ function allocate.run(f: ir.Function, target: allocate.Target): allocate.Allocat
         end
         a.firstMove[e] = #a.moveSource + 1
         allocate.parallel(source, destination, kinds, target, a, workspace)
+        for _, parameter in ipairs(literals) do
+            local p = #a.moveSource + 1
+            for q = 0, f.edgeNargs[e] - 1 do
+                if f.params[f.firstParam[b] + q] == parameter then
+                    a.moveLiteral[p] = f.definitions[f.edgeArgs[f.edgeFirstArg[e] + q]]
+                end
+            end
+            a.moveSource[p], a.moveTarget[p], a.moveKind[p] = 0, a.location[parameter], f.valueKinds[parameter]
+        end
         a.nmoves[e] = #a.moveSource + 1 - a.firstMove[e]
     end
 

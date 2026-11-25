@@ -333,6 +333,11 @@ function inspect.isLinkLoad(word)
     return word == 0xf94002fe
 end
 
+-- mov xd, xm (orr xd, xzr, xm).
+function inspect.isMoveRegister(word)
+    return word & 0xffe0ffe0 == 0xaa0003e0
+end
+
 -- b: an unconditional branch.
 function inspect.isBranch(word)
     return word & 0xfc000000 == 0x14000000

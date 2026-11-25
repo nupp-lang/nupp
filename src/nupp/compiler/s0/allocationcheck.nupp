@@ -34,9 +34,21 @@ local function readParameters(f: ir.Function): {boolean}
     return read
 end
 
+-- Whether an edge passing `value` for `parameter` makes it there, a literal,
+-- which the edge then does not read from where `value` is: the rule the
+-- allocator follows (allocate.passesLiteral), stated here on its own.
+local function literalEdge(f: ir.Function, target: allocate.Target, parameter: integer, value: integer): boolean
+    local definition = f.definitions[value]
+
+    return target.saveAcrossCalls == true
+        and definition > 0
+        and f.op[definition] == ir.opcode("iconst")
+        and not ir.isFloat(f.valueKinds[parameter])
+end
+
 -- Independent backwards dataflow is intentionally confined to the checker.
 -- It neither consumes production intervals nor trusts production live-in sets.
-local function liveIn(f: ir.Function, read: {boolean}): {{boolean}}
+local function liveIn(f: ir.Function, read: {boolean}, target: allocate.Target): {{boolean}}
     local live: {{boolean}} = {}
     for b = 1, #f.blockStart do
         live[b] = {}
@@ -48,15 +60,16 @@ local function liveIn(f: ir.Function, read: {boolean}): {{boolean}}
             local values: {boolean} = {}
             for i = f.blockEnd[b], f.blockStart[b], -1 do
                 for e = f.firstEdge[i], f.firstEdge[i] + f.nedges[i] - 1 do
-                    local target = f.edgeTarget[e]
+                    local into = f.edgeTarget[e]
                     for v = 1, #f.valueKinds do
-                        if live[target][v] then
+                        if live[into][v] then
                             values[v] = true
                         end
                     end
                     for p = 0, f.edgeNargs[e] - 1 do
-                        if read[f.params[f.firstParam[target] + p]] then
-                            values[f.edgeArgs[f.edgeFirstArg[e] + p]] = true
+                        local parameter, value = f.params[f.firstParam[into] + p], f.edgeArgs[f.edgeFirstArg[e] + p]
+                        if read[parameter] and not literalEdge(f, target, parameter, value) then
+                            values[value] = true
                         end
                     end
                 end
@@ -86,7 +99,7 @@ end
 
 function check.run(f: ir.Function, target: allocate.Target, a: allocate.Allocation): boolean
     local read = readParameters(f)
-    local live = liveIn(f, read)
+    local live = liveIn(f, read, target)
     for v, slot in ipairs(a.saveSlot) do
         assert(
             slot == 0 or a.location[v] > 0 and slot <= a.spillSlots and target.saveAcrossCalls == true,
@@ -145,8 +158,11 @@ function check.run(f: ir.Function, target: allocate.Target, a: allocate.Allocati
             end
             for e = f.firstEdge[i], f.firstEdge[i] + f.nedges[i] - 1 do
                 for p = 0, f.edgeNargs[e] - 1 do
-                    if read[f.params[f.firstParam[f.edgeTarget[e]] + p]] then
-                        use(f.edgeArgs[f.edgeFirstArg[e] + p])
+                    local parameter, value = f.params[
+                        f.firstParam[f.edgeTarget[e]] + p
+                    ], f.edgeArgs[f.edgeFirstArg[e] + p]
+                    if read[parameter] and not literalEdge(f, target, parameter, value) then
+                        use(value)
                     end
                 end
                 local after: {integer} = {}
@@ -155,10 +171,20 @@ function check.run(f: ir.Function, target: allocate.Target, a: allocate.Allocati
                 end
                 for m = a.firstMove[e], a.firstMove[e] + a.nmoves[e] - 1 do
                     local s, d = a.moveSource[m], a.moveTarget[m]
-                    assert(after[slot(s)] ~= nil, "S0 checker: move reads undefined location")
-                    assert(s < 0 or ir.isFloat(a.moveKind[m]) == (s >= 65), "S0 checker: move source class")
                     assert(d < 0 or ir.isFloat(a.moveKind[m]) == (d >= 65), "S0 checker: move destination class")
-                    after[slot(d)] = after[slot(s)]
+                    if s == 0 then
+                        -- A literal made where it goes: what its definition makes.
+                        local made = a.moveLiteral[m]
+                        assert(
+                            made ~= nil and made > 0 and f.op[made] == ir.opcode("iconst") and d ~= 0,
+                            "S0 checker: a literal move names no literal"
+                        )
+                        after[slot(d)] = f.result[made]
+                    else
+                        assert(after[slot(s)] ~= nil, "S0 checker: move reads undefined location")
+                        assert(s < 0 or ir.isFloat(a.moveKind[m]) == (s >= 65), "S0 checker: move source class")
+                        after[slot(d)] = after[slot(s)]
+                    end
                 end
                 local destination = f.edgeTarget[e]
                 for v = 1, #f.valueKinds do

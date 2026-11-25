@@ -12,9 +12,9 @@ return {
     {name = "GetUpval", budget = {37, 16}, clang = {36, 15}},
     {name = "GetCell", budget = {34, 15}},
     {name = "Eq", budget = {54, 28}},
-    {name = "GetIdx", budget = {87, 36}},
-    {name = "CallK", budget = {98, 48}},
-    {name = "Ret", budget = {54, 28}},
+    {name = "GetIdx", budget = {85, 36}},
+    {name = "CallK", budget = {94, 44}},
+    {name = "Ret", budget = {53, 27}},
     -- Selected and checked only: a function that does not dispatch.
     {name = "coreprobe", inspect = true}
 }

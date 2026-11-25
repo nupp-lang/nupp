@@ -317,7 +317,8 @@ local function prepare(
     f: ir.Function,
     used: {boolean},
     location: {integer},
-    reached: {[integer]: boolean}
+    reached: {[integer]: boolean},
+    a: allocate.Allocation
 ): ({integer}, {[integer]: integer}, {[integer]: integer}, {[integer]: boolean}, {[integer]: {integer}})
     local colArgs = f.args
     local colAux = f.aux
@@ -351,8 +352,11 @@ local function prepare(
         for e = f.firstEdge[at], reaching[at] and f.firstEdge[at] + f.nedges[at] - 1 or f.firstEdge[at] - 1 do
             local parameters = f.firstParam[f.edgeTarget[e]]
             for p = 0, f.edgeNargs[e] - 1 do
-                if used[f.params[parameters + p]] ~= false then
-                    local value = f.edgeArgs[f.edgeFirstArg[e] + p]
+                -- A literal an edge makes where it goes is not read (passesLiteral).
+                local value = f.edgeArgs[f.edgeFirstArg[e] + p]
+                if used[f.params[parameters + p]] ~= false
+                    and not allocate.passesLiteral(f, a, f.params[parameters + p], value)
+                then
                     uses[value] = uses[value] + 1
                 end
             end
@@ -606,8 +610,9 @@ function helpers.holdEdge(
 ): nil
     local first = f.firstParam[f.edgeTarget[e]]
     for p = 0, f.edgeNargs[e] - 1 do
-        if a.used[f.params[first + p]] ~= false then
-            hold(f.edgeArgs[f.edgeFirstArg[e] + p], false)
+        local value = f.edgeArgs[f.edgeFirstArg[e] + p]
+        if a.used[f.params[first + p]] ~= false and not allocate.passesLiteral(f, a, f.params[first + p], value) then
+            hold(value, false)
         end
     end
 end
@@ -1129,6 +1134,15 @@ function selector.run(f: ir.Function, a: allocate.Allocation): selector.Code
                 emit(arm.ldp(64, 16, 17, 23, spillOffset(source), 0))
                 emit(arm.stp(64, 16, 17, 23, spillOffset(destination), 0))
                 p = p + 2
+            elseif source == 0 then
+                -- A literal the edge passes, made where its parameter is: in
+                -- its register, or through the scratch the moves are done with.
+                local reg = destination > 0 and target.register(destination) or 16
+                constant(reg, f.imm[a.moveLiteral[p]], machine(a.moveKind[p]))
+                if destination < 0 then
+                    save(17, spillOffset(destination))
+                end
+                p = p + 1
             else
                 move(source, destination, a.moveKind[p])
                 p = p + 1
@@ -1757,7 +1771,7 @@ function selector.run(f: ir.Function, a: allocate.Allocation): selector.Code
     end
 
     track.emitted, track.reached = helpers.emittedBlocks(f, a)
-    local uses, immediates, immediateArgs, omitted, recipes = prepare(f, a.used, a.location, track.reached)
+    local uses, immediates, immediateArgs, omitted, recipes = prepare(f, a.used, a.location, track.reached, a)
     track.uses = uses
     track.named, track.sources = helpers.namedPredecessors(f, track.reached)
     -- Which saved values each block leaves current (`current`): a block
