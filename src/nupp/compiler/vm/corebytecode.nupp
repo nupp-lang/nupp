@@ -60,7 +60,8 @@ local recipes: any = {
     XPHandle = {{"v", "use", 1, 1}, {"v", "use", 2, 1}, {"n", "use", 3, 1}},
     Destroy = {{"v", "use", 1, 1}, {"v", "use", 2, 1}},
     Jmp = {{"j", "use", 4, 4}},
-    JmpIf = {{"v", "use", 1, 1}, {"j", "use", 4, 4}}
+    JmpIf = {{"v", "use", 1, 1}, {"j", "use", 4, 4}},
+    JmpIfNot = {{"v", "use", 1, 1}, {"j", "use", 4, 4}}
 }
 local policies: any = {
     K = {"next", ""},
@@ -95,7 +96,8 @@ local policies: any = {
     XPHandle = {"next", ""},
     Destroy = {"next", ""},
     Jmp = {"jump", ""},
-    JmpIf = {"branch", ""}
+    JmpIf = {"branch", ""},
+    JmpIfNot = {"branch", ""}
 }
 local ids = {}
 for index, name in ipairs(opcodes.names()) do

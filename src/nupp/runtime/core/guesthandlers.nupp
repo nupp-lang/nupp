@@ -2863,6 +2863,45 @@ export function JmpIf(pc: voidptr, regs: voidptr, ints: voidptr, floats: voidptr
     return native.dispatch(native.pointer(target), regs, ints, floats, ctx, frame)
 end
 
+-- JmpIf's converse: it branches when the value is false or nil, so a branch
+-- whose true edge is the next block costs one instruction.
+export function JmpIfNot(
+    pc: voidptr,
+    regs: voidptr,
+    ints: voidptr,
+    floats: voidptr,
+    ctx: voidptr,
+    frame: voidptr
+): uint64
+    local src = program.readByte(pc, 1)
+    -- Admission keeps every register operand in the window (chunkadmission).
+    local value = slots.readValue(frame, regs, src)
+    if value ~= values.FALSE and value ~= values.NIL then
+        -- It falls through to an instruction admission keeps there.
+        local target = native.address(pc) + ops.INSTRUCTION_BYTES
+        return native.dispatch(native.pointer(target), regs, ints, floats, ctx, frame)
+    end
+    local displacement = program.readSigned32(pc, 4)
+    if displacement < 0 then
+        local remaining = native.load64(ctx, context.REMAINING)
+        if native.load64(ctx, context.STATUS) ~= 0ULL
+            or native.load64(ctx, context.CANCELLED) ~= 0ULL
+            or remaining == 0ULL
+        then
+            -- guestops.charge records why.
+            if ops.charge(ctx, frame, pc) ~= 1ULL then
+                return native.fail()
+            end
+        elseif remaining ~= context.UNLIMITED then
+            native.store64(ctx, context.REMAINING, remaining - 1ULL)
+        end
+    end
+    local target = native.address(pc) + ops.INSTRUCTION_BYTES + (native.word(displacement) << ops.INSTRUCTION_SHIFT)
+    -- Admission lands every branch in its function's code (chunkadmission).
+
+    return native.dispatch(native.pointer(target), regs, ints, floats, ctx, frame)
+end
+
 export function Invalid(
     pc: voidptr,
     regs: voidptr,

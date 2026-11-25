@@ -25,6 +25,7 @@ export const LE: uint64 = 7ULL
 export const EQ: uint64 = 8ULL
 export const JMP: uint64 = 9ULL
 export const JMP_IF: uint64 = 10ULL
+export const JMP_IF_NOT: uint64 = 11ULL
 export const MOD: uint64 = 32ULL
 export const REQUIRE: uint64 = 36ULL
 export const CALL_K: uint64 = 50ULL
@@ -71,6 +72,8 @@ export function shape(op: uint64): uint64
     elseif op == JMP then
         return 0x2800ULL
     elseif op == JMP_IF then
+        return 0x3802ULL
+    elseif op == JMP_IF_NOT then
         return 0x3802ULL
     elseif op == MOD then
         return 0x300EULL

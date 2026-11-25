@@ -569,7 +569,7 @@ function M.declaredModuleFixturesRetainTheirCheckedBranchBodies()
         local count = 0
         for _, body in ipairs(result.functions) do
             for _, instruction in ipairs(body.instructions) do
-                if instruction[1] == "JmpIf" then
+                if instruction[1] == "JmpIf" or instruction[1] == "JmpIfNot" then
                     count = count + 1
                 end
             end
@@ -607,7 +607,7 @@ function M.checkedNumericLessThanFeedsBothBranchEdges()
         for _, instruction in ipairs(body.instructions) do
             if instruction[1] == "Lt" then
                 lessThan = lessThan + 1
-            elseif instruction[1] == "JmpIf" then
+            elseif instruction[1] == "JmpIf" or instruction[1] == "JmpIfNot" then
                 branches = branches + 1
             end
         end
@@ -819,6 +819,10 @@ local function interpret(result)
             pc = pc + ins[2]
         elseif op == "JmpIf" then
             if regs[ins[2]] then
+                pc = pc + ins[3]
+            end
+        elseif op == "JmpIfNot" then
+            if not regs[ins[2]] then
                 pc = pc + ins[3]
             end
         elseif op == "Ret" then

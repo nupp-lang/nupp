@@ -682,14 +682,9 @@ export function derive(g: any, catalog: any): any
         return #instructions
     end
 
-    local function jump(target: integer, position: integer): nil
-        patches[#patches + 1] = {at = emit({"Jmp", 0}, position), operand = 2, target = target}
-    end
-
-    -- `results` call results come first, from the slots after the callee.
-    -- `following` is the block emitted next when these copies end the block:
-    -- an edge into it falls through rather than jumping.
-    local function edgeCopies(edge: any, position: integer, results: integer, following: integer?): nil
+    -- The moves an edge's copies take: `results` call results first, from
+    -- the slots after the callee, then its arguments into the parameters.
+    local function edgeMoves(edge: any, results: integer): {{integer}}
         local params = g.blocks[edge.target].params
         local destinations, sources = {}, {}
         local offset: integer = results
@@ -701,7 +696,37 @@ export function derive(g: any, catalog: any): any
             sources[index + offset] = physical(source)
         end
         need(#destinations == #params, "continuation parameter count differs")
-        for _, move in ipairs(copies.schedule(destinations, sources, scratch)) do
+
+        return copies.schedule(destinations, sources, scratch)
+    end
+
+    -- A block with no instructions whose jump copies nothing only passes
+    -- control on: a jump to it goes straight to where it would.
+    local forward: {[integer]: integer} = {}
+    for _, block in ipairs(g.blocks) do
+        if #block.op == 0 and block.term.kind == "jump" and #edgeMoves(block.term.edges[1], 0) == 0 then
+            forward[block.id] = block.term.edges[1].target
+        end
+    end
+
+    local function destination(target: integer): integer
+        local seen: {[integer]: boolean} = {}
+        while forward[target] ~= nil and not seen[target] do
+            seen[target] = true
+            target = forward[target] as integer
+        end
+
+        return target
+    end
+
+    local function jump(target: integer, position: integer): nil
+        patches[#patches + 1] = {at = emit({"Jmp", 0}, position), operand = 2, target = destination(target)}
+    end
+
+    -- `following` is the block emitted next when these copies end the block:
+    -- an edge into it falls through rather than jumping.
+    local function edgeCopies(edge: any, position: integer, results: integer, following: integer?): nil
+        for _, move in ipairs(edgeMoves(edge, results)) do
             emit({"Move", move[1], move[2]}, position)
         end
         if edge.target ~= following then
@@ -851,10 +876,25 @@ export function derive(g: any, catalog: any): any
                 yield nil
             end
             case "branch" -> do
-                local at = emit({"JmpIf", physical(term.value), 0}, position)
-                edgeCopies(term.edges[2], position, 0)
-                instructions[at][3] = #instructions - at
-                edgeCopies(term.edges[1], position, 0, following)
+                local taken, other = #edgeMoves(term.edges[1], 0) == 0, #edgeMoves(term.edges[2], 0) == 0
+                local next = following and destination(following) or nil
+                if other and (not taken or destination(term.edges[1].target) == next) then
+                    -- The edge taken when it is false copies nothing: branch
+                    -- straight there unless true, and fall into the other.
+                    local at = emit({"JmpIfNot", physical(term.value), 0}, position)
+                    patches[#patches + 1] = {at = at, operand = 3, target = destination(term.edges[2].target)}
+                    edgeCopies(term.edges[1], position, 0, following)
+                elseif taken then
+                    -- The taken edge copies nothing: branch straight to it.
+                    local at = emit({"JmpIf", physical(term.value), 0}, position)
+                    patches[#patches + 1] = {at = at, operand = 3, target = destination(term.edges[1].target)}
+                    edgeCopies(term.edges[2], position, 0, following)
+                else
+                    local at = emit({"JmpIf", physical(term.value), 0}, position)
+                    edgeCopies(term.edges[2], position, 0)
+                    instructions[at][3] = #instructions - at
+                    edgeCopies(term.edges[1], position, 0, following)
+                end
                 yield nil
             end
             case "invoke" -> do

@@ -580,7 +580,8 @@ local function handlerNames(caseName: string, version: integer): {string}
         RetV = 8,
         PCall = 8,
         XPHandle = 8,
-        Destroy = 8
+        Destroy = 8,
+        JmpIfNot = 8
     }
     for _, name in ipairs({
         "Add",
@@ -601,6 +602,7 @@ local function handlerNames(caseName: string, version: integer): {string}
         "MathFloor",
         "LibCall",
         "Not",
+        "JmpIfNot",
         "RetN",
         "CallV",
         "RetV",
