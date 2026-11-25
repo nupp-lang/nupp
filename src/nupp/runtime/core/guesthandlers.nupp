@@ -55,11 +55,6 @@ const guestgc = require("nupp.runtime.core.guestgc")
 -- failure calls guestops, to record it.
 
 export function K(pc: voidptr, regs: voidptr, ints: voidptr, floats: voidptr, ctx: voidptr, frame: voidptr): uint64
-    local running = native.load64(native.loadPointer(ctx, context.STATE), native.fieldOffset<frames.State>("active"))
-    if running ~= native.address(frame) then
-        ops.fail(ctx, frame, pc, ops.INVALID)
-        return native.fail()
-    end
     local dst = program.readByte(pc, 1)
     local index = program.readSigned32(pc, 4)
     -- Admission keeps every register operand in the window (chunkadmission).
@@ -106,11 +101,6 @@ export function Require(
         end
     elseif remaining ~= context.UNLIMITED then
         native.store64(ctx, context.REMAINING, remaining - 1ULL)
-    end
-    local running = native.load64(native.loadPointer(ctx, context.STATE), native.fieldOffset<frames.State>("active"))
-    if running ~= native.address(frame) then
-        ops.fail(ctx, frame, pc, ops.INVALID)
-        return native.fail()
     end
     local dst = program.readByte(pc, 1)
     local target = program.readSigned32(pc, 4)
@@ -182,11 +172,6 @@ local function tableHeader(value: uint64): uint64
 end
 
 export function Add(pc: voidptr, regs: voidptr, ints: voidptr, floats: voidptr, ctx: voidptr, frame: voidptr): uint64
-    local running = native.load64(native.loadPointer(ctx, context.STATE), native.fieldOffset<frames.State>("active"))
-    if running ~= native.address(frame) then
-        ops.fail(ctx, frame, pc, ops.INVALID)
-        return native.fail()
-    end
     local dst, lhs, rhs = program.readByte(pc, 1), program.readByte(pc, 2), program.readByte(pc, 3)
     local count = native.load64(frame, native.fieldOffset<frames.Frame>("valueCount"))
     -- Admission keeps every register operand in the window (chunkadmission).
@@ -259,11 +244,6 @@ export function Add(pc: voidptr, regs: voidptr, ints: voidptr, floats: voidptr, 
 end
 
 export function Sub(pc: voidptr, regs: voidptr, ints: voidptr, floats: voidptr, ctx: voidptr, frame: voidptr): uint64
-    local running = native.load64(native.loadPointer(ctx, context.STATE), native.fieldOffset<frames.State>("active"))
-    if running ~= native.address(frame) then
-        ops.fail(ctx, frame, pc, ops.INVALID)
-        return native.fail()
-    end
     local dst, lhs, rhs = program.readByte(pc, 1), program.readByte(pc, 2), program.readByte(pc, 3)
     local count = native.load64(frame, native.fieldOffset<frames.Frame>("valueCount"))
     -- Admission keeps every register operand in the window (chunkadmission).
@@ -317,11 +297,6 @@ export function Sub(pc: voidptr, regs: voidptr, ints: voidptr, floats: voidptr, 
 end
 
 export function Mul(pc: voidptr, regs: voidptr, ints: voidptr, floats: voidptr, ctx: voidptr, frame: voidptr): uint64
-    local running = native.load64(native.loadPointer(ctx, context.STATE), native.fieldOffset<frames.State>("active"))
-    if running ~= native.address(frame) then
-        ops.fail(ctx, frame, pc, ops.INVALID)
-        return native.fail()
-    end
     local dst, lhs, rhs = program.readByte(pc, 1), program.readByte(pc, 2), program.readByte(pc, 3)
     local count = native.load64(frame, native.fieldOffset<frames.Frame>("valueCount"))
     -- Admission keeps every register operand in the window (chunkadmission).
@@ -375,11 +350,6 @@ export function Mul(pc: voidptr, regs: voidptr, ints: voidptr, floats: voidptr, 
 end
 
 export function Mod(pc: voidptr, regs: voidptr, ints: voidptr, floats: voidptr, ctx: voidptr, frame: voidptr): uint64
-    local running = native.load64(native.loadPointer(ctx, context.STATE), native.fieldOffset<frames.State>("active"))
-    if running ~= native.address(frame) then
-        ops.fail(ctx, frame, pc, ops.INVALID)
-        return native.fail()
-    end
     local dst, lhs, rhs = program.readByte(pc, 1), program.readByte(pc, 2), program.readByte(pc, 3)
     local count = native.load64(frame, native.fieldOffset<frames.Frame>("valueCount"))
     -- Admission keeps every register operand in the window (chunkadmission).
@@ -433,11 +403,6 @@ export function Mod(pc: voidptr, regs: voidptr, ints: voidptr, floats: voidptr, 
 end
 
 export function Lt(pc: voidptr, regs: voidptr, ints: voidptr, floats: voidptr, ctx: voidptr, frame: voidptr): uint64
-    local running = native.load64(native.loadPointer(ctx, context.STATE), native.fieldOffset<frames.State>("active"))
-    if running ~= native.address(frame) then
-        ops.fail(ctx, frame, pc, ops.INVALID)
-        return native.fail()
-    end
     local dst, lhs, rhs = program.readByte(pc, 1), program.readByte(pc, 2), program.readByte(pc, 3)
     local count = native.load64(frame, native.fieldOffset<frames.Frame>("valueCount"))
     -- Admission keeps every register operand in the window (chunkadmission).
@@ -484,11 +449,6 @@ export function Lt(pc: voidptr, regs: voidptr, ints: voidptr, floats: voidptr, c
 end
 
 export function Le(pc: voidptr, regs: voidptr, ints: voidptr, floats: voidptr, ctx: voidptr, frame: voidptr): uint64
-    local running = native.load64(native.loadPointer(ctx, context.STATE), native.fieldOffset<frames.State>("active"))
-    if running ~= native.address(frame) then
-        ops.fail(ctx, frame, pc, ops.INVALID)
-        return native.fail()
-    end
     local dst, lhs, rhs = program.readByte(pc, 1), program.readByte(pc, 2), program.readByte(pc, 3)
     local count = native.load64(frame, native.fieldOffset<frames.Frame>("valueCount"))
     -- Admission keeps every register operand in the window (chunkadmission).
@@ -535,11 +495,6 @@ export function Le(pc: voidptr, regs: voidptr, ints: voidptr, floats: voidptr, c
 end
 
 export function Eq(pc: voidptr, regs: voidptr, ints: voidptr, floats: voidptr, ctx: voidptr, frame: voidptr): uint64
-    local running = native.load64(native.loadPointer(ctx, context.STATE), native.fieldOffset<frames.State>("active"))
-    if running ~= native.address(frame) then
-        ops.fail(ctx, frame, pc, ops.INVALID)
-        return native.fail()
-    end
     local dst, lhs, rhs = program.readByte(pc, 1), program.readByte(pc, 2), program.readByte(pc, 3)
     local count = native.load64(frame, native.fieldOffset<frames.Frame>("valueCount"))
     -- Admission keeps every register operand in the window (chunkadmission).
@@ -577,11 +532,6 @@ export function Eq(pc: voidptr, regs: voidptr, ints: voidptr, floats: voidptr, c
 end
 
 export function Nil(pc: voidptr, regs: voidptr, ints: voidptr, floats: voidptr, ctx: voidptr, frame: voidptr): uint64
-    local running = native.load64(native.loadPointer(ctx, context.STATE), native.fieldOffset<frames.State>("active"))
-    if running ~= native.address(frame) then
-        ops.fail(ctx, frame, pc, ops.INVALID)
-        return native.fail()
-    end
     local dst = program.readByte(pc, 1)
     -- Admission keeps every register operand in the window (chunkadmission).
     slots.writeValue(frame, regs, dst, values.NIL)
@@ -593,11 +543,6 @@ export function Nil(pc: voidptr, regs: voidptr, ints: voidptr, floats: voidptr, 
 end
 
 export function Move(pc: voidptr, regs: voidptr, ints: voidptr, floats: voidptr, ctx: voidptr, frame: voidptr): uint64
-    local running = native.load64(native.loadPointer(ctx, context.STATE), native.fieldOffset<frames.State>("active"))
-    if running ~= native.address(frame) then
-        ops.fail(ctx, frame, pc, ops.INVALID)
-        return native.fail()
-    end
     local dst, src = program.readByte(pc, 1), program.readByte(pc, 2)
     -- Admission keeps every register operand in the window (chunkadmission).
     -- Admission keeps every register operand in the window (chunkadmission).
@@ -628,11 +573,6 @@ export function NewClosure(
         end
     elseif remaining ~= context.UNLIMITED then
         native.store64(ctx, context.REMAINING, remaining - 1ULL)
-    end
-    local running = native.load64(native.loadPointer(ctx, context.STATE), native.fieldOffset<frames.State>("active"))
-    if running ~= native.address(frame) then
-        ops.fail(ctx, frame, pc, ops.INVALID)
-        return native.fail()
     end
     local dst = program.readByte(pc, 1)
     local base, captures = program.readByte(pc, 2), program.readByte(pc, 3)
@@ -715,11 +655,6 @@ export function NewCell(
     elseif remaining ~= context.UNLIMITED then
         native.store64(ctx, context.REMAINING, remaining - 1ULL)
     end
-    local running = native.load64(native.loadPointer(ctx, context.STATE), native.fieldOffset<frames.State>("active"))
-    if running ~= native.address(frame) then
-        ops.fail(ctx, frame, pc, ops.INVALID)
-        return native.fail()
-    end
     local dst = program.readByte(pc, 1)
     local src = program.readByte(pc, 2)
     -- Admission keeps every register operand in the window (chunkadmission).
@@ -756,11 +691,6 @@ export function GetCell(
     ctx: voidptr,
     frame: voidptr
 ): uint64
-    local running = native.load64(native.loadPointer(ctx, context.STATE), native.fieldOffset<frames.State>("active"))
-    if running ~= native.address(frame) then
-        ops.fail(ctx, frame, pc, ops.INVALID)
-        return native.fail()
-    end
     local dst = program.readByte(pc, 1)
     local src = program.readByte(pc, 2)
     -- Admission keeps every register operand in the window (chunkadmission).
@@ -786,11 +716,6 @@ export function SetCell(
     ctx: voidptr,
     frame: voidptr
 ): uint64
-    local running = native.load64(native.loadPointer(ctx, context.STATE), native.fieldOffset<frames.State>("active"))
-    if running ~= native.address(frame) then
-        ops.fail(ctx, frame, pc, ops.INVALID)
-        return native.fail()
-    end
     local cell = program.readByte(pc, 1)
     local src = program.readByte(pc, 2)
     -- Admission keeps every register operand in the window (chunkadmission).
@@ -817,11 +742,6 @@ export function GetUpval(
     ctx: voidptr,
     frame: voidptr
 ): uint64
-    local running = native.load64(native.loadPointer(ctx, context.STATE), native.fieldOffset<frames.State>("active"))
-    if running ~= native.address(frame) then
-        ops.fail(ctx, frame, pc, ops.INVALID)
-        return native.fail()
-    end
     local dst = program.readByte(pc, 1)
     local index = program.readSigned32(pc, 4)
     if native.word(dst) >= native.load64(frame, native.fieldOffset<frames.Frame>("valueCount")) or index < 0 then
@@ -875,11 +795,6 @@ export function NewTable(
     elseif remaining ~= context.UNLIMITED then
         native.store64(ctx, context.REMAINING, remaining - 1ULL)
     end
-    local running = native.load64(native.loadPointer(ctx, context.STATE), native.fieldOffset<frames.State>("active"))
-    if running ~= native.address(frame) then
-        ops.fail(ctx, frame, pc, ops.INVALID)
-        return native.fail()
-    end
     local dst = program.readByte(pc, 1)
     -- Admission keeps every register operand in the window (chunkadmission).
     slots.writeValue(frame, regs, dst, values.TAG_OBJ | guestscope.newTable(ctx))
@@ -910,11 +825,6 @@ export function GetIdx(pc: voidptr, regs: voidptr, ints: voidptr, floats: voidpt
         end
     elseif remaining ~= context.UNLIMITED then
         native.store64(ctx, context.REMAINING, remaining - 1ULL)
-    end
-    local running = native.load64(native.loadPointer(ctx, context.STATE), native.fieldOffset<frames.State>("active"))
-    if running ~= native.address(frame) then
-        ops.fail(ctx, frame, pc, ops.INVALID)
-        return native.fail()
     end
     local dst = program.readByte(pc, 1)
     local object = program.readByte(pc, 2)
@@ -1009,11 +919,6 @@ export function SetIdx(pc: voidptr, regs: voidptr, ints: voidptr, floats: voidpt
     elseif remaining ~= context.UNLIMITED then
         native.store64(ctx, context.REMAINING, remaining - 1ULL)
     end
-    local running = native.load64(native.loadPointer(ctx, context.STATE), native.fieldOffset<frames.State>("active"))
-    if running ~= native.address(frame) then
-        ops.fail(ctx, frame, pc, ops.INVALID)
-        return native.fail()
-    end
     local object = program.readByte(pc, 1)
     local key = program.readByte(pc, 2)
     local src = program.readByte(pc, 3)
@@ -1100,11 +1005,6 @@ export function SetIdx(pc: voidptr, regs: voidptr, ints: voidptr, floats: voidpt
 end
 
 export function Len(pc: voidptr, regs: voidptr, ints: voidptr, floats: voidptr, ctx: voidptr, frame: voidptr): uint64
-    local running = native.load64(native.loadPointer(ctx, context.STATE), native.fieldOffset<frames.State>("active"))
-    if running ~= native.address(frame) then
-        ops.fail(ctx, frame, pc, ops.INVALID)
-        return native.fail()
-    end
     local dst = program.readByte(pc, 1)
     local src = program.readByte(pc, 2)
     local count = native.load64(frame, native.fieldOffset<frames.Frame>("valueCount"))
@@ -1170,11 +1070,6 @@ export function MathFloor(
     ctx: voidptr,
     frame: voidptr
 ): uint64
-    local running = native.load64(native.loadPointer(ctx, context.STATE), native.fieldOffset<frames.State>("active"))
-    if running ~= native.address(frame) then
-        ops.fail(ctx, frame, pc, ops.INVALID)
-        return native.fail()
-    end
     local dst = program.readByte(pc, 1)
     local src = program.readByte(pc, 2)
     -- Admission keeps every register operand in the window (chunkadmission).
@@ -1218,11 +1113,6 @@ export function LibCall(
         end
     elseif remaining ~= context.UNLIMITED then
         native.store64(ctx, context.REMAINING, remaining - 1ULL)
-    end
-    local running = native.load64(native.loadPointer(ctx, context.STATE), native.fieldOffset<frames.State>("active"))
-    if running ~= native.address(frame) then
-        ops.fail(ctx, frame, pc, ops.INVALID)
-        return native.fail()
     end
     local dst = program.readByte(pc, 1)
     local base = program.readByte(pc, 2)
@@ -1724,11 +1614,6 @@ end
 
 -- Lua's not: true for false and nil, false for anything else.
 export function Not(pc: voidptr, regs: voidptr, ints: voidptr, floats: voidptr, ctx: voidptr, frame: voidptr): uint64
-    local running = native.load64(native.loadPointer(ctx, context.STATE), native.fieldOffset<frames.State>("active"))
-    if running ~= native.address(frame) then
-        ops.fail(ctx, frame, pc, ops.INVALID)
-        return native.fail()
-    end
     local dst = program.readByte(pc, 1)
     local src = program.readByte(pc, 2)
     -- Admission keeps every register operand in the window (chunkadmission).
@@ -1758,11 +1643,6 @@ export function CallK(pc: voidptr, regs: voidptr, ints: voidptr, floats: voidptr
         end
     elseif remaining ~= context.UNLIMITED then
         native.store64(ctx, context.REMAINING, remaining - 1ULL)
-    end
-    local running = native.load64(native.loadPointer(ctx, context.STATE), native.fieldOffset<frames.State>("active"))
-    if running ~= native.address(frame) then
-        ops.fail(ctx, frame, pc, ops.INVALID)
-        return native.fail()
     end
     local calleeSlot = program.readByte(pc, 1)
     local base, nargs = program.readByte(pc, 2), program.readByte(pc, 3)
@@ -1892,11 +1772,6 @@ export function CallK(pc: voidptr, regs: voidptr, ints: voidptr, floats: voidptr
 end
 
 export function Ret(pc: voidptr, regs: voidptr, ints: voidptr, floats: voidptr, ctx: voidptr, frame: voidptr): uint64
-    local running = native.load64(native.loadPointer(ctx, context.STATE), native.fieldOffset<frames.State>("active"))
-    if running ~= native.address(frame) then
-        ops.fail(ctx, frame, pc, ops.INVALID)
-        return native.fail()
-    end
     -- The root run again while the exit runs every marked table's finalizer
     -- (guestfinalizers.close): it ends with the result it first returned.
     if ops.root(ctx, frame) == 1ULL and finalizers.closing(ctx) then
@@ -2043,11 +1918,6 @@ end
 -- Return `count` results from consecutive slots starting at `src` (core-only).
 -- The caller keeps as many as it wanted, nil-filled; a root keeps the first.
 export function RetN(pc: voidptr, regs: voidptr, ints: voidptr, floats: voidptr, ctx: voidptr, frame: voidptr): uint64
-    local running = native.load64(native.loadPointer(ctx, context.STATE), native.fieldOffset<frames.State>("active"))
-    if running ~= native.address(frame) then
-        ops.fail(ctx, frame, pc, ops.INVALID)
-        return native.fail()
-    end
     -- The root run again while the exit runs every marked table's finalizer
     -- (guestfinalizers.close): it ends with the result it first returned.
     if ops.root(ctx, frame) == 1ULL and finalizers.closing(ctx) then
@@ -2223,11 +2093,6 @@ export function CallV(pc: voidptr, regs: voidptr, ints: voidptr, floats: voidptr
         end
     elseif remaining ~= context.UNLIMITED then
         native.store64(ctx, context.REMAINING, remaining - 1ULL)
-    end
-    local running = native.load64(native.loadPointer(ctx, context.STATE), native.fieldOffset<frames.State>("active"))
-    if running ~= native.address(frame) then
-        ops.fail(ctx, frame, pc, ops.INVALID)
-        return native.fail()
     end
     local calleeSlot = program.readByte(pc, 1)
     local base, nargs = program.readByte(pc, 2), program.readByte(pc, 3)
@@ -2414,11 +2279,6 @@ end
 -- RetN with a variadic pack after the `count` staged results (core-only): the
 -- pack's values are staged after them, up to sixteen results in all.
 export function RetV(pc: voidptr, regs: voidptr, ints: voidptr, floats: voidptr, ctx: voidptr, frame: voidptr): uint64
-    local running = native.load64(native.loadPointer(ctx, context.STATE), native.fieldOffset<frames.State>("active"))
-    if running ~= native.address(frame) then
-        ops.fail(ctx, frame, pc, ops.INVALID)
-        return native.fail()
-    end
     -- The root run again while the exit runs every marked table's finalizer
     -- (guestfinalizers.close): it ends with the result it first returned.
     if ops.root(ctx, frame) == 1ULL and finalizers.closing(ctx) then
@@ -2615,11 +2475,6 @@ export function PCall(pc: voidptr, regs: voidptr, ints: voidptr, floats: voidptr
     elseif remaining ~= context.UNLIMITED then
         native.store64(ctx, context.REMAINING, remaining - 1ULL)
     end
-    local running = native.load64(native.loadPointer(ctx, context.STATE), native.fieldOffset<frames.State>("active"))
-    if running ~= native.address(frame) then
-        ops.fail(ctx, frame, pc, ops.INVALID)
-        return native.fail()
-    end
     local calleeSlot = program.readByte(pc, 1)
     local base, nargs = program.readByte(pc, 2), program.readByte(pc, 3)
     local packed = program.readByte(pc, 5)
@@ -2811,11 +2666,6 @@ export function XPHandle(
     ctx: voidptr,
     frame: voidptr
 ): uint64
-    local running = native.load64(native.loadPointer(ctx, context.STATE), native.fieldOffset<frames.State>("active"))
-    if running ~= native.address(frame) then
-        ops.fail(ctx, frame, pc, ops.INVALID)
-        return native.fail()
-    end
     local status, handlerSlot, wanted = program.readByte(pc, 1), program.readByte(pc, 2), program.readByte(pc, 3)
     local count = native.load64(frame, native.fieldOffset<frames.Frame>("valueCount"))
     if native.word(status) + 1ULL >= count or native.word(handlerSlot) >= count or count < 5ULL then
@@ -2876,11 +2726,6 @@ export function Destroy(
     ctx: voidptr,
     frame: voidptr
 ): uint64
-    local running = native.load64(native.loadPointer(ctx, context.STATE), native.fieldOffset<frames.State>("active"))
-    if running ~= native.address(frame) then
-        ops.fail(ctx, frame, pc, ops.INVALID)
-        return native.fail()
-    end
     local callee, value = program.readByte(pc, 1), program.readByte(pc, 2)
     local count = native.load64(frame, native.fieldOffset<frames.Frame>("valueCount"))
     if native.word(callee) >= count or native.word(value) >= count or count < 5ULL then
@@ -2920,11 +2765,6 @@ export function Destroy(
 end
 
 export function Jmp(pc: voidptr, regs: voidptr, ints: voidptr, floats: voidptr, ctx: voidptr, frame: voidptr): uint64
-    local running = native.load64(native.loadPointer(ctx, context.STATE), native.fieldOffset<frames.State>("active"))
-    if running ~= native.address(frame) then
-        ops.fail(ctx, frame, pc, ops.INVALID)
-        return native.fail()
-    end
     local displacement = program.readSigned32(pc, 4)
     if displacement < 0 then
         local remaining = native.load64(ctx, context.REMAINING)
@@ -2966,11 +2806,6 @@ export function Jmp(pc: voidptr, regs: voidptr, ints: voidptr, floats: voidptr, 
 end
 
 export function JmpIf(pc: voidptr, regs: voidptr, ints: voidptr, floats: voidptr, ctx: voidptr, frame: voidptr): uint64
-    local running = native.load64(native.loadPointer(ctx, context.STATE), native.fieldOffset<frames.State>("active"))
-    if running ~= native.address(frame) then
-        ops.fail(ctx, frame, pc, ops.INVALID)
-        return native.fail()
-    end
     local src = program.readByte(pc, 1)
     -- Admission keeps every register operand in the window (chunkadmission).
     -- Lua truthiness: everything but false and nil is true. Before v8 only
