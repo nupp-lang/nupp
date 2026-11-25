@@ -21,6 +21,11 @@ const ints = require("nupp.runtime.core.coreintegers")
 -- How many string constants the entry keeps made (a power of two): the slot
 -- of one is its catalog address's words modulo this.
 export const CONSTANT_SLOTS: uint64 = 4096ULL
+-- How many calls prepare keeps checked (a power of two), and the bytes of
+-- each entry (`guestops`): the slot of one is its instruction's address in
+-- instructions modulo this.
+export const CALL_SLOTS: uint64 = 2048ULL
+export const CALL_BYTES: uint64 = 32ULL
 const catalog = require("nupp.runtime.core.guestcatalog")
 const frames = require("nupp.runtime.core.frames")
 const guestentry = require("nupp.runtime.core.guestentry")
@@ -199,6 +204,11 @@ export struct Services
     -- The incremental cycle an explicit step joined, until a later step
     -- reports its completion. Automatic safepoints may finish it meanwhile.
     gcstepCycle: uint64
+    -- The calls whose site and callee prepare has checked (`guestops`),
+    -- CALL_SLOTS entries CALL_BYTES apart by instruction address, and their
+    -- mapped bytes. No entry holds a value the collector traces.
+    calls: uint64
+    callsbytes: uint64
 end
 
 export const FAULT_ARITH: uint64 = 1ULL
@@ -268,6 +278,8 @@ export function prepare(base: voidptr, bytes: uint64): uint64
     native.store64(services, native.fieldOffset<Services>("finalresult"), 0ULL)
     native.store64(services, native.fieldOffset<Services>("gcparams"), 0ULL)
     native.store64(services, native.fieldOffset<Services>("gcstepCycle"), 0ULL)
+    native.store64(services, native.fieldOffset<Services>("calls"), 0ULL)
+    native.store64(services, native.fieldOffset<Services>("callsbytes"), 0ULL)
 
     return native.address(services)
 end
@@ -434,6 +446,9 @@ export function open(
     if mapEntry(services, native.fieldOffset<Services>("constants"), CONSTANT_SLOTS * 16ULL) == 0ULL then
         return 0ULL
     end
+    if mapEntry(services, native.fieldOffset<Services>("calls"), CALL_SLOTS * CALL_BYTES) == 0ULL then
+        return 0ULL
+    end
     local metadata = roundUp(native.sizeOf<arena.Chunk>(), native.alignmentOf<arena.Arena>())
     local header = roundUp(metadata + native.sizeOf<arena.Arena>(), 16ULL)
     local mapped = roundUp(HEAP_BYTES + header, os.pageSize())
@@ -496,6 +511,7 @@ export function close(services: voidptr): nil
     native.store64(services, native.fieldOffset<Services>("foreignClosures"), 0ULL)
     local address = native.load64(services, native.fieldOffset<Services>("heap"))
     if address == 0ULL then
+        unmapEntry(services, native.fieldOffset<Services>("calls"))
         unmapEntry(services, native.fieldOffset<Services>("constants"))
         unmapEntry(services, native.fieldOffset<Services>("pool"))
         unmapEntry(services, native.fieldOffset<Services>("storage"))
@@ -523,6 +539,7 @@ export function close(services: voidptr): nil
     native.store64(services, native.fieldOffset<Services>("heap"), 0ULL)
     native.store64(services, native.fieldOffset<Services>("arena"), 0ULL)
     releaseStacks(services)
+    unmapEntry(services, native.fieldOffset<Services>("calls"))
     unmapEntry(services, native.fieldOffset<Services>("constants"))
     unmapEntry(services, native.fieldOffset<Services>("pool"))
     unmapEntry(services, native.fieldOffset<Services>("storage"))

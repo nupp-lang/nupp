@@ -285,12 +285,37 @@ local function argumentRefused(ctx: voidptr): boolean
     return native.load64(services, native.fieldOffset<guestscope.Services>("fault")) == guestscope.FAULT_ARGUMENT
 end
 
--- The callee is the actual registry handle loaded from a live slot. Hint alone
--- cannot select a body. Canonical byte fields must also match this PC's retained
--- checked callsite, its target signature and each canonical scalar argument.
--- `counts` holds the argument count in its low half and the results wanted
--- in its high half.
-export function prepare(
+-- A call cache entry's words (guestscope.CALL_BYTES apart): the
+-- instruction's address, the callee's id plus one and the call's counts.
+const CALL_PC: int64 = 0
+const CALL_TARGET: int64 = 8
+const CALL_COUNTS: int64 = 16
+
+-- The signature record of callee `actual`.
+local function calleeSignature(c: voidptr, actual: uint64): voidptr
+    local target = native.offset(
+        native.loadPointer(c, native.fieldOffset<catalog.Catalog>("records")),
+        native.index(actual * native.sizeOf<catalog.Function>())
+    )
+
+    return native.offset(
+        native.loadPointer(c, native.fieldOffset<catalog.Catalog>("signatures")),
+        native.index(
+            native.load64(
+                target,
+                native.fieldOffset<catalog.Function>("signature")
+            ) * native.sizeOf<catalog.Signature>()
+        )
+    )
+end
+
+-- What a call at `pc` holds of its site and its callee alone, checked
+-- against this PC's retained checked callsite and the callee's signature:
+-- the callee's id plus one, or 0 when the call is refused. The callee is the
+-- actual registry handle loaded from a live slot; the hint alone cannot
+-- select a body. `counts` holds the argument count in its low half and the
+-- results wanted in its high half.
+local function admit(
     ctx: voidptr,
     frame: voidptr,
     pc: voidptr,
@@ -299,10 +324,6 @@ export function prepare(
     counts: uint64,
     hint: uint64
 ): uint64
-    -- A previous refusal cannot misclassify a later allocation failure.
-    if argumentRefused(ctx) then
-        guesterrors.fault(ctx, 0ULL, values.NIL, values.NIL)
-    end
     local nargs = counts & 0xffffffffULL
     local wanted = counts >> 32ULL
     -- The calling handler has checked its frame (current), whose record
@@ -364,32 +385,95 @@ export function prepare(
     -- A dynamic call's site may see the callee through erased type
     -- parameters: it holds when the counts agree and the site takes the result
     -- as the callee gives it or as any value. Arguments are checked against
-    -- the callee's own kinds below.
+    -- the callee's own kinds in prepare.
     if signatureId ~= siteSignature
         and (not dynamic or compatibleSignatures(c, siteSignature, signatureId) == 0ULL)
     then
         return 0ULL
     end
-    local signature = native.offset(
-        native.loadPointer(c, native.fieldOffset<catalog.Catalog>("signatures")),
-        native.index(signatureId * native.sizeOf<catalog.Signature>())
-    )
+    local signature = calleeSignature(c, actual)
     -- A call spreading a call's results last (`f(g())`) gives as many
     -- arguments as those results run to, as Lua's does: missing parameters are
     -- nil and extra arguments are dropped, as for a dynamic call. The kinds
-    -- below still hold of every parameter.
+    -- prepare checks still hold of every parameter.
     local spread = native.load64(call, native.fieldOffset<catalog.Callsite>("spread")) == 1ULL
     -- A variadic callee's last parameter is its pack of extra arguments.
     local declared = native.load64(signature, native.fieldOffset<catalog.Signature>("parameterCount"))
-    local variadic = native.load64(signature, native.fieldOffset<catalog.Signature>("variadic")) == 1ULL
-    local fixed = declared
-    if variadic then
-        fixed = declared - 1ULL
-        if nargs < fixed and not dynamic and not spread then
+    if native.load64(signature, native.fieldOffset<catalog.Signature>("variadic")) == 1ULL then
+        if nargs < declared - 1ULL and not dynamic and not spread then
             return 0ULL
         end
     elseif declared ~= nargs and not dynamic and not spread then
         return 0ULL
+    end
+
+    return resolved
+end
+
+-- Where a call at `pc` is kept in the scope's call cache, or 0 when there
+-- is none.
+local function cachedCall(ctx: voidptr, pc: voidptr): uint64
+    local services = native.loadPointer(ctx, context.SERVICE_SCOPE)
+    local calls = native.load64(services, native.fieldOffset<guestscope.Services>("calls"))
+    if calls == 0ULL then
+        return 0ULL
+    end
+    local slot = (native.address(pc) >> INSTRUCTION_SHIFT) & (guestscope.CALL_SLOTS - 1ULL)
+
+    return calls + slot * guestscope.CALL_BYTES
+end
+
+-- Prepares the frame of a call at `pc`, or answers 0 when it is refused.
+-- What the call holds of its site and callee alone is checked once (admit)
+-- and kept in the scope's call cache under the instruction's address, the
+-- callee's id and `counts`, which together fix every fact admit reads; each
+-- call still checks its arguments against the callee's kinds.
+export function prepare(
+    ctx: voidptr,
+    frame: voidptr,
+    pc: voidptr,
+    callee: uint64,
+    base: uint64,
+    counts: uint64,
+    hint: uint64
+): uint64
+    -- A previous refusal cannot misclassify a later allocation failure.
+    if argumentRefused(ctx) then
+        guesterrors.fault(ctx, 0ULL, values.NIL, values.NIL)
+    end
+    local nargs = counts & 0xffffffffULL
+    local entry = cachedCall(ctx, pc)
+    local target = heapTarget(callee)
+    local resolved: uint64 = 0ULL
+    if entry ~= 0ULL and target ~= 0ULL then
+        local cached = native.pointer(entry)
+        if native.load64(cached, CALL_PC) == native.address(pc)
+            and native.load64(cached, CALL_TARGET) == target
+            and native.load64(cached, CALL_COUNTS) == counts
+        then
+            resolved = target
+        end
+    end
+    if resolved == 0ULL then
+        resolved = admit(ctx, frame, pc, callee, base, counts, hint)
+        if resolved == 0ULL then
+            return 0ULL
+        end
+        -- Only a heap closure's id is a function of the callee alone.
+        if entry ~= 0ULL and resolved == target and heapClosures(ctx) == 1ULL then
+            local cached = native.pointer(entry)
+            native.store64(cached, CALL_PC, native.address(pc))
+            native.store64(cached, CALL_TARGET, target)
+            native.store64(cached, CALL_COUNTS, counts)
+        end
+    end
+    local actual = resolved - 1ULL
+    local c = native.loadPointer(ctx, context.CATALOG)
+    local data = native.loadPointer(c, native.fieldOffset<catalog.Catalog>("data"))
+    local signature = calleeSignature(c, actual)
+    local fixed = native.load64(signature, native.fieldOffset<catalog.Signature>("parameterCount"))
+    if native.load64(signature, native.fieldOffset<catalog.Signature>("variadic")) == 1ULL then
+        fixed = fixed - 1ULL
     end
     local kinds = native.load64(signature, native.fieldOffset<catalog.Signature>("parameters"))
     local window = native.loadPointer(frame, native.fieldOffset<frames.Frame>("values"))
