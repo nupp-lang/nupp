@@ -170,6 +170,109 @@ local function assignSlots(g: any): (any, integer)
     return slotOf, highest
 end
 
+-- Operations that may stage a call in the call window as they run: a library
+-- call or a capturing closure stages its operands there, and an operation
+-- that may call a metamethod (__index, __add, __eq, ...), a destructor or a
+-- module's start calls it from there.
+const windowOps: {
+    [string]: boolean
+} = {
+    LibCall = true,
+    Closure = true,
+    GetIdx = true,
+    SetIdx = true,
+    Add = true,
+    Sub = true,
+    Mul = true,
+    Mod = true,
+    Len = true,
+    Lt = true,
+    Le = true,
+    Eq = true,
+    Destroy = true,
+    Require = true
+}
+
+-- The values computed straight into the call window slot a call stages them
+-- in, by value: one a block defines and uses once, as the callee or an
+-- argument of its plain call (CallK) or as an operand a library call or
+-- closure stages, with no operation between that stages in the window too.
+-- Its staging move would copy it from its own slot to that one, and nothing
+-- else reads it.
+local function stagedSlots(g: any, catalog: any, callBase: integer): {[integer]: integer}
+    local staged: {[integer]: integer} = {}
+    for _, block in ipairs(g.blocks) do
+        local uses: {[integer]: integer} = {}
+        local defined: {[integer]: integer} = {}
+        local count = #block.op
+
+        local function use(value: integer?): nil
+            if value ~= nil then
+                uses[value] = (uses[value] or 0) + 1
+            end
+        end
+
+        for at, op in ipairs(block.op) do
+            local args = block.args[at]
+            for index = (immediateOperands[op] or 0) + 1, #args do
+                use(args[index])
+            end
+            local dst = block.dst[at]
+            if dst ~= nil and dst ~= 0 then
+                defined[dst] = at
+            end
+        end
+        local term = block.term
+        use(term.value)
+        for _, value in ipairs(term.values or {}) do
+            use(value)
+        end
+        use(term.spread)
+        use(term.callee)
+        for _, value in ipairs(term.args or {}) do
+            use(value)
+        end
+        for _, edge in ipairs(term.edges) do
+            for _, value in ipairs(edge.args) do
+                use(value)
+            end
+        end
+
+        local function stage(value: integer?, slot: integer, at: integer): nil
+            local from = value and defined[value]
+            if value == nil or from == nil or uses[value] ~= 1 or g.types[value] ~= "v" or staged[value] then
+                return
+            end
+            for between = from + 1, at - 1 do
+                if windowOps[block.op[between]] then
+                    return
+                end
+            end
+            staged[value] = slot
+        end
+
+        for at, op in ipairs(block.op) do
+            if op == "LibCall" or op == "Closure" and catalog.schema.version >= 7 then
+                local args = block.args[at]
+                for index = 2, #args do
+                    stage(args[index], callBase + index - 1, at)
+                end
+            end
+        end
+        if term.kind == "invoke" and not term.spread then
+            local contract = catalog.contracts[term.contract + 1]
+            if contract and not contract.protected and not contract.handled then
+                stage(term.callee, callBase, count + 1)
+                for index, value in ipairs(term.args) do
+                    stage(value, callBase + index, count + 1)
+                end
+            end
+        end
+    end
+
+    return staged
+end
+
 -- A dynamic call may reach a table with __call, which is called with the
 -- table as an extra first argument; that __call may be a table in turn, and
 -- Lua 5.5 follows such a chain fifteen deep. A call's window holds that many
@@ -295,6 +398,7 @@ export function derive(g: any, catalog: any): any
             g.name
         ) .. " in " .. tostring(g.path) .. " needs " .. tostring(highest)
     )
+    local staged = stagedSlots(g, catalog, callBase)
     local instructions, positions, starts, patches, calls = {}, {}, {}, {}, {}
     local constants = copy(g.constants)
 
@@ -336,11 +440,21 @@ export function derive(g: any, catalog: any): any
 
     local function physical(value: integer): integer
         need(g.types[value] == "v", "non-tagged executable value")
+        local slot = staged[value]
+        if slot ~= nil then
+            return slot
+        end
+
         return value <= g.nparams and value
             or valueBase + (need(slotOf[value], "value has no assigned slot") as integer)
     end
 
     local function emit(instruction: any, position: integer): integer
+        -- A move of a slot to itself, a value staged where it was computed
+        -- (stagedSlots), does nothing.
+        if instruction[1] == "Move" and instruction[2] == instruction[3] then
+            return #instructions
+        end
         if not bytecode.coreOnly()[instruction[1]] then
             opcodes.check(instruction)
         end
