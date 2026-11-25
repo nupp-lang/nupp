@@ -285,11 +285,19 @@ local function argumentRefused(ctx: voidptr): boolean
     return native.load64(services, native.fieldOffset<guestscope.Services>("fault")) == guestscope.FAULT_ARGUMENT
 end
 
--- A call cache entry's words (guestscope.CALL_BYTES apart): the
--- instruction's address, the callee's id plus one and the call's counts.
+-- A call cache entry's words (guestscope.CALL_BYTES apart, one cache line):
+-- its key, the instruction's address, the callee's id plus one and the call's
+-- counts; then what the callee's signature and catalog rows say, so a call
+-- the cache answers reads nothing else: its fixed parameters, where their
+-- kinds are, whether it is variadic, and its frame's info and plan.
 const CALL_PC: int64 = 0
 const CALL_TARGET: int64 = 8
 const CALL_COUNTS: int64 = 16
+const CALL_FIXED: int64 = 24
+const CALL_KINDS: int64 = 32
+const CALL_VARIADIC: int64 = 40
+const CALL_INFO: int64 = 48
+const CALL_PLAN: int64 = 56
 
 -- The signature record of callee `actual`.
 local function calleeSignature(c: voidptr, actual: uint64): voidptr
@@ -444,38 +452,61 @@ export function prepare(
     local nargs = counts & 0xffffffffULL
     local entry = cachedCall(ctx, pc)
     local target = heapTarget(callee)
-    local resolved: uint64 = 0ULL
+    local c = native.loadPointer(ctx, context.CATALOG)
+    local data = native.loadPointer(c, native.fieldOffset<catalog.Catalog>("data"))
+    local fixed: uint64 = 0ULL
+    local kinds: uint64 = 0ULL
+    -- The callee's info and plan rows, as addresses.
+    local infoAt: uint64 = 0ULL
+    local planAt: uint64 = 0ULL
+    local hit = false
     if entry ~= 0ULL and target ~= 0ULL then
         local cached = native.pointer(entry)
         if native.load64(cached, CALL_PC) == native.address(pc)
             and native.load64(cached, CALL_TARGET) == target
             and native.load64(cached, CALL_COUNTS) == counts
         then
-            resolved = target
+            hit = true
+            fixed = native.load64(cached, CALL_FIXED)
+            kinds = native.load64(cached, CALL_KINDS)
+            infoAt = native.load64(cached, CALL_INFO)
+            planAt = native.load64(cached, CALL_PLAN)
         end
     end
-    if resolved == 0ULL then
-        resolved = admit(ctx, frame, pc, callee, base, counts, hint)
+    if not hit then
+        local resolved = admit(ctx, frame, pc, callee, base, counts, hint)
         if resolved == 0ULL then
             return 0ULL
         end
+        local actual = resolved - 1ULL
+        local signature = calleeSignature(c, actual)
+        fixed = native.load64(signature, native.fieldOffset<catalog.Signature>("parameterCount"))
+        local variadic = native.load64(signature, native.fieldOffset<catalog.Signature>("variadic"))
+        if variadic == 1ULL then
+            fixed = fixed - 1ULL
+        end
+        kinds = native.load64(signature, native.fieldOffset<catalog.Signature>("parameters"))
+        infoAt = native.load64(
+            c,
+            native.fieldOffset<catalog.Catalog>("infos")
+        ) + actual * native.sizeOf<frames.FunctionInfo>()
+        planAt = native.load64(
+            c,
+            native.fieldOffset<catalog.Catalog>("plans")
+        ) + actual * native.sizeOf<frames.WindowPlan>()
         -- Only a heap closure's id is a function of the callee alone.
         if entry ~= 0ULL and resolved == target and heapClosures(ctx) == 1ULL then
             local cached = native.pointer(entry)
             native.store64(cached, CALL_PC, native.address(pc))
             native.store64(cached, CALL_TARGET, target)
             native.store64(cached, CALL_COUNTS, counts)
+            native.store64(cached, CALL_FIXED, fixed)
+            native.store64(cached, CALL_KINDS, kinds)
+            native.store64(cached, CALL_VARIADIC, variadic)
+            native.store64(cached, CALL_INFO, infoAt)
+            native.store64(cached, CALL_PLAN, planAt)
         end
     end
-    local actual = resolved - 1ULL
-    local c = native.loadPointer(ctx, context.CATALOG)
-    local data = native.loadPointer(c, native.fieldOffset<catalog.Catalog>("data"))
-    local signature = calleeSignature(c, actual)
-    local fixed = native.load64(signature, native.fieldOffset<catalog.Signature>("parameterCount"))
-    if native.load64(signature, native.fieldOffset<catalog.Signature>("variadic")) == 1ULL then
-        fixed = fixed - 1ULL
-    end
-    local kinds = native.load64(signature, native.fieldOffset<catalog.Signature>("parameters"))
     local window = native.loadPointer(frame, native.fieldOffset<frames.Frame>("values"))
     local at: uint64 = 0ULL
     while at < fixed do
@@ -492,14 +523,8 @@ export function prepare(
         end
         at = at + 1ULL
     end
-    local info = native.offset(
-        native.loadPointer(c, native.fieldOffset<catalog.Catalog>("infos")),
-        native.index(actual * native.sizeOf<frames.FunctionInfo>())
-    )
-    local plan = native.offset(
-        native.loadPointer(c, native.fieldOffset<catalog.Catalog>("plans")),
-        native.index(actual * native.sizeOf<frames.WindowPlan>())
-    )
+    local info = native.pointer(infoAt)
+    local plan = native.pointer(planAt)
     local s = native.loadPointer(ctx, context.STATE)
     local child = frames.prepareFixed(s, frame, info, callee, base, nargs, base + 1ULL, plan)
     -- No room for the frame: its stack grows a chunk.
@@ -515,9 +540,26 @@ end
 -- After prepare: a variadic callee's pack {[0] = n, ...} of the arguments
 -- past its fixed ones, stored in its last parameter slot before it is filled
 -- so the prepared frame roots it throughout. Answers 1, or 0 on refusal.
-export function packVarargs(ctx: voidptr, frame: voidptr, child: voidptr, base: uint64, nargs: uint64): uint64
+export function packVarargs(
+    ctx: voidptr,
+    frame: voidptr,
+    pc: voidptr,
+    child: voidptr,
+    base: uint64,
+    nargs: uint64
+): uint64
     local c = native.loadPointer(ctx, context.CATALOG)
     local id = native.load64(child, native.fieldOffset<frames.Frame>("functionId"))
+    -- The call cache entry prepare left for this call, when it is this
+    -- callee's, says whether it is variadic without its signature.
+    local entry = cachedCall(ctx, pc)
+    if entry ~= 0ULL
+        and native.load64(native.pointer(entry), CALL_PC) == native.address(pc)
+        and native.load64(native.pointer(entry), CALL_TARGET) == id + 1ULL
+        and native.load64(native.pointer(entry), CALL_VARIADIC) ~= 1ULL
+    then
+        return 1ULL
+    end
     if id >= native.load64(c, native.fieldOffset<catalog.Catalog>("count")) then
         return 0ULL
     end
@@ -818,7 +860,7 @@ export function metaPrepare(
         fail(ctx, frame, pc, RESOURCE)
         return 0ULL
     end
-    if variadic and packVarargs(ctx, frame, native.pointer(child), base, nargs) ~= 1ULL then
+    if variadic and packVarargs(ctx, frame, pc, native.pointer(child), base, nargs) ~= 1ULL then
         failure(ctx, INVALID)
         return 0ULL
     end

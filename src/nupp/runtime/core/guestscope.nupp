@@ -25,7 +25,7 @@ export const CONSTANT_SLOTS: uint64 = 4096ULL
 -- each entry (`guestops`): the slot of one is its instruction's address in
 -- instructions modulo this.
 export const CALL_SLOTS: uint64 = 2048ULL
-export const CALL_BYTES: uint64 = 32ULL
+export const CALL_BYTES: uint64 = 64ULL
 const catalog = require("nupp.runtime.core.guestcatalog")
 const frames = require("nupp.runtime.core.frames")
 const guestentry = require("nupp.runtime.core.guestentry")

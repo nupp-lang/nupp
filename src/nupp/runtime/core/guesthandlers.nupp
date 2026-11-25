@@ -1771,7 +1771,7 @@ export function CallK(pc: voidptr, regs: voidptr, ints: voidptr, floats: voidptr
         ops.failure(ctx, ops.INVALID)
         return native.fail()
     end
-    if ops.packVarargs(ctx, frame, native.pointer(child), native.word(base), native.word(nargs)) ~= 1ULL then
+    if ops.packVarargs(ctx, frame, pc, native.pointer(child), native.word(base), native.word(nargs)) ~= 1ULL then
         ops.failure(ctx, ops.INVALID)
         return native.fail()
     end
@@ -2263,7 +2263,7 @@ export function CallV(pc: voidptr, regs: voidptr, ints: voidptr, floats: voidptr
         ops.failure(ctx, ops.INVALID)
         return native.fail()
     end
-    if ops.packVarargs(ctx, frame, native.pointer(child), native.word(base), total) ~= 1ULL then
+    if ops.packVarargs(ctx, frame, pc, native.pointer(child), native.word(base), total) ~= 1ULL then
         ops.failure(ctx, ops.INVALID)
         return native.fail()
     end
@@ -2655,7 +2655,7 @@ export function PCall(pc: voidptr, regs: voidptr, ints: voidptr, floats: voidptr
         ops.failure(ctx, ops.INVALID)
         return native.fail()
     end
-    if ops.packVarargs(ctx, frame, native.pointer(child), native.word(base), native.word(nargs)) ~= 1ULL then
+    if ops.packVarargs(ctx, frame, pc, native.pointer(child), native.word(base), native.word(nargs)) ~= 1ULL then
         ops.failure(ctx, ops.INVALID)
         return native.fail()
     end
