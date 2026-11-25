@@ -225,6 +225,8 @@ if [ -n "$c_runtime" ]; then
     # compiled at once and optimized across modules when linked. Handlers
     # tail-call each other, so the emitted C is held to no warning policy of
     # its own; the compiler checked the Nupp it came from.
+    # Float arithmetic is exactly what the Nupp says: no fused multiply-add,
+    # which would change results from s0's and break bit-exact replay.
     corec="$ROOT/native/corec"
     runtime_objects=
     pids=
@@ -237,7 +239,7 @@ if [ -n "$c_runtime" ]; then
             target_flags=
         fi
         # shellcheck disable=SC2086
-        "$CC" $target_flags -std=c11 -O2 -g -fno-builtin -fwrapv -fno-strict-aliasing -flto=thin -w ${NUPP_CORE_C_FLAGS:-} \
+        "$CC" $target_flags -std=c11 -O2 -g -fno-builtin -fwrapv -fno-strict-aliasing -ffp-contract=off -flto=thin -w ${NUPP_CORE_C_FLAGS:-} \
             -I"$c_runtime" -I"$corec" -c "$source" -o "$object" &
         pids="$pids $!"
     done
