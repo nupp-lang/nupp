@@ -97,6 +97,21 @@ end
 
 -- Whether the site at `pc` in `frame` has anything to do: a finalizer of
 -- its own to take back, or one pending while none runs.
+-- Whether no finalizer runs and none is pending, which is what a loop's back
+-- edge almost always finds: two loads, so the edge calls `due` only when
+-- there is something to do.
+export function idle(ctx: voidptr): boolean
+    @unsafe do
+        local services = native.loadPointer(ctx, context.SERVICE_SCOPE)
+        if native.load64(services, native.fieldOffset<guestscope.Services>("finalframe")) ~= 0ULL then
+            return false
+        end
+        local h = native.pointer(native.load64(services, native.fieldOffset<guestscope.Services>("heap"))) as heap.Heap*
+
+        return h.pending.count == h.pendinghead
+    end
+end
+
 export function due(ctx: voidptr, frame: voidptr, pc: voidptr): boolean
     if running(ctx) then
         return returned(ctx, frame, pc)

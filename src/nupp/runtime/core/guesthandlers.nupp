@@ -2805,7 +2805,7 @@ export function Jmp(pc: voidptr, regs: voidptr, ints: voidptr, floats: voidptr, 
         end
         -- A loop's back edge runs the finalizers pending, one at a time,
         -- running again as each returns (guestfinalizers).
-        if finalizers.due(ctx, frame, pc) then
+        if not finalizers.idle(ctx) and finalizers.due(ctx, frame, pc) then
             local started = finalizers.step(ctx, frame, pc)
             if started == finalizers.FAILED then
                 return native.fail()
