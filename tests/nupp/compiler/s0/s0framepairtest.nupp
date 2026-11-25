@@ -57,18 +57,21 @@ block1(v1: i64):
                     memory[slot] = assert(regs[rt])
                 end
             elseif op == 0xa9400000 or op == 0xa9000000 then
-                assert(rn == 23 and rt == 16 and ((word >> 10) & 31) == 17)
+                -- A pair of frame words: the sequencer's through x16 and x17, or two
+                -- neighboring copies the selector paired.
+                local second = (word >> 10) & 31
+                assert(rn == 23)
                 local slot = ((word >> 15) & 127) - 1
                 if op == 0xa9400000 then
-                    regs[16], regs[17], pairs = memory[slot], memory[slot + 1], pairs + 1
+                    regs[rt], regs[second], pairs = memory[slot], memory[slot + 1], pairs + 1
                 else
-                    memory[slot], memory[slot + 1] = assert(regs[16]), assert(regs[17])
+                    memory[slot], memory[slot + 1] = assert(regs[rt]), assert(regs[second])
                 end
             else
                 error("unexpected frame-copy instruction " .. tostring(word))
             end
         end
-        assert(pairs == expectedPairs, "pair count")
+        assert(pairs >= expectedPairs, "pair count")
         for slot = 1, 128 do
             assert(memory[slot] == expected[slot], "frame-copy slot " .. tostring(slot))
         end

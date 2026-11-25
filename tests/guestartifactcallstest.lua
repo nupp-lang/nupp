@@ -57,6 +57,7 @@ local function fixture()
         "storagelibrary",
         "loadlibrary",
         "debuglibrary",
+        "stringfills",
         "corestorage",
         "coretables"
     }) do

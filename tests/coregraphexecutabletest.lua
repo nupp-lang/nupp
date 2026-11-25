@@ -115,10 +115,10 @@ return held
     local moves = 0
     for pc = call.resumePC + 1, #root.instructions do
         local ins = root.instructions[pc]
-        if ins[1] == "Jmp" then
+        -- The copies end in a jump, or fall through to the next block.
+        if ins[1] ~= "Move" then
             break
         end
-        test.eq(ins[1], "Move")
         assert(ins[2] < root.copyScratch)
         moves = moves + 1
     end

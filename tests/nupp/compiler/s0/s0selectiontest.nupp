@@ -16,13 +16,17 @@ local function compile(text: string, spill: boolean): selector.Code
         target.integerRegisters, target.floatRegisters = {}, {}
     end
 
-    local ok, result = xpcall(function(): any
-        return selector.run(f, allocate.run(f, target))
-    end, debug.traceback)
+    local ok, result = xpcall(
+        function(): any
+            return selector.run(f, allocate.run(f, target))
+        end,
+        debug.traceback
+    )
     if not ok then
         print("PROBE", result)
         error(result)
     end
+
     return result as selector.Code
 end
 
@@ -57,7 +61,8 @@ block2(v9: i64):
 ]]
     for _, spill in ipairs({false, true}) do
         local code = compile(cycle, spill)
-        assert(#code.blockWord == 3 and #code.fixupWord == 0)
+        -- The loop's literal is made once, in a block of its own before it.
+        assert(#code.blockWord == 4 and #code.fixupWord == 0)
         assert(code.opCounts[ir.opcode("brif")] == 1)
     end
     local indirect = [[
