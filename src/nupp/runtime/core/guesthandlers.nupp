@@ -69,7 +69,19 @@ export function K(pc: voidptr, regs: voidptr, ints: voidptr, floats: voidptr, ct
     local value = native.load64(data, native.index(offset + native.word(index) * 8ULL))
     local owner = native.load64(frame, native.fieldOffset<frames.Frame>("functionId"))
     if value & 0xffff000000000000ULL == catalog.STRING_CONSTANT then
-        value = values.TAG_OBJ | guestscope.stringConstant(ctx, owner, value)
+        -- A string made already is in the scope's constant cache, kept by
+        -- where its bytes are (guestscope.stringConstant, which makes one).
+        local at = catalog.base(native.loadPointer(ctx, context.CATALOG), owner) + (value & values.PAYLOAD)
+        local constants = native.load64(
+            native.loadPointer(ctx, context.SERVICE_SCOPE),
+            native.fieldOffset<guestscope.Services>("constants")
+        )
+        local slot = (at >> 3ULL) & (guestscope.CONSTANT_SLOTS - 1ULL)
+        if constants ~= 0ULL and native.load64(native.pointer(constants), native.index(slot * 8ULL)) == at then
+            value = native.load64(native.pointer(constants), native.index((guestscope.CONSTANT_SLOTS + slot) * 8ULL))
+        else
+            value = values.TAG_OBJ | guestscope.stringConstant(ctx, owner, value)
+        end
     end
     if value & 0xffff000000000000ULL == catalog.INTEGER_CONSTANT then
         value = guestscope.integerConstant(ctx, owner, value)

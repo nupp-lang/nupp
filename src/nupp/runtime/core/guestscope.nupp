@@ -20,7 +20,7 @@ const ints = require("nupp.runtime.core.coreintegers")
 
 -- How many string constants the entry keeps made (a power of two): the slot
 -- of one is its catalog address's words modulo this.
-const CONSTANT_SLOTS: uint64 = 4096ULL
+export const CONSTANT_SLOTS: uint64 = 4096ULL
 const catalog = require("nupp.runtime.core.guestcatalog")
 const frames = require("nupp.runtime.core.frames")
 const guestentry = require("nupp.runtime.core.guestentry")
