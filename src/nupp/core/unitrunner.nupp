@@ -101,6 +101,8 @@ local function selectCode(result: any, mode: string): any
     if mode == "spill" then
         target.integerRegisters, target.floatRegisters = {}, {}
     end
+    -- A small leaf it calls is copied in, as C inlines a small static function.
+    sink.inlineSmall(result)
     local allocation = allocate.run(result.machine, target)
 
     local code: any = selector.run(result.machine, allocation)

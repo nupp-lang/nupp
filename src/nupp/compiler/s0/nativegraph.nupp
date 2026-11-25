@@ -1233,6 +1233,14 @@ local function inlineLeaves(result: sink.Result, held: any): nil
     )
 end
 
+-- Inlines the small leaves a Result's machine IR calls (inlineLeaves), for a
+-- caller that allocates and selects it itself: an issued one's retained
+-- callees, or what the Result itself says it calls. A leaf lowers with no
+-- context, which only a handler needs.
+function sink.inlineSmall(result: sink.Result): nil
+    inlineLeaves(result, issuedResults[result] or {callees = result.callees})
+end
+
 -- This wrapper issues code provenance only after verifying the original graph
 -- and the exact MIR that compilerGraph produced. There is no annotateCode API.
 function sink.selectAuthenticated(result: sink.Result, mode: string): any
