@@ -495,6 +495,13 @@ int32_t nupp_uri_idna_ascii (const char *domain, size_t count, char *out,
 
 typedef uint64_t (*Entry)(const uint64_t *packet, uint64_t *output);
 
+#ifdef NUPP_CORE_C_RUNTIME
+
+/* The runtime emitted as C (scripts/core-c), linked into the bridge: it runs
+   a bundle's program in place of the runtime code the bundle carries. */
+uint64_t nupp_c_entry (const uint64_t *packet, uint64_t *output);
+#endif
+
 /* A bundle's header fields, once read and checked. */
 struct bundle {
   uint64_t entry, codebytes, databytes, scratchbytes, outputwords;
@@ -960,7 +967,11 @@ static int enter (const struct bundle *bundle, const struct regions *regions,
       [PACKET_INPUT_WORDS] = count,
       [PACKET_OUTPUT_WORDS] = bundle->outputwords,
   };
+#ifdef NUPP_CORE_C_RUNTIME
+  Entry entry = nupp_c_entry;
+#else
   Entry entry = (Entry)(regions->code + bundle->entry);
+#endif
 
   return callentry(entry, packet, output, status);
 }

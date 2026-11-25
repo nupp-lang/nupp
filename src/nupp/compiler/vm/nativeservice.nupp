@@ -389,6 +389,15 @@ local function catalog(entry: any, roots: any, review: any): any
     return result
 end
 
+-- What a catalogue's service closure found, for a backend that lowers the
+-- same closure another way (nupp.compiler.cemit): `owners` by checked
+-- function, each with its `id`, whether it is `scoped` and whether it is a
+-- `handler`; `raises` and `calls` by call site; `layout`, the ServiceScope's.
+-- Read only: the catalogue's checks still hold of every graph lowered from it.
+export function closure(catalog: any): any
+    return need(catalogs[catalog], "unissued service catalogue")
+end
+
 export function options(catalog: any, owner: any): any
     local state = need(catalogs[catalog], "unissued service catalogue")
     local item = need(state.owners[owner], "owner outside service closure")

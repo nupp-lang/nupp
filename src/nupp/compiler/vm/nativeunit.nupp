@@ -539,6 +539,14 @@ export function session(projectRoot: string, requested: any, target: string, inc
         return need(state.modules[name], "module is outside sealed batch")
     end
 
+    -- The checked syntax tree of a requested module, whose top level holds
+    -- its constants, structs and C declarations.
+    function api.tree(name: string): any
+        validate(state, false)
+        local scope = need(state.modules[name], "module is outside sealed batch")
+        return need(state.checked[scope.path], "module was not checked").result
+    end
+
     local cachedInputs: any = {attempted = false}
     function api.cacheFingerprint(): string?
         if not cachedInputs.attempted then

@@ -650,13 +650,11 @@ local sessions: {[string]: any} = {}
 -- depend on the mode or the audit, and nothing downstream changes it.
 local programs: {[string]: any} = {}
 
-local function runtime(mode: string, cacheDirectory: string?, audited: boolean): any
-    local kind = audited and "audited" or "primary"
-    local held = runtimes[kind .. ":" .. mode]
-    if held then
-        return held
-    end
-    local root = assert(os.getenv("NUPP_COMPILER_ROOT"))
+-- What the guest runtime is built from, under source root `root`: its
+-- modules (fixtures), the functions it is entered at (roots), and which of
+-- those are dispatch handlers. The bundle's runtime and the C runtime
+-- (nupp.compiler.cemit) are both built from these.
+export function runtimeUnits(root: string, audited: boolean): (any, any, any)
     local fixtures = {}
     for _, name in ipairs(RUNTIME) do
         fixtures[
@@ -688,6 +686,18 @@ local function runtime(mode: string, cacheDirectory: string?, audited: boolean):
             roots[#roots + 1] = {"nupp.runtime.core.guestaudit", name}
         end
     end
+
+    return fixtures, roots, handlers
+end
+
+local function runtime(mode: string, cacheDirectory: string?, audited: boolean): any
+    local kind = audited and "audited" or "primary"
+    local held = runtimes[kind .. ":" .. mode]
+    if held then
+        return held
+    end
+    local root = assert(os.getenv("NUPP_COMPILER_ROOT"))
+    local fixtures, roots, handlers = runtimeUnits(root, audited)
     local began = os.time()
     -- The checked session and catalog serve both modes.
     sessions[kind] = sessions[kind] or service.buildUnits(fixtures, roots, handlers)
