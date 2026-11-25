@@ -2035,7 +2035,7 @@ export function forVersion(version: integer): any
                 if selects then
                     pack = taggedcalls.openinvoke(ctx, node)
                 else
-                    pack = librarypack(ctx, node)
+                    pack = librarypack(ctx, node, true)
                 end
                 if pack == nil or ctx.block == nil then
                     return nil

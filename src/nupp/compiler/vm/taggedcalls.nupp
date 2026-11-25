@@ -955,8 +955,10 @@ export function coroutinepack(ctx: any, node: any): integer
 end
 
 -- A library call with several results, as the pack of them: a string
--- library call's or table.unpack's pack form, or a coroutine call.
-export function librarypack(ctx: any, node: any): integer?
+-- library call's or table.unpack's pack form, or a coroutine call. With
+-- `filled`, every result is read from the pack at once, so a call that
+-- fills the scope's one result pack (corelibrary `fills`) answers it.
+export function librarypack(ctx: any, node: any, filled: boolean?): integer?
     local library = graph.coreLibraryCall(node)
     if coroutinepacked[library or ""] then
         return coroutinepack(ctx, node)
@@ -970,6 +972,11 @@ export function librarypack(ctx: any, node: any): integer?
         arguments[#arguments + 1] = argument
     end
     need(#arguments >= spec[2] and #arguments <= spec[3], tostring(library) .. " argument count is not admitted")
+
+    local fill = filled and corelibrary.filled(library) or nil
+    if fill ~= nil then
+        return libraryCall(ctx, node, fill, arguments)
+    end
 
     return libraryCall(ctx, node, need(packSpec(library), "library call with one result"), arguments)
 end

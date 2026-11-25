@@ -1364,6 +1364,7 @@ local GENERATED = {
     {require("nupp.core.storagelibrarygen"), "storagelibrary", "nupp.core.storagelibrarygen"},
     {require("nupp.core.loadlibrarygen"), "loadlibrary", "nupp.core.loadlibrarygen"},
     {require("nupp.core.debuglibrarygen"), "debuglibrary", "nupp.core.debuglibrarygen"},
+    {require("nupp.core.stringfillsgen"), "stringfills", "nupp.core.stringfillsgen"},
     {require("nupp.core.chunkopcodesgen"), "chunkopcodes", "nupp.core.chunkopcodesgen"},
     {require("nupp.core.scalarkindsgen"), "scalarkinds", "nupp.core.scalarkindsgen"},
     {require("nupp.core.librarylayoutsgen"), "librarylayouts", "nupp.core.librarylayoutsgen"},

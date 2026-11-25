@@ -30,8 +30,8 @@ const foreignabi = require("nupp.runtime.core.foreignabi")
 const gcstats = require("nupp.runtime.core.gcstats")
 
 -- The Services fields the collector roots, from `running` through
--- `structtypes`.
-const ROOTED_FIELDS: uint64 = 15ULL
+-- `results`.
+const ROOTED_FIELDS: uint64 = 16ULL
 
 -- The scope comes first, so a Services address is also its scope's address.
 export struct Services
@@ -138,6 +138,10 @@ export struct Services
     -- provider declares one, and 0 to the last id given; a table once one is
     -- named.
     structtypes: uint64
+    -- The one result pack the library calls filling it leave their results
+    -- in (`resultPack`), read at once by the instruction after, or 0 until
+    -- one has.
+    results: uint64
     -- 1 while coroutine.close unwinds a suspended thread: its error lands at
     -- every frame that owns affine values, and no protected call takes it.
     closing: uint64
@@ -345,6 +349,7 @@ local function initializeHeap(
         native.store64(services, native.fieldOffset<Services>("stringmeta"), 0ULL)
         native.store64(services, native.fieldOffset<Services>("pending"), 0ULL)
         native.store64(services, native.fieldOffset<Services>("structtypes"), 0ULL)
+        native.store64(services, native.fieldOffset<Services>("results"), 0ULL)
         native.store64(services, native.fieldOffset<Services>("closing"), 0ULL)
         native.store64(services, native.fieldOffset<Services>("replay"), 0ULL)
         native.store64(services, native.fieldOffset<Services>("replaycursor"), 0ULL)
@@ -581,6 +586,46 @@ export function newTable(ctx: voidptr): uint64
 
         return t
     end
+end
+
+-- What a library call answers: its first result alone, every result in a
+-- fresh pack, or every result in the scope's one result pack, which the
+-- instructions reading them take at once (corelibrary `fills`).
+export const RESULTS_ONE: uint64 = 0ULL
+export const RESULTS_PACK: uint64 = 1ULL
+export const RESULTS_FILL: uint64 = 2ULL
+
+-- The pack a library call leaves its every result in: for RESULTS_FILL, the
+-- scope's one result pack, emptied of the last call's results; otherwise a
+-- fresh table.
+export function resultPack(ctx: voidptr, results: uint64): uint64
+    if results ~= RESULTS_FILL then
+        return newTable(ctx)
+    end
+    local services = native.loadPointer(ctx, context.SERVICE_SCOPE)
+    local at = native.fieldOffset<Services>("results")
+    local held = native.load64(services, at)
+    if held == 0ULL then
+        local t = newTable(ctx)
+        native.store64(services, at, values.TAG_OBJ | t)
+
+        return t
+    end
+    local t = held & values.PAYLOAD
+    local count = tables.get(t, values.TAG_INTEGER)
+    if count & values.TAG_MASK == values.TAG_INTEGER then
+        @unsafe do
+            local h = native.pointer(guestHeap(ctx)) as heap.Heap*
+            local n = count & values.PAYLOAD
+            local k: uint64 = 1ULL
+            while k <= n do
+                local _ = tables.set(h, t, values.TAG_INTEGER | k, values.NIL)
+                k = k + 1ULL
+            end
+        end
+    end
+
+    return t
 end
 
 -- A fresh table whose array part is packed as `kind` (coretables), with

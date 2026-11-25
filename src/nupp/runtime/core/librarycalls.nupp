@@ -395,6 +395,12 @@ export function libraryname(id: uint64): uint64
         return 115ULL
     elseif id == COLLECTGARBAGE then
         return 118ULL
+    elseif id == 186ULL then
+        return 44ULL
+    elseif id == 187ULL then
+        return 50ULL
+    elseif id == 188ULL then
+        return 51ULL
     elseif id == STRING_GMATCH_STATE then
         return 39ULL
     elseif id == STRING_GMATCH_VALUES then

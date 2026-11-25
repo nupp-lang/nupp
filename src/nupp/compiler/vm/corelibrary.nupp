@@ -15,6 +15,10 @@ module nupp.compiler.vm.corelibrary
 --            `max`, the arguments that function admits, self included
 --   packs    the library function whose every result it answers, as a pack
 --            {[0] = n, ...} the compiler reads in order
+--   fills    the library function whose every result it leaves in the
+--            scope's one result pack, which the compiler reads in order at
+--            once: no other call runs before every result is read, so
+--            nothing else ever holds it
 --   meta     whether its operands may call a metamethod in its place
 --
 -- A subject marked `range` keeps its ids consecutive, so the runtime tells
@@ -28,6 +32,7 @@ export type Call = {
     min: integer?,
     max: integer?,
     packs: string?,
+    fills: string?,
     scalar: string?,
     meta: boolean?
 }
@@ -653,6 +658,19 @@ local subjectrows: {Subject} = {
         calls = {{name = "DEBUG_INFO", id = 207}}
     },
     {
+        -- string.byte, string.find and string.match leaving every result in
+        -- the scope's one result pack (`fills`). A file of their own:
+        -- librarycalls' top level is full.
+        name = "stringfills",
+        range = false,
+        output = "stringfills",
+        calls = {
+            {name = "STRING_BYTE_FILL", id = 186, text = "NAME_BYTE", fills = "string.byte"},
+            {name = "STRING_FIND_FILL", id = 187, text = "NAME_FIND", fills = "string.find"},
+            {name = "STRING_MATCH_FILL", id = 188, text = "NAME_MATCH", fills = "string.match"}
+        }
+    },
+    {
         -- The host's services: os.getenv, os.monotonic(), the program's
         -- arguments (hostcalls.arguments, which `arg` holds), and the file
         -- calls (filecalls): the operation first, then its arguments.
@@ -1049,6 +1067,7 @@ local ids: {[string]: integer} = {}
 local singles: {[string]: Call} = {}
 local scalars: {[string]: Call} = {}
 local packs: {[string]: integer} = {}
+local fills: {[string]: integer} = {}
 local metas: {[integer]: boolean} = {}
 local files: {[string]: Operation} = {}
 -- The call each operation's library function rides.
@@ -1087,6 +1106,10 @@ do
             if entry.packs then
                 assert(packs[entry.packs] == nil, "core library pack answered twice: " .. entry.packs)
                 packs[entry.packs] = entry.id
+            end
+            if entry.fills then
+                assert(fills[entry.fills] == nil, "core library fill answered twice: " .. entry.fills)
+                fills[entry.fills] = entry.id
             end
             if entry.meta then
                 metas[entry.id] = true
@@ -1190,6 +1213,16 @@ export function packed(library: string?): integer?
     end
 
     return packs[library]
+end
+
+-- The id of the call leaving every result of `library` in the scope's one
+-- result pack, or nil.
+export function filled(library: string?): integer?
+    if library == nil then
+        return nil
+    end
+
+    return fills[library]
 end
 
 -- The operation library function `library` stands for, or nil.

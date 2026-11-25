@@ -15,6 +15,7 @@ const texts = require("nupp.runtime.core.guesttexts")
 const ints = require("nupp.runtime.core.coreintegers")
 const librarycalls = require("nupp.runtime.core.librarycalls")
 const tablelibrary = require("nupp.runtime.core.tablelibrary")
+const stringfills = require("nupp.runtime.core.stringfills")
 const loadlibrary = require("nupp.runtime.core.loadlibrary")
 const debuglibrary = require("nupp.runtime.core.debuglibrary")
 const librarylayouts = require("nupp.runtime.core.librarylayouts")
@@ -371,9 +372,11 @@ export function call(ctx: voidptr, id: uint64, count: uint64, a: uint64, b: uint
     elseif id == librarycalls.STRING_SUB then
         return gueststrings.sub(ctx, a, b, c)
     elseif id == librarycalls.STRING_BYTE then
-        return gueststrings.bytes(ctx, a, b, c, false)
+        return gueststrings.bytes(ctx, a, b, c, guestscope.RESULTS_ONE)
     elseif id == librarycalls.STRING_BYTE_ALL then
-        return gueststrings.bytes(ctx, a, b, c, true)
+        return gueststrings.bytes(ctx, a, b, c, guestscope.RESULTS_PACK)
+    elseif id == stringfills.STRING_BYTE_FILL then
+        return gueststrings.bytes(ctx, a, b, c, guestscope.RESULTS_FILL)
     elseif id == librarycalls.STRING_CHAR then
         return gueststrings.char(ctx, a)
     elseif id == librarycalls.STRING_REP then
@@ -387,13 +390,17 @@ export function call(ctx: voidptr, id: uint64, count: uint64, a: uint64, b: uint
     elseif id == librarycalls.STRING_LEN then
         return values.TAG_INTEGER | strings.length(guestvalues.strarg(ctx, a, 1ULL))
     elseif id == librarycalls.STRING_FIND then
-        return gueststrings.search(ctx, a, b, c, d, false, false)
+        return gueststrings.search(ctx, a, b, c, d, false, guestscope.RESULTS_ONE)
     elseif id == librarycalls.STRING_MATCH then
-        return gueststrings.search(ctx, a, b, c, values.NIL, true, false)
+        return gueststrings.search(ctx, a, b, c, values.NIL, true, guestscope.RESULTS_ONE)
     elseif id == librarycalls.STRING_FIND_ALL then
-        return gueststrings.search(ctx, a, b, c, d, false, true)
+        return gueststrings.search(ctx, a, b, c, d, false, guestscope.RESULTS_PACK)
+    elseif id == stringfills.STRING_FIND_FILL then
+        return gueststrings.search(ctx, a, b, c, d, false, guestscope.RESULTS_FILL)
     elseif id == librarycalls.STRING_MATCH_ALL then
-        return gueststrings.search(ctx, a, b, c, values.NIL, true, true)
+        return gueststrings.search(ctx, a, b, c, values.NIL, true, guestscope.RESULTS_PACK)
+    elseif id == stringfills.STRING_MATCH_FILL then
+        return gueststrings.search(ctx, a, b, c, values.NIL, true, guestscope.RESULTS_FILL)
     elseif id == librarycalls.STRING_GSUB then
         return gueststrings.gsub(ctx, a, b, c, d, false)
     elseif id == librarycalls.STRING_GSUB_ALL then
