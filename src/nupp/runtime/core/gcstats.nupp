@@ -79,7 +79,7 @@ local function pools(buffer: voidptr, h: heap.Heap*): nil
             if address ~= 0ULL then
                 local pool = native.pointer(address) as arena.Pool*
                 local name = POOL | ((ZERO + class // BASE) << TENS_SHIFT) | ((ZERO + class % BASE) << ONES_SHIFT)
-                line(buffer, name, (pool.live as uint64) * pool.slotBytes)
+                line(buffer, name, native.word(pool.live) * pool.slotBytes)
             end
             class = class + 1ULL
         end
