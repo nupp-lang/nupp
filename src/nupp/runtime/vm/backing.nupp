@@ -25,11 +25,17 @@ export function wordBackingTake(owner: heap.Heap*, capacity: uint64): uint64
     end
     @unsafe do
         local bytes = capacity * 8ULL + wordBackingPrefix()
-        if capacity <= 4096ULL then
+        if capacity <= heap.POOLED_WORDS then
+            -- An even class's room is a power of two, an odd one's half as
+            -- much again (heap.ARRAY_POOL_CLASSES).
             local class: uint64 = 0ULL
             local room: uint64 = 4ULL
             while room < capacity do
-                room = room << 1ULL
+                if class & 1ULL == 0ULL then
+                    room = room + (room >> 1ULL)
+                else
+                    room = (room // 3ULL) << 2ULL
+                end
                 class = class + 1ULL
             end
             local at = native.index(class * native.sizeOf<heap.ArrayPoolSlot>())

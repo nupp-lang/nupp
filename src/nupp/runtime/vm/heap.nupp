@@ -287,6 +287,13 @@ export struct ArrayPoolSlot
     pool: uint64
 end
 
+--- Pooled word backing comes in a class per room of 4, 6, 8, 12, 16, ...
+--- words up to POOLED_WORDS: half steps, so the three words a hash bucket
+--- takes per power-of-two capacity fill their slot.
+export const ARRAY_POOL_CLASSES: uint64 = 21ULL
+
+export const POOLED_WORDS: uint64 = 4096ULL
+
 export struct ValueArray
     owner: uint64
     base: uint64
@@ -998,7 +1005,11 @@ export function create(borrows a: arena.Arena*): Heap* borrows (a)
             ((LARGEST_SLOT >> 4) + 1) * native.sizeOf<ClassByte>(),
             native.alignmentOf<ClassByte>()
         )
-        local arrayPools = arena.alloc(a, 11ULL * native.sizeOf<ArrayPoolSlot>(), native.alignmentOf<ArrayPoolSlot>())
+        local arrayPools = arena.alloc(
+            a,
+            ARRAY_POOL_CLASSES * native.sizeOf<ArrayPoolSlot>(),
+            native.alignmentOf<ArrayPoolSlot>()
+        )
         local stats = arena.alloc(a, native.sizeOf<Stats>(), native.alignmentOf<Stats>())
         if raw == nil or classes == nil or lookup == nil or stats == nil or arrayPools == nil then
             error("heap: the arena is full")

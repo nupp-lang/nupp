@@ -86,6 +86,8 @@ export function report(h: heap.Heap*): nil
             line(buffer, 0x6576696cULL, h.liveBytes) -- live
             line(buffer, 0x657361626e6567ULL, h.genbase) -- genbase
             line(buffer, 0x7465736d656d6572ULL, h.remembered.count) -- rememset
+            line(buffer, 0x70616d6b6e756863ULL, h.stats.chunkBytesMapped) -- chunkmap
+            line(buffer, 0x656772616cULL, h.stats.large) -- large
         end
         free(buffer)
     end
