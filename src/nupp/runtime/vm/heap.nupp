@@ -294,6 +294,10 @@ export const ARRAY_POOL_CLASSES: uint64 = 21ULL
 
 export const POOLED_WORDS: uint64 = 4096ULL
 
+--- Listed hash parts (objecttable) come in rooms of 2, 3, 4, 6 and 8
+--- entries, each from a pool of its own.
+export const LISTED_POOL_CLASSES: uint64 = 5ULL
+
 export struct ValueArray
     owner: uint64
     base: uint64
@@ -602,6 +606,10 @@ export struct Heap
     --- 1 once the core has made a table here (`coretables`): its tables are
     --- the core's, which compare string keys by content (objecttable).
     coreTables: uint64
+
+    --- The pools listed hash parts come from (objecttable), an
+    --- ArrayPoolSlot per room (LISTED_POOL_CLASSES), each 0 until made.
+    listedPools: uint64
 end
 
 -- ---- words over mappings ---------------------------------------------------
@@ -1014,8 +1022,13 @@ export function create(borrows a: arena.Arena*): Heap* borrows (a)
             ARRAY_POOL_CLASSES * native.sizeOf<ArrayPoolSlot>(),
             native.alignmentOf<ArrayPoolSlot>()
         )
+        local listedPools = arena.alloc(
+            a,
+            LISTED_POOL_CLASSES * native.sizeOf<ArrayPoolSlot>(),
+            native.alignmentOf<ArrayPoolSlot>()
+        )
         local stats = arena.alloc(a, native.sizeOf<Stats>(), native.alignmentOf<Stats>())
-        if raw == nil or classes == nil or lookup == nil or stats == nil or arrayPools == nil then
+        if raw == nil or classes == nil or lookup == nil or stats == nil or arrayPools == nil or listedPools == nil then
             error("heap: the arena is full")
         end
         local h = raw as Heap*
@@ -1030,6 +1043,7 @@ export function create(borrows a: arena.Arena*): Heap* borrows (a)
         h.stats = stats as Stats*
         h.grayPool = pool
         h.arrayPools = native.address(arrayPools)
+        h.listedPools = native.address(listedPools)
         h.recordExtraPool = 0ULL
         h.chunks = zeroWords(a)
         h.chunkSet = zeroSet(a)

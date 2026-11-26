@@ -5,6 +5,7 @@ const objecthash = require("nupp.runtime.vm.objecthash")
 const values = require("nupp.runtime.vm.values")
 const heap = require("nupp.runtime.vm.heap")
 const backing = require("nupp.runtime.vm.backing")
+const arena = require("nupp.runtime.vm.arena")
 
 -- One canonical probe for hash tables and record overflow. A deleted value
 -- keeps its key, so only a NIL key terminates the search. The returned bucket
@@ -564,18 +565,6 @@ export function tableOwnedInitialize(t: heap.ValueTable*, owner: heap.Heap*, wan
     end
 end
 
-export function tableOwnedRelease(t: heap.ValueTable*): nil
-    @unsafe do
-        backing.wordBackingRelease(t.ptr)
-        t.ptr = 0ULL
-        t.mask = 0ULL
-        t.capacity = 0ULL
-        t.length = 0ULL
-        t.order = 0ULL
-        t.rank = 0ULL
-    end
-end
-
 -- The source and every descriptor field remain unchanged until a separately
 -- owned target has been completely initialized and rehashed successfully.
 local function ownedgrow(t: heap.ValueTable*, core: boolean): uint64
@@ -662,6 +651,9 @@ export const LISTED: uint64 = 0xffffffffffffffffULL
 
 export const LISTED_ENTRIES: uint64 = 8ULL
 
+-- A list comes from a pool for its room (heap.listedPools), so it needs no
+-- prefix saying where it goes back: its capacity says.
+
 export function listed(t: heap.ValueTable*): boolean
     return @unsafe t.mask == LISTED
 end
@@ -681,10 +673,55 @@ local function listedRoom(wanted: uint64): uint64
     return room
 end
 
+-- The address of the pool lists of `entries` (a room) come from, made when
+-- first wanted; 0 when the arena is full.
+local function listedPool(owner: uint64, entries: uint64): uint64
+    -- Rooms 2, 3 and 4 are classes 0 to 2; 6 and 8 are 3 and 4.
+    local class = entries - 2ULL
+    if entries > 4ULL then
+        class = entries >> 1ULL
+    end
+    @unsafe do
+        local h = native.pointer(owner) as heap.Heap*
+        local at = native.index(class * native.sizeOf<heap.ArrayPoolSlot>())
+        local address = native.load64(native.pointer(h.listedPools), at)
+        if address == 0ULL then
+            local pool = arena.pool(h.grayPool.arena, entries * 16ULL)
+            if pool == nil then
+                return 0ULL
+            end
+            address = native.address(pool as voidptr)
+            native.store64(native.pointer(h.listedPools), at, address)
+        end
+
+        return address
+    end
+end
+
+-- Gives back the backing of a list of `entries` taken for heap `owner`.
+local function listedGive(owner: uint64, entries: uint64, base: uint64): nil
+    local pool = listedPool(owner, entries)
+    if pool ~= 0ULL then
+        @unsafe do
+            local currentPool = native.pointer(pool) as arena.Pool*
+            arena.give(currentPool, native.pointer(base))
+        end
+    end
+end
+
 local function listedTake(owner: uint64, entries: uint64): uint64
-    local base = backing.wordBackingTake(native.pointer(owner) as heap.Heap*, entries * 2ULL)
-    if base == 0ULL then
+    local pool = listedPool(owner, entries)
+    if pool == 0ULL then
         return 0ULL
+    end
+    local base: uint64 = 0ULL
+    @unsafe do
+        local currentPool = native.pointer(pool) as arena.Pool*
+        local raw = arena.take(currentPool)
+        if raw == nil then
+            return 0ULL
+        end
+        base = native.address(raw as voidptr)
     end
     local i: uint64 = 0ULL
     while i < entries do
@@ -762,10 +799,10 @@ local function listedGrow(t: heap.ValueTable*): uint64
                 end
                 i = i + 1ULL
             end
+            listedGive(t.owner, t.capacity, old)
             t.ptr = base
             t.capacity = entries
             t.length = kept
-            backing.wordBackingRelease(old)
             return 0ULL
         end
         local capacity = tableCapacity(live + 1ULL)
@@ -776,6 +813,7 @@ local function listedGrow(t: heap.ValueTable*): uint64
         if base == 0ULL then
             return 2ULL
         end
+        local listedCapacity = t.capacity
         t.ptr = base
         t.mask = capacity - 1ULL
         t.capacity = capacity
@@ -791,7 +829,7 @@ local function listedGrow(t: heap.ValueTable*): uint64
             end
             i = i + 1ULL
         end
-        backing.wordBackingRelease(old)
+        listedGive(t.owner, listedCapacity, old)
         return 0ULL
     end
 end
@@ -865,6 +903,22 @@ local function listedInsert(t: heap.ValueTable*, key: uint64, value: uint64): ui
         native.store64(entry, 8, value)
         t.length = t.length + 1ULL
         return 0ULL
+    end
+end
+
+export function tableOwnedRelease(t: heap.ValueTable*): nil
+    @unsafe do
+        if t.mask == LISTED then
+            listedGive(t.owner, t.capacity, t.ptr)
+        else
+            backing.wordBackingRelease(t.ptr)
+        end
+        t.ptr = 0ULL
+        t.mask = 0ULL
+        t.capacity = 0ULL
+        t.length = 0ULL
+        t.order = 0ULL
+        t.rank = 0ULL
     end
 end
 
