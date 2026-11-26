@@ -6,6 +6,7 @@ module nupp.runtime.core.gcstats
 -- as one little-endian word.
 const native = require("nupp.runtime.vm.intrinsics")
 const heap = require("nupp.runtime.vm.heap")
+const arena = require("nupp.runtime.vm.arena")
 
 cdef function getenv(borrows name: voidptr): voidptr
 cdef function calloc(count: uint64, size: uint64): voidptr
@@ -25,6 +26,11 @@ const BYTE_BITS: uint64 = 8ULL
 -- "GC_STATS", and "gc " before each name.
 const VARIABLE: uint64 = 0x53544154535f4347ULL
 const PREFIX: uint64 = 0x206367ULL
+
+-- "pool", which two digits of a backing class follow.
+const POOL: uint64 = 0x6c6f6f70ULL
+const TENS_SHIFT: uint64 = 32ULL
+const ONES_SHIFT: uint64 = 40ULL
 
 -- Stores the bytes of `word` at `at` up to its first zero byte, and answers
 -- where the next byte goes.
@@ -60,6 +66,26 @@ local function line(buffer: voidptr, name: uint64, value: uint64): nil
     end
 end
 
+-- The bytes each class of pooled word backing has handed out and not had
+-- back (backing.wordBackingTake), as `poolNN`, NN the class.
+local function pools(buffer: voidptr, h: heap.Heap*): nil
+    @unsafe do
+        local class: uint64 = 0ULL
+        while class < heap.ARRAY_POOL_CLASSES do
+            local address = native.load64(
+                native.pointer(h.arrayPools),
+                native.index(class * native.sizeOf<heap.ArrayPoolSlot>())
+            )
+            if address ~= 0ULL then
+                local pool = native.pointer(address) as arena.Pool*
+                local name = POOL | ((ZERO + class // BASE) << TENS_SHIFT) | ((ZERO + class % BASE) << ONES_SHIFT)
+                line(buffer, name, (pool.live as uint64) * pool.slotBytes)
+            end
+            class = class + 1ULL
+        end
+    end
+end
+
 -- Reports `h`'s counters when `GC_STATS` is set.
 export function report(h: heap.Heap*): nil
     @unsafe do
@@ -88,6 +114,7 @@ export function report(h: heap.Heap*): nil
             line(buffer, 0x7465736d656d6572ULL, h.remembered.count) -- rememset
             line(buffer, 0x70616d6b6e756863ULL, h.stats.chunkBytesMapped) -- chunkmap
             line(buffer, 0x656772616cULL, h.stats.large) -- large
+            pools(buffer, h)
         end
         free(buffer)
     end
