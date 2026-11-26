@@ -649,7 +649,7 @@ export function set(h: heap.Heap*, table: uint64, raw: uint64, value: uint64): u
             if value == values.NIL then
                 return OK
             end
-            if hashes.coreinitialize(t, h, 4ULL) ~= 0ULL then
+            if hashes.coreinitialize(t, h, 2ULL) ~= 0ULL then
                 return NO_MEMORY
             end
         end
