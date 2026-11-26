@@ -880,7 +880,23 @@ export function GetIdx(pc: voidptr, regs: voidptr, ints: voidptr, floats: voidpt
     -- the table directly; its metatable is reached only for a key it lacks.
     local keyTag = keyValue & values.TAG_MASK
     if header ~= 0ULL and (keyTag == values.TAG_OBJ or keyTag == values.TAG_INTEGER) then
-        local direct = tables.get(header, keyValue)
+        -- An object key is looked for first where this instruction last
+        -- found one (guestscope.fieldSite): a record's field is where the
+        -- record's constructor put it.
+        local site = guestscope.fieldSite(ctx, pc)
+        local direct = values.NIL
+        if keyTag == values.TAG_OBJ and site ~= 0ULL then
+            direct = tables.listedAt(header, keyValue, native.word(native.load8(native.pointer(site), 0)))
+        end
+        if direct == values.NIL then
+            direct = tables.get(header, keyValue)
+            if direct ~= values.NIL and keyTag == values.TAG_OBJ and site ~= 0ULL then
+                local position = tables.listedPosition(header, keyValue)
+                if position ~= tables.LISTED_NONE then
+                    native.store8(native.pointer(site), 0, position)
+                end
+            end
+        end
         if direct ~= values.NIL or tables.meta(header) == values.NIL then
             slots.writeValue(frame, regs, dst, direct)
             local following = native.address(pc) + ops.INSTRUCTION_BYTES

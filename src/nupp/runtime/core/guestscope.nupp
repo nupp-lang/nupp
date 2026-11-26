@@ -26,6 +26,12 @@ export const CONSTANT_SLOTS: uint64 = 4096ULL
 -- instructions modulo this.
 export const CALL_SLOTS: uint64 = 2048ULL
 export const CALL_BYTES: uint64 = 64ULL
+
+-- The field cache's bytes (`fields`), one per instruction address modulo
+-- FIELD_SLOTS, and the shift from an address to its instruction (16 bytes).
+export const FIELD_SLOTS: uint64 = 65536ULL
+
+const FIELD_SHIFT: uint64 = 4ULL
 const catalog = require("nupp.runtime.core.guestcatalog")
 const frames = require("nupp.runtime.core.frames")
 const guestentry = require("nupp.runtime.core.guestentry")
@@ -209,6 +215,11 @@ export struct Services
     -- mapped bytes. No entry holds a value the collector traces.
     calls: uint64
     callsbytes: uint64
+    -- Where in a listed hash part (objecttable) each reading instruction
+    -- last found its key, FIELD_SLOTS bytes by instruction address, and
+    -- their mapped bytes. A byte is only a hint: a read checks its key.
+    fields: uint64
+    fieldsbytes: uint64
 end
 
 export const FAULT_ARITH: uint64 = 1ULL
@@ -280,6 +291,8 @@ export function prepare(base: voidptr, bytes: uint64): uint64
     native.store64(services, native.fieldOffset<Services>("gcstepCycle"), 0ULL)
     native.store64(services, native.fieldOffset<Services>("calls"), 0ULL)
     native.store64(services, native.fieldOffset<Services>("callsbytes"), 0ULL)
+    native.store64(services, native.fieldOffset<Services>("fields"), 0ULL)
+    native.store64(services, native.fieldOffset<Services>("fieldsbytes"), 0ULL)
 
     return native.address(services)
 end
@@ -449,6 +462,9 @@ export function open(
     if mapEntry(services, native.fieldOffset<Services>("calls"), CALL_SLOTS * CALL_BYTES) == 0ULL then
         return 0ULL
     end
+    if mapEntry(services, native.fieldOffset<Services>("fields"), FIELD_SLOTS) == 0ULL then
+        return 0ULL
+    end
     local metadata = roundUp(native.sizeOf<arena.Chunk>(), native.alignmentOf<arena.Arena>())
     local header = roundUp(metadata + native.sizeOf<arena.Arena>(), 16ULL)
     local mapped = roundUp(HEAP_BYTES + header, os.pageSize())
@@ -512,6 +528,7 @@ export function close(services: voidptr): nil
     local address = native.load64(services, native.fieldOffset<Services>("heap"))
     if address == 0ULL then
         unmapEntry(services, native.fieldOffset<Services>("calls"))
+        unmapEntry(services, native.fieldOffset<Services>("fields"))
         unmapEntry(services, native.fieldOffset<Services>("constants"))
         unmapEntry(services, native.fieldOffset<Services>("pool"))
         unmapEntry(services, native.fieldOffset<Services>("storage"))
@@ -540,6 +557,7 @@ export function close(services: voidptr): nil
     native.store64(services, native.fieldOffset<Services>("arena"), 0ULL)
     releaseStacks(services)
     unmapEntry(services, native.fieldOffset<Services>("calls"))
+    unmapEntry(services, native.fieldOffset<Services>("fields"))
     unmapEntry(services, native.fieldOffset<Services>("constants"))
     unmapEntry(services, native.fieldOffset<Services>("pool"))
     unmapEntry(services, native.fieldOffset<Services>("storage"))
@@ -602,6 +620,18 @@ export function store(ctx: voidptr, header: uint64, index: uint64, value: uint64
 end
 
 -- A fresh table on the entry's heap; answers its header address.
+-- The address of instruction `pc`'s byte in the field cache (`fields`),
+-- or 0 when the scope has none.
+export function fieldSite(ctx: voidptr, pc: voidptr): uint64
+    local services = native.loadPointer(ctx, context.SERVICE_SCOPE)
+    local fields = native.load64(services, native.fieldOffset<Services>("fields"))
+    if fields == 0ULL then
+        return 0ULL
+    end
+
+    return fields + ((native.address(pc) >> FIELD_SHIFT) & (FIELD_SLOTS - 1ULL))
+end
+
 export function newTable(ctx: voidptr): uint64
     @unsafe do
         local h = native.pointer(guestHeap(ctx)) as heap.Heap*

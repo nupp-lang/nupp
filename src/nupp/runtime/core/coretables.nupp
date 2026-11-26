@@ -487,6 +487,38 @@ export function get(table: uint64, key: uint64): uint64
     end
 end
 
+-- What a listed hash part (objecttable) holds at `position` when its key
+-- there is `key` itself; nil otherwise, and for a removed entry.
+export function listedAt(table: uint64, key: uint64, position: uint64): uint64
+    @unsafe do
+        local t = hashOf(native.pointer(table) as heap.Header*)
+        if t.mask ~= hashes.LISTED or position >= t.length then
+            return values.NIL
+        end
+        local entry = native.pointer(t.ptr + position * 16ULL)
+        if native.load64(entry, 0) ~= key then
+            return values.NIL
+        end
+
+        return native.load64(entry, 8)
+    end
+end
+
+-- Where `key` is in the table's listed hash part, or LISTED_NONE when the
+-- part is not listed or lacks it.
+export const LISTED_NONE: uint64 = 0xffffffffffffffffULL
+
+export function listedPosition(table: uint64, key: uint64): uint64
+    @unsafe do
+        local t = hashOf(native.pointer(table) as heap.Header*)
+        if t.mask ~= hashes.LISTED then
+            return LISTED_NONE
+        end
+
+        return hashes.coreposition(t, key)
+    end
+end
+
 -- The value at a key as Lua reads one, a float key normalized first; nil for
 -- nil and NaN keys.
 export function lookup(h: heap.Heap*, table: uint64, key: uint64): uint64
