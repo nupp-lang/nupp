@@ -5,9 +5,17 @@ module nupp.runtime.provider.corerecord
 -- reached through the globals table package.loaded holds as `_G`: `_G`
 -- itself names no binding a program the core builds holds, and a require
 -- through it is dynamic, so the compiler that builds this one (stage zero)
--- never compiles the core library modules it would otherwise reach.
+-- never compiles the core library modules it would otherwise reach. A
+-- program whose require holds no `_G`, one that runs without Lua's loaders
+-- as the core compiler does, has no globals: its records share the
+-- namespace corederive's registry is on (corenamespace).
 local function reflectionNamespace(): any
-    local globals: any = _G.require("_G")
+    local found, globals = pcall(function(): any
+        return _G.require("_G")
+    end)
+    if not found or type(globals) ~= "table" then
+        return require("nupp.runtime.provider.corenamespace").get()
+    end
     local namespace: any = rawget(globals, "nupp")
     if namespace == nil then
         namespace = {}

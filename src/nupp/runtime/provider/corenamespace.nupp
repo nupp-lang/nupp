@@ -1,0 +1,12 @@
+@!internal
+module nupp.runtime.provider.corenamespace
+
+-- The `nupp` table of a program the core builds without globals, where
+-- main's emission keeps `_G.nupp`: the registries its records and derived
+-- members reach (`__reflect`, `__derive`), on a table of this module's own.
+local namespace: any = {}
+
+-- The program's namespace table.
+export function get(): any
+    return namespace
+end

@@ -11,9 +11,9 @@ const derive = require("nupp.derive")
 const storage = require("nupp.runtime.storagecalls")
 const heap = require("nupp.runtime.provider.heapstorage")
 
--- The registry main reaches through `_G.nupp.__derive`, installed on a table
--- of this module's own so no global is needed.
-local namespace: any = {}
+-- The registry main reaches through `_G.nupp.__derive`, installed on the
+-- program's namespace (corenamespace) so no global is needed.
+local namespace: any = require("nupp.runtime.provider.corenamespace").get()
 derive.install(namespace)
 
 -- A constant as main renders it: a fresh table for each evaluation.
