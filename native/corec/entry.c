@@ -37,7 +37,11 @@ enum {
 /* The scratch the shim lays out, and the services' share of it. */
 #define SCRATCH_BYTES 1048576
 #define SERVICES_BYTES 12288
-#define DISPATCH_BYTES (256 * 8)
+
+/* The dispatch table: one handler address per opcode. */
+#define DISPATCH_ENTRIES 256
+#define DISPATCH_ENTRY_BYTES ((uint64_t)sizeof(void *))
+#define DISPATCH_BYTES (DISPATCH_ENTRIES * DISPATCH_ENTRY_BYTES)
 
 /* A mapped frame pool's first chunk, at most (guestshim FIRST_POOL). */
 #define FIRST_POOL 262144
@@ -181,8 +185,9 @@ uint64_t nupp_c_entry (const uint64_t *packet, uint64_t *output) {
   native_storePointer(ctx, CONTEXT_SERVICE_SCOPE, services);
   uint64_t serial = native_load64(ctx, CONTEXT_ROOT_SERIAL);
 
-  for (int index = 0; index < 256; ++index) {
-    native_storePointer(table, index * 8, (void *)nupp_dispatch[index]);
+  for (uint64_t index = 0; index < DISPATCH_ENTRIES; ++index) {
+    native_storePointer(table, (int64_t)(index * DISPATCH_ENTRY_BYTES),
+                        (void *)nupp_dispatch[index]);
   }
 
   native_store64(ctx, CONTEXT_CODE_START, root->code);

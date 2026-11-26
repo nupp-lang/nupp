@@ -186,6 +186,16 @@ flags() {
         native/corebridge/hostwin64.h | native/corebridge/winpipe.c | native/corebridge/winposix.* | tests/core/*win64*.c | tests/core/units/win64*.c)
             echo skip
             ;;
+        # The C beside the emitted runtime includes its headers, which
+        # scripts/core-c writes to build/core-c/src.
+        native/corec/*)
+            if [ -d "$ROOT/build/core-c/src" ]; then
+                echo "-I$ROOT/build/core-c/src -I$ROOT/native/corec"
+            else
+                printf 'lint-c: %s needs scripts/core-c --emit-only first\n' "$1" >&2
+                echo skip
+            fi
+            ;;
         native/corebridge/main.c | native/corebridge/guard.c | tests/core/bridgecontracts.c)
             echo "-pthread -DNUPP_CORE_HTTP -isystem $(libcurl)/include"
             ;;
