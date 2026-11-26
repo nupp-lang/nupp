@@ -391,9 +391,9 @@ export struct TableBody
     meta: uint64
 end
 
--- Core tables append this private tail after the frozen TableBody. The heap
--- address supports boxing packed elements; storage names an external common
--- byte descriptor. Ordinary VM tables never carry this tail.
+-- A packed core table appends this private tail after the frozen TableBody.
+-- The heap address supports boxing packed elements; storage names an external
+-- common byte descriptor. Other tables never carry this tail.
 export struct CoreTableTail
     owner: uint64
     storage: uint64
@@ -598,6 +598,10 @@ export struct Heap
     --- A string builder's owner kept for the next builder (`corestrings`): the
     --- handle that roots it, or 0.
     builderSpare: uint64
+
+    --- 1 once the core has made a table here (`coretables`): its tables are
+    --- the core's, which compare string keys by content (objecttable).
+    coreTables: uint64
 end
 
 -- ---- words over mappings ---------------------------------------------------
@@ -1050,6 +1054,7 @@ export function create(borrows a: arena.Arena*): Heap* borrows (a)
         h.pending = zeroWords(a)
         h.pendinghead = 0ULL
         h.builderSpare = 0ULL
+        h.coreTables = 0ULL
         h.incremental = 0ULL
         h.storageviews = 0ULL
         h.generational = 0ULL

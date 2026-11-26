@@ -244,17 +244,7 @@ const DEAD_KEY: uint64 = 0x7ffe000000000000ULL
 -- The owner matches this collector; frozen VM tables have no such tail.
 export function coretable(h: heap.Heap*, o: heap.Header*): boolean
     @unsafe do
-        if o.kind as uint64 ~= heap.KIND_TABLE
-            or (
-                o.size as uint64
-            ) < heap.HEADER_BYTES + native.sizeOf<heap.TableBody>() + native.sizeOf<heap.CoreTableTail>()
-        then
-            return false
-        end
-        local tail = native.pointer(
-            native.address(o as voidptr) + heap.HEADER_BYTES + native.sizeOf<heap.TableBody>()
-        ) as heap.CoreTableTail*
-        return tail.owner == native.address(h as voidptr)
+        return o.kind as uint64 == heap.KIND_TABLE and h.coreTables ~= 0ULL
     end
 end
 

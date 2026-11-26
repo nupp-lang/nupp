@@ -318,7 +318,9 @@ end
 -- A fresh empty table on `h`; answers its header address.
 export function create(h: heap.Heap*): uint64
     @unsafe do
-        local bytes = native.sizeOf<heap.TableBody>() + native.sizeOf<heap.CoreTableTail>()
+        -- Only a packed table carries the tail (createpacked).
+        local bytes = native.sizeOf<heap.TableBody>()
+        h.coreTables = 1ULL
         local o = collector.allocate(h, heap.KIND_TABLE, bytes)
         local body = native.pointer(native.address(o as voidptr) + heap.HEADER_BYTES)
         local i: uint64 = 0ULL
@@ -329,7 +331,6 @@ export function create(h: heap.Heap*): uint64
         native.store64(body, native.fieldOffset<heap.TableBody>("meta"), values.NIL)
         o.auxPtr = 0ULL
         o.auxLen = 0ULL
-        packedtail(o).owner = native.address(h as voidptr)
         collector.initialized(h, o)
 
         return native.address(o as voidptr)
@@ -362,6 +363,7 @@ export function createpacked(h: heap.Heap*, kind: uint64, capacity: uint64): uin
     end
     @unsafe do
         local bytes = native.sizeOf<heap.TableBody>() + native.sizeOf<heap.CoreTableTail>()
+        h.coreTables = 1ULL
         local o = collector.allocate(h, heap.KIND_TABLE, bytes)
         local body = native.pointer(native.address(o as voidptr) + heap.HEADER_BYTES)
         local i: uint64 = 0ULL
