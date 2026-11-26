@@ -773,8 +773,13 @@ export function describe(modules: {any}, entryModule: string, options: any?): an
             structdefaults.specialize(parsed)
         end
         -- A record passed where a `Type<T>` is taken (`serde.binding(Show)`)
-        -- carries its reflection blueprint, in a module as in a chunk.
-        for _, witness in ipairs(typewitness.collect(parsed.root, parsed.moduleExports).ordered) do
+        -- carries its reflection blueprint, in a module as in a chunk. Each
+        -- blueprint holds every declaration its record reaches, so a module
+        -- gives one only to the records it witnesses itself: one for each
+        -- record it exports would grow as their square (the 274 records of
+        -- nupp.compiler.syntax.cst give its initializer 127,093 constants).
+        local publishing = {publishing = p.chunk}
+        for _, witness in ipairs(typewitness.collect(parsed.root, parsed.moduleExports, publishing).ordered) do
             p.reflected[witness.node] = true
         end
         positionalArguments(parsed.root)

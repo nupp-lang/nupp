@@ -5,8 +5,14 @@ local types = require("nupp.compiler.types")
 
 -- Only semantic types and declaration nodes determine a witness. In particular,
 -- a source name is never used to recover a child declaration's runtime identity.
-export function collect(root: any, exports: any?): any
+--
+-- A record a module only publishes, by exporting it or a value of its type,
+-- is a witness too unless `options.publishing` is false: then only the
+-- records the module itself passes where a `Type<T>` is taken, and those
+-- they reach, are.
+export function collect(root: any, exports: any?, options: any?): any
     local values, declarations, blocks, wanted = {}, {}, {}, {}
+    local publish = options == nil or options.publishing ~= false
     local moduleBlocks = {}
     for _, block in ipairs(root.blocks or {}) do
         moduleBlocks[block] = true
@@ -125,8 +131,10 @@ export function collect(root: any, exports: any?): any
         end
     end
 
-    for _, t in pairs(exports and exports.values or {}) do
-        exportedTypes(t)
+    if publish then
+        for _, t in pairs(exports and exports.values or {}) do
+            exportedTypes(t)
+        end
     end
 
     local identityOnly = {}
@@ -202,7 +210,7 @@ export function collect(root: any, exports: any?): any
             publishing = false
         end
         local t = node.inferredType and types.unwrapOwnership(node.inferredType)
-        if node.exported and node.kind == "recordDecl" then
+        if publish and node.exported and node.kind == "recordDecl" then
             mark(node.resolvedType or node.hoistedType)
         end
         for _, subject in ipairs(node.deriveWitnesses or {}) do
@@ -216,7 +224,7 @@ export function collect(root: any, exports: any?): any
                 or parent.kind == "call"
                 and (parent.recordConstruct or parent.structConstruct or parent.constructorCall)
             )
-        if publishing and t and not static and not identityOnly[node] then
+        if publish and publishing and t and not static and not identityOnly[node] then
             exportedTypes(t)
         end
         local namespace = node.requiredModule and not (parent and parent.kind == "args")
