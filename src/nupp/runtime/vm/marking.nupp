@@ -73,9 +73,14 @@ local function shadePairs(h: heap.Heap*, t: heap.ValueTable*): uint64
         end
         local children: uint64 = 0ULL
         local position: uint64 = 0ULL
+        -- A listed part's entries are its buckets, in order (objecttable).
+        local listed = objecttable.listed(t)
         while position < t.length do
-            local bucket = native.word(native.load32(native.pointer(t.order), native.index(position * 4ULL)))
-                & values.LOW_WORD
+            local bucket = position
+            if not listed then
+                bucket = native.word(native.load32(native.pointer(t.order), native.index(position * 4ULL)))
+                    & values.LOW_WORD
+            end
             if bucket >= t.capacity then
                 return children
             end

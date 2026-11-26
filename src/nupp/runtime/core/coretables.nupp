@@ -345,7 +345,7 @@ export function createSized(h: heap.Heap*, array: uint64, hashed: uint64): uint6
             arrays.arrayInitialize(arrayOf(o), h, array)
         end
         if hashed ~= 0ULL then
-            hashes.tableOwnedInitialize(hashOf(o), h, hashed)
+            hashes.coreinitialize(hashOf(o), h, hashed)
         end
         mirror(o)
     end
@@ -615,15 +615,14 @@ export function set(h: heap.Heap*, table: uint64, raw: uint64, value: uint64): u
             if value == values.NIL then
                 return OK
             end
-            if hashes.tableOwnedInitialize(t, h, 4ULL) ~= 0ULL then
+            if hashes.coreinitialize(t, h, 4ULL) ~= 0ULL then
                 return NO_MEMORY
             end
         end
         if hashes.coreinsert(t, key, value) ~= 0ULL then
             return NO_MEMORY
         end
-        local bucket = hashes.coreprobe(native.pointer(t.ptr), t.capacity, t.mask, key)
-        collector.corehashstore(h, o, bucket)
+        collector.corehashstore(h, o, hashes.corebucket(t, key))
 
         return OK
     end

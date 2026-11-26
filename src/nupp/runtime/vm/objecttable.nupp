@@ -659,7 +659,229 @@ export function tableWriteEntry(t: heap.ValueTable*, key: uint64, value: uint64,
     end
 end
 
+-- ---- listed core hash parts ------------------------------------------------
+--
+-- A core hash part of up to LISTED_ENTRIES keys is a list: its entries in
+-- insertion order from bucket 0, found by scanning rather than probing, with
+-- no order or rank array, as an entry's position is its bucket. A record's
+-- fields are most of what tables hold, and a dozen of them hashed take four
+-- times the words. Its mask is LISTED, which no hashed part has, so the
+-- probes refuse it. Entries past its length have a NIL key. Removing a key
+-- keeps its entry, as a hashed part does, until the list is copied.
+export const LISTED: uint64 = 0xffffffffffffffffULL
+
+export const LISTED_ENTRIES: uint64 = 8ULL
+
+export function listed(t: heap.ValueTable*): boolean
+    return @unsafe t.mask == LISTED
+end
+
+-- The entries a list of `wanted` takes: the most that fill a pooled
+-- backing class (heap.ARRAY_POOL_CLASSES), two words each.
+local function listedRoom(wanted: uint64): uint64
+    local room: uint64 = 2ULL
+    while room < wanted do
+        if room & (room - 1ULL) == 0ULL then
+            room = room + (room >> 1ULL)
+        else
+            room = (room // 3ULL) << 2ULL
+        end
+    end
+
+    return room
+end
+
+local function listedTake(owner: uint64, entries: uint64): uint64
+    local base = backing.wordBackingTake(native.pointer(owner) as heap.Heap*, entries * 2ULL)
+    if base == 0ULL then
+        return 0ULL
+    end
+    local i: uint64 = 0ULL
+    while i < entries do
+        native.store64(native.pointer(base), native.index(i * 16ULL), values.NIL)
+        native.store64(native.pointer(base), native.index(i * 16ULL + 8ULL), 0ULL)
+        i = i + 1ULL
+    end
+
+    return base
+end
+
+-- The position of `key` in list `t`, or NO_BUCKET. Every key but an
+-- uninterned string equals only itself, or the marker a scan left for it.
+local function listedFind(t: heap.ValueTable*, key: uint64): uint64
+    @unsafe do
+        local base = t.ptr
+        local length = t.length
+        local text = corestring(key)
+        -- Whether keys compare by their words alone: all but an
+        -- uninterned string's.
+        local words = true
+        if text ~= 0ULL then
+            local flags = native.word(native.load8(native.pointer(text), native.fieldOffset<heap.Header>("flags")))
+            words = flags & heap.F_INTERNED ~= 0ULL
+        end
+        local dead = DEAD_KEY | (key & values.PAYLOAD)
+        if key & values.TAG_MASK ~= values.TAG_OBJ then
+            dead = key
+        end
+        local i: uint64 = 0ULL
+        while i < length do
+            local found = native.load64(native.pointer(base), native.index(i * 16ULL))
+            if found == key or found == dead then
+                return i
+            end
+            if not words and coreequal(found, key) then
+                return i
+            end
+            i = i + 1ULL
+        end
+
+        return NO_BUCKET
+    end
+end
+
+-- Copies the live entries of list `t` into fresh backing: a longer list
+-- while they fit one, else a hashed part. The list is unchanged on refusal.
+local function listedGrow(t: heap.ValueTable*): uint64
+    @unsafe do
+        local old = t.ptr
+        local live: uint64 = 0ULL
+        local i: uint64 = 0ULL
+        while i < t.length do
+            if native.load64(native.pointer(old), native.index(i * 16ULL + 8ULL)) ~= values.NIL then
+                live = live + 1ULL
+            end
+            i = i + 1ULL
+        end
+        local length = t.length
+        if live + 1ULL <= LISTED_ENTRIES then
+            local entries = listedRoom(live + 1ULL)
+            local base = listedTake(t.owner, entries)
+            if base == 0ULL then
+                return 2ULL
+            end
+            local kept: uint64 = 0ULL
+            i = 0ULL
+            while i < length do
+                local value = native.load64(native.pointer(old), native.index(i * 16ULL + 8ULL))
+                if value ~= values.NIL then
+                    local key = native.load64(native.pointer(old), native.index(i * 16ULL))
+                    native.store64(native.pointer(base), native.index(kept * 16ULL), key)
+                    native.store64(native.pointer(base), native.index(kept * 16ULL + 8ULL), value)
+                    kept = kept + 1ULL
+                end
+                i = i + 1ULL
+            end
+            t.ptr = base
+            t.capacity = entries
+            t.length = kept
+            backing.wordBackingRelease(old)
+            return 0ULL
+        end
+        local capacity = tableCapacity(live + 1ULL)
+        if capacity == 0ULL then
+            return 1ULL
+        end
+        local base = tableOwnedTake(t.owner, capacity)
+        if base == 0ULL then
+            return 2ULL
+        end
+        t.ptr = base
+        t.mask = capacity - 1ULL
+        t.capacity = capacity
+        t.length = 0ULL
+        t.order = base + capacity * 16ULL
+        t.rank = base + capacity * 20ULL
+        i = 0ULL
+        while i < length do
+            local value = native.load64(native.pointer(old), native.index(i * 16ULL + 8ULL))
+            if value ~= values.NIL then
+                local key = native.load64(native.pointer(old), native.index(i * 16ULL))
+                tableWriteEntry(t, key, value, coreprobe(native.pointer(base), capacity, capacity - 1ULL, key))
+            end
+            i = i + 1ULL
+        end
+        backing.wordBackingRelease(old)
+        return 0ULL
+    end
+end
+
+-- A fresh empty core hash part with room for `wanted` keys: listed while
+-- they fit a list, else hashed. Answers as tableOwnedInitialize does.
+export function coreinitialize(t: heap.ValueTable*, owner: heap.Heap*, wanted: uint64): uint64
+    if wanted == 0ULL or wanted > LISTED_ENTRIES then
+        return tableOwnedInitialize(t, owner, wanted)
+    end
+    local address = native.address(owner as voidptr)
+    if address == 0ULL then
+        return 1ULL
+    end
+    @unsafe do
+        if t.ptr ~= 0ULL
+            or t.mask ~= 0ULL
+            or t.capacity ~= 0ULL
+            or t.length ~= 0ULL
+            or t.order ~= 0ULL
+            or t.rank ~= 0ULL
+        then
+            return 1ULL
+        end
+        t.owner = address
+        local entries = listedRoom(wanted)
+        local base = listedTake(address, entries)
+        if base == 0ULL then
+            return 2ULL
+        end
+        t.ptr = base
+        t.mask = LISTED
+        t.capacity = entries
+        return 0ULL
+    end
+end
+
+local function listedInsert(t: heap.ValueTable*, key: uint64, value: uint64): uint64
+    if key == values.NIL then
+        return 0ULL
+    end
+    @unsafe do
+        local position = listedFind(t, key)
+        if position ~= NO_BUCKET then
+            local entry = native.pointer(t.ptr + position * 16ULL)
+            if value ~= values.NIL and native.load64(entry, 0) & 0xffff000000000000ULL == DEAD_KEY then
+                native.store64(entry, 0, key)
+            end
+            native.store64(entry, 8, value)
+            return 0ULL
+        end
+        if value == values.NIL then
+            return 0ULL
+        end
+        if t.length == t.capacity then
+            local status = listedGrow(t)
+            if status ~= 0ULL then
+                return status
+            end
+            if not listed(t) then
+                local bucket = coreprobe(native.pointer(t.ptr), t.capacity, t.mask, key)
+                if bucket == NO_BUCKET then
+                    return 1ULL
+                end
+                tableWriteEntry(t, key, value, bucket)
+                return 0ULL
+            end
+        end
+        local entry = native.pointer(t.ptr + t.length * 16ULL)
+        native.store64(entry, 0, key)
+        native.store64(entry, 8, value)
+        t.length = t.length + 1ULL
+        return 0ULL
+    end
+end
+
 local function ownedinsert(t: heap.ValueTable*, key: uint64, value: uint64, core: boolean): uint64
+    if core and listed(t) then
+        return listedInsert(t, key, value)
+    end
     if not tableOwnedValid(t) then
         return 1ULL
     end
@@ -700,6 +922,13 @@ end
 
 local function ownedgetslot(t: heap.ValueTable*, key: uint64, core: boolean): uint64
     @unsafe do
+        if core and listed(t) then
+            local position = listedFind(t, key)
+            if position == NO_BUCKET or native.load64(native.pointer(t.ptr + position * 16ULL), 8) == values.NIL then
+                return 0ULL
+            end
+            return t.ptr + position * 16ULL + 8ULL
+        end
         local bucket = ownedprobe(native.pointer(t.ptr), t.capacity, t.mask, key, core)
         if bucket == 0xffffffffffffffffULL then
             return 0ULL
@@ -720,6 +949,9 @@ export function tableOwnedEntryBucket(t: heap.ValueTable*, position: uint64): ui
         if position >= t.length or t.ptr == 0ULL then
             return 0xffffffffffffffffULL
         end
+        if listed(t) then
+            return position
+        end
         local bucket = native.word(native.load32(native.pointer(t.order), native.index(position * 4ULL)))
             & values.LOW_WORD
         if bucket >= t.capacity then
@@ -731,6 +963,9 @@ end
 
 local function ownedposition(t: heap.ValueTable*, key: uint64, core: boolean): uint64
     @unsafe do
+        if core and listed(t) then
+            return listedFind(t, key)
+        end
         local bucket = ownedprobe(native.pointer(t.ptr), t.capacity, t.mask, key, core)
         if bucket == 0xffffffffffffffffULL then
             return bucket
@@ -774,6 +1009,9 @@ end
 
 -- Logical owned backing includes buckets plus both insertion-order arrays.
 export function tableOwnedBytes(t: heap.ValueTable*): uint64
+    if listed(t) then
+        return @unsafe t.capacity * 16ULL
+    end
     return @unsafe t.capacity * 24ULL
 end
 
@@ -805,6 +1043,9 @@ end
 -- Core collectors must tag NIL OBJ keys before reclaiming their referents.
 -- Initialization, release, entry buckets and next positions share no key policy.
 export function coregrow(t: heap.ValueTable*): uint64
+    if listed(t) then
+        return listedGrow(t)
+    end
     return ownedgrow(t, true)
 end
 
@@ -822,6 +1063,13 @@ end
 -- key was put back where its marker was.
 export function coregetvalue(t: heap.ValueTable*, key: uint64): uint64
     @unsafe do
+        if t.mask == LISTED then
+            local position = listedFind(t, key)
+            if position == NO_BUCKET then
+                return values.NIL
+            end
+            return native.load64(native.pointer(t.ptr + position * 16ULL), 8)
+        end
         local text = corestring(key)
         if text ~= 0ULL
             and native.word(native.load8(native.pointer(text), native.fieldOffset<heap.Header>("flags")))
@@ -866,4 +1114,18 @@ end
 
 export function corenext(t: heap.ValueTable*, key: uint64): uint64
     return ownednext(t, key, true)
+end
+
+-- The bucket that holds `key` in core hash part `t`, for the generational
+-- record of a store into it (collector.corehashstore); NO_BUCKET for none.
+export function corebucket(t: heap.ValueTable*, key: uint64): uint64
+    @unsafe do
+        if t.ptr == 0ULL then
+            return NO_BUCKET
+        end
+        if listed(t) then
+            return listedFind(t, key)
+        end
+        return coreprobe(native.pointer(t.ptr), t.capacity, t.mask, key)
+    end
 end
